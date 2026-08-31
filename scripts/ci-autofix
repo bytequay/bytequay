@@ -114,9 +114,9 @@ api()
 print_event()
 {
     jq -r '
-        if .type == "message" and .payload.phase == "FINAL" then
+        if .type == "assistant_message" and .payload.phase == "FINAL" then
             "agent> \(.payload.text)"
-        elif .type == "message" then
+        elif .type == "assistant_message" then
             empty
         elif .type == "command" and .payload.state == "STARTED" then
             "command> \(.payload.argv | join(" "))"
@@ -127,11 +127,11 @@ print_event()
             "command> \(.payload.state | ascii_downcase) (exit \(.payload.exitCode // "unknown"))"
         elif .type == "tool" then
             "tool> \(.payload.name) \(.payload.state | ascii_downcase)"
-        elif .type == "plan" then
+        elif .type == "plan_updated" then
             .payload.items[] | "plan> \(.state | ascii_downcase): \(.text)"
         elif .type == "error" then
             "error> \(.payload.message)"
-        elif .type == "approval" then
+        elif .type == "approval_requested" then
             "approval> \(.payload.title)"
         elif .type == "lifecycle" then
             "agent-status> \(.payload.message)"
@@ -159,7 +159,7 @@ else
         echo "Agent lane $lane is not enabled by the backend" >&2
         exit 1
     }
-    [[ "$(jq -r '.health' <<<"$provider")" == AVAILABLE ]] || {
+    [[ "$(jq -r '.readiness' <<<"$provider")" =~ ^(READY|DEGRADED)$ ]] || {
         echo "Agent lane $lane is unavailable: $(jq -r '.diagnostic' <<<"$provider")" >&2
         exit 1
     }

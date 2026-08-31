@@ -73,7 +73,7 @@ public final class StaticAgentDriverRegistry
             }
             return new AgentProviderStatus(
                     driver.id(),
-                    AgentProviderStatus.Health.UNAVAILABLE,
+                    AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                     Optional.empty(),
                     "Provider probe failed: " + message,
                     AgentCapabilities.none());

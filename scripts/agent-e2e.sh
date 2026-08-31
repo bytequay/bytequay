@@ -76,9 +76,9 @@ print_event()
 {
     local data="$1"
     printf '%s\n' "$data" | jq -r '
-        if .type == "message" and .payload.phase == "FINAL" then
+        if .type == "assistant_message" and .payload.phase == "FINAL" then
             "agent> \(.payload.text)"
-        elif .type == "message" then
+        elif .type == "assistant_message" then
             empty
         elif .type == "command" and .payload.state == "STARTED" then
             "command> \(.payload.argv | join(" "))"
@@ -93,11 +93,11 @@ print_event()
             "command> \(.payload.state | ascii_downcase) (exit \(.payload.exitCode // "unknown"))"
         elif .type == "tool" then
             "tool> \(.payload.name) \(.payload.state | ascii_downcase)"
-        elif .type == "plan" then
+        elif .type == "plan_updated" then
             .payload.items[] | "plan> \(.state | ascii_downcase): \(.text)"
         elif .type == "error" then
             "error> \(.payload.message)"
-        elif .type == "approval" then
+        elif .type == "approval_requested" then
             "approval> \(.payload.title)"
         elif .type == "lifecycle" then
             "status> \(.payload.message)"
@@ -121,7 +121,7 @@ read_turn_events()
             print_event "$data"
             type="$(printf '%s\n' "$data" | jq -r '.type')"
             phase="$(printf '%s\n' "$data" | jq -r '.payload.phase // ""')"
-            if [[ "$type" == approval ]]; then
+            if [[ "$type" == approval_requested ]]; then
                 approval_id="$(printf '%s\n' "$data" | jq -er '.payload.approvalId')"
                 printf 'approval> %s\n' "$(printf '%s\n' "$data" | jq -r '.payload.detail')"
                 if IFS= read -r -p "allow? [y/N] " approval_decision \

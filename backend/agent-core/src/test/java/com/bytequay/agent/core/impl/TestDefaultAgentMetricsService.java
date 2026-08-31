@@ -13,8 +13,10 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -67,6 +69,8 @@ class TestDefaultAgentMetricsService
         service = new DefaultAgentMetricsService(taskStore, turnStore, clock);
         task = AgentTask.created(
                 TaskId.random(),
+                Optional.empty(),
+                false,
                 "Task",
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
@@ -80,14 +84,14 @@ class TestDefaultAgentMetricsService
     void derivesCumulativeUsageFromTaskBaselineAndDiscardsDuplicates()
     {
         TurnMetrics previousMetrics = metrics(100, 10, 20, "2.00");
-        AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", NOW)
+        AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", turnSettings(), NOW)
                 .running(new ProviderTurnRef("previous"), Optional.empty(), NOW)
                 .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
         turnStore.insert(previous);
         taskStore.put(task.withMetrics(
                 new TaskMetrics(100, 10, 20, previousMetrics.cost(), previousMetrics.costProvenance(), Duration.ZERO),
                 NOW));
-        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", NOW.plusSeconds(2));
+        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", turnSettings(), NOW.plusSeconds(2));
         turnStore.insert(current);
         service.beginTurn(task.id(), current.id());
 
@@ -104,7 +108,7 @@ class TestDefaultAgentMetricsService
     @Test
     void addsDeltaAndFinalInvocationUsage()
     {
-        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", NOW);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
         turnStore.insert(turn);
         service.beginTurn(task.id(), turn.id());
 
@@ -129,7 +133,7 @@ class TestDefaultAgentMetricsService
     @Test
     void finalizesElapsedTimeAndPersistsTaskTotals()
     {
-        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", NOW)
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW)
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty(), NOW);
         turnStore.insert(turn);
         service.beginTurn(task.id(), turn.id());
@@ -139,6 +143,17 @@ class TestDefaultAgentMetricsService
 
         assertThat(result.elapsed()).isEqualTo(Duration.ofSeconds(5));
         assertThat(taskStore.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    private static AgentTurnSettings turnSettings()
+    {
+        return new AgentTurnSettings(
+                Optional.empty(),
+                Optional.empty(),
+                AgentPermissionPolicy.AUTO,
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                Duration.ofMinutes(5),
+                ImmutableList.of());
     }
 
     private static ProviderUsageSample cumulative(
@@ -216,6 +231,16 @@ class TestDefaultAgentMetricsService
         public List<AgentTask> listRecent(int limit)
         {
             return ImmutableList.copyOf(tasks.values());
+        }
+
+        @Override
+        public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
+        {
+            return tasks.values().stream()
+                    .filter(AgentTask::interactive)
+                    .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
+                    .limit(limit)
+                    .collect(toImmutableList());
         }
 
         @Override

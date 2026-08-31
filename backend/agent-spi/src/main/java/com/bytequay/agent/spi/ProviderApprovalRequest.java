@@ -28,6 +28,8 @@ public record ProviderApprovalRequest(
         String title,
         String detail,
         List<String> requestedPermissions,
+        List<Decision> availableDecisions,
+        ProviderAgentEventSource source,
         Instant requestedAt)
 {
     public ProviderApprovalRequest
@@ -36,10 +38,13 @@ public record ProviderApprovalRequest(
         requireNonNull(kind, "kind is null");
         checkNotBlank(title, "title");
         requireNonNull(detail, "detail is null");
-        requireNonNull(requestedPermissions, "requestedPermissions is null");
         requestedPermissions = ImmutableList.copyOf(requestedPermissions);
+        availableDecisions = ImmutableList.copyOf(availableDecisions);
+        requireNonNull(source, "source is null");
         requireNonNull(requestedAt, "requestedAt is null");
         checkArgument(requestedPermissions.stream().noneMatch(String::isBlank), "requestedPermissions contains a blank value");
+        checkArgument(!availableDecisions.isEmpty(), "availableDecisions is empty");
+        checkArgument(availableDecisions.contains(Decision.DENY), "availableDecisions does not contain DENY");
     }
 
     public enum Kind
@@ -48,5 +53,11 @@ public record ProviderApprovalRequest(
         FILE_CHANGE,
         TOOL,
         OTHER
+    }
+
+    public enum Decision
+    {
+        ALLOW_ONCE,
+        DENY
     }
 }

@@ -13,8 +13,6 @@
  */
 package com.bytequay.agent.core;
 
-import com.bytequay.agent.spi.ProviderAgentEvent;
-
 import java.time.Instant;
 import java.util.Optional;
 
@@ -23,26 +21,30 @@ import static java.util.Objects.requireNonNull;
 
 public record AgentEventEnvelope(
         int schemaVersion,
+        EventId eventId,
         long sequence,
         TaskId taskId,
         Optional<TurnId> turnId,
+        AgentEventSource source,
         Instant occurredAt,
-        ProviderAgentEvent event)
+        AgentEventPayload payload)
 {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public AgentEventEnvelope
     {
+        requireNonNull(eventId, "eventId is null");
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
+        requireNonNull(source, "source is null");
         requireNonNull(occurredAt, "occurredAt is null");
-        requireNonNull(event, "event is null");
+        requireNonNull(payload, "payload is null");
         checkArgument(schemaVersion == CURRENT_SCHEMA_VERSION, "Unsupported schemaVersion: " + schemaVersion);
         checkArgument(sequence > 0, "sequence must be positive");
     }
 
-    public ProviderAgentEvent.Kind type()
+    public AgentEventPayload.Kind type()
     {
-        return event.kind();
+        return payload.kind();
     }
 }

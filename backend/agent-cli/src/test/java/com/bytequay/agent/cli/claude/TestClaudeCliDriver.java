@@ -64,21 +64,10 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ClaudePermissionBroker permissions = new ClaudePermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> "memory");
-        ClaudeCliDriver driver = new ClaudeCliDriver(
-                "/fake/claude",
-                objectMapper,
-                permissions,
-                supervisor,
-                ImmutableMap.of(
-                        "HOME", worktree.toString(),
-                        "ANTHROPIC_API_KEY", "known-secret"));
+        ClaudeCliDriver driver = driver(supervisor);
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
 
-        assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactlyInAnyOrder(AgentPermissionPolicy.values());
         assertThat(driver.capabilities().attachmentMediaTypes())
@@ -190,6 +179,38 @@ class TestClaudeCliDriver
         driver.close();
     }
 
+    @Test
+    void distinguishesUnsupportedFromUnparseableVersions()
+    {
+        ScriptedProcessSupervisor unsupportedSupervisor = new ScriptedProcessSupervisor();
+        unsupportedSupervisor.versionOutput("1.0.0");
+        ClaudeCliDriver unsupportedDriver = driver(unsupportedSupervisor);
+        assertThat(unsupportedDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+        unsupportedDriver.close();
+
+        ScriptedProcessSupervisor unparseableSupervisor = new ScriptedProcessSupervisor();
+        unparseableSupervisor.versionOutput("future-build");
+        ClaudeCliDriver unparseableDriver = driver(unparseableSupervisor);
+        assertThat(unparseableDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+        unparseableDriver.close();
+    }
+
+    private ClaudeCliDriver driver(ProcessSupervisor supervisor)
+    {
+        ClaudePermissionBroker permissions = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory");
+        return new ClaudeCliDriver(
+                "/fake/claude",
+                objectMapper,
+                permissions,
+                supervisor,
+                ImmutableMap.of(
+                        "HOME", worktree.toString(),
+                        "ANTHROPIC_API_KEY", "known-secret"));
+    }
+
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
     {
         return context(reference, AgentPermissionPolicy.AUTO);
@@ -267,12 +288,13 @@ class TestClaudeCliDriver
             implements ProcessSupervisor
     {
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
+        private String versionOutput = "2.1.233 (Claude Code)";
 
         @Override
         public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (spec.argv().contains("--version")) {
-                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("2.1.233 (Claude Code)\n"));
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("--help")) {
@@ -292,6 +314,11 @@ class TestClaudeCliDriver
         private List<ScriptedTurn> turns()
         {
             return turns;
+        }
+
+        private void versionOutput(String output)
+        {
+            versionOutput = output;
         }
     }
 

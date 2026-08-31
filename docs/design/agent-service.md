@@ -9,7 +9,7 @@ The exact service and method sequence is defined in
 The shared provisioning and cleanup boundary is defined in
 [Managed Worktree Service](worktree-service.md).
 
-## Current implementation and follow-up (2026-08-30)
+## Current implementation and follow-up (2026-09-01)
 
 This status note records the boundary discovered while testing cherry-pick
 conflict resolution. It supersedes older wording that described the entire
@@ -95,11 +95,16 @@ workflow/task ID but is not silently inserted into an interactive workspace
 list. A legacy event without source-thread/item metadata renders in a
 root-level legacy stream; ByteQuay does not invent child relationships.
 
-The current implementation does not yet satisfy that target: task rows lack a
-workspace ID and per-turn model/effort settings; accepted prompts and approval
-resolutions are not replay events; child/item source IDs are reduced away;
-pending approvals are process-local; state/event writes have no crash-safe
-outbox; Codex image inputs, steering, and durable queueing are absent; and
+CP2 now freezes the provider-neutral part of that target: interactive task rows
+carry a workspace discriminator and defaults, accepted turns retain immutable
+requested settings and opaque attachment references, schema-v2 events carry
+stable event/source identity, accepted user messages and approval lifecycle are
+replay events, and legacy rows/logs remain readable. The workspace-safe public
+request and narrowed response records are intentionally not active routes yet.
+CP3 must first provide the managed worktree and crash-safe outbox; CP4 must
+apply each accepted settings snapshot to the App Server runtime. Pending
+approvals are still process-local, state/event writes have no crash-safe
+outbox, Codex image inputs, steering, and durable queueing are absent, and
 Electron has no agent REST/SSE bridge. These are implementation prerequisites,
 not optional renderer polish.
 
@@ -181,11 +186,11 @@ amount.
 | `InputDeliveryId` | Durable attempt to deliver a start or steer input to a provider |
 | `TaskWorktree` | Immutable ByteQuay-owned repository, path, branch, and start-commit facts for one verified task worktree |
 | `AttachmentRef` | Opaque reference to a bounded, task-owned input blob |
-| `AgentLaneId` | Stable driver ID such as `codex-cli` or `claude-cli` |
+| `AgentLaneId` | Stable driver ID such as `codex` or `claude` |
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
 | `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
 | `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
-| `AgentTurnSettings` | Effective model, effort, permission, sandbox, and runtime snapshot |
+| `AgentTurnSettings` | Immutable requested model, effort, permission, sandbox, runtime, and attachment snapshot; CP4 makes it effective at provider start |
 | `AgentInputDelivery` | Durable start/steer send attempt and known or uncertain outcome |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
@@ -1227,12 +1232,14 @@ public interface AgentEventSink
 }
 ```
 
-Every `ProviderAgentEvent` carries an `AgentEventSource` containing the opaque
+Every `ProviderAgentEvent` carries a `ProviderAgentEventSource` containing the opaque
 provider thread ID, optional direct parent thread ID, optional provider turn
-ID, and optional provider item ID. A driver creates a stable synthetic source
-ID when its native stream omits one. This source metadata is part of the
-normalized SPI value; it is not inferred later from display text or generic
-tool summaries.
+ID, and optional provider item ID when supplied. Execution, approval, delivery,
+and child relationships require stable identity. A driver may synthesize one
+only from deterministic provider fields covered by replay-stability tests;
+display-only events may omit it and render at the root. This source metadata is
+part of the normalized SPI value; core does not infer it later from session
+timing, display text, or generic tool summaries.
 
 The sink is a dispatcher, not a shortcut around state services. Display-only
 events go to `AgentEventService.append(...)`; usage, approval, and terminal
@@ -2701,14 +2708,16 @@ Every envelope has:
 | `sequence` | Assigned only by `AgentEventService`; monotonic across the whole task |
 | `taskId` | Required |
 | `turnId` | ByteQuay turn ID when the event belongs to a turn |
-| `providerThreadId` | Opaque root or child source when provider-thread scoped |
-| `parentProviderThreadId` | Direct parent when this event establishes or describes a child |
-| `providerTurnId` | Opaque provider turn when supplied |
-| `providerItemId` | Opaque item key for deltas and authoritative completion |
+| `source` | Common source object containing the optional provider identities below |
+| `source.providerThreadId` | Opaque root or child source when provider-thread scoped |
+| `source.parentProviderThreadId` | Direct parent when this event establishes or describes a child |
+| `source.logicalAgentPath` | Optional stable logical path reserved for recursive subagent projection |
+| `source.providerTurnId` | Opaque provider turn when supplied |
+| `source.providerItemId` | Opaque item key for deltas and authoritative completion |
 | `type` | Typed payload family listed below |
 | `occurredAt` | Backend receipt time; used for ByteQuay timing |
-| `providerOccurredAt` | Optional source timestamp; never required for ordering |
-| `providerEventId` | Optional deduplication key |
+| `source.providerOccurredAt` | Optional source timestamp; never required for ordering |
+| `source.providerEventId` | Optional provider event key; ByteQuay's `eventId` remains authoritative |
 | `payload` | Type-specific normalized data or a typed relative blob reference |
 
 Required payload families are:
@@ -2726,11 +2735,12 @@ Required payload families are:
   parent and stable child thread identity;
 - usage, queue, turn/task lifecycle, and error events.
 
-The renderer keys streamed activity by `(providerThreadId, providerItemId)`.
+The renderer keys identified streamed activity by
+`(source.providerThreadId, source.providerTurnId, source.providerItemId)`.
 Deltas update the live item and `item/completed` replaces it authoritatively.
-An absent source item ID is replaced by one driver-generated stable ID before
-the event crosses the SPI. Child state is reconstructed from relationship and
-lifecycle events in task JSONL; no child-agent table is added initially.
+An unidentified display-only event remains a standalone root event rather than
+receiving invented identity. Child state is reconstructed from relationship
+and lifecycle events in task JSONL; no child-agent table is added initially.
 
 Folded activity labels, icons, “Step 1 / 3,” expanded/collapsed state, and live
 elapsed ticks are deterministic React projections. They are not written back

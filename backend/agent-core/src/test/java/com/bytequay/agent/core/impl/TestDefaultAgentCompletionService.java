@@ -15,14 +15,18 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
@@ -42,7 +46,6 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.CostProvenance;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -58,6 +61,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -91,6 +95,8 @@ class TestDefaultAgentCompletionService
         taskId = TaskId.random();
         stores.insert(AgentTask.created(
                         taskId,
+                        Optional.empty(),
+                        false,
                         "Completion test",
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,
@@ -129,6 +135,8 @@ class TestDefaultAgentCompletionService
         TaskId readyTaskId = TaskId.random();
         stores.insert(AgentTask.created(
                         readyTaskId,
+                        Optional.empty(),
+                        false,
                         "Unused task",
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,
@@ -151,12 +159,24 @@ class TestDefaultAgentCompletionService
                 TurnId.random(),
                 taskId,
                 "request-1",
+                turnSettings(),
                 NOW));
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("active turn");
+    }
+
+    private static AgentTurnSettings turnSettings()
+    {
+        return new AgentTurnSettings(
+                Optional.empty(),
+                Optional.empty(),
+                AgentPermissionPolicy.AUTO,
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                Duration.ofMinutes(5),
+                ImmutableList.of());
     }
 
     @Test
@@ -212,8 +232,8 @@ class TestDefaultAgentCompletionService
         private StaticTaskLog(TaskId taskId)
         {
             events = ImmutableList.of(
-                    event(taskId, 1, ProviderAgentEvent.MessagePhase.PARTIAL, "partial"),
-                    event(taskId, 2, ProviderAgentEvent.MessagePhase.FINAL, "final response"));
+                    event(taskId, 1, AgentEventPayload.MessagePhase.PARTIAL, "partial"),
+                    event(taskId, 2, AgentEventPayload.MessagePhase.FINAL, "final response"));
         }
 
         @Override
@@ -246,21 +266,21 @@ class TestDefaultAgentCompletionService
         private static AgentEventEnvelope event(
                 TaskId taskId,
                 long sequence,
-                ProviderAgentEvent.MessagePhase phase,
+                AgentEventPayload.MessagePhase phase,
                 String text)
         {
             return new AgentEventEnvelope(
                     AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                    EventId.legacy(taskId, sequence),
                     sequence,
                     taskId,
                     Optional.empty(),
+                    root(),
                     NOW,
-                    new ProviderAgentEvent.Message(
-                            Optional.empty(),
-                            Optional.empty(),
+                    new AgentEventPayload.AssistantMessage(
+                            AgentEventPayload.MessageKind.ANSWER,
                             phase,
-                            text,
-                            Optional.empty()));
+                            text));
         }
     }
 

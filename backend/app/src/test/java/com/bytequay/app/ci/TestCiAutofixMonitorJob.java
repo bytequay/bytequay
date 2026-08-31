@@ -108,6 +108,8 @@ class TestCiAutofixMonitorJob
                         Instant.parse("2026-08-18T00:00:02Z"));
         AgentTask task = AgentTask.created(
                         taskId,
+                        Optional.empty(),
+                        false,
                         "CI Autofix",
                         AgentLaneId.CLAUDE_CLI,
                         new RepositoryIdentity("bytequay", "sample"),

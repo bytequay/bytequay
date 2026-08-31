@@ -14,14 +14,19 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.ProviderAgentEventAdapter;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -41,6 +46,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,6 +83,7 @@ public final class FileTaskLogStore
         this.objectMapper = new ObjectMapper()
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
@@ -290,14 +297,16 @@ public final class FileTaskLogStore
     {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("schemaVersion", envelope.schemaVersion());
+        root.put("eventId", envelope.eventId().toString());
         root.put("sequence", envelope.sequence());
         root.put("taskId", envelope.taskId().toString());
         envelope.turnId().ifPresentOrElse(
                 turnId -> root.put("turnId", turnId.toString()),
                 () -> root.putNull("turnId"));
+        root.set("source", objectMapper.valueToTree(envelope.source()));
         root.put("occurredAt", envelope.occurredAt().toString());
-        root.put("type", envelope.type().name());
-        root.set("event", objectMapper.valueToTree(envelope.event()));
+        root.put("type", envelope.type().name().toLowerCase(Locale.ROOT));
+        root.set("payload", objectMapper.valueToTree(envelope.payload()));
         try {
             return objectMapper.writeValueAsBytes(root);
         }
@@ -310,30 +319,82 @@ public final class FileTaskLogStore
     {
         try {
             JsonNode root = objectMapper.readTree(line);
-            ProviderAgentEvent.Kind kind = ProviderAgentEvent.Kind.valueOf(root.required("type").textValue());
-            JsonNode eventNode = root.required("event");
-            ProviderAgentEvent event = switch (kind) {
-                case MESSAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Message.class);
-                case PLAN -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Plan.class);
-                case TOOL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Tool.class);
-                case COMMAND -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Command.class);
-                case FILE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.FileChange.class);
-                case APPROVAL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Approval.class);
-                case USAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Usage.class);
-                case LIFECYCLE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Lifecycle.class);
-                case ERROR -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Error.class);
+            int schemaVersion = root.required("schemaVersion").intValue();
+            return switch (schemaVersion) {
+                case 1 -> deserializeV1(root);
+                case AgentEventEnvelope.CURRENT_SCHEMA_VERSION -> deserializeV2(root);
+                default -> throw new IllegalArgumentException("Unsupported schemaVersion: " + schemaVersion);
             };
-            JsonNode turnId = root.required("turnId");
-            return new AgentEventEnvelope(
-                    root.required("schemaVersion").intValue(),
-                    root.required("sequence").longValue(),
-                    TaskId.valueOf(root.required("taskId").textValue()),
-                    turnId.isNull() ? Optional.empty() : Optional.of(TurnId.valueOf(turnId.textValue())),
-                    Instant.parse(root.required("occurredAt").textValue()),
-                    event);
         }
         catch (IOException | RuntimeException e) {
             throw new AgentStorageException("Task log contains a corrupt record", e);
         }
+    }
+
+    private AgentEventEnvelope deserializeV1(JsonNode root)
+            throws JsonProcessingException
+    {
+        ProviderAgentEvent.Kind kind = ProviderAgentEvent.Kind.valueOf(
+                root.required("type").textValue().toUpperCase(Locale.ROOT));
+        JsonNode eventNode = root.required("event");
+        ProviderAgentEvent event = switch (kind) {
+            case MESSAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Message.class);
+            case PLAN -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Plan.class);
+            case TOOL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Tool.class);
+            case COMMAND -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Command.class);
+            case FILE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.FileChange.class);
+            case APPROVAL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Approval.class);
+            case USAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Usage.class);
+            case LIFECYCLE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Lifecycle.class);
+            case ERROR -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Error.class);
+        };
+        long sequence = root.required("sequence").longValue();
+        TaskId taskId = TaskId.valueOf(root.required("taskId").textValue());
+        ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adaptLegacy(event);
+        return new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.legacy(taskId, sequence),
+                sequence,
+                taskId,
+                turnId(root),
+                canonical.source(),
+                Instant.parse(root.required("occurredAt").textValue()),
+                canonical.payload());
+    }
+
+    private AgentEventEnvelope deserializeV2(JsonNode root)
+            throws JsonProcessingException
+    {
+        AgentEventPayload.Kind kind = AgentEventPayload.Kind.valueOf(
+                root.required("type").textValue().toUpperCase(Locale.ROOT));
+        JsonNode payloadNode = root.required("payload");
+        AgentEventPayload payload = switch (kind) {
+            case USER_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.UserMessage.class);
+            case ASSISTANT_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.AssistantMessage.class);
+            case PLAN_UPDATED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.PlanUpdated.class);
+            case COMMAND -> objectMapper.treeToValue(payloadNode, AgentEventPayload.CommandActivity.class);
+            case FILE_CHANGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.FileActivity.class);
+            case TOOL -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ToolActivity.class);
+            case APPROVAL_REQUESTED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ApprovalRequested.class);
+            case APPROVAL_RESOLVED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ApprovalResolved.class);
+            case USAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.UsageUpdated.class);
+            case LIFECYCLE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.Lifecycle.class);
+            case ERROR -> objectMapper.treeToValue(payloadNode, AgentEventPayload.Error.class);
+        };
+        return new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.valueOf(root.required("eventId").textValue()),
+                root.required("sequence").longValue(),
+                TaskId.valueOf(root.required("taskId").textValue()),
+                turnId(root),
+                objectMapper.treeToValue(root.required("source"), AgentEventSource.class),
+                Instant.parse(root.required("occurredAt").textValue()),
+                payload);
+    }
+
+    private static Optional<TurnId> turnId(JsonNode root)
+    {
+        JsonNode turnId = root.required("turnId");
+        return turnId.isNull() ? Optional.empty() : Optional.of(TurnId.valueOf(turnId.textValue()));
     }
 }

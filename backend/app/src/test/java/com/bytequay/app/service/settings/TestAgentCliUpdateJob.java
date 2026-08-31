@@ -18,7 +18,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.AgentProviderStatus.Health;
+import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -27,6 +27,7 @@ import java.util.Optional;
 
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,8 +41,8 @@ class TestAgentCliUpdateJob
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Health.AVAILABLE),
-                status(CODEX, Health.AVAILABLE)));
+                status(CLAUDE, Readiness.READY),
+                status(CODEX, Readiness.READY)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenReturn(Optional.of("Updated to 2.2.0"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
@@ -63,8 +64,8 @@ class TestAgentCliUpdateJob
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Health.AVAILABLE),
-                status(CODEX, Health.AVAILABLE)));
+                status(CLAUDE, Readiness.READY),
+                status(CODEX, Readiness.READY)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenThrow(new AgentUnavailableException("update failed"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
@@ -78,9 +79,48 @@ class TestAgentCliUpdateJob
         verify(models).refreshCatalogs();
     }
 
-    private static AgentProviderStatus status(AgentLaneId lane, Health health)
+    @Test
+    void updatesDetectedInstalledProvidersThatAreNotReady()
+    {
+        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                status(CLAUDE, Readiness.UNSUPPORTED),
+                status(CODEX, Readiness.AUTHENTICATION_REQUIRED)));
+        AgentDriver claude = mock(AgentDriver.class);
+        AgentDriver codex = mock(AgentDriver.class);
+        when(drivers.require(CLAUDE)).thenReturn(claude);
+        when(drivers.require(CODEX)).thenReturn(codex);
+        ModelSettingsService models = mock(ModelSettingsService.class);
+
+        new AgentCliUpdateJob(drivers, models).runUpdates();
+
+        verify(claude).update();
+        verify(codex).update();
+        verify(models).refreshCatalogs();
+    }
+
+    @Test
+    void skipsProvidersWithoutADetectedInstallation()
+    {
+        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        AgentProviderStatus missing = new AgentProviderStatus(
+                CODEX,
+                Readiness.CLI_MISSING,
+                Optional.empty(),
+                "not installed",
+                AgentCapabilities.none());
+        when(drivers.statuses()).thenReturn(ImmutableList.of(missing));
+        ModelSettingsService models = mock(ModelSettingsService.class);
+
+        new AgentCliUpdateJob(drivers, models).runUpdates();
+
+        verify(drivers, never()).require(CODEX);
+        verify(models).refreshCatalogs();
+    }
+
+    private static AgentProviderStatus status(AgentLaneId lane, Readiness readiness)
     {
         return new AgentProviderStatus(
-                lane, health, Optional.of("1.0.0"), "ready", AgentCapabilities.none());
+                lane, readiness, Optional.of("1.0.0"), "ready", AgentCapabilities.none());
     }
 }

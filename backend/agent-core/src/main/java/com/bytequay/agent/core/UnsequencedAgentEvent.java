@@ -20,14 +20,31 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 public record UnsequencedAgentEvent(
+        EventId eventId,
         TaskId taskId,
         Optional<TurnId> turnId,
-        ProviderAgentEvent event)
+        AgentEventSource source,
+        AgentEventPayload payload)
 {
     public UnsequencedAgentEvent
     {
+        requireNonNull(eventId, "eventId is null");
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
-        requireNonNull(event, "event is null");
+        requireNonNull(source, "source is null");
+        requireNonNull(payload, "payload is null");
+    }
+
+    public UnsequencedAgentEvent(TaskId taskId, Optional<TurnId> turnId, ProviderAgentEvent event)
+    {
+        this(taskId, turnId, ProviderAgentEventAdapter.adapt(event));
+    }
+
+    private UnsequencedAgentEvent(
+            TaskId taskId,
+            Optional<TurnId> turnId,
+            ProviderAgentEventAdapter.CanonicalEvent event)
+    {
+        this(EventId.random(), taskId, turnId, event.source(), event.payload());
     }
 }

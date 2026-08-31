@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { MINUTE_OPTIONS, formatMinuteOfDay, providerStatusLabel } from './model';
+import { MINUTE_OPTIONS, formatMinuteOfDay, providerAvailable, providerStatusLabel } from './model';
 
 describe('settings model helpers', () => {
   it('formats minutes of day as 12-hour times', () => {
@@ -29,10 +29,16 @@ describe('settings model helpers', () => {
     expect(MINUTE_OPTIONS[47]).toBe(23 * 60 + 30);
   });
 
-  it('maps provider health to badges, with checking winning', () => {
-    expect(providerStatusLabel('AVAILABLE', true).label).toBe('Checking…');
-    expect(providerStatusLabel('AVAILABLE', false)).toEqual({ label: '✓ Available', tone: 'is-ok' });
+  it('maps provider readiness to badges and availability, with checking winning', () => {
+    expect(providerStatusLabel('READY', true).label).toBe('Checking…');
+    expect(providerStatusLabel('READY', false)).toEqual({ label: '✓ Available', tone: 'is-ok' });
+    expect(providerStatusLabel('AUTHENTICATION_REQUIRED', false).label).toBe('Sign in required');
+    expect(providerStatusLabel('CLI_MISSING', false).label).toBe('Not installed');
+    expect(providerStatusLabel('UNSUPPORTED', false).label).toBe('Unsupported');
     expect(providerStatusLabel('DEGRADED', false).tone).toBe('is-warn');
-    expect(providerStatusLabel('UNAVAILABLE', false).label).toBe('Unavailable');
+    expect(providerStatusLabel('TEMPORARILY_UNAVAILABLE', false).label).toBe('Unavailable');
+    expect(providerAvailable('READY')).toBe(true);
+    expect(providerAvailable('DEGRADED')).toBe(true);
+    expect(providerAvailable('AUTHENTICATION_REQUIRED')).toBe(false);
   });
 });

@@ -78,6 +78,34 @@ class TestAgentTaskLifecycle
     }
 
     @Test
+    void interactiveOwnershipRequiresWorkspace()
+    {
+        assertThatThrownBy(() -> AgentTask.created(
+                TaskId.random(),
+                Optional.empty(),
+                true,
+                "Interactive task",
+                AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "bytequay"),
+                WORKTREE,
+                AgentPermissionPolicy.AUTO,
+                CREATED_AT))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("workspaceId");
+
+        assertThatThrownBy(() -> new CreateAgentTaskCommand(
+                AgentLaneId.CODEX_CLI,
+                WORKTREE,
+                new RepositoryIdentity("bytequay", "bytequay"),
+                "Interactive task",
+                AgentPermissionPolicy.AUTO,
+                Optional.empty(),
+                true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("workspaceId");
+    }
+
+    @Test
     void terminalTaskCleanupPreservesTerminalState()
     {
         Instant completedAt = CREATED_AT.plusSeconds(4);
@@ -109,6 +137,8 @@ class TestAgentTaskLifecycle
     {
         return AgentTask.created(
                 TaskId.valueOf("123e4567-e89b-12d3-a456-426614174000"),
+                Optional.empty(),
+                false,
                 "Implement agent service",
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "bytequay"),

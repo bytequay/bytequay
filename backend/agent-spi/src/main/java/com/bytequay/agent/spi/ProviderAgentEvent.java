@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -62,14 +63,32 @@ public sealed interface ProviderAgentEvent
      */
     Optional<Instant> providerTimestamp();
 
+    /**
+     * Returns the opaque provider routing and item identity supplied with the event.
+     *
+     * @return provider event source, with absent fields left absent
+     */
+    ProviderAgentEventSource source();
+
     record Message(
             Optional<String> providerEventId,
             Optional<Instant> providerTimestamp,
             MessagePhase phase,
             String text,
-            Optional<String> parentToolUseId)
+            Optional<String> parentToolUseId,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Message(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                MessagePhase phase,
+                String text,
+                Optional<String> parentToolUseId)
+        {
+            this(providerEventId, providerTimestamp, phase, text, parentToolUseId, root());
+        }
+
         public Message
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -77,6 +96,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(phase, "phase is null");
             requireNonNull(text, "text is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
+            source = legacySource(source);
         }
 
         @Override
@@ -89,15 +109,24 @@ public sealed interface ProviderAgentEvent
     record Plan(
             Optional<String> providerEventId,
             Optional<Instant> providerTimestamp,
-            List<PlanItem> items)
+            List<PlanItem> items,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Plan(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                List<PlanItem> items)
+        {
+            this(providerEventId, providerTimestamp, items, root());
+        }
+
         public Plan
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
-            requireNonNull(items, "items is null");
             items = ImmutableList.copyOf(items);
+            source = legacySource(source);
         }
 
         @Override
@@ -114,9 +143,22 @@ public sealed interface ProviderAgentEvent
             String name,
             ActivityState state,
             String summary,
-            Optional<String> parentToolUseId)
+            Optional<String> parentToolUseId,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Tool(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String toolCallId,
+                String name,
+                ActivityState state,
+                String summary,
+                Optional<String> parentToolUseId)
+        {
+            this(providerEventId, providerTimestamp, toolCallId, name, state, summary, parentToolUseId, ProviderAgentEventSource.item(toolCallId));
+        }
+
         public Tool
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -126,6 +168,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(state, "state is null");
             requireNonNull(summary, "summary is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
+            source = source == null ? ProviderAgentEventSource.item(toolCallId) : source;
         }
 
         @Override
@@ -143,20 +186,34 @@ public sealed interface ProviderAgentEvent
             List<String> argv,
             Optional<String> output,
             Optional<Integer> exitCode,
-            boolean truncated)
+            boolean truncated,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Command(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String commandId,
+                ActivityState state,
+                List<String> argv,
+                Optional<String> output,
+                Optional<Integer> exitCode,
+                boolean truncated)
+        {
+            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, ProviderAgentEventSource.item(commandId));
+        }
+
         public Command
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(commandId, "commandId");
             requireNonNull(state, "state is null");
-            requireNonNull(argv, "argv is null");
             argv = ImmutableList.copyOf(argv);
             requireNonNull(output, "output is null");
             requireNonNull(exitCode, "exitCode is null");
             checkArgument(argv.stream().noneMatch(String::isBlank), "argv contains a blank value");
+            source = source == null ? ProviderAgentEventSource.item(commandId) : source;
         }
 
         @Override
@@ -171,9 +228,20 @@ public sealed interface ProviderAgentEvent
             Optional<Instant> providerTimestamp,
             String relativePath,
             ChangeKind change,
-            Optional<String> diff)
+            Optional<String> diff,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public FileChange(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String relativePath,
+                ChangeKind change,
+                Optional<String> diff)
+        {
+            this(providerEventId, providerTimestamp, relativePath, change, diff, root());
+        }
+
         public FileChange
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -183,6 +251,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
             checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
+            source = legacySource(source);
         }
 
         @Override
@@ -197,9 +266,20 @@ public sealed interface ProviderAgentEvent
             Optional<Instant> providerTimestamp,
             String approvalId,
             String title,
-            String detail)
+            String detail,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Approval(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String approvalId,
+                String title,
+                String detail)
+        {
+            this(providerEventId, providerTimestamp, approvalId, title, detail, root());
+        }
+
         public Approval
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -207,6 +287,7 @@ public sealed interface ProviderAgentEvent
             checkNotBlank(approvalId, "approvalId");
             checkNotBlank(title, "title");
             requireNonNull(detail, "detail is null");
+            source = legacySource(source);
         }
 
         @Override
@@ -216,12 +297,18 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record Usage(ProviderUsageSample sample)
+    record Usage(ProviderUsageSample sample, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Usage(ProviderUsageSample sample)
+        {
+            this(sample, root());
+        }
+
         public Usage
         {
             requireNonNull(sample, "sample is null");
+            source = legacySource(source);
         }
 
         @Override
@@ -247,15 +334,26 @@ public sealed interface ProviderAgentEvent
             Optional<String> providerEventId,
             Optional<Instant> providerTimestamp,
             LifecyclePhase phase,
-            String message)
+            String message,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Lifecycle(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                LifecyclePhase phase,
+                String message)
+        {
+            this(providerEventId, providerTimestamp, phase, message, root());
+        }
+
         public Lifecycle
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             requireNonNull(phase, "phase is null");
             requireNonNull(message, "message is null");
+            source = legacySource(source);
         }
 
         @Override
@@ -270,15 +368,27 @@ public sealed interface ProviderAgentEvent
             Optional<Instant> providerTimestamp,
             String code,
             String message,
-            boolean retryable)
+            boolean retryable,
+            ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
+        public Error(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String code,
+                String message,
+                boolean retryable)
+        {
+            this(providerEventId, providerTimestamp, code, message, retryable, root());
+        }
+
         public Error
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(code, "code");
             checkNotBlank(message, "message");
+            source = legacySource(source);
         }
 
         @Override
@@ -347,5 +457,11 @@ public sealed interface ProviderAgentEvent
         RETRYING,
         RATE_LIMITED,
         INTERRUPTED
+    }
+
+    private static ProviderAgentEventSource legacySource(ProviderAgentEventSource source)
+    {
+        // Schema-v1 task logs predate explicit source metadata.
+        return source == null ? root() : source;
     }
 }

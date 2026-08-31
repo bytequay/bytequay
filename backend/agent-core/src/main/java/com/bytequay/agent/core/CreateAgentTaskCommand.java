@@ -17,8 +17,11 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record CreateAgentTaskCommand(
@@ -26,7 +29,9 @@ public record CreateAgentTaskCommand(
         Path worktree,
         RepositoryIdentity repository,
         String title,
-        AgentPermissionPolicy permissionPolicy)
+        AgentTaskDefaults defaults,
+        Optional<String> workspaceId,
+        boolean interactive)
 {
     public CreateAgentTaskCommand
     {
@@ -34,6 +39,49 @@ public record CreateAgentTaskCommand(
         requireNonNull(worktree, "worktree is null");
         requireNonNull(repository, "repository is null");
         checkNotBlank(title, "title");
-        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(defaults, "defaults is null");
+        checkOptionalText(workspaceId, "workspaceId");
+        checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
+    }
+
+    public CreateAgentTaskCommand(
+            AgentLaneId laneId,
+            Path worktree,
+            RepositoryIdentity repository,
+            String title,
+            AgentPermissionPolicy permissionPolicy)
+    {
+        this(
+                laneId,
+                worktree,
+                repository,
+                title,
+                AgentTaskDefaults.forPermission(permissionPolicy),
+                Optional.empty(),
+                false);
+    }
+
+    public CreateAgentTaskCommand(
+            AgentLaneId laneId,
+            Path worktree,
+            RepositoryIdentity repository,
+            String title,
+            AgentPermissionPolicy permissionPolicy,
+            Optional<String> workspaceId,
+            boolean interactive)
+    {
+        this(
+                laneId,
+                worktree,
+                repository,
+                title,
+                AgentTaskDefaults.forPermission(permissionPolicy),
+                workspaceId,
+                interactive);
+    }
+
+    public AgentPermissionPolicy permissionPolicy()
+    {
+        return defaults.permissionPolicy();
     }
 }

@@ -361,7 +361,7 @@ final class CiAutofixE2eHarness
                 agent.gitActions(),
                 agent.cancellations(),
                 taskId.map(value -> events.readAfter(value, 0, 100).stream()
-                        .map(event -> event.event().kind().name())
+                        .map(event -> event.type().name())
                         .collect(toImmutableList())).orElse(ImmutableList.of()),
                 taskId.map(this::runtimeFiles).orElse(ImmutableList.of()),
                 E2eGitRepository.git(

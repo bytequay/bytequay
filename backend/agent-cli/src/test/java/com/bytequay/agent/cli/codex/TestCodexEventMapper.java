@@ -46,6 +46,9 @@ class TestCodexEventMapper
                 """, ProviderAgentEvent.Command.class);
         assertThat(started.state()).isEqualTo(ProviderAgentEvent.ActivityState.STARTED);
         assertThat(started.argv()).containsExactly("rg --files | wc -l");
+        assertThat(started.source().providerThreadId()).contains("thread-1");
+        assertThat(started.source().providerTurnId()).contains("turn-1");
+        assertThat(started.source().providerItemId()).contains("exec-1");
 
         ProviderAgentEvent.Command output = only("""
                 {"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1",
@@ -54,6 +57,7 @@ class TestCodexEventMapper
                 """, ProviderAgentEvent.Command.class);
         assertThat(output.state()).isEqualTo(ProviderAgentEvent.ActivityState.PROGRESS);
         assertThat(output.output()).contains("5941 total\n");
+        assertThat(output.source()).isEqualTo(started.source());
 
         ProviderAgentEvent.Message answer = only("""
                 {"method":"item/completed","params":{"item":{"type":"agentMessage",
@@ -62,6 +66,7 @@ class TestCodexEventMapper
                 """, ProviderAgentEvent.Message.class);
         assertThat(answer.text()).isEqualTo("5,941 lines.");
         assertThat(answer.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(answer.source().providerItemId()).contains("msg-1");
 
         ProviderAgentEvent.Usage usage = only("""
                 {"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1",
@@ -73,6 +78,9 @@ class TestCodexEventMapper
                 """, ProviderAgentEvent.Usage.class);
         assertThat(usage.sample().inputTokens()).isEqualTo(64841);
         assertThat(usage.sample().outputTokens()).isEqualTo(471);
+        assertThat(usage.source().providerThreadId()).contains("thread-1");
+        assertThat(usage.source().providerTurnId()).contains("turn-1");
+        assertThat(usage.source().providerItemId()).isEmpty();
 
         ProviderAgentEvent.Lifecycle completed = only("""
                 {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
@@ -81,6 +89,8 @@ class TestCodexEventMapper
                 "emittedAtMs":1786884871461}
                 """, ProviderAgentEvent.Lifecycle.class);
         assertThat(completed.phase()).isEqualTo(ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED);
+        assertThat(completed.source().providerThreadId()).contains("thread-1");
+        assertThat(completed.source().providerTurnId()).contains("turn-1");
     }
 
     @Test
@@ -201,6 +211,9 @@ class TestCodexEventMapper
         assertThat(partial.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
         assertThat(partial.text()).isEqualTo("draft answer");
         assertThat(partial.providerEventId()).isEmpty();
+        assertThat(partial.source().providerThreadId()).contains("thread-1");
+        assertThat(partial.source().providerTurnId()).contains("turn-1");
+        assertThat(partial.source().providerItemId()).contains("message-1");
 
         ProviderAgentEvent.Message completed = only("""
                 {"method":"item/completed","params":{"item":{"type":"agentMessage",
@@ -210,6 +223,7 @@ class TestCodexEventMapper
         assertThat(completed.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
         assertThat(completed.text()).isEqualTo("authoritative answer");
         assertThat(completed.providerEventId()).contains("message-1:completed");
+        assertThat(completed.source()).isEqualTo(partial.source());
     }
 
     @Test
@@ -223,11 +237,16 @@ class TestCodexEventMapper
                 {"method":"item/completed","params":{"item":{"type":"fileChange",
                 "id":"patch-1","status":"completed","changes":[
                 {"path":"%s","kind":{"type":"add"},"diff":"+class App {}"},
+                {"path":"%s","kind":{"type":"add"},"diff":"+class Other {}"},
                 {"path":"/outside/secret","kind":{"type":"delete"},"diff":"-secret"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(file)));
+                """.formatted(file, worktree.resolve("src/Other.java"))));
 
-        assertThat(events).singleElement().isInstanceOfSatisfying(
+        assertThat(events).hasSize(2);
+        assertThat(events)
+                .extracting(event -> event.source().providerItemId().orElseThrow())
+                .containsExactly("patch-1:0", "patch-1:1");
+        assertThat(events.getFirst()).isInstanceOfSatisfying(
                 ProviderAgentEvent.FileChange.class,
                 change -> {
                     assertThat(change.relativePath()).isEqualTo("src/App.java");

@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -53,6 +54,11 @@ public class AgentTaskEntity
     @Getter(onMethod_ = @Override)
     private String id;
 
+    private String workspaceId;
+
+    // Nullable so rows written before workspace-scoped tasks remain readable as internal.
+    private Boolean interactive;
+
     @Column(nullable = false)
     private String title;
 
@@ -67,6 +73,10 @@ public class AgentTaskEntity
 
     @Column(nullable = false)
     private String worktree;
+
+    private String defaultModel;
+
+    private String defaultEffort;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -145,11 +155,15 @@ public class AgentTaskEntity
 
     public void updateFrom(AgentTask task)
     {
+        workspaceId = task.workspaceId().orElse(null);
+        interactive = task.interactive();
         title = task.title();
         laneId = task.laneId().toString();
         repositoryOwner = task.repository().owner();
         repositoryName = task.repository().name();
         worktree = task.worktree().toString();
+        defaultModel = task.defaults().model().orElse(null);
+        defaultEffort = task.defaults().effort().orElse(null);
         permissionPolicy = task.permissionPolicy();
         state = task.state();
         createdAt = task.createdAt();
@@ -180,11 +194,16 @@ public class AgentTaskEntity
                         sessionProviderValue));
         return new AgentTask(
                 TaskId.valueOf(id),
+                Optional.ofNullable(workspaceId),
+                Boolean.TRUE.equals(interactive),
                 title,
                 new AgentLaneId(laneId),
                 new RepositoryIdentity(repositoryOwner, repositoryName),
                 Path.of(worktree),
-                permissionPolicy,
+                new AgentTaskDefaults(
+                        Optional.ofNullable(defaultModel),
+                        Optional.ofNullable(defaultEffort),
+                        permissionPolicy),
                 state,
                 version,
                 createdAt,

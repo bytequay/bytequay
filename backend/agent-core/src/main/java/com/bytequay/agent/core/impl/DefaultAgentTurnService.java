@@ -14,18 +14,23 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
@@ -53,9 +58,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentTurnService
@@ -117,13 +125,36 @@ public final class DefaultAgentTurnService
                 throw new AgentConflictException("Task already has an active turn: " + active.id());
             });
 
+            TurnId turnId = TurnId.random();
+            AgentTurnSettings settings = new AgentTurnSettings(
+                    task.defaults().model(),
+                    task.defaults().effort(),
+                    task.permissionPolicy(),
+                    AgentSandboxPolicy.WORKSPACE_WRITE,
+                    maximumTurnRuntime,
+                    command.attachments().stream()
+                            .map(attachment -> new AgentAttachmentReference(
+                                    UUID.randomUUID().toString(),
+                                    attachment.name(),
+                                    attachment.mediaType()))
+                            .collect(toImmutableList()));
             AgentTurn accepted = AgentTurn.accepted(
-                    TurnId.random(),
+                    turnId,
                     task.id(),
                     command.idempotencyKey(),
+                    settings,
                     Instant.now(clock));
             turnStore.insert(accepted);
             try {
+                eventService.append(new UnsequencedAgentEvent(
+                        EventId.random(),
+                        task.id(),
+                        Optional.of(accepted.id()),
+                        root(),
+                        new AgentEventPayload.UserMessage(
+                                command.message(),
+                                settings.attachments(),
+                                AgentEventPayload.DeliveryKind.TURN)));
                 AgentSession session = session(task);
                 task = requireTask(task.id());
                 if (task.state() == TaskState.READY) {
@@ -134,7 +165,7 @@ public final class DefaultAgentTurnService
                         accepted.id().toString(),
                         command.message(),
                         command.attachments(),
-                        maximumTurnRuntime));
+                        settings.maximumRuntime()));
                 try {
                     AgentTurn current = requireTurn(accepted.id());
                     AgentTurn running = turnStore.update(current.running(
@@ -168,6 +199,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(turnId, "turnId is null");
         AgentTurn initial = requireTurn(turnId);
+        RunningTurn running;
         synchronized (runtimeRegistry.taskLock(initial.taskId())) {
             AgentTurn turn = requireTurn(turnId);
             if (turn.state().terminal()) {
@@ -177,11 +209,13 @@ public final class DefaultAgentTurnService
             if (cancellation != turn) {
                 turnStore.update(cancellation);
             }
-            RunningTurn running = runtimeRegistry.running(turnId)
+            running = runtimeRegistry.running(turnId)
                     .orElseThrow(() -> new AgentConflictException("Turn has no live provider handle: " + turnId));
-            running.cancel();
-            return requireTurn(turnId);
         }
+        // Provider cancellation may take provider locks or complete callbacks that
+        // re-enter this service, so it must run after releasing the task lock.
+        running.cancel();
+        return requireTurn(turnId);
     }
 
     @Override
@@ -246,15 +280,20 @@ public final class DefaultAgentTurnService
             ProviderApprovalRequest request,
             Duration timeout)
     {
-        AgentTurn turn = requireActiveTurn(taskId);
-        ApprovalRequest approval = new ApprovalRequest(
-                ApprovalId.random(),
-                taskId,
-                turn.id(),
-                request,
-                Instant.now(clock));
-        return approvalService.request(approval, timeout)
-                .thenApply(DefaultAgentTurnService::toProviderDecision);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTurn turn = requireActiveTurn(taskId);
+            if (turn.cancellationRequestedAt().isPresent()) {
+                throw new AgentConflictException("Task turn is being cancelled: " + turn.id());
+            }
+            ApprovalRequest approval = new ApprovalRequest(
+                    ApprovalId.random(),
+                    taskId,
+                    turn.id(),
+                    request,
+                    Instant.now(clock));
+            return approvalService.request(approval, timeout)
+                    .thenApply(DefaultAgentTurnService::toProviderDecision);
+        }
     }
 
     private void observeCompletion(AgentTurn turn, RunningTurn runningTurn)

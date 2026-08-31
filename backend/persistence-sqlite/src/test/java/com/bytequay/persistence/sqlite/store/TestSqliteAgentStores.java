@@ -13,9 +13,13 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -32,10 +36,12 @@ import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -64,6 +70,12 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -140,12 +152,97 @@ class TestSqliteAgentStores
     }
 
     @Test
+    void listsOnlyInteractiveTasksInTheRequestedWorkspace()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask expected = newTask(now, Optional.of("workspace-a"), true);
+        AgentTask otherWorkspace = newTask(now.plusSeconds(1), Optional.of("workspace-b"), true);
+        AgentTask internal = newTask(now.plusSeconds(2), Optional.of("workspace-a"), false);
+        taskStore.insert(expected);
+        taskStore.insert(otherWorkspace);
+        taskStore.insert(internal);
+
+        assertThat(taskStore.listRecentInteractive("workspace-a", 10)).containsExactly(expected);
+    }
+
+    @Test
+    void readsLegacyNullOwnershipAsInternal()
+    {
+        AgentTask task = newTask(Instant.parse("2026-08-16T00:00:00Z"));
+        taskStore.insert(task);
+        jdbc.update("UPDATE agent_task SET workspace_id = NULL, interactive = NULL WHERE id = ?", task.id().toString());
+        entityManager.clear();
+
+        AgentTask restored = taskStore.find(task.id()).orElseThrow();
+        assertThat(restored.workspaceId()).isEmpty();
+        assertThat(restored.interactive()).isFalse();
+        assertThat(taskStore.listRecentInteractive("workspace-a", 10)).isEmpty();
+    }
+
+    @Test
+    void readsLegacyNullTaskDefaultsAndTurnSnapshot()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
+        turnStore.insert(turn);
+        jdbc.update("UPDATE agent_task SET default_model = NULL, default_effort = NULL WHERE id = ?", task.id().toString());
+        jdbc.update("""
+                UPDATE agent_turn
+                SET requested_model = NULL, effort = NULL, permission_policy = NULL,
+                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL
+                WHERE id = ?
+                """, turn.id().toString());
+        entityManager.clear();
+
+        assertThat(taskStore.find(task.id()).orElseThrow().defaults())
+                .isEqualTo(AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO));
+        assertThat(turnStore.find(turn.id()).orElseThrow().settings()).isEmpty();
+    }
+
+    @Test
+    void readsLegacyProviderModelWithoutTurnSettings()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
+                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"), now.plusSeconds(1));
+        turnStore.insert(turn);
+        jdbc.update("""
+                UPDATE agent_turn
+                SET requested_model = NULL, effort = NULL, permission_policy = NULL,
+                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL
+                WHERE id = ?
+                """, turn.id().toString());
+        entityManager.clear();
+
+        AgentTurn restored = turnStore.find(turn.id()).orElseThrow();
+        assertThat(restored.model()).contains("model");
+        assertThat(restored.settings()).isEmpty();
+    }
+
+    @Test
+    void roundTripsRequestedTurnSettings()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
+        turnStore.insert(turn);
+        entityManager.clear();
+
+        assertThat(turnStore.find(turn.id())).contains(turn);
+    }
+
+    @Test
     void enforcesSingleActiveTurnAndIdempotencyInSqlite()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentTurn first = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", now);
+        AgentTurn first = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
         turnStore.insert(first);
 
         assertThat(turnStore.findActive(task.id())).contains(first);
@@ -155,6 +252,7 @@ class TestSqliteAgentStores
                 TurnId.random(),
                 task.id(),
                 "request-2",
+                turnSettings(),
                 now.plusSeconds(1))))
                 .isInstanceOf(AgentConflictException.class);
     }
@@ -165,7 +263,7 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentTurn first = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", now)
+        AgentTurn first = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
                 .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"), now.plusSeconds(1));
         turnStore.insert(first);
 
@@ -174,7 +272,7 @@ class TestSqliteAgentStores
                 new TurnMetrics(1, 0, 1, Optional.empty(), CostProvenance.UNAVAILABLE, Duration.ofSeconds(2)),
                 Optional.empty(),
                 now.plusSeconds(2)));
-        AgentTurn second = AgentTurn.accepted(TurnId.random(), task.id(), "request-2", now.plusSeconds(3));
+        AgentTurn second = AgentTurn.accepted(TurnId.random(), task.id(), "request-2", turnSettings(), now.plusSeconds(3));
         turnStore.insert(second);
 
         assertThat(terminal.version()).isEqualTo(1);
@@ -190,7 +288,7 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentTurn terminal = AgentTurn.accepted(TurnId.random(), task.id(), "same-request", now)
+        AgentTurn terminal = AgentTurn.accepted(TurnId.random(), task.id(), "same-request", turnSettings(), now)
                 .finish(
                         TurnState.CANCELLED,
                         TurnMetrics.empty(),
@@ -202,19 +300,41 @@ class TestSqliteAgentStores
                 TurnId.random(),
                 task.id(),
                 "same-request",
+                turnSettings(),
                 now.plusSeconds(2))))
                 .isInstanceOf(AgentConflictException.class);
     }
 
     private static AgentTask newTask(Instant now)
     {
+        return newTask(now, Optional.empty(), false);
+    }
+
+    private static AgentTask newTask(Instant now, Optional<String> workspaceId, boolean interactive)
+    {
         return AgentTask.created(
                 TaskId.random(),
+                workspaceId,
+                interactive,
                 "Agent task",
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-worktree"),
-                AgentPermissionPolicy.AUTO,
+                new AgentTaskDefaults(
+                        Optional.of("model"),
+                        Optional.of("medium"),
+                        AgentPermissionPolicy.AUTO),
                 now);
+    }
+
+    private static AgentTurnSettings turnSettings()
+    {
+        return new AgentTurnSettings(
+                Optional.of("model"),
+                Optional.of("medium"),
+                AgentPermissionPolicy.AUTO,
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                Duration.ofMinutes(5),
+                ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")));
     }
 }

@@ -57,10 +57,22 @@ public interface AgentTaskStore
     /**
      * Lists recently updated tasks in descending update-time order.
      *
+     * <p>This supports the current unscoped listing until workspace-owned task
+     * creation is activated.
+     *
      * @param limit positive maximum row count
      * @return at most {@code limit} tasks
      */
     List<AgentTask> listRecent(int limit);
+
+    /**
+     * Lists recently updated interactive tasks for one workspace.
+     *
+     * @param workspaceId owning workspace
+     * @param limit positive maximum row count
+     * @return at most {@code limit} matching tasks
+     */
+    List<AgentTask> listRecentInteractive(String workspaceId, int limit);
 
     /**
      * Returns every non-terminal task for startup lease reconstruction.

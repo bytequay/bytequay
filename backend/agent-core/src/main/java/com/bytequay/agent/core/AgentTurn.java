@@ -36,6 +36,7 @@ public record AgentTurn(
         Optional<Instant> cancellationRequestedAt,
         Optional<ProviderTurnRef> providerTurnReference,
         Optional<String> model,
+        Optional<AgentTurnSettings> settings,
         Optional<String> terminalReason,
         TurnMetrics metrics)
 {
@@ -51,6 +52,7 @@ public record AgentTurn(
         requireNonNull(cancellationRequestedAt, "cancellationRequestedAt is null");
         requireNonNull(providerTurnReference, "providerTurnReference is null");
         checkOptionalText(model, "model");
+        requireNonNull(settings, "settings is null");
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(metrics, "metrics is null");
         checkArgument(version >= 0, "version is negative");
@@ -64,7 +66,12 @@ public record AgentTurn(
                 "cancellationRequestedAt is before createdAt");
     }
 
-    public static AgentTurn accepted(TurnId id, TaskId taskId, String idempotencyKey, Instant now)
+    public static AgentTurn accepted(
+            TurnId id,
+            TaskId taskId,
+            String idempotencyKey,
+            AgentTurnSettings settings,
+            Instant now)
     {
         return new AgentTurn(
                 id,
@@ -78,6 +85,7 @@ public record AgentTurn(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(requireNonNull(settings, "settings is null")),
                 Optional.empty(),
                 TurnMetrics.empty());
     }
@@ -87,6 +95,10 @@ public record AgentTurn(
         requireState(TurnState.ACCEPTED);
         requireNonNull(reference, "reference is null");
         checkOptionalText(providerModel, "providerModel");
+        checkState(settings.isPresent(), "accepted turn has no settings snapshot");
+        checkArgument(
+                providerModel.isEmpty() || settings.orElseThrow().model().equals(providerModel),
+                "provider model does not match the accepted turn settings");
         return copy(
                 TurnState.RUNNING,
                 version,
@@ -170,6 +182,7 @@ public record AgentTurn(
                 updatedCancellationRequestedAt,
                 updatedProviderTurnReference,
                 updatedModel,
+                settings,
                 updatedTerminalReason,
                 updatedMetrics);
     }

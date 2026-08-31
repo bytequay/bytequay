@@ -13,14 +13,16 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.CostProvenance;
-import com.bytequay.agent.spi.ProviderAgentEvent;
-import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -60,83 +63,80 @@ class TestFileTaskLogStore
     void flushesAndReadsEveryEventTypeInSequence()
     {
         Instant providerTime = Instant.parse("2026-08-16T00:00:00Z");
-        List<ProviderAgentEvent> events = ImmutableList.of(
-                new ProviderAgentEvent.Message(
-                        Optional.of("message-1"),
-                        Optional.of(providerTime),
-                        ProviderAgentEvent.MessagePhase.FINAL,
-                        "done",
-                        Optional.of("parent-1")),
-                new ProviderAgentEvent.Plan(
-                        Optional.of("plan-1"),
-                        Optional.of(providerTime),
-                        ImmutableList.of(new ProviderAgentEvent.PlanItem(
-                                "verify",
-                                ProviderAgentEvent.PlanItemState.IN_PROGRESS))),
-                new ProviderAgentEvent.Tool(
-                        Optional.of("tool-1"),
-                        Optional.of(providerTime),
-                        "call-1",
+        AgentEventSource source = new AgentEventSource(
+                Optional.of("thread-1"),
+                Optional.empty(),
+                Optional.of("root/reviewer"),
+                Optional.of("provider-turn-1"),
+                Optional.of("item-1"),
+                Optional.of("provider-event-1"),
+                Optional.of(providerTime));
+        List<AgentEventPayload> payloads = ImmutableList.of(
+                new AgentEventPayload.UserMessage(
+                        "review this",
+                        ImmutableList.of(new AgentAttachmentReference("attachment-1", "diagram.png", "image/png")),
+                        AgentEventPayload.DeliveryKind.TURN),
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.FINAL,
+                        "done"),
+                new AgentEventPayload.PlanUpdated(ImmutableList.of(new AgentEventPayload.PlanItem(
+                        "verify",
+                        AgentEventPayload.PlanItemState.IN_PROGRESS))),
+                new AgentEventPayload.ToolActivity(
                         "Read",
-                        ProviderAgentEvent.ActivityState.COMPLETED,
-                        "read a file",
-                        Optional.empty()),
-                new ProviderAgentEvent.Command(
-                        Optional.of("command-1"),
-                        Optional.of(providerTime),
-                        "process-1",
-                        ProviderAgentEvent.ActivityState.COMPLETED,
+                        AgentEventPayload.ActivityState.COMPLETED,
+                        "read a file"),
+                new AgentEventPayload.CommandActivity(
+                        AgentEventPayload.ActivityState.COMPLETED,
                         ImmutableList.of("git", "status"),
                         Optional.of("clean"),
                         Optional.of(0),
                         false),
-                new ProviderAgentEvent.FileChange(
-                        Optional.of("file-1"),
-                        Optional.of(providerTime),
+                new AgentEventPayload.FileActivity(
+                        AgentEventPayload.ActivityState.COMPLETED,
                         "README.md",
-                        ProviderAgentEvent.ChangeKind.MODIFIED,
+                        AgentEventPayload.ChangeKind.MODIFIED,
                         Optional.of("diff")),
-                new ProviderAgentEvent.Approval(
-                        Optional.of("approval-1"),
-                        Optional.of(providerTime),
+                new AgentEventPayload.ApprovalRequested(
                         "request-1",
+                        AgentEventPayload.ApprovalKind.COMMAND,
                         "Run tests",
-                        "mvn verify"),
-                new ProviderAgentEvent.Usage(new ProviderUsageSample(
-                        Optional.of("usage-1"),
-                        ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
+                        "mvn verify",
+                        true,
+                        ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
+                new AgentEventPayload.ApprovalResolved(
+                        "request-1",
+                        AgentEventPayload.ApprovalOutcome.ALLOWED),
+                new AgentEventPayload.UsageUpdated(
+                        AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION,
                         10,
                         2,
                         4,
                         Optional.empty(),
-                        CostProvenance.UNAVAILABLE,
-                        providerTime)),
-                new ProviderAgentEvent.Lifecycle(
-                        Optional.of("lifecycle-1"),
-                        Optional.of(providerTime),
-                        ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
+                        CostProvenance.UNAVAILABLE),
+                new AgentEventPayload.Lifecycle(
+                        AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "complete"),
-                new ProviderAgentEvent.Error(
-                        Optional.of("error-1"),
-                        Optional.of(providerTime),
+                new AgentEventPayload.Error(
                         "failed",
                         "failure",
                         false));
         ImmutableList.Builder<AgentEventEnvelope> expected = ImmutableList.builder();
         long sequence = 0;
-        for (ProviderAgentEvent event : events) {
-            AgentEventEnvelope envelope = envelope(++sequence, event);
+        for (AgentEventPayload payload : payloads) {
+            AgentEventEnvelope envelope = envelope(++sequence, source, payload);
             store.append(envelope);
             expected.add(envelope);
         }
         List<AgentEventEnvelope> expectedEvents = expected.build();
 
         assertThat(store.readAfter(taskId, 0, 20)).containsExactlyElementsOf(expectedEvents);
-        assertThat(store.readAfter(taskId, 8, 1)).containsExactly(expectedEvents.getLast());
-        assertThat(new FileTaskLogStore(resources).lastSequence(taskId)).isEqualTo(9);
-        assertThatThrownBy(() -> store.append(envelope(11, events.getFirst())))
+        assertThat(store.readAfter(taskId, 10, 1)).containsExactly(expectedEvents.getLast());
+        assertThat(new FileTaskLogStore(resources).lastSequence(taskId)).isEqualTo(11);
+        assertThatThrownBy(() -> store.append(envelope(13, source, payloads.getFirst())))
                 .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("Expected event sequence 10");
+                .hasMessageContaining("Expected event sequence 12");
     }
 
     @Test
@@ -163,38 +163,29 @@ class TestFileTaskLogStore
     @Test
     void roundTripsPartialFinalAndCumulativeUsage()
     {
-        Instant providerTime = Instant.parse("2026-08-16T00:00:00Z");
-        List<ProviderAgentEvent> events = ImmutableList.of(
-                new ProviderAgentEvent.Message(
-                        Optional.of("message-1"),
-                        Optional.of(providerTime),
-                        ProviderAgentEvent.MessagePhase.PARTIAL,
-                        "hello from",
-                        Optional.empty()),
-                new ProviderAgentEvent.Message(
-                        Optional.of("message-1"),
-                        Optional.of(providerTime),
-                        ProviderAgentEvent.MessagePhase.FINAL,
-                        "hello from ByteQuay Codex",
-                        Optional.empty()),
-                new ProviderAgentEvent.Usage(new ProviderUsageSample(
-                        Optional.of("usage-1"),
-                        ProviderUsageSample.Semantics.CUMULATIVE,
+        List<AgentEventPayload> payloads = ImmutableList.of(
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.PARTIAL,
+                        "hello from"),
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.FINAL,
+                        "hello from ByteQuay Codex"),
+                new AgentEventPayload.UsageUpdated(
+                        AgentEventPayload.UsageSemantics.CUMULATIVE,
                         16_286,
                         9_984,
                         11,
                         Optional.empty(),
-                        CostProvenance.UNAVAILABLE,
-                        providerTime)),
-                new ProviderAgentEvent.Lifecycle(
-                        Optional.of("turn-1"),
-                        Optional.of(providerTime),
-                        ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
+                        CostProvenance.UNAVAILABLE),
+                new AgentEventPayload.Lifecycle(
+                        AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "completed"));
         ImmutableList.Builder<AgentEventEnvelope> expected = ImmutableList.builder();
         long sequence = 0;
-        for (ProviderAgentEvent event : events) {
-            AgentEventEnvelope envelope = envelope(++sequence, event);
+        for (AgentEventPayload payload : payloads) {
+            AgentEventEnvelope envelope = envelope(++sequence, root(), payload);
             store.append(envelope);
             expected.add(envelope);
         }
@@ -224,15 +215,93 @@ class TestFileTaskLogStore
         store.append(envelope(1, message("complete")));
         Path eventsFile = resources.require(taskId).eventsFile();
         String stored = Files.readString(eventsFile);
-        assertThat(stored).contains("\"schemaVersion\":1");
+        assertThat(stored).contains("\"schemaVersion\":2");
         Files.writeString(
                 eventsFile,
-                stored.replace("\"schemaVersion\":1", "\"schemaVersion\":2"),
+                stored.replace("\"schemaVersion\":2", "\"schemaVersion\":3"),
                 StandardOpenOption.TRUNCATE_EXISTING);
 
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
                 .isInstanceOf(AgentStorageException.class)
-                .hasRootCauseMessage("Unsupported schemaVersion: 2");
+                .hasRootCauseMessage("Unsupported schemaVersion: 3");
+    }
+
+    @Test
+    void readsLegacyV1AsCanonicalRootEventAndContinuesWithV2()
+            throws IOException
+    {
+        String legacy = """
+                {"schemaVersion":1,"sequence":1,"taskId":"%s","turnId":null,"occurredAt":"2026-08-16T00:00:02Z","type":"MESSAGE","event":{"providerEventId":"legacy-message","providerTimestamp":null,"phase":"FINAL","text":"legacy response","parentToolUseId":null}}
+                """.formatted(taskId);
+        Files.writeString(resources.require(taskId).eventsFile(), legacy, StandardOpenOption.TRUNCATE_EXISTING);
+
+        AgentEventEnvelope expectedLegacy = new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.legacy(taskId, 1),
+                1,
+                taskId,
+                Optional.empty(),
+                new AgentEventSource(
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.of("legacy-message"),
+                        Optional.empty()),
+                Instant.parse("2026-08-16T00:00:02Z"),
+                message("legacy response"));
+        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expectedLegacy);
+
+        AgentEventEnvelope second = envelope(2, message("new response"));
+        store.append(second);
+        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expectedLegacy, second);
+    }
+
+    @Test
+    void toleratesAdditionalV2FieldsAndRejectsUnknownType()
+            throws IOException
+    {
+        AgentEventEnvelope expected = envelope(1, message("complete"));
+        store.append(expected);
+        Path eventsFile = resources.require(taskId).eventsFile();
+        String stored = Files.readString(eventsFile);
+        Files.writeString(
+                eventsFile,
+                stored
+                        .replace("\"occurredAt\"", "\"futureEnvelopeField\":true,\"occurredAt\"")
+                        .replace("\"text\":\"complete\"", "\"text\":\"complete\",\"futurePayloadField\":true"),
+                StandardOpenOption.TRUNCATE_EXISTING);
+        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expected);
+
+        Files.writeString(
+                eventsFile,
+                stored.replace("\"type\":\"assistant_message\"", "\"type\":\"future_event\""),
+                StandardOpenOption.TRUNCATE_EXISTING);
+        assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
+                .isInstanceOf(AgentStorageException.class)
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void readsLegacyApprovalAsNonActionableHistory()
+            throws IOException
+    {
+        String legacy = """
+                {"schemaVersion":1,"sequence":1,"taskId":"%s","turnId":null,"occurredAt":"2026-08-16T00:00:02Z","type":"APPROVAL","event":{"providerEventId":"legacy-approval-event","providerTimestamp":null,"approvalId":"legacy-approval","title":"Run command","detail":"git status"}}
+                """.formatted(taskId);
+        Files.writeString(resources.require(taskId).eventsFile(), legacy, StandardOpenOption.TRUNCATE_EXISTING);
+
+        assertThat(store.readAfter(taskId, 0, 10)).singleElement().satisfies(envelope -> {
+            assertThat(envelope.source().providerItemId()).isEmpty();
+            assertThat(envelope.payload()).isInstanceOfSatisfying(
+                    AgentEventPayload.ApprovalRequested.class,
+                    approval -> {
+                        assertThat(approval.approvalId()).isEqualTo("legacy-approval");
+                        assertThat(approval.actionable()).isFalse();
+                        assertThat(approval.availableDecisions()).isEmpty();
+                    });
+        });
     }
 
     @Test
@@ -262,24 +331,29 @@ class TestFileTaskLogStore
                 .hasMessageContaining("size limit");
     }
 
-    private AgentEventEnvelope envelope(long sequence, ProviderAgentEvent event)
+    private AgentEventEnvelope envelope(long sequence, AgentEventSource source, AgentEventPayload payload)
     {
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.legacy(taskId, sequence),
                 sequence,
                 taskId,
                 Optional.empty(),
+                source,
                 Instant.parse("2026-08-16T00:00:01Z").plusSeconds(sequence),
-                event);
+                payload);
     }
 
-    private static ProviderAgentEvent message(String text)
+    private AgentEventEnvelope envelope(long sequence, AgentEventPayload payload)
     {
-        return new ProviderAgentEvent.Message(
-                Optional.empty(),
-                Optional.empty(),
-                ProviderAgentEvent.MessagePhase.FINAL,
-                text,
-                Optional.empty());
+        return envelope(sequence, root(), payload);
+    }
+
+    private static AgentEventPayload message(String text)
+    {
+        return new AgentEventPayload.AssistantMessage(
+                AgentEventPayload.MessageKind.ANSWER,
+                AgentEventPayload.MessagePhase.FINAL,
+                text);
     }
 }

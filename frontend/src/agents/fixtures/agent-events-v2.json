@@ -1,0 +1,342 @@
+{
+  "createTaskRequest": {
+    "workspaceId": "workspace-1",
+    "title": "Review the authentication change",
+    "laneId": "codex",
+    "defaults": {
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    }
+  },
+  "events": [
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000001",
+      "sequence": 1,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "user-1",
+        "providerEventId": "event-1",
+        "providerOccurredAt": "2026-08-20T10:00:00Z"
+      },
+      "occurredAt": "2026-08-20T10:00:00Z",
+      "type": "user_message",
+      "payload": {
+        "text": "Review the authentication change",
+        "attachments": [
+          {
+            "id": "attachment-1",
+            "name": "flow.png",
+            "mediaType": "image/png"
+          }
+        ],
+        "deliveryKind": "TURN"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000002",
+      "sequence": 2,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": null,
+        "providerEventId": "event-2",
+        "providerOccurredAt": "2026-08-20T10:00:01Z"
+      },
+      "occurredAt": "2026-08-20T10:00:01Z",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_STARTED",
+        "message": "Review started"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000003",
+      "sequence": 3,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "message-1",
+        "providerEventId": "event-3",
+        "providerOccurredAt": "2026-08-20T10:00:02Z"
+      },
+      "occurredAt": "2026-08-20T10:00:02Z",
+      "type": "assistant_message",
+      "payload": {
+        "messageKind": "ANSWER",
+        "phase": "PARTIAL",
+        "text": "I found"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000004",
+      "sequence": 4,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "plan-1",
+        "providerEventId": "event-4",
+        "providerOccurredAt": "2026-08-20T10:00:03Z"
+      },
+      "occurredAt": "2026-08-20T10:00:03Z",
+      "type": "plan_updated",
+      "payload": {
+        "items": [
+          {
+            "text": "Read the changed files",
+            "state": "COMPLETED"
+          },
+          {
+            "text": "Run focused tests",
+            "state": "IN_PROGRESS"
+          },
+          {
+            "text": "Write the review",
+            "state": "PENDING"
+          }
+        ]
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000005",
+      "sequence": 5,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "command-1",
+        "providerEventId": "event-5",
+        "providerOccurredAt": "2026-08-20T10:00:04Z"
+      },
+      "occurredAt": "2026-08-20T10:00:04Z",
+      "type": "command",
+      "payload": {
+        "state": "COMPLETED",
+        "argv": [
+          "npm",
+          "test"
+        ],
+        "output": "12 tests passed",
+        "exitCode": 0,
+        "truncated": false
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000006",
+      "sequence": 6,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "file-1",
+        "providerEventId": "event-6",
+        "providerOccurredAt": "2026-08-20T10:00:05Z"
+      },
+      "occurredAt": "2026-08-20T10:00:05Z",
+      "type": "file_change",
+      "payload": {
+        "state": "COMPLETED",
+        "relativePath": "src/auth.ts",
+        "change": "MODIFIED",
+        "diff": "@@ -1 +1 @@"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000007",
+      "sequence": 7,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "tool-1",
+        "providerEventId": "event-7",
+        "providerOccurredAt": "2026-08-20T10:00:06Z"
+      },
+      "occurredAt": "2026-08-20T10:00:06Z",
+      "type": "tool",
+      "payload": {
+        "name": "read_file",
+        "state": "COMPLETED",
+        "summary": "Read src/auth.ts"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000008",
+      "sequence": 8,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "approval-1",
+        "providerEventId": "event-8",
+        "providerOccurredAt": "2026-08-20T10:00:07Z"
+      },
+      "occurredAt": "2026-08-20T10:00:07Z",
+      "type": "approval_requested",
+      "payload": {
+        "approvalId": "approval-1",
+        "approvalKind": "COMMAND",
+        "title": "Run the test suite",
+        "detail": "npm test",
+        "actionable": true,
+        "availableDecisions": [
+          "ALLOW_ONCE",
+          "DENY"
+        ]
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000009",
+      "sequence": 9,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "approval-1",
+        "providerEventId": "event-9",
+        "providerOccurredAt": "2026-08-20T10:00:08Z"
+      },
+      "occurredAt": "2026-08-20T10:00:08Z",
+      "type": "approval_resolved",
+      "payload": {
+        "approvalId": "approval-1",
+        "outcome": "ALLOWED"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000010",
+      "sequence": 10,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": null,
+        "providerEventId": "event-10",
+        "providerOccurredAt": "2026-08-20T10:00:09Z"
+      },
+      "occurredAt": "2026-08-20T10:00:09Z",
+      "type": "error",
+      "payload": {
+        "code": "RATE_LIMITED",
+        "message": "The provider requested a retry",
+        "retryable": true
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000011",
+      "sequence": 11,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "message-1",
+        "providerEventId": "event-11",
+        "providerOccurredAt": "2026-08-20T10:00:10Z"
+      },
+      "occurredAt": "2026-08-20T10:00:10Z",
+      "type": "usage",
+      "payload": {
+        "semantics": "CUMULATIVE",
+        "inputTokens": 1200,
+        "cachedInputTokens": 400,
+        "outputTokens": 220,
+        "cost": null,
+        "costProvenance": "UNAVAILABLE"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000012",
+      "sequence": 12,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": "message-1",
+        "providerEventId": "event-12",
+        "providerOccurredAt": "2026-08-20T10:00:11Z"
+      },
+      "occurredAt": "2026-08-20T10:00:11Z",
+      "type": "assistant_message",
+      "payload": {
+        "messageKind": "ANSWER",
+        "phase": "FINAL",
+        "text": "I found one authentication regression."
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "00000000-0000-4000-8000-000000000013",
+      "sequence": 13,
+      "taskId": "11111111-1111-4111-8111-111111111111",
+      "turnId": "22222222-2222-4222-8222-222222222222",
+      "source": {
+        "providerThreadId": "thread-1",
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "turn-1",
+        "providerItemId": null,
+        "providerEventId": "event-13",
+        "providerOccurredAt": "2026-08-20T10:00:12Z"
+      },
+      "occurredAt": "2026-08-20T10:00:12Z",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_COMPLETED",
+        "message": "Review completed"
+      }
+    }
+  ]
+}

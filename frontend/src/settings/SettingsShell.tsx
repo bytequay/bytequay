@@ -25,6 +25,7 @@ import { RETENTION_DAYS as RECENT_RETENTION_DAYS } from '../recent/model';
 import {
   formatMinuteOfDay,
   MINUTE_OPTIONS,
+  providerAvailable,
   providerStatusLabel,
 } from './model';
 import '../css/settings.css';
@@ -136,8 +137,8 @@ function ProviderRow({ provider, checking, checkedAt, onRecheck, onSelect, onSet
   onSelect: (model: string, effort: string | null) => void;
   onSetMain: () => void;
 }) {
-  const status = providerStatusLabel(provider.health, checking);
-  const available = !checking && provider.health !== 'UNAVAILABLE';
+  const status = providerStatusLabel(provider.readiness, checking);
+  const available = !checking && providerAvailable(provider.readiness);
   return (
     <div className="sets-row">
       <div className="sets-row-main">
@@ -152,7 +153,7 @@ function ProviderRow({ provider, checking, checkedAt, onRecheck, onSelect, onSet
         <div className="sets-row-sub">
           {checking
             ? 'Verifying the CLI and its login'
-            : provider.health === 'AVAILABLE'
+            : provider.readiness === 'READY'
               ? <>
                 {provider.version ? `v${provider.version} · ` : ''}
                 checked {checkedAt ? relativeTime(checkedAt) : 'just now'}

@@ -46,6 +46,7 @@ import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -213,19 +214,19 @@ public final class ClaudeCliDriver
         try {
             CommandResult versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
-                return status(AgentProviderStatus.Health.UNAVAILABLE, Optional.empty(), versionResult.output());
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), versionResult.output());
             }
             Optional<Version> parsed = Version.parse(versionResult.output());
             if (parsed.isEmpty()) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.empty(),
                         "Unable to read Claude CLI version");
             }
             Version version = parsed.orElseThrow();
             if (version.compareTo(MINIMUM_VERSION) < 0) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.UNSUPPORTED,
                         Optional.of(version.toString()),
                         "Unsupported Claude CLI version; expected " + MINIMUM_VERSION + " or newer");
             }
@@ -233,7 +234,7 @@ public final class ClaudeCliDriver
             CommandResult help = run(executable, "--help");
             if (help.exitCode() != 0) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.of(version.toString()),
                         "claude --help failed: " + help.output());
             }
@@ -242,14 +243,16 @@ public final class ClaudeCliDriver
                     .findFirst();
             if (missing.isPresent()) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.UNSUPPORTED,
                         Optional.of(version.toString()),
                         "Claude CLI does not support " + missing.orElseThrow());
             }
             forwardSubagentText = version.compareTo(SUBAGENT_TEXT_VERSION) >= 0
                     && help.output().contains("--forward-subagent-text");
+            // This proves executable capabilities only. Interactive Claude remains disabled
+            // until its provider-owned authentication preflight is implemented.
             return status(
-                    forwardSubagentText ? AgentProviderStatus.Health.AVAILABLE : AgentProviderStatus.Health.DEGRADED,
+                    forwardSubagentText ? AgentProviderStatus.Readiness.READY : AgentProviderStatus.Readiness.DEGRADED,
                     Optional.of(version.toString()),
                     forwardSubagentText
                             ? "Claude CLI stream-json is available"
@@ -258,13 +261,16 @@ public final class ClaudeCliDriver
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return status(
-                    AgentProviderStatus.Health.UNAVAILABLE,
+                    AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                     Optional.empty(),
                     "Claude CLI probe was interrupted");
         }
         catch (RuntimeException e) {
+            AgentProviderStatus.Readiness readiness = e.getCause() instanceof IOException
+                    ? AgentProviderStatus.Readiness.CLI_MISSING
+                    : AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
             return status(
-                    AgentProviderStatus.Health.UNAVAILABLE,
+                    readiness,
                     Optional.empty(),
                     "Claude CLI is not available: " + e.getMessage());
         }
@@ -383,12 +389,12 @@ public final class ClaudeCliDriver
     }
 
     private AgentProviderStatus status(
-            AgentProviderStatus.Health health,
+            AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic)
     {
-        String message = diagnostic == null || diagnostic.isBlank() ? health.name().toLowerCase() : diagnostic;
-        return new AgentProviderStatus(LANE_ID, health, version, redactor.redact(message), capabilities());
+        String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
+        return new AgentProviderStatus(LANE_ID, readiness, version, redactor.redact(message), capabilities());
     }
 
     private CommandResult run(String... command)

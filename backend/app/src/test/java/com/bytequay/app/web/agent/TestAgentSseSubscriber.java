@@ -14,8 +14,9 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,6 +24,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.Flow;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentSseSubscriber
@@ -37,16 +39,16 @@ class TestAgentSseSubscriber
 
         subscriber.onNext(new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.random(),
                 1,
                 TaskId.random(),
                 Optional.empty(),
+                root(),
                 Instant.parse("2026-08-16T00:00:00Z"),
-                new ProviderAgentEvent.Message(
-                        Optional.empty(),
-                        Optional.empty(),
-                        ProviderAgentEvent.MessagePhase.FINAL,
-                        "done",
-                        Optional.empty())));
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.FINAL,
+                        "done")));
         assertThat(subscription.requested).isEqualTo(2);
 
         RecordingSubscription duplicate = new RecordingSubscription();

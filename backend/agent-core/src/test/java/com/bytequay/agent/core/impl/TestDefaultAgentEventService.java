@@ -14,9 +14,11 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -25,7 +27,6 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Flow;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -63,6 +65,8 @@ class TestDefaultAgentEventService
         service = new DefaultAgentEventService(logStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
         task = AgentTask.created(
                 TaskId.random(),
+                Optional.empty(),
+                false,
                 "Task",
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
@@ -79,7 +83,8 @@ class TestDefaultAgentEventService
         service.subscribe(task.id(), 0).subscribe(subscriber);
         subscriber.request(1);
 
-        AgentEventEnvelope first = service.append(event("first"));
+        UnsequencedAgentEvent firstEvent = event("first");
+        AgentEventEnvelope first = service.append(firstEvent);
         DefaultAgentEventService restarted = new DefaultAgentEventService(
                 logStore,
                 taskStore,
@@ -87,6 +92,7 @@ class TestDefaultAgentEventService
         AgentEventEnvelope second = restarted.append(event("second"));
 
         assertThat(first.sequence()).isEqualTo(1);
+        assertThat(first.eventId()).isEqualTo(firstEvent.eventId());
         assertThat(second.sequence()).isEqualTo(2);
         assertThat(subscriber.events()).containsExactly(first);
         assertThat(subscriber.observedUnpersistedEvent()).isFalse();
@@ -136,14 +142,46 @@ class TestDefaultAgentEventService
                 .isInstanceOf(InvalidAgentRequestException.class);
     }
 
+    @Test
+    void isolatesPersistedEventsFromBrokenSubscriber()
+    {
+        service.subscribe(task.id(), 0).subscribe(new Flow.Subscriber<>()
+        {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription)
+            {
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(AgentEventEnvelope item)
+            {
+                throw new IllegalStateException("subscriber failed");
+            }
+
+            @Override
+            public void onError(Throwable failure) {}
+
+            @Override
+            public void onComplete() {}
+        });
+
+        assertThat(service.append(event("first")).sequence()).isEqualTo(1);
+        assertThat(service.append(event("second")).sequence()).isEqualTo(2);
+        assertThat(logStore.events).hasSize(2);
+    }
+
     private UnsequencedAgentEvent event(String text)
     {
-        return new UnsequencedAgentEvent(task.id(), Optional.empty(), new ProviderAgentEvent.Message(
+        return new UnsequencedAgentEvent(
+                EventId.random(),
+                task.id(),
                 Optional.empty(),
-                Optional.empty(),
-                ProviderAgentEvent.MessagePhase.FINAL,
-                text,
-                Optional.empty()));
+                root(),
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.FINAL,
+                        text));
     }
 
     private static final class TestSubscriber
@@ -277,6 +315,16 @@ class TestDefaultAgentEventService
         public List<AgentTask> listRecent(int limit)
         {
             return ImmutableList.copyOf(tasks.values());
+        }
+
+        @Override
+        public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
+        {
+            return tasks.values().stream()
+                    .filter(AgentTask::interactive)
+                    .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
+                    .limit(limit)
+                    .collect(toImmutableList());
         }
 
         @Override

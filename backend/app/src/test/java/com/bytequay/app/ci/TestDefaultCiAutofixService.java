@@ -16,14 +16,18 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskCompletion;
@@ -38,7 +42,6 @@ import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
@@ -82,6 +85,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static java.lang.Math.toIntExact;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -155,6 +159,8 @@ class TestDefaultCiAutofixService
         turnId = TurnId.random();
         readyTask = AgentTask.created(
                 taskId,
+                Optional.empty(),
+                false,
                 "CI Autofix " + PULL_REQUEST.fullName(),
                 AgentLaneId.CLAUDE_CLI,
                 REPOSITORY,
@@ -647,7 +653,7 @@ class TestDefaultCiAutofixService
     void waitsForAcceptedAndRunningTurns()
     {
         CiAutofixRun acceptedRun = service.start(startCommand("accepted"));
-        when(turnService.get(turnId)).thenReturn(AgentTurn.accepted(turnId, taskId, "ignored", NOW));
+        when(turnService.get(turnId)).thenReturn(AgentTurn.accepted(turnId, taskId, "ignored", turnSettings(), NOW));
         assertThat(service.advance(acceptedRun.id())).isEqualTo(acceptedRun);
 
         MemoryStore secondStore = new MemoryStore();
@@ -1254,8 +1260,19 @@ class TestDefaultCiAutofixService
 
     private AgentTurn runningTurn(TurnId id, String providerReference, String idempotencyKey)
     {
-        return AgentTurn.accepted(id, taskId, idempotencyKey, NOW)
+        return AgentTurn.accepted(id, taskId, idempotencyKey, turnSettings(), NOW)
                 .running(new ProviderTurnRef(providerReference), Optional.empty(), NOW);
+    }
+
+    private static AgentTurnSettings turnSettings()
+    {
+        return new AgentTurnSettings(
+                Optional.empty(),
+                Optional.empty(),
+                AgentPermissionPolicy.AUTO,
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                Duration.ofMinutes(5),
+                ImmutableList.of());
     }
 
     private AgentTurn terminalTurn(TurnState state, Optional<String> reason)
@@ -1273,16 +1290,16 @@ class TestDefaultCiAutofixService
     {
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.legacy(taskId, 1),
                 1,
                 taskId,
                 Optional.of(turnId),
+                root(),
                 NOW,
-                new ProviderAgentEvent.Message(
-                        Optional.of("message-1"),
-                        Optional.of(NOW),
-                        ProviderAgentEvent.MessagePhase.FINAL,
-                        text,
-                        Optional.empty()));
+                new AgentEventPayload.AssistantMessage(
+                        AgentEventPayload.MessageKind.ANSWER,
+                        AgentEventPayload.MessagePhase.FINAL,
+                        text));
     }
 
     private CiHeadSnapshot snapshot(boolean open, String author, boolean sameRepository, String head, boolean failed)

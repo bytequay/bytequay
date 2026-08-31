@@ -15,8 +15,10 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
@@ -34,6 +36,7 @@ import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -61,7 +64,7 @@ class TestAgentMaintenance
         TaskId liveTaskId = TaskId.random();
         stores.insert(activeTask(liveTaskId));
         TurnId turnId = TurnId.random();
-        stores.insert(AgentTurn.accepted(turnId, liveTaskId, "request-1", NOW));
+        stores.insert(AgentTurn.accepted(turnId, liveTaskId, "request-1", turnSettings(), NOW));
         AgentTask terminal = activeTask(TaskId.random()).fail(
                 "failed",
                 NOW.plusSeconds(1),
@@ -80,6 +83,17 @@ class TestAgentMaintenance
         assertThat(workspace.restored).containsExactly(liveTaskId);
         assertThat(approvals.denied).containsExactly(turnId);
         assertThat(stores.find(terminal.id())).contains(terminal);
+    }
+
+    private static AgentTurnSettings turnSettings()
+    {
+        return new AgentTurnSettings(
+                Optional.empty(),
+                Optional.empty(),
+                AgentPermissionPolicy.AUTO,
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                Duration.ofMinutes(5),
+                ImmutableList.of());
     }
 
     @Test
@@ -146,6 +160,8 @@ class TestAgentMaintenance
     {
         return AgentTask.created(
                         taskId,
+                        Optional.empty(),
+                        false,
                         "Recovery test",
                         AgentLaneId.CODEX_CLI,
                         REPOSITORY,

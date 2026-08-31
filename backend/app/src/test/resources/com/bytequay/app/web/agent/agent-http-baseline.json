@@ -186,70 +186,167 @@
   ],
   "replay": [
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
       "sequence": 1,
       "taskId": "<task-id>",
       "turnId": "<turn-1>",
-      "type": "message",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
       "occurredAt": "<timestamp>",
-      "providerEventId": "message-<turn-1>",
+      "type": "user_message",
       "payload": {
-        "providerEventId": "message-<turn-1>",
-        "providerTimestamp": null,
-        "phase": "FINAL",
-        "text": "deterministic: first",
-        "parentToolUseId": null
+        "text": "first",
+        "attachments": [],
+        "deliveryKind": "TURN"
       }
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
       "sequence": 2,
       "taskId": "<task-id>",
-      "turnId": "<turn-2>",
-      "type": "message",
+      "turnId": "<turn-1>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": "message-<turn-1>",
+        "providerOccurredAt": null
+      },
       "occurredAt": "<timestamp>",
-      "providerEventId": "message-<turn-2>",
+      "type": "assistant_message",
       "payload": {
-        "providerEventId": "message-<turn-2>",
-        "providerTimestamp": null,
+        "messageKind": "ANSWER",
         "phase": "FINAL",
-        "text": "deterministic: second",
-        "parentToolUseId": null
+        "text": "deterministic: first"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 3,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "user_message",
+      "payload": {
+        "text": "second",
+        "attachments": [],
+        "deliveryKind": "TURN"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 4,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": "message-<turn-2>",
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "assistant_message",
+      "payload": {
+        "messageKind": "ANSWER",
+        "phase": "FINAL",
+        "text": "deterministic: second"
       }
     }
   ],
   "replayAfterFirst": [
     {
-      "schemaVersion": 1,
-      "sequence": 2,
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 3,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
-      "type": "message",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
       "occurredAt": "<timestamp>",
-      "providerEventId": "message-<turn-2>",
+      "type": "user_message",
       "payload": {
+        "text": "second",
+        "attachments": [],
+        "deliveryKind": "TURN"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 4,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
         "providerEventId": "message-<turn-2>",
-        "providerTimestamp": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "assistant_message",
+      "payload": {
+        "messageKind": "ANSWER",
         "phase": "FINAL",
-        "text": "deterministic: second",
-        "parentToolUseId": null
+        "text": "deterministic: second"
       }
     }
   ],
   "sse": {
-    "schemaVersion": 1,
-    "sequence": 2,
+    "schemaVersion": 2,
+    "eventId": "<event-id>",
+    "sequence": 3,
     "taskId": "<task-id>",
     "turnId": "<turn-2>",
-    "type": "message",
+    "source": {
+      "providerThreadId": null,
+      "parentProviderThreadId": null,
+      "logicalAgentPath": null,
+      "providerTurnId": null,
+      "providerItemId": null,
+      "providerEventId": null,
+      "providerOccurredAt": null
+    },
     "occurredAt": "<timestamp>",
-    "providerEventId": "message-<turn-2>",
+    "type": "user_message",
     "payload": {
-      "providerEventId": "message-<turn-2>",
-      "providerTimestamp": null,
-      "phase": "FINAL",
-      "text": "deterministic: second",
-      "parentToolUseId": null
+      "text": "second",
+      "attachments": [],
+      "deliveryKind": "TURN"
     }
   },
   "completionRequest": {

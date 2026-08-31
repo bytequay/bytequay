@@ -53,7 +53,7 @@ public class AgentCliUpdateJob
     void runUpdates()
     {
         for (AgentProviderStatus status : drivers.statuses()) {
-            if (status.health() == AgentProviderStatus.Health.UNAVAILABLE) {
+            if (!status.available() && status.version().isEmpty()) {
                 continue;
             }
             String lane = status.laneId().value();

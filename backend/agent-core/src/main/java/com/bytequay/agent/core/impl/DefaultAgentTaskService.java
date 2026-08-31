@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -21,6 +22,7 @@ import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentDriver;
@@ -66,6 +68,10 @@ public final class DefaultAgentTaskService
             throw new AgentUnavailableException(
                     "Agent lane " + command.laneId() + " cannot enforce " + command.permissionPolicy());
         }
+        AgentProviderStatus status = driver.probe();
+        if (!status.available()) {
+            throw new AgentUnavailableException(status.diagnostic());
+        }
         TaskId taskId = TaskId.random();
         WorkspaceLease lease = workspaceService.acquire(
                 taskId,
@@ -73,18 +79,16 @@ public final class DefaultAgentTaskService
                 command.repository());
         try {
             resourceService.allocate(taskId);
-            AgentProviderStatus status = driver.probe();
-            if (!status.available()) {
-                throw new AgentUnavailableException(status.diagnostic());
-            }
             Instant now = Instant.now(clock);
             AgentTask task = AgentTask.created(
                     taskId,
+                    command.workspaceId(),
+                    command.interactive(),
                     command.title(),
                     command.laneId(),
                     command.repository(),
                     lease.worktree(),
-                    command.permissionPolicy(),
+                    command.defaults(),
                     now).ready(now);
             taskStore.insert(task);
             return task;
@@ -104,12 +108,56 @@ public final class DefaultAgentTaskService
     }
 
     @Override
+    public AgentTask getInteractive(String workspaceId, TaskId taskId)
+    {
+        checkWorkspaceId(workspaceId);
+        AgentTask task = get(taskId);
+        if (!task.interactive() || task.workspaceId().stream().noneMatch(workspaceId::equals)) {
+            throw new AgentTaskNotFoundException(taskId);
+        }
+        return task;
+    }
+
+    @Override
+    public AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command)
+    {
+        requireNonNull(command, "command is null");
+        AgentTask task = get(command.taskId());
+        if (task.version() != command.expectedVersion()) {
+            throw new AgentConflictException("Task version changed: " + task.id());
+        }
+        AgentDriver driver = driverRegistry.require(task.laneId());
+        if (!driver.capabilities().permissionPolicies().contains(command.defaults().permissionPolicy())) {
+            throw new AgentUnavailableException(
+                    "Agent lane " + task.laneId() + " cannot enforce " + command.defaults().permissionPolicy());
+        }
+        return taskStore.update(task.withDefaults(command.defaults(), Instant.now(clock)));
+    }
+
+    @Override
     public List<AgentTask> list(int limit)
     {
         if (limit <= 0) {
             throw new InvalidAgentRequestException("limit must be positive");
         }
         return taskStore.listRecent(limit);
+    }
+
+    @Override
+    public List<AgentTask> list(String workspaceId, int limit)
+    {
+        checkWorkspaceId(workspaceId);
+        if (limit <= 0) {
+            throw new InvalidAgentRequestException("limit must be positive");
+        }
+        return taskStore.listRecentInteractive(workspaceId, limit);
+    }
+
+    private static void checkWorkspaceId(String workspaceId)
+    {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            throw new InvalidAgentRequestException("workspaceId must not be blank");
+        }
     }
 
     private void rollbackResources(TaskId taskId, RuntimeException failure)

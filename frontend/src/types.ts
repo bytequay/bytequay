@@ -468,10 +468,17 @@ export type CherryPickPreviewRequest = {
   targetBranch: string;
 };
 
+export type AgentProviderReadiness =
+  | 'READY'
+  | 'AUTHENTICATION_REQUIRED'
+  | 'CLI_MISSING'
+  | 'UNSUPPORTED'
+  | 'DEGRADED'
+  | 'TEMPORARILY_UNAVAILABLE';
+
 export type AgentProviderStatus = {
   laneId: string;
-  /** AVAILABLE | DEGRADED | UNAVAILABLE */
-  health: string;
+  readiness: AgentProviderReadiness;
   version?: string | null;
   diagnostic: string;
 };
@@ -647,8 +654,7 @@ export type ModelOptionDto = {
 export type ModelProviderDto = {
   id: string;
   label: string;
-  /** AVAILABLE | DEGRADED | UNAVAILABLE */
-  health: string;
+  readiness: AgentProviderReadiness;
   version?: string | null;
   diagnostic: string;
   models: ModelOptionDto[];

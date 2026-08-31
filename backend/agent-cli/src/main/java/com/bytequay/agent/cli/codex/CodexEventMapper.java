@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,18 +52,20 @@ final class CodexEventMapper
                     started.params().turn().id() + ":started",
                     timestamp,
                     ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
-                    "Codex turn started"));
+                    "Codex turn started",
+                    source(started, Optional.empty())));
             case CodexProtocol.TurnCompletedNotification completed -> ImmutableList.of(lifecycle(
                     completed.params().turn().id() + ":completed",
                     timestamp,
                     completed.params().turn().status() == CodexProtocol.TurnStatus.INTERRUPTED
                             ? ProviderAgentEvent.LifecyclePhase.INTERRUPTED
                             : ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
-                    "Codex turn " + statusText(completed.params().turn().status())));
+                    "Codex turn " + statusText(completed.params().turn().status()),
+                    source(completed, Optional.empty())));
             case CodexProtocol.ItemStartedNotification started ->
-                mapItem(started.params().item(), timestamp, true);
+                mapItem(started.params().item(), timestamp, true, source(started, Optional.of(started.params().item().id())));
             case CodexProtocol.ItemCompletedNotification completed ->
-                mapItem(completed.params().item(), timestamp, false);
+                mapItem(completed.params().item(), timestamp, false, source(completed, Optional.of(completed.params().item().id())));
             case CodexProtocol.CommandOutputNotification output -> ImmutableList.of(
                     new ProviderAgentEvent.Command(
                             Optional.empty(),
@@ -72,22 +75,25 @@ final class CodexEventMapper
                             ImmutableList.of(),
                             optionalText(redactor.redact(output.params().delta())),
                             Optional.empty(),
-                            false));
+                            false,
+                            source(output, Optional.of(output.params().itemId()))));
             case CodexProtocol.AgentMessageDeltaNotification message -> ImmutableList.of(
                     new ProviderAgentEvent.Message(
                             Optional.empty(),
                             timestamp,
                             ProviderAgentEvent.MessagePhase.PARTIAL,
                             redactor.redact(message.params().delta()),
-                            Optional.empty()));
-            case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), timestamp);
-            case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), timestamp);
+                            Optional.empty(),
+                            source(message, Optional.of(message.params().itemId()))));
+            case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), timestamp, source(plan, Optional.empty()));
+            case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), timestamp, source(usage, Optional.empty()));
             case CodexProtocol.ErrorNotification error -> ImmutableList.of(new ProviderAgentEvent.Error(
                     Optional.empty(),
                     timestamp,
                     "codex",
                     redactor.redact(error.params().error().message()),
-                    error.params().willRetry()));
+                    error.params().willRetry(),
+                    source(error, Optional.empty())));
             case CodexProtocol.UnknownNotification ignored -> ImmutableList.of();
         };
     }
@@ -95,7 +101,8 @@ final class CodexEventMapper
     private List<ProviderAgentEvent> mapItem(
             CodexProtocol.ThreadItem item,
             Optional<Instant> timestamp,
-            boolean started)
+            boolean started,
+            ProviderAgentEventSource source)
     {
         String eventId = item.id() + (started ? ":started" : ":completed");
         return switch (item) {
@@ -109,32 +116,36 @@ final class CodexEventMapper
                                     ? ProviderAgentEvent.MessagePhase.FINAL
                                     : ProviderAgentEvent.MessagePhase.PARTIAL,
                             redactor.redact(message.text()),
-                            Optional.empty()));
+                            Optional.empty(),
+                            source));
             case CodexProtocol.CommandExecutionItem command ->
-                ImmutableList.of(command(command, eventId, timestamp, started));
+                ImmutableList.of(command(command, eventId, timestamp, started, source));
             case CodexProtocol.FileChangeItem fileChange ->
-                mapFileChanges(fileChange, timestamp, started);
+                mapFileChanges(fileChange, timestamp, started, source);
             case CodexProtocol.McpToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.server() + "/" + tool.tool(),
                     tool.status(),
                     eventId,
                     timestamp,
-                    started));
+                    started,
+                    source));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.tool(),
                     tool.status(),
                     eventId,
                     timestamp,
-                    started));
+                    started,
+                    source));
             case CodexProtocol.CollabAgentToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.tool(),
                     tool.status(),
                     eventId,
                     timestamp,
-                    started));
+                    started,
+                    source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };
@@ -144,7 +155,8 @@ final class CodexEventMapper
             CodexProtocol.CommandExecutionItem item,
             String eventId,
             Optional<Instant> timestamp,
-            boolean started)
+            boolean started,
+            ProviderAgentEventSource source)
     {
         return new ProviderAgentEvent.Command(
                 Optional.of(eventId),
@@ -160,7 +172,8 @@ final class CodexEventMapper
                                 .map(redactor::redact)
                                 .flatMap(CodexEventMapper::optionalText),
                 item.exitCode(),
-                false);
+                false,
+                source);
     }
 
     private ProviderAgentEvent tool(
@@ -169,7 +182,8 @@ final class CodexEventMapper
             CodexProtocol.ActivityStatus status,
             String eventId,
             Optional<Instant> timestamp,
-            boolean started)
+            boolean started,
+            ProviderAgentEventSource source)
     {
         return new ProviderAgentEvent.Tool(
                 Optional.of(eventId),
@@ -180,13 +194,15 @@ final class CodexEventMapper
                         ? ProviderAgentEvent.ActivityState.STARTED
                         : activityState(status),
                 redactor.redact(name),
-                Optional.empty());
+                Optional.empty(),
+                source);
     }
 
     private List<ProviderAgentEvent> mapFileChanges(
             CodexProtocol.FileChangeItem item,
             Optional<Instant> timestamp,
-            boolean started)
+            boolean started,
+            ProviderAgentEventSource source)
     {
         if (started || item.status() != CodexProtocol.ActivityStatus.COMPLETED) {
             return ImmutableList.of();
@@ -202,7 +218,8 @@ final class CodexEventMapper
                         timestamp,
                         relativePath.orElseThrow(),
                         kind.orElseThrow(),
-                        optionalText(redactor.redact(change.diff()))));
+                        optionalText(redactor.redact(change.diff())),
+                        withItem(source, item.id() + ":" + index)));
             }
         }
         return events.build();
@@ -238,7 +255,8 @@ final class CodexEventMapper
 
     private List<ProviderAgentEvent> mapPlan(
             CodexProtocol.PlanUpdatedParams params,
-            Optional<Instant> timestamp)
+            Optional<Instant> timestamp,
+            ProviderAgentEventSource source)
     {
         ImmutableList.Builder<ProviderAgentEvent.PlanItem> items = ImmutableList.builder();
         for (CodexProtocol.PlanStep step : params.plan()) {
@@ -256,12 +274,14 @@ final class CodexEventMapper
                 : ImmutableList.of(new ProviderAgentEvent.Plan(
                         Optional.of(params.turnId() + ":plan"),
                         timestamp,
-                        plan));
+                        plan,
+                        source));
     }
 
     private static List<ProviderAgentEvent> mapUsage(
             CodexProtocol.TokenUsageParams params,
-            Optional<Instant> timestamp)
+            Optional<Instant> timestamp,
+            ProviderAgentEventSource source)
     {
         CodexProtocol.TokenUsageBreakdown total = params.tokenUsage().total();
         return ImmutableList.of(new ProviderAgentEvent.Usage(new ProviderUsageSample(
@@ -272,16 +292,40 @@ final class CodexEventMapper
                 total.outputTokens(),
                 Optional.empty(),
                 CostProvenance.UNAVAILABLE,
-                timestamp.orElseGet(Instant::now))));
+                timestamp.orElseGet(Instant::now)),
+                source));
     }
 
     private static ProviderAgentEvent.Lifecycle lifecycle(
             String eventId,
             Optional<Instant> timestamp,
             ProviderAgentEvent.LifecyclePhase phase,
-            String message)
+            String message,
+            ProviderAgentEventSource source)
     {
-        return new ProviderAgentEvent.Lifecycle(Optional.of(eventId), timestamp, phase, message);
+        return new ProviderAgentEvent.Lifecycle(Optional.of(eventId), timestamp, phase, message, source);
+    }
+
+    private static ProviderAgentEventSource source(
+            CodexProtocol.Notification notification,
+            Optional<String> providerItemId)
+    {
+        return new ProviderAgentEventSource(
+                Optional.of(notification.threadId()),
+                Optional.empty(),
+                Optional.empty(),
+                notification.turnId(),
+                providerItemId);
+    }
+
+    private static ProviderAgentEventSource withItem(ProviderAgentEventSource source, String providerItemId)
+    {
+        return new ProviderAgentEventSource(
+                source.providerThreadId(),
+                source.parentProviderThreadId(),
+                source.logicalAgentPath(),
+                source.providerTurnId(),
+                Optional.of(providerItemId));
     }
 
     private static ProviderAgentEvent.ActivityState activityState(CodexProtocol.ActivityStatus status)

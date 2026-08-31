@@ -33,7 +33,7 @@ class TestAgentSpiValues
     {
         AgentSessionRef reference = new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "thread-123");
 
-        assertThat(reference.laneId()).isEqualTo(new AgentLaneId("codex-cli"));
+        assertThat(reference.laneId()).isEqualTo(new AgentLaneId("codex"));
         assertThat(reference.providerValue()).isEqualTo("thread-123");
         assertThatThrownBy(() -> new AgentLaneId("Codex CLI"))
                 .isInstanceOf(IllegalArgumentException.class);

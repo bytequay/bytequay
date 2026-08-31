@@ -18,7 +18,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.AgentProviderStatus.Health;
+import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelOption;
@@ -56,10 +56,10 @@ class TestModelSettingsService
         drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
                 new AgentProviderStatus(
-                        new AgentLaneId("claude"), Health.AVAILABLE,
+                        new AgentLaneId("claude"), Readiness.READY,
                         Optional.of("2.1.4"), "ready", AgentCapabilities.none()),
                 new AgentProviderStatus(
-                        CODEX, Health.AVAILABLE,
+                        CODEX, Readiness.READY,
                         Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
         // The claude driver cannot enumerate models; the mock's empty default
         // list stands in for that. Codex reports a live catalog.
@@ -91,10 +91,12 @@ class TestModelSettingsService
         ModelSettings settings = service.get();
         assertThat(settings.mainId()).isEqualTo("claude");
         var claude = settings.providers().getFirst();
+        assertThat(claude.readiness()).isEqualTo(Readiness.READY);
         assertThat(claude.selectedModel()).isEqualTo("opus");
         assertThat(claude.selectedEffort()).isEqualTo("High");
         assertThat(claude.main()).isTrue();
         var codex = settings.providers().get(1);
+        assertThat(codex.readiness()).isEqualTo(Readiness.READY);
         assertThat(codex.models()).extracting(ModelOption::id)
                 .containsExactly("gpt-5.6-sol", "gpt-5.6-luna");
         assertThat(codex.selectedModel()).isEqualTo("gpt-5.6-sol");

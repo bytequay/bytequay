@@ -128,7 +128,7 @@ public class ModelSettingsService
     public void refreshCatalogs()
     {
         for (AgentProviderStatus status : drivers.statuses()) {
-            if (status.health() == AgentProviderStatus.Health.UNAVAILABLE) {
+            if (!status.available()) {
                 continue;
             }
             String id = status.laneId().value();
@@ -289,7 +289,7 @@ public class ModelSettingsService
         return new Provider(
                 id,
                 catalog.label(),
-                status.health().name(),
+                status.readiness(),
                 status.version(),
                 status.diagnostic(),
                 catalog.models(),
@@ -435,7 +435,7 @@ public class ModelSettingsService
     public record Provider(
             String id,
             String label,
-            String health,
+            AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic,
             List<ModelOption> models,

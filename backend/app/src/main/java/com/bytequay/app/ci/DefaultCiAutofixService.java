@@ -185,7 +185,9 @@ public class DefaultCiAutofixService
                     workspace.worktree(),
                     repository,
                     "CI Autofix " + command.pullRequest().fullName(),
-                    AgentPermissionPolicy.CI_AUTOFIX));
+                    AgentPermissionPolicy.CI_AUTOFIX,
+                    Optional.empty(),
+                    false));
         }
         catch (RuntimeException failure) {
             log.error("Cannot create agent task for CI Autofix run {}", run.id(), failure);

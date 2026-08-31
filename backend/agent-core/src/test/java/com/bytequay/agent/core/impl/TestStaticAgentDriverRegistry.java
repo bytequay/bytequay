@@ -30,11 +30,15 @@ class TestStaticAgentDriverRegistry
         StaticAgentDriverRegistry registry = new StaticAgentDriverRegistry(ImmutableList.of(driver));
 
         assertThat(registry.require(DeterministicAgentDriver.LANE_ID)).isSameAs(driver);
-        assertThat(registry.statuses()).singleElement().satisfies(status -> assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE));
+        assertThat(registry.statuses()).singleElement().satisfies(status -> {
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(status.available()).isTrue();
+        });
 
         driver.failProbe(new IllegalStateException("probe broke"));
         assertThat(registry.statuses()).singleElement().satisfies(status -> {
-            assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.UNAVAILABLE);
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+            assertThat(status.available()).isFalse();
             assertThat(status.diagnostic()).contains("probe broke");
         });
         assertThatThrownBy(() -> registry.require(new AgentLaneId("missing")))

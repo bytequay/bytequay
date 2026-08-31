@@ -14,10 +14,14 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
@@ -25,6 +29,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.spi.CostProvenance;
 import com.google.common.collect.ImmutableList;
 
@@ -90,11 +95,13 @@ final class ScriptedCherryPickAgent
         beforeTaskCreate.run();
         task = new AgentTask(
                 TaskId.random(),
+                Optional.empty(),
+                false,
                 command.title(),
                 command.laneId(),
                 command.repository(),
                 command.worktree(),
-                command.permissionPolicy(),
+                command.defaults(),
                 com.bytequay.agent.core.TaskState.READY,
                 0,
                 NOW,
@@ -118,9 +125,36 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask getInteractive(String workspaceId, TaskId taskId)
+    {
+        if (task == null || !task.interactive() || task.workspaceId().stream().noneMatch(workspaceId::equals)) {
+            throw new AgentTaskNotFoundException(taskId);
+        }
+        return task;
+    }
+
+    @Override
+    public AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command)
+    {
+        if (task.version() != command.expectedVersion()) {
+            throw new AgentConflictException("Task version changed: " + task.id());
+        }
+        task = task.withDefaults(command.defaults(), NOW).withVersion(task.version() + 1);
+        return task;
+    }
+
+    @Override
     public List<AgentTask> list(int limit)
     {
         return task == null ? ImmutableList.of() : ImmutableList.of(task);
+    }
+
+    @Override
+    public List<AgentTask> list(String workspaceId, int limit)
+    {
+        return task != null && task.interactive() && task.workspaceId().stream().anyMatch(workspaceId::equals)
+                ? ImmutableList.of(task)
+                : ImmutableList.of();
     }
 
     @Override
@@ -185,6 +219,13 @@ final class ScriptedCherryPickAgent
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(new AgentTurnSettings(
+                        task.defaults().model(),
+                        task.defaults().effort(),
+                        task.permissionPolicy(),
+                        AgentSandboxPolicy.WORKSPACE_WRITE,
+                        java.time.Duration.ofMinutes(5),
+                        ImmutableList.of())),
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),

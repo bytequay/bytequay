@@ -15,8 +15,12 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
@@ -27,6 +31,7 @@ import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
@@ -34,7 +39,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.CostProvenance;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -54,7 +58,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -73,6 +81,7 @@ class TestDefaultAgentTurnService
     private RecordingApprovalService approvals;
     private DeterministicAgentDriver driver;
     private AgentTask task;
+    private DefaultAgentTaskService taskService;
     private DefaultAgentTurnService service;
 
     @BeforeEach
@@ -82,7 +91,7 @@ class TestDefaultAgentTurnService
         resources = new FileAgentResourceService(temporaryDirectory.resolve("runtime"));
         driver = new DeterministicAgentDriver();
         Path worktree = temporaryDirectory.resolve("worktree").toAbsolutePath();
-        DefaultAgentTaskService taskService = new DefaultAgentTaskService(
+        taskService = new DefaultAgentTaskService(
                 stores,
                 new FixedWorkspaceService(worktree),
                 resources,
@@ -93,7 +102,12 @@ class TestDefaultAgentTurnService
                 worktree,
                 new RepositoryIdentity("bytequay", "bytequay"),
                 "Lifecycle test",
-                AgentPermissionPolicy.AUTO));
+                new AgentTaskDefaults(
+                        Optional.of("model-a"),
+                        Optional.of("low"),
+                        AgentPermissionPolicy.AUTO),
+                Optional.empty(),
+                false));
         events = new DefaultAgentEventService(new FileTaskLogStore(resources), stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
@@ -122,9 +136,28 @@ class TestDefaultAgentTurnService
                 .containsExactly("first", "second");
         assertThat(stores.find(task.id()).orElseThrow().metrics().inputTokens()).isEqualTo(4);
         assertThat(events.readAfter(task.id(), 0, 100))
-                .filteredOn(event -> event.type() == ProviderAgentEvent.Kind.MESSAGE)
-                .extracting(event -> ((ProviderAgentEvent.Message) event.event()).text())
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("first", "second");
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.ASSISTANT_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text())
                 .containsExactly("first response", "second response");
+    }
+
+    @Test
+    void persistsUserMessageBeforeStartingProvider()
+    {
+        driver.beforeStart(() -> assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .singleElement()
+                .satisfies(event -> assertThat(((AgentEventPayload.UserMessage) event.payload()).text())
+                        .isEqualTo("first")));
+
+        AgentTurn turn = service.start(command("first", "key-1"));
+
+        driver.complete("done");
+        assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
     }
 
     @Test
@@ -143,6 +176,29 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void releasesTaskLockBeforeCallingProviderCancellation()
+    {
+        AgentTurn running = service.start(command("first", "key-1"));
+        driver.beforeCancel(() -> CompletableFuture.runAsync(() -> assertThatThrownBy(() -> driver.requestApproval(
+                new ProviderApprovalRequest(
+                        "provider-request",
+                        ProviderApprovalRequest.Kind.COMMAND,
+                        "Run command",
+                        "git status",
+                        ImmutableList.of("command:git status"),
+                        ImmutableList.of(DENY),
+                        root(),
+                        NOW),
+                Duration.ofSeconds(10)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("cancelled"))
+                .orTimeout(5, TimeUnit.SECONDS)
+                .join());
+
+        assertThat(service.cancel(running.id()).state()).isEqualTo(TurnState.CANCELLED);
+    }
+
+    @Test
     void routesProviderApprovalForTheCurrentTurn()
     {
         AgentTurn running = service.start(command("approval", "key-1"));
@@ -152,6 +208,10 @@ class TestDefaultAgentTurnService
                 "Run command",
                 "Run tests",
                 ImmutableList.of("command:run"),
+                ImmutableList.of(
+                        ALLOW_ONCE,
+                        DENY),
+                root(),
                 NOW);
 
         ProviderApprovalDecision decision = driver.requestApproval(request, Duration.ofSeconds(10))
@@ -165,6 +225,27 @@ class TestDefaultAgentTurnService
             assertThat(approval.providerRequest()).isEqualTo(request);
         });
         driver.complete("approved");
+    }
+
+    @Test
+    void rejectsProviderApprovalAfterTurnFinishes()
+    {
+        AgentTurn running = service.start(command("approval", "key-1"));
+        driver.complete("done");
+
+        assertThat(service.get(running.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThatThrownBy(() -> driver.requestApproval(new ProviderApprovalRequest(
+                "late-request",
+                ProviderApprovalRequest.Kind.COMMAND,
+                "Run command",
+                "Run tests",
+                ImmutableList.of("command:run"),
+                ImmutableList.of(DENY),
+                root(),
+                NOW), Duration.ofSeconds(10)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("no active turn");
+        assertThat(approvals.requests).isEmpty();
     }
 
     @Test
@@ -197,6 +278,58 @@ class TestDefaultAgentTurnService
             assertThat(turn.terminalReason()).contains("deterministic start failed");
         });
         assertThat(stores.findActive(task.id())).isEmpty();
+    }
+
+    @Test
+    void preservesEachTurnsEffectiveSettingsAndOpaqueAttachmentReferences()
+    {
+        Path attachmentPath = temporaryDirectory.resolve("image.png").toAbsolutePath();
+        AgentTurn first = service.start(new StartAgentTurnCommand(
+                task.id(),
+                "first",
+                ImmutableList.of(new AgentAttachment("image.png", "image/png", attachmentPath)),
+                "key-1"));
+        AgentTurnSettings firstSettings = first.settings().orElseThrow();
+        assertThat(firstSettings.model()).contains("model-a");
+        assertThat(firstSettings.effort()).contains("low");
+        assertThat(firstSettings.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
+        assertThat(firstSettings.sandboxPolicy()).isEqualTo(AgentSandboxPolicy.WORKSPACE_WRITE);
+        assertThat(firstSettings.maximumRuntime()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(firstSettings.attachments()).singleElement().satisfies(reference -> {
+            assertThat(reference.id()).isNotBlank();
+            assertThat(reference.name()).isEqualTo("image.png");
+            assertThat(reference.mediaType()).isEqualTo("image/png");
+            assertThat(reference.id()).doesNotContain(attachmentPath.toString());
+        });
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .singleElement()
+                .satisfies(event -> assertThat(((AgentEventPayload.UserMessage) event.payload()).attachments())
+                        .isEqualTo(firstSettings.attachments()));
+        driver.complete("first response");
+
+        AgentTask current = taskService.get(task.id());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                task.id(),
+                current.version(),
+                new AgentTaskDefaults(
+                        Optional.of("model-b"),
+                        Optional.of("high"),
+                        AgentPermissionPolicy.AUTO)));
+        AgentTurn second = service.start(command("second", "key-2"));
+        driver.complete("second response");
+
+        assertThat(stores.find(first.id()).orElseThrow().settings()).contains(firstSettings);
+        AgentTurnSettings secondSettings = stores.find(second.id()).orElseThrow().settings().orElseThrow();
+        assertThat(secondSettings.model()).contains("model-b");
+        assertThat(secondSettings.effort()).contains("high");
+        assertThat(secondSettings.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
+        assertThat(secondSettings.sandboxPolicy()).isEqualTo(AgentSandboxPolicy.WORKSPACE_WRITE);
+        assertThat(secondSettings.maximumRuntime()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(secondSettings.attachments()).isEmpty();
+        assertThat(driver.commands().getFirst().attachments())
+                .extracting(AgentAttachment::path)
+                .containsExactly(attachmentPath);
     }
 
     private DefaultAgentTurnService service(

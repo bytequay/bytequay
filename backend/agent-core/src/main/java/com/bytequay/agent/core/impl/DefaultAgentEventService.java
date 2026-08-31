@@ -64,11 +64,13 @@ public final class DefaultAgentEventService
         synchronized (channel) {
             envelope = new AgentEventEnvelope(
                     AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                    event.eventId(),
                     ++channel.lastSequence,
                     event.taskId(),
                     event.turnId(),
+                    event.source(),
                     Instant.now(clock),
-                    event.event());
+                    event.payload());
             try {
                 logStore.append(envelope);
             }
@@ -253,12 +255,23 @@ public final class DefaultAgentEventService
                     }
                 }
                 if (next != null) {
-                    subscriber.onNext(next);
+                    try {
+                        subscriber.onNext(next);
+                    }
+                    catch (RuntimeException ignored) {
+                        cancel();
+                        return;
+                    }
                     continue;
                 }
                 if (complete) {
                     channel.remove(this);
-                    subscriber.onComplete();
+                    try {
+                        subscriber.onComplete();
+                    }
+                    catch (RuntimeException ignored) {
+                        // A broken subscriber must not make a persisted append fail.
+                    }
                 }
                 return;
             }

@@ -29,11 +29,13 @@ import static java.util.Objects.requireNonNull;
 
 public record AgentTask(
         TaskId id,
+        Optional<String> workspaceId,
+        boolean interactive,
         String title,
         AgentLaneId laneId,
         RepositoryIdentity repository,
         Path worktree,
-        AgentPermissionPolicy permissionPolicy,
+        AgentTaskDefaults defaults,
         TaskState state,
         long version,
         Instant createdAt,
@@ -50,11 +52,13 @@ public record AgentTask(
     public AgentTask
     {
         requireNonNull(id, "id is null");
+        checkOptionalText(workspaceId, "workspaceId");
+        checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
         checkNotBlank(title, "title");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(repository, "repository is null");
         requireNonNull(worktree, "worktree is null");
-        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(defaults, "defaults is null");
         requireNonNull(state, "state is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -81,20 +85,24 @@ public record AgentTask(
 
     public static AgentTask created(
             TaskId id,
+            Optional<String> workspaceId,
+            boolean interactive,
             String title,
             AgentLaneId laneId,
             RepositoryIdentity repository,
             Path worktree,
-            AgentPermissionPolicy permissionPolicy,
+            AgentTaskDefaults defaults,
             Instant now)
     {
         return new AgentTask(
                 id,
+                workspaceId,
+                interactive,
                 title,
                 laneId,
                 repository,
                 worktree,
-                permissionPolicy,
+                defaults,
                 TaskState.CREATED,
                 0,
                 now,
@@ -107,6 +115,34 @@ public record AgentTask(
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty());
+    }
+
+    public static AgentTask created(
+            TaskId id,
+            Optional<String> workspaceId,
+            boolean interactive,
+            String title,
+            AgentLaneId laneId,
+            RepositoryIdentity repository,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy,
+            Instant now)
+    {
+        return created(
+                id,
+                workspaceId,
+                interactive,
+                title,
+                laneId,
+                repository,
+                worktree,
+                AgentTaskDefaults.forPermission(permissionPolicy),
+                now);
+    }
+
+    public AgentPermissionPolicy permissionPolicy()
+    {
+        return defaults.permissionPolicy();
     }
 
     public AgentTask ready(Instant now)
@@ -195,6 +231,35 @@ public record AgentTask(
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
+    public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
+    {
+        requireNonNull(updatedDefaults, "updatedDefaults is null");
+        requireNonNull(now, "now is null");
+        checkState(!state.terminal(), "cannot update defaults for a terminal task");
+        checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
+        return new AgentTask(
+                id,
+                workspaceId,
+                interactive,
+                title,
+                laneId,
+                repository,
+                worktree,
+                updatedDefaults,
+                state,
+                version,
+                createdAt,
+                now,
+                terminalAt,
+                terminalReason,
+                sessionReference,
+                metrics,
+                summary,
+                cleanupState,
+                deleteAfter,
+                cleanupFailure);
+    }
+
     public AgentTask withVersion(long updatedVersion)
     {
         return copy(state, updatedVersion, updatedAt, terminalAt, terminalReason, sessionReference, metrics,
@@ -227,11 +292,13 @@ public record AgentTask(
         checkArgument(!updateTime.isBefore(updatedAt), "updateTime is before the current update time");
         return new AgentTask(
                 id,
+                workspaceId,
+                interactive,
                 title,
                 laneId,
                 repository,
                 worktree,
-                permissionPolicy,
+                defaults,
                 updatedState,
                 updatedVersion,
                 createdAt,

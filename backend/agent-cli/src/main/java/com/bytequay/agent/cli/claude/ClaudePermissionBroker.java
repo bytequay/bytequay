@@ -49,6 +49,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
+import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static java.util.Objects.requireNonNull;
 
 /** Serves ByteQuay's task-scoped Claude MCP tools. */
@@ -206,6 +209,8 @@ public final class ClaudePermissionBroker
                 "Allow Claude " + arguments.toolName(),
                 detail,
                 ImmutableList.of(arguments.toolName()),
+                ImmutableList.of(ALLOW_ONCE, DENY),
+                root(),
                 Instant.now());
         ProviderApprovalDecision decision;
         try {

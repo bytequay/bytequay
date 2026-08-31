@@ -66,11 +66,13 @@ final class DeterministicAgentDriver
 
     private final List<AgentSessionRef> openedReferences = new ArrayList<>();
     private final List<AgentTurnCommand> commands = new ArrayList<>();
-    private AgentProviderStatus.Health health = AgentProviderStatus.Health.AVAILABLE;
+    private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
     private RuntimeException probeFailure;
     private DeterministicSession currentSession;
     private boolean failNextStart;
     private ProviderUsageSample usageOnOpen;
+    private Runnable beforeStart = () -> {};
+    private Runnable beforeCancel = () -> {};
 
     @Override
     public AgentLaneId id()
@@ -92,9 +94,9 @@ final class DeterministicAgentDriver
         }
         return new AgentProviderStatus(
                 LANE_ID,
-                health,
+                readiness,
                 Optional.of("test"),
-                health == AgentProviderStatus.Health.UNAVAILABLE ? "deterministic lane unavailable" : "ready",
+                readiness == AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE ? "deterministic lane unavailable" : "ready",
                 CAPABILITIES);
     }
 
@@ -116,7 +118,12 @@ final class DeterministicAgentDriver
 
     synchronized void unavailable()
     {
-        health = AgentProviderStatus.Health.UNAVAILABLE;
+        readiness = AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
+    }
+
+    synchronized void readiness(AgentProviderStatus.Readiness value)
+    {
+        readiness = value;
     }
 
     synchronized void failProbe(RuntimeException failure)
@@ -132,6 +139,16 @@ final class DeterministicAgentDriver
     synchronized void emitUsageOnOpen(ProviderUsageSample sample)
     {
         usageOnOpen = sample;
+    }
+
+    synchronized void beforeStart(Runnable action)
+    {
+        beforeStart = action;
+    }
+
+    synchronized void beforeCancel(Runnable action)
+    {
+        beforeCancel = action;
     }
 
     synchronized void emit(ProviderAgentEvent event)
@@ -203,9 +220,10 @@ final class DeterministicAgentDriver
                     failNextStart = false;
                     throw new IllegalStateException("deterministic start failed");
                 }
+                beforeStart.run();
                 checkState(running == null || running.completion.isDone(), "deterministic turn is already running");
                 commands.add(command);
-                running = new DeterministicRunningTurn(context, events, command);
+                running = new DeterministicRunningTurn(context, events, command, beforeCancel);
                 running.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.empty(),
                         Optional.empty(),
@@ -230,17 +248,20 @@ final class DeterministicAgentDriver
         private final AgentSessionContext context;
         private final AgentEventSink events;
         private final AgentTurnCommand command;
+        private final Runnable beforeCancel;
         private final ProviderTurnRef reference;
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
 
         private DeterministicRunningTurn(
                 AgentSessionContext context,
                 AgentEventSink events,
-                AgentTurnCommand command)
+                AgentTurnCommand command,
+                Runnable beforeCancel)
         {
             this.context = context;
             this.events = events;
             this.command = command;
+            this.beforeCancel = beforeCancel;
             this.reference = new ProviderTurnRef("turn-" + command.turnId());
         }
 
@@ -262,6 +283,7 @@ final class DeterministicAgentDriver
             if (completion.isDone()) {
                 return;
             }
+            beforeCancel.run();
             emit(new ProviderAgentEvent.Lifecycle(
                     Optional.empty(),
                     Optional.empty(),

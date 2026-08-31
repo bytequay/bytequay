@@ -55,7 +55,7 @@ public final class DeterministicAgentDriver
     {
         return new AgentProviderStatus(
                 LANE_ID,
-                AgentProviderStatus.Health.AVAILABLE,
+                AgentProviderStatus.Readiness.READY,
                 Optional.of("development"),
                 "ready",
                 capabilities());

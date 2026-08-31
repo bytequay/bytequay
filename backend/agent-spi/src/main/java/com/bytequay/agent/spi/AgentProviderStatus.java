@@ -21,7 +21,7 @@ import static java.util.Objects.requireNonNull;
 
 public record AgentProviderStatus(
         AgentLaneId laneId,
-        Health health,
+        Readiness readiness,
         Optional<String> version,
         String diagnostic,
         AgentCapabilities capabilities)
@@ -29,7 +29,7 @@ public record AgentProviderStatus(
     public AgentProviderStatus
     {
         requireNonNull(laneId, "laneId is null");
-        requireNonNull(health, "health is null");
+        requireNonNull(readiness, "readiness is null");
         checkOptionalText(version, "version");
         checkNotBlank(diagnostic, "diagnostic");
         requireNonNull(capabilities, "capabilities is null");
@@ -37,13 +37,16 @@ public record AgentProviderStatus(
 
     public boolean available()
     {
-        return health != Health.UNAVAILABLE;
+        return readiness == Readiness.READY || readiness == Readiness.DEGRADED;
     }
 
-    public enum Health
+    public enum Readiness
     {
-        AVAILABLE,
+        READY,
+        AUTHENTICATION_REQUIRED,
+        CLI_MISSING,
+        UNSUPPORTED,
         DEGRADED,
-        UNAVAILABLE
+        TEMPORARILY_UNAVAILABLE
     }
 }

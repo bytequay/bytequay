@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import type { AgentProviderReadiness } from '../types';
+
 /** Half-hour steps across the day, as minutes of day, for the quiet-hours pickers. */
 export const MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => index * 30);
 
@@ -24,15 +26,25 @@ export function formatMinuteOfDay(minute: number): string {
 
 export type ProviderStatusTone = { label: string; tone: 'is-ok' | 'is-warn' | 'is-neutral' | 'is-danger' };
 
-/** Maps backend provider health to the settings badge; checking wins over any health. */
-export function providerStatusLabel(health: string, checking: boolean): ProviderStatusTone {
+export function providerAvailable(readiness: AgentProviderReadiness): boolean {
+  return readiness === 'READY' || readiness === 'DEGRADED';
+}
+
+/** Maps backend provider readiness to the settings badge; checking wins over any probe result. */
+export function providerStatusLabel(readiness: AgentProviderReadiness, checking: boolean): ProviderStatusTone {
   if (checking) return { label: 'Checking…', tone: 'is-neutral' };
-  switch (health) {
-    case 'AVAILABLE':
+  switch (readiness) {
+    case 'READY':
       return { label: '✓ Available', tone: 'is-ok' };
+    case 'AUTHENTICATION_REQUIRED':
+      return { label: 'Sign in required', tone: 'is-danger' };
+    case 'CLI_MISSING':
+      return { label: 'Not installed', tone: 'is-neutral' };
+    case 'UNSUPPORTED':
+      return { label: 'Unsupported', tone: 'is-danger' };
     case 'DEGRADED':
       return { label: 'Limited', tone: 'is-warn' };
-    default:
+    case 'TEMPORARILY_UNAVAILABLE':
       return { label: 'Unavailable', tone: 'is-neutral' };
   }
 }

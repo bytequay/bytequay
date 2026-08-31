@@ -107,6 +107,10 @@ These are scope rules, not claims that current code already enforces them:
   [Managed Worktree Service](worktree-service.md) because all three top-level
   agent workflows need the same owned filesystem operations; Branch Rebase
   borrows its caller's worktree.
+- Prefer stateless service boundaries. This is not a ban on state: add the
+  smallest durable state when a concrete coordination, recovery, or
+  user-visible requirement needs it, but do not add lifecycle states or
+  recovery paths for hypothetical future cases.
 - There is no arbitrary executable/script provider. The shell is a reference
   client; production providers remain the Codex and Claude drivers.
 - There is no custom Code Mode host or undocumented App Server queue API.
@@ -505,7 +509,7 @@ Primary files:
 - `backend/agent-cli/.../codex/CodexCliDriver.java`
 - Codex protocol/driver compatibility fixtures
 
-## [ ] CP2 — Freeze the ByteQuay task, worktree, and event contract
+## [x] CP2 — Freeze the ByteQuay task, worktree, and event contract
 
 **Owners:** service/storage owner with runtime and desktop review
 
@@ -516,24 +520,33 @@ Primary files:
 Purpose: establish one safe, versioned, provider-neutral contract for JSONL,
 REST/SSE, Electron IPC, and React.
 
-**Progress (2026-09-01):** CP2 has started with the approved managed-worktree
-boundary. After review, `agent-core` owns only the synchronous
-`provision(command)`, `inspect(worktree)`, and `cleanup(worktree)` contract.
-`TaskWorktree` contains immutable ownership/path/branch/start-commit facts and
-`WorktreeSnapshot` contains the required HEAD plus dirty/open-operation facts.
-There is no allocation state machine, store, recovery API, cleanup disposition,
-or cleanup authority. There is intentionally no production or temporary
-implementation; CP3 owns the one application implementation. The focused
-contract suite and the full backend verification pass; the latter covers 519
-tests with no failures or errors.
+**Progress (2026-09-01):** CP2 has frozen the provider-neutral task, turn,
+readiness, approval, and schema-v2 event contracts. Interactive tasks have one
+workspace discriminator and immutable requested defaults; each accepted turn
+retains its exact requested settings and opaque attachment references. Provider
+source identity is carried through the SPI, user input and approval lifecycle
+are durable event variants, legacy rows/schema-v1 logs remain readable, and one
+strict TypeScript fixture covers every CP2 payload family. The workspace-safe
+request/narrow response and managed CI replacement records are frozen but are
+not active routes: CP3 must first supply the one durable worktree
+implementation and crash-safe event outbox, then activate them. CP4 applies the
+snapshotted settings to the real App Server runtime. The full backend reactor,
+frontend lint and type checks, all 230 frontend tests, and the packaged desktop
+build passed on 2026-09-01.
+
+The managed-worktree boundary remains deliberately small. `agent-core` owns
+only synchronous `provision(command)`, `inspect(worktree)`, and
+`cleanup(worktree)`. There is no allocation state machine, store, recovery API,
+cleanup disposition, or cleanup authority. CP3 owns the one application
+implementation.
 
 Implementation:
 
-- [ ] Add `workspaceId` to interactive `AgentTask` and SQLite task rows.
-- [ ] Add the smallest durable interactive-surface discriminator needed to keep
+- [x] Add `workspaceId` to interactive `AgentTask` and SQLite task rows.
+- [x] Add the smallest durable interactive-surface discriminator needed to keep
   workspace task lists from including cherry-pick, CI Autofix, or rebase agent
   tasks. Do not turn it into a generic workflow hierarchy.
-- [ ] Freeze the replacement task-creation request as `workspaceId`, title,
+- [x] Freeze the replacement task-creation request as `workspaceId`, title,
   lane, and task defaults, with no renderer-selected worktree or repository
   fields. Do not switch the production route until CP3 supplies the durable
   worktree implementation.
@@ -544,81 +557,84 @@ Implementation:
 - [x] Define its repository identity as the physical workspace selected
   repository/`origin`; cherry-pick and CI keep logical monitored/upstream
   identities in their own workflow records.
-- [ ] Freeze the creation order: readiness first, then exact-commit resolution,
+- [x] Freeze the creation order: readiness first, then exact-commit resolution,
   verified worktree provisioning, task resources, and finally task publication
   as `READY`.
-- [ ] List interactive tasks by `workspaceId` and reject a route/task workspace
+- [x] List interactive tasks by `workspaceId` and reject a route/task workspace
   mismatch.
-- [ ] Keep legacy/internal workflow tasks readable without silently listing
+- [x] Keep legacy/internal workflow tasks readable without silently listing
   unknown-workspace tasks as interactive tasks.
-- [ ] Add task defaults and per-turn snapshots for model, effort, permission,
+- [x] Add task defaults and per-turn requested snapshots for model, effort, permission,
   effective sandbox/runtime policy, and attachment references.
-- [ ] For CI Autofix, freeze distinct remote-head and generated-local-branch
+- [x] For CI Autofix, freeze distinct remote-head and generated-local-branch
   facts. Local validation and rebase use the generated branch returned by the
   task's `TaskWorktree`; push still targets the authorized remote head ref.
-- [ ] Reuse the existing model catalog; do not create a second registry.
-- [ ] Expand backend readiness to typed states: ready, authentication required,
+- [x] Reuse the existing model catalog; do not create a second registry.
+- [x] Expand backend readiness to typed states: ready, authentication required,
   CLI missing, unsupported, degraded, and temporarily unavailable, with
   actionable reason metadata. `checking` remains renderer request state. For
   Codex, `unsupported` requires a detected protocol/capability failure and
   includes detected version text; no reported version text, including unparseable
   output, produces it by itself.
-- [ ] Apply that readiness allocation gate only to lanes enabled for the
+- [x] Apply that readiness allocation gate only to lanes enabled for the
   current checkpoint. Interactive Claude creation stays backend-disabled until
   CP11 supplies its exact authentication preflight and parity contract.
-- [ ] Define explicit `AgentEventPayload` variants in `agent-core`; stop using a
+- [x] Define explicit `AgentEventPayload` variants in `agent-core`; stop using a
   serialized `ProviderAgentEvent` as the public/persisted shape.
-- [ ] Add `schemaVersion`, globally unique `eventId`, task sequence, task/turn
+- [x] Add `schemaVersion`, globally unique `eventId`, task sequence, task/turn
   IDs, provider root/child/turn/item IDs, timestamps, and typed payload.
-- [ ] Preserve provider source/item IDs when supplied. Derive a synthetic key
+- [x] Preserve provider source/item IDs when supplied. Derive a synthetic key
   only from deterministic provider fields with replay-stability fixtures;
   otherwise only display-only facts may omit source identity and render as a
   standalone/root-level event. An execution item, approval, delivery, or child
   relation without stable routing/reconciliation identity fails closed or
   makes that lane unavailable.
-- [ ] Add a durable user-message event shape, including attachment references
+- [x] Add a durable user-message event shape, including attachment references
   and delivery kind.
-- [ ] Remove renderer-supplied attachment paths from `StartTurnRequest`. Until
+- [x] Remove renderer-supplied attachment paths from `StartTurnRequest`. Until
   CP8 exists, public interactive turns reject attachments; after CP8 they
   accept only opaque task-owned attachment references. Trusted internal
   workflow attachments remain an internal command boundary.
-- [ ] Add typed approval request/resolution/expiry variants and the
+- [x] Add typed approval request/resolution/expiry variants and the
   product-permitted subset of their provider-offered decisions. An empty subset
   fails closed.
-- [ ] Preserve completed items as authoritative replacements for deltas sharing
+- [x] Preserve completed items as authoritative replacements for deltas sharing
   the same source/item identity.
-- [ ] Keep Codex wire DTOs, the compact generated reference projection, and raw
+- [x] Keep Codex wire DTOs, the compact generated reference projection, and raw
   Claude blocks inside `agent-cli`.
-- [ ] Keep a schema-v1 JSONL reader: absent source fields render as an explicit
+- [x] Keep a schema-v1 JSONL reader: absent source fields render as an explicit
   root-level legacy stream rather than invented child identity.
-- [ ] Narrow task/turn responses so the renderer never receives a worktree path,
-  provider session reference, backend URL, or credential.
-- [ ] Check in one valid monotonic frontend fixture containing create, user
+- [x] Freeze narrowed task/turn response records so the renderer never receives
+  a worktree path, provider session reference, backend URL, or credential. CP3
+  activates those records with the workspace-owned routes.
+- [x] Check in one valid monotonic frontend fixture containing create, user
   message, partial and final assistant messages, plan, command/output,
   file/tool activity, approval request/resolution, usage, lifecycle, and
   error. Derive separate transport tests that duplicate or omit an envelope.
-- [ ] Freeze the envelope/common-source evolution rule: later checkpoints may
+- [x] Freeze the envelope/common-source evolution rule: later checkpoints may
   add versioned payload variants and optional fields compatibly, but may not
   reinterpret an existing tag. Reserve the direct-parent/logical-agent-path
   metadata needed for CP9.
 
 Exit gate:
 
-- [ ] TypeScript models the fixture as a discriminated union without `any` or
+- [x] TypeScript models the fixture as a discriminated union without `any` or
   provider-payload inspection.
-- [ ] The frozen replacement interactive request schema cannot submit a
+- [x] The frozen replacement interactive request schema cannot submit a
   worktree, repository, or attachment filesystem path; CP3 activation removes
   those fields from the production route.
-- [ ] The frozen replacement cherry-pick and CI Autofix request schemas resolve
+- [x] The frozen replacement cherry-pick and CI Autofix request schemas resolve
   worktree roots from `workspaceId`; CI never receives or adopts a cherry-pick
   worktree. CP3 activates those schemas.
-- [ ] Workspace-scoped list/read behavior is covered by HTTP tests.
-- [ ] Logged-out or incompatible providers allocate no task row, runtime
+- [x] Workspace-scoped list/read and mismatch behavior is covered at the
+  core/storage boundary. CP3 activates the route and adds its HTTP test rather
+  than exposing a path-trusting half-migration.
+- [x] Logged-out or incompatible providers allocate no task row, runtime
   directory, or worktree ownership.
-- [ ] Two turns retain their exact model, effort, permission, effective
+- [x] Two turns retain their exact requested model, effort, permission,
   sandbox/runtime policy, and attachment-reference snapshots.
-- [ ] Existing logs/rows remain readable under explicit legacy behavior.
-- [ ] Existing cherry-pick, CI Autofix, and rebase callers still compile and
+- [x] Existing logs/rows remain readable under explicit legacy behavior.
+- [x] Existing cherry-pick, CI Autofix, and rebase callers still compile and
   their focused suites pass.
 
 Primary files:
@@ -629,6 +645,10 @@ Primary files:
 - `backend/persistence-sqlite/.../AgentTurnEntity.java`
 - `backend/app/.../web/agent/AgentController.java`
 - `backend/app/.../web/agent/AgentHttpModels.java`
+- `backend/app/.../web/agent/InteractiveAgentHttpContract.java`
+- `backend/app/.../web/ci/ManagedCiAutofixHttpContract.java`
+- `frontend/src/agents/events.ts`
+- `frontend/src/agents/fixtures/agent-events-v2.json`
 
 ## [ ] CP3 — Implement worktrees and make replay crash-safe
 
@@ -682,6 +702,10 @@ Implementation:
   task resources, then publish the task as `READY`. If provisioning reports a
   half-finished or mismatched orphan, preserve it and return an actionable
   diagnostic; do not adopt or delete it automatically.
+- [ ] Activate workspace-scoped task list/read routes with the frozen narrowed
+  CP2 response records. Reject a route/task workspace mismatch and remove the
+  old renderer path/repository plus provider-session/turn-reference fields
+  from the public route in the same change.
 - [ ] Re-probe readiness before every accepted turn; a failed probe creates no
   turn or delivery and leaves the ready worktree unchanged.
 - [ ] Replace `AgentWorkspaceService` and cherry-pick's private
@@ -744,6 +768,8 @@ Exit gate:
 - [ ] Startup serves no agent mutation endpoint before event-outbox and owned
   provider-process recovery finishes, and no task/event read or SSE stream
   exposes partially recovered task state. There is no worktree startup scan.
+- [ ] HTTP tests prove workspace-scoped list/read, route/task mismatch rejection,
+  path-free creation, and narrowed task/turn responses after activation.
 - [ ] Backend verification plus shared workflow regression suites pass.
 
 Primary files:
@@ -834,6 +860,9 @@ Exit gate:
   sandbox fixture.
 - [ ] A second turn resumes the same root only after its task environment is
   verified.
+- [ ] A two-turn driver test changes model/effort/permission defaults between
+  turns and proves each App Server `turn/start` receives exactly the immutable
+  CP2 snapshot stored for that turn, including sandbox and runtime policy.
 - [ ] Root completion while an item/child/background terminal runs keeps Send
   and Complete blocked.
 - [ ] A missed live child, a child-created grandchild, and live/history overlap
@@ -1286,7 +1315,7 @@ Release checks:
 
 ## 7. Review gates
 
-CP0 and CP1 are complete, and CP2 contract work has started. The later
+CP0 through CP2 are complete. The later
 unchecked questions below are decisions for their corresponding UI or release
 checkpoint rather than reasons to reopen the compatibility spike.
 
@@ -1311,14 +1340,15 @@ checkpoint rather than reasons to reopen the compatibility spike.
 
 ## 8. Next implementation action
 
-Do not begin by writing React components. CP0 and CP1 are complete, and CP2 has
-started with the managed-worktree contract and values. Next:
+Do not begin by writing React components. CP0 through CP2 are complete. Next:
 
-1. freeze the remaining CP2 task, turn, readiness, and event contract;
-2. implement synchronous worktree provisioning/inspection/cleanup and migrate
+1. implement synchronous worktree provisioning/inspection/cleanup and migrate
    interactive task, cherry-pick, and CI Autofix creation to that one service in
    CP3; and
-3. let desktop fixture work start only after that shared contract is frozen.
+2. add the CP3 transactional event outbox and prove replay/reconnect recovery;
+   and
+3. let desktop fixture work use the now-frozen CP2 contract without activating
+   provider settings before CP4.
 
 This ordering preserves the existing provider path while avoiding a UI or
 workflow migration built on caller-provided checkout paths.

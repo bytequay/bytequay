@@ -187,7 +187,7 @@ final class ScriptedAgentDriver
     {
         return new AgentProviderStatus(
                 LANE,
-                AgentProviderStatus.Health.AVAILABLE,
+                AgentProviderStatus.Readiness.READY,
                 Optional.of("test"),
                 "ready",
                 capabilities());

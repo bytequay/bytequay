@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
@@ -38,6 +40,7 @@ import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,6 +52,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -101,6 +105,8 @@ class TestBranchRebaseService
         AgentWorkspaceService workspaces = mock(AgentWorkspaceService.class);
         AgentTask task = AgentTask.created(
                 taskId,
+                Optional.empty(),
+                false,
                 "Rebase feature",
                 AgentLaneId.CLAUDE_CLI,
                 REPOSITORY_ID,
@@ -657,7 +663,7 @@ class TestBranchRebaseService
                 return existing.orElseThrow();
             }
             current = TurnId.random();
-            AgentTurn turn = AgentTurn.accepted(current, command.taskId(), command.idempotencyKey(), NOW)
+            AgentTurn turn = AgentTurn.accepted(current, command.taskId(), command.idempotencyKey(), turnSettings(), NOW)
                     .running(new ProviderTurnRef("provider-" + current), Optional.empty(), NOW);
             turns.put(current, turn);
             if (failAfterStarting) {
@@ -665,6 +671,17 @@ class TestBranchRebaseService
                 throw new BranchRebaseException("turn result was lost");
             }
             return turn;
+        }
+
+        private static AgentTurnSettings turnSettings()
+        {
+            return new AgentTurnSettings(
+                    Optional.empty(),
+                    Optional.empty(),
+                    AgentPermissionPolicy.AUTO,
+                    AgentSandboxPolicy.WORKSPACE_WRITE,
+                    Duration.ofMinutes(5),
+                    ImmutableList.of());
         }
 
         @Override

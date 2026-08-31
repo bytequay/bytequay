@@ -27,12 +27,12 @@ public interface AgentTaskService
     /**
      * Creates a durable task for one clean, validated worktree and provider lane.
      *
-     * <p>Creation acquires the lease, allocates task resources, verifies provider
-     * readiness, and persists a {@link TaskState#READY} task without starting a
-     * turn. Failure after lease acquisition must delete newly allocated resources
-     * and release the lease.
+     * <p>Creation verifies provider readiness before acquiring the lease or
+     * allocating task resources, then persists a {@link TaskState#READY} task
+     * without starting a turn. Failure after lease acquisition must delete newly
+     * allocated resources and release the lease.
      *
-     * @param command lane, worktree, repository, title, and permission policy
+     * @param command lane, worktree, repository, title, task defaults, and optional workspace ownership
      * @return newly persisted ready task
      * @throws InvalidAgentRequestException when the command or worktree is invalid
      * @throws AgentConflictException when the worktree already has a live task
@@ -49,11 +49,43 @@ public interface AgentTaskService
     AgentTask get(TaskId taskId);
 
     /**
+     * Returns an interactive task only when it belongs to the expected workspace.
+     *
+     * @param workspaceId expected owning workspace
+     * @param taskId task to read
+     * @return matching interactive task
+     * @throws AgentTaskNotFoundException when the task is absent, internal, or belongs to another workspace
+     */
+    AgentTask getInteractive(String workspaceId, TaskId taskId);
+
+    /**
+     * Replaces defaults used by later turns using optimistic task versioning.
+     *
+     * @param command task, observed version, and replacement defaults
+     * @return updated task with its next version
+     * @throws AgentConflictException when the task changed concurrently
+     */
+    AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command);
+
+    /**
      * Lists durable task facts in reverse update order.
+     *
+     * <p>This keeps the current unscoped listing working until workspace-owned
+     * task creation is activated.
      *
      * @param limit positive maximum number of tasks
      * @return at most {@code limit} tasks
      * @throws InvalidAgentRequestException when {@code limit} is not positive
      */
     List<AgentTask> list(int limit);
+
+    /**
+     * Lists interactive task facts for one workspace in reverse update order.
+     *
+     * @param workspaceId owning workspace
+     * @param limit positive maximum number of tasks
+     * @return at most {@code limit} matching interactive tasks
+     * @throws InvalidAgentRequestException when the workspace or limit is invalid
+     */
+    List<AgentTask> list(String workspaceId, int limit);
 }

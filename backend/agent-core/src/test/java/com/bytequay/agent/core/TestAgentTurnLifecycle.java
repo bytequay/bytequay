@@ -13,9 +13,12 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -25,6 +28,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestAgentTurnLifecycle
 {
     private static final Instant ACCEPTED_AT = Instant.parse("2026-08-16T00:00:00Z");
+    private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(
+            Optional.of("model-1"),
+            Optional.empty(),
+            AgentPermissionPolicy.AUTO,
+            AgentSandboxPolicy.WORKSPACE_WRITE,
+            Duration.ofMinutes(5),
+            ImmutableList.of());
 
     @Test
     void turnRunsAndCompletesOnce()
@@ -43,6 +53,8 @@ class TestAgentTurnLifecycle
         assertThat(completed.state()).isEqualTo(TurnState.COMPLETED);
         assertThat(completed.startedAt()).contains(ACCEPTED_AT.plusSeconds(1));
         assertThat(completed.endedAt()).contains(ACCEPTED_AT.plusSeconds(2));
+        assertThat(completed.model()).contains("model-1");
+        assertThat(completed.settings()).contains(SETTINGS);
         assertThat(completed.terminalReason()).isEmpty();
         assertThat(completed.finish(
                 TurnState.COMPLETED,
@@ -50,6 +62,28 @@ class TestAgentTurnLifecycle
                 Optional.empty(),
                 ACCEPTED_AT.plusSeconds(3)))
                 .isSameAs(completed);
+    }
+
+    @Test
+    void rejectsAProviderModelThatDiffersFromTheAcceptedSnapshot()
+    {
+        assertThatThrownBy(() -> newTurn().running(
+                new ProviderTurnRef("provider-turn-1"),
+                Optional.of("another-model"),
+                ACCEPTED_AT.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void effortRequiresAnExplicitModel()
+    {
+        assertThatThrownBy(() -> new AgentTaskDefaults(
+                Optional.empty(),
+                Optional.of("high"),
+                AgentPermissionPolicy.AUTO))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("effort requires a model");
     }
 
     @Test
@@ -107,6 +141,7 @@ class TestAgentTurnLifecycle
                 TurnId.valueOf("123e4567-e89b-12d3-a456-426614174001"),
                 TaskId.valueOf("123e4567-e89b-12d3-a456-426614174000"),
                 "request-1",
+                SETTINGS,
                 ACCEPTED_AT);
     }
 }

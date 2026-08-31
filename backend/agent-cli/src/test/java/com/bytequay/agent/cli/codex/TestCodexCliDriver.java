@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -73,7 +74,7 @@ class TestCodexCliDriver
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
 
-        assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         AgentSession initial = driver.open(context(Optional.empty(), approval), events::add);
         AgentSessionRef reference = initial.reference();
         initial.close();
@@ -120,7 +121,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        assertThat(driver.probe().health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
 
         RunningTurn cancelled = session.start(command("cancel"));
@@ -162,9 +163,29 @@ class TestCodexCliDriver
 
         AgentProviderStatus status = driver.probe();
 
-        assertThat(status.health()).isEqualTo(AgentProviderStatus.Health.AVAILABLE);
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         assertThat(status.version()).contains("future-build");
         driver.close();
+    }
+
+    @Test
+    void distinguishesAuthenticationAndExecutableFailures()
+    {
+        ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor(objectMapper);
+        loggedOut.loggedOut();
+        CodexCliDriver loggedOutDriver = driver(loggedOut);
+        AgentProviderStatus authentication = loggedOutDriver.probe();
+        assertThat(authentication.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        assertThat(authentication.available()).isFalse();
+        loggedOutDriver.close();
+
+        ScriptedProcessSupervisor missing = new ScriptedProcessSupervisor(objectMapper);
+        missing.executableMissing();
+        CodexCliDriver missingDriver = driver(missing);
+        AgentProviderStatus executable = missingDriver.probe();
+        assertThat(executable.readiness()).isEqualTo(AgentProviderStatus.Readiness.CLI_MISSING);
+        assertThat(executable.available()).isFalse();
+        missingDriver.close();
     }
 
     @Test
@@ -355,7 +376,7 @@ class TestCodexCliDriver
         decision.set(ProviderApprovalDecision.allow(Optional.of("session")));
         server.emit("""
                 {"id":97,"method":"item/commandExecution/requestApproval","params":{
-                "availableDecisions":["accept"],"command":"echo scoped","itemId":"exec-2",
+                "availableDecisions":["accept","decline"],"command":"echo scoped","itemId":"exec-2",
                 "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
         assertThat(server.error(97).path("message").asText()).contains("scoped permission");
@@ -420,6 +441,8 @@ class TestCodexCliDriver
         private final ObjectMapper objectMapper;
         private final boolean failThreadStart;
         private volatile String versionOutput;
+        private boolean loggedIn = true;
+        private boolean executableMissing;
         private AppServerProcess server;
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
@@ -442,6 +465,9 @@ class TestCodexCliDriver
         @Override
         public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
+            if (executableMissing) {
+                throw new AgentUnavailableException("Unable to start process: /fake/codex", new IOException("missing"));
+            }
             if (spec.argv().contains("--version")) {
                 output.onOutput(
                         ProcessStream.STDOUT,
@@ -449,8 +475,8 @@ class TestCodexCliDriver
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("login")) {
-                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("Logged in using ChatGPT\n"));
-                return ImmediateProcess.success();
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
+                return loggedIn ? ImmediateProcess.success() : ImmediateProcess.failure();
             }
             server = new AppServerProcess(objectMapper, output, failThreadStart);
             return server;
@@ -464,6 +490,16 @@ class TestCodexCliDriver
         private void versionOutput(String versionOutput)
         {
             this.versionOutput = versionOutput;
+        }
+
+        private void loggedOut()
+        {
+            loggedIn = false;
+        }
+
+        private void executableMissing()
+        {
+            executableMissing = true;
         }
     }
 
@@ -672,6 +708,12 @@ class TestCodexCliDriver
         {
             return new ImmediateProcess(CompletableFuture.completedFuture(
                     new ProcessExit(0, ProcessExit.Reason.EXITED, Duration.ZERO, false, false)));
+        }
+
+        private static ImmediateProcess failure()
+        {
+            return new ImmediateProcess(CompletableFuture.completedFuture(
+                    new ProcessExit(1, ProcessExit.Reason.EXITED, Duration.ZERO, false, false)));
         }
 
         @Override

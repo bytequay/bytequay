@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -137,6 +138,8 @@ class TestAgentHttpApi
         assertThat(status.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(status.getBody()).isNotNull();
         assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("deterministic");
+        assertThat(status.getBody().get(0).get("readiness").asText()).isEqualTo("READY");
+        assertThat(status.getBody().get(0).has("health")).isFalse();
     }
 
     @Test
@@ -158,6 +161,26 @@ class TestAgentHttpApi
                 createTaskBody("missing-lane"),
                 null);
         assertThat(unavailable.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void rejectsRendererSuppliedAttachmentPaths()
+            throws Exception
+    {
+        ResponseEntity<JsonNode> createResponse = post("/agent/tasks", createTaskBody("deterministic"), null);
+        String taskId = createResponse.getBody().required("id").asText();
+
+        ResponseEntity<JsonNode> response = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of(
+                        "message", "inspect this image",
+                        "attachments", ImmutableList.of(ImmutableMap.of(
+                                "name", "screen.png",
+                                "mediaType", "image/png",
+                                "path", "/tmp/screen.png"))),
+                "attachment-request");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
@@ -183,15 +206,28 @@ class TestAgentHttpApi
 
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
         assertThat(events).isNotNull();
-        assertThat(events.size()).isEqualTo(2);
-        long firstSequence = events.get(0).get("sequence").asLong();
-        assertThat(events.get(0).get("payload").get("text").asText()).isEqualTo("deterministic: first");
+        assertThat(events).hasSize(4);
+        assertThat(events)
+                .extracting(event -> event.get("type").asText())
+                .containsExactly("user_message", "assistant_message", "user_message", "assistant_message");
+        assertThat(events.get(0).get("payload").get("text").asText()).isEqualTo("first");
+        assertThat(events.get(1).get("payload").get("text").asText()).isEqualTo("deterministic: first");
+        assertThat(events.get(2).get("payload").get("text").asText()).isEqualTo("second");
+        assertThat(events.get(3).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        long firstSequence = events.get(1).get("sequence").asLong();
+        assertThat(events.get(0).get("schemaVersion").asInt()).isEqualTo(2);
+        assertThat(events.get(0).get("eventId").asText()).isNotBlank();
+        assertThat(events.get(0).get("source").isObject()).isTrue();
+        assertThat(events.get(0).get("source").get("logicalAgentPath").isNull()).isTrue();
 
         JsonNode afterFirst = get("/agent/tasks/" + taskId + "/events?after=" + firstSequence + "&limit=10")
                 .getBody();
         assertThat(afterFirst).isNotNull();
-        assertThat(afterFirst).hasSize(1);
-        assertThat(afterFirst.get(0).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(afterFirst).hasSize(2);
+        assertThat(afterFirst.get(0).get("type").asText()).isEqualTo("user_message");
+        assertThat(afterFirst.get(0).get("payload").get("text").asText()).isEqualTo("second");
+        assertThat(afterFirst.get(1).get("type").asText()).isEqualTo("assistant_message");
+        assertThat(afterFirst.get(1).get("payload").get("text").asText()).isEqualTo("deterministic: second");
         JsonNode sseEvent = objectMapper.readTree(firstSseData(taskId, firstSequence));
         assertThat(sseEvent).isEqualTo(afterFirst.get(0));
 
@@ -300,6 +336,10 @@ class TestAgentHttpApi
             }
             if (field.equals("elapsed") && value.isTextual()) {
                 object.put(field, "<duration>");
+                continue;
+            }
+            if (field.equals("eventId") && value.isTextual()) {
+                object.put(field, "<event-id>");
                 continue;
             }
             if (TIMESTAMP_FIELDS.contains(field) && value.isTextual()) {

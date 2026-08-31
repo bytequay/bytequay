@@ -14,6 +14,8 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -24,7 +26,6 @@ import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 
 import java.time.Instant;
 import java.util.Locale;
@@ -82,13 +83,14 @@ final class AgentHttpModels
     {
         return new EventResponse(
                 envelope.schemaVersion(),
+                envelope.eventId().toString(),
                 envelope.sequence(),
                 envelope.taskId().toString(),
                 envelope.turnId().map(Object::toString),
-                envelope.type().name().toLowerCase(Locale.ROOT),
+                envelope.source(),
                 envelope.occurredAt(),
-                envelope.event().providerEventId(),
-                envelope.event());
+                envelope.type().name().toLowerCase(Locale.ROOT),
+                envelope.payload());
     }
 
     static ApprovalResponse approval(ApprovalDecision decision)
@@ -105,7 +107,7 @@ final class AgentHttpModels
     {
         return new ProviderStatusResponse(
                 status.laneId().toString(),
-                status.health().name(),
+                status.readiness(),
                 status.version(),
                 status.diagnostic(),
                 status.capabilities());
@@ -168,13 +170,14 @@ final class AgentHttpModels
 
     record EventResponse(
             int schemaVersion,
+            String eventId,
             long sequence,
             String taskId,
             Optional<String> turnId,
-            String type,
+            AgentEventSource source,
             Instant occurredAt,
-            Optional<String> providerEventId,
-            ProviderAgentEvent payload) {}
+            String type,
+            AgentEventPayload payload) {}
 
     record ApprovalResponse(
             String approvalId,
@@ -185,7 +188,7 @@ final class AgentHttpModels
 
     record ProviderStatusResponse(
             String laneId,
-            String health,
+            AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic,
             AgentCapabilities capabilities) {}

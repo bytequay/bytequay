@@ -24,12 +24,12 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -132,15 +132,13 @@ public class AgentController
     {
         requireNotBlank(request.message(), "message must not be blank");
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        List<AgentAttachment> attachments = request.attachments() == null
-                ? ImmutableList.of()
-                : request.attachments().stream()
-                        .map(AttachmentRequest::toAttachment)
-                        .collect(toImmutableList());
+        if (request.attachments() != null && !request.attachments().isEmpty()) {
+            throw new InvalidAgentRequestException("Interactive attachments are not available yet");
+        }
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 TaskId.valueOf(taskId),
                 request.message(),
-                attachments,
+                ImmutableList.of(),
                 idempotencyKey));
         recordPrompt(taskId, request.message());
         return ResponseEntity.accepted().body(AgentHttpModels.turn(turn));
@@ -230,16 +228,7 @@ public class AgentController
 
     public record CreateTaskRequest(String laneId, String worktree, String repository, String title) {}
 
-    public record StartTurnRequest(String message, List<AttachmentRequest> attachments) {}
-
-    public record AttachmentRequest(String name, String mediaType, String path)
-    {
-        private AgentAttachment toAttachment()
-        {
-            requireNotBlank(path, "attachment path must not be blank");
-            return new AgentAttachment(name, mediaType, Path.of(path));
-        }
-    }
+    public record StartTurnRequest(String message, List<Object> attachments) {}
 
     public record ResolveApprovalRequest(
             ApprovalDecision.Decision decision,

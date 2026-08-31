@@ -32,7 +32,7 @@ rejects a repository that does not match the worktree's GitHub `origin`. It
 defaults to the `claude` lane and three fix attempts because that lane enforces
 the CI Autofix filesystem, network, GitHub-write, and CI-memory policy. It shows
 the repository, PR, worktree, branch, and write permissions before asking for
-confirmation. The shell checks the selected lane's health and `CI_AUTOFIX`
+confirmation. The shell checks the selected lane's readiness and `CI_AUTOFIX`
 capability before asking for consent; the `codex` lane is currently manual-task
 only. Use `--max-attempts 1` to override the attempt limit.
 

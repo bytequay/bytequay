@@ -79,6 +79,17 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public synchronized List<AgentTask> listRecentInteractive(String workspaceId, int limit)
+    {
+        return tasks.values().stream()
+                .filter(AgentTask::interactive)
+                .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
+                .sorted(Comparator.comparing(AgentTask::updatedAt).reversed())
+                .limit(limit)
+                .collect(toImmutableList());
+    }
+
+    @Override
     public synchronized List<AgentTask> listLive()
     {
         return tasks.values().stream()

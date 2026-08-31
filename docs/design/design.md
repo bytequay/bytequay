@@ -83,8 +83,8 @@ repository builds.
 
 ## Agent-task review decisions
 
-The proposed task surface is ready for product/design review, not
-implementation approval. The decisions to accept or change are:
+The task surface is approved for incremental implementation behind the
+development-only gate. The accepted decisions are:
 
 1. **Runtime shape:** one shared Codex App Server, one official
    task-owned exec-server/environment per active Codex task, and a separate
@@ -188,7 +188,9 @@ both the no-child `--live` fixture and recursive `--live-children` fixture
 passed locally with that subscription-backed profile on 2026-08-31. The CP1
 technical recommendation is GO. CP0 and CP1 are complete: the experimental
 runtime, same-host trust, separate-worktree contract, development-only UI gate,
-and sanitized current HTTP/SSE baseline are recorded. CP2 contract work has
-started. This is not production-release approval. Environment
+and sanitized current HTTP/SSE baseline are recorded. CP2 has frozen the
+workspace-scoped task/turn, typed readiness, schema-v2 event/source, approval,
+legacy-read, and frontend-fixture contracts; CP3 owns managed-worktree
+activation and crash-safe replay. This is not production-release approval. Environment
 stripping does not create a same-user filesystem-read boundary around the
 persistent login profile.

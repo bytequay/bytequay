@@ -14,13 +14,13 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentAttachment;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
 import com.google.common.collect.ImmutableList;
@@ -71,8 +71,9 @@ final class CiAutofixLogReader
                 List<AgentEventEnvelope> page = eventService.readAfter(taskId, after, EVENT_PAGE_SIZE);
                 for (AgentEventEnvelope envelope : page) {
                     if (envelope.turnId().filter(turnId::equals).isPresent()
-                            && envelope.event() instanceof ProviderAgentEvent.Message message
-                            && message.phase() == ProviderAgentEvent.MessagePhase.FINAL) {
+                            && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
+                            && message.messageKind() == AgentEventPayload.MessageKind.ANSWER
+                            && message.phase() == AgentEventPayload.MessagePhase.FINAL) {
                         result = message.text();
                     }
                 }

@@ -52,7 +52,7 @@ public interface AgentDriver
     /**
      * Checks binary, authentication, and protocol readiness without opening a task.
      *
-     * @return health and actionable diagnostic information
+     * @return readiness and actionable diagnostic information
      */
     AgentProviderStatus probe();
 

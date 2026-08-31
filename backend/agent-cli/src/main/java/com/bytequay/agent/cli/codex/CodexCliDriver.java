@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
@@ -44,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -59,6 +61,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -191,7 +195,7 @@ public final class CodexCliDriver
             CommandResult versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.empty(),
                         "codex --version failed: " + versionResult.output());
             }
@@ -206,7 +210,7 @@ public final class CodexCliDriver
                             .orElse(""));
             if (version.isBlank()) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.empty(),
                         "Unable to read Codex CLI version");
             }
@@ -214,18 +218,21 @@ public final class CodexCliDriver
             CommandResult login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
                 return status(
-                        AgentProviderStatus.Health.UNAVAILABLE,
+                        AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                         Optional.of(version),
                         "Codex CLI " + version + " is not ready: " + login.output());
             }
-            return status(AgentProviderStatus.Health.AVAILABLE, Optional.of(version), login.output());
+            return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.output());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return unavailableWithDetectedVersion("probe was interrupted");
+            return statusWithDetectedVersion(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, "probe was interrupted");
         }
         catch (RuntimeException e) {
-            return unavailableWithDetectedVersion("is not available: " + e.getMessage());
+            AgentProviderStatus.Readiness readiness = e.getCause() instanceof IOException
+                    ? AgentProviderStatus.Readiness.CLI_MISSING
+                    : AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
+            return statusWithDetectedVersion(readiness, "is not available: " + e.getMessage());
         }
     }
 
@@ -314,19 +321,19 @@ public final class CodexCliDriver
     }
 
     private AgentProviderStatus status(
-            AgentProviderStatus.Health health,
+            AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic)
     {
-        String message = diagnostic == null || diagnostic.isBlank() ? health.name().toLowerCase() : diagnostic;
-        return new AgentProviderStatus(LANE_ID, health, version, message, capabilities());
+        String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
+        return new AgentProviderStatus(LANE_ID, readiness, version, message, capabilities());
     }
 
-    private AgentProviderStatus unavailableWithDetectedVersion(String diagnostic)
+    private AgentProviderStatus statusWithDetectedVersion(AgentProviderStatus.Readiness readiness, String diagnostic)
     {
         Optional<String> version = detectedVersion.equals("unknown") ? Optional.empty() : Optional.of(detectedVersion);
         String label = version.map(value -> "Codex CLI " + value).orElse("Codex CLI");
-        return status(AgentProviderStatus.Health.UNAVAILABLE, version, label + " " + diagnostic);
+        return status(readiness, version, label + " " + diagnostic);
     }
 
     private AgentUnavailableException appServerFailure(String operation, RuntimeException failure)
@@ -514,24 +521,27 @@ public final class CodexCliDriver
         }
 
         @Override
-        public synchronized CompletionStage<?> onRequest(CodexProtocol.ServerRequest serverRequest)
+        public CompletionStage<?> onRequest(CodexProtocol.ServerRequest serverRequest)
         {
-            if (closed
-                    || running == null
-                    || serverRequest.turnId().isEmpty()
-                    || !serverRequest.turnId().orElseThrow().equals(running.reference().value())) {
-                return CompletableFuture.failedFuture(
-                        new AgentUnavailableException("Codex request does not belong to the active turn"));
-            }
-            CodexRunningTurn expectedTurn = running;
-            synchronized (expectedTurn) {
-                if (expectedTurn.cancellationRequested()
-                        || expectedTurn.completion().toCompletableFuture().isDone()) {
+            CodexRunningTurn expectedTurn;
+            synchronized (this) {
+                if (closed
+                        || running == null
+                        || serverRequest.turnId().isEmpty()
+                        || !serverRequest.turnId().orElseThrow().equals(running.reference().value())) {
                     return CompletableFuture.failedFuture(
                             new AgentUnavailableException("Codex request does not belong to the active turn"));
                 }
-                return registerApproval(serverRequest, expectedTurn);
+                expectedTurn = running;
             }
+            if (expectedTurn.cancellationRequested()
+                    || expectedTurn.completion().toCompletableFuture().isDone()) {
+                return CompletableFuture.failedFuture(
+                        new AgentUnavailableException("Codex request does not belong to the active turn"));
+            }
+            // Approval registration crosses into agent-core and may take the task lock.
+            // Never hold provider session/turn monitors across that callback.
+            return registerApproval(serverRequest, expectedTurn);
         }
 
         private CompletionStage<?> registerApproval(
@@ -541,6 +551,8 @@ public final class CodexCliDriver
             ProviderApprovalRequest.Kind kind;
             String title;
             String detail;
+            String itemId;
+            List<ProviderApprovalRequest.Decision> availableDecisions;
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
                 if (approval.params().additionalPermissions().isPresent()
@@ -560,6 +572,12 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 detail = redactor.redact(command.orElseThrow());
+                itemId = approval.params().itemId();
+                availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
+                if (availableDecisions.isEmpty()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex command approval offers no ByteQuay-supported decision"));
+                }
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
@@ -573,6 +591,10 @@ public final class CodexCliDriver
                         .filter(value -> !value.isBlank())
                         .orElse("File change approval");
                 detail = redactor.redact(detail);
+                itemId = approval.params().itemId();
+                availableDecisions = ImmutableList.of(
+                        ALLOW_ONCE,
+                        DENY);
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
@@ -586,9 +608,39 @@ public final class CodexCliDriver
                     title,
                     detail,
                     ImmutableList.of(detail),
+                    availableDecisions,
+                    new ProviderAgentEventSource(
+                            Optional.of(serverRequest.threadId()),
+                            Optional.empty(),
+                            Optional.empty(),
+                            serverRequest.turnId(),
+                            Optional.of(itemId)),
                     Instant.ofEpochMilli(startedAtMs));
             return context.approvals().request(approvalRequest, APPROVAL_TIMEOUT)
                     .thenApply(decision -> approvalResponse(serverRequest, decision, expectedTurn));
+        }
+
+        private static List<ProviderApprovalRequest.Decision> supportedCommandDecisions(
+                Optional<List<JsonNode>> offeredDecisions)
+        {
+            if (offeredDecisions.isEmpty()) {
+                return ImmutableList.of(
+                        ALLOW_ONCE,
+                        DENY);
+            }
+            boolean allowOnce = offeredDecisions.orElseThrow().stream()
+                    .anyMatch(decision -> decision.isTextual() && decision.textValue().equals("accept"));
+            boolean deny = offeredDecisions.orElseThrow().stream()
+                    .anyMatch(decision -> decision.isTextual() && decision.textValue().equals("decline"));
+            if (!deny) {
+                return ImmutableList.of();
+            }
+            ImmutableList.Builder<ProviderApprovalRequest.Decision> supported = ImmutableList.builder();
+            if (allowOnce) {
+                supported.add(ALLOW_ONCE);
+            }
+            supported.add(DENY);
+            return supported.build();
         }
 
         @Override

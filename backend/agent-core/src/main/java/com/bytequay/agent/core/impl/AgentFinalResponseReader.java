@@ -14,9 +14,9 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 
 import java.util.List;
 
@@ -41,8 +41,9 @@ final class AgentFinalResponseReader
         while (true) {
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
             for (AgentEventEnvelope envelope : page) {
-                if (envelope.event() instanceof ProviderAgentEvent.Message message
-                        && message.phase() == ProviderAgentEvent.MessagePhase.FINAL) {
+                if (envelope.payload() instanceof AgentEventPayload.AssistantMessage message
+                        && message.messageKind() == AgentEventPayload.MessageKind.ANSWER
+                        && message.phase() == AgentEventPayload.MessagePhase.FINAL) {
                     response = message.text();
                 }
             }

@@ -317,8 +317,8 @@ class TestCiAutofixEndToEnd
                 .contains("Backend compile", "Backend tests", "ci-fix.txt", "FAILED", "PASSED")
                 .contains("generated value was missing", "test expected the repaired value")
                 .doesNotContain("RAW_COMPILE_LOG_SENTINEL", "RAW_TEST_LOG_SENTINEL");
-        assertThat(events.readAfter(taskId, 0, 100)).extracting(event -> event.event().kind().name())
-                .contains("LIFECYCLE", "COMMAND", "FILE", "USAGE", "MESSAGE");
+        assertThat(events.readAfter(taskId, 0, 100)).extracting(event -> event.type().name())
+                .contains("LIFECYCLE", "COMMAND", "FILE_CHANGE", "USAGE", "ASSISTANT_MESSAGE");
 
         List<String> timelineKeys = details.find(fixture.prId()).orElseThrow().timeline().stream()
                 .filter(event -> event.localEventKey().isPresent())

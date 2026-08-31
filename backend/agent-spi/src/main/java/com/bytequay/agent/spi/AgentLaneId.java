@@ -18,8 +18,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 public record AgentLaneId(String value)
 {
-    public static final AgentLaneId CODEX_CLI = new AgentLaneId("codex-cli");
-    public static final AgentLaneId CLAUDE_CLI = new AgentLaneId("claude-cli");
+    public static final AgentLaneId CODEX_CLI = new AgentLaneId("codex");
+    public static final AgentLaneId CLAUDE_CLI = new AgentLaneId("claude");
 
     public AgentLaneId
     {

@@ -13,11 +13,14 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
@@ -98,6 +101,22 @@ public class AgentTurnEntity
 
     private String model;
 
+    @Column(name = "requested_model")
+    private String requestedModel;
+
+    private String effort;
+
+    @Enumerated(EnumType.STRING)
+    private AgentPermissionPolicy permissionPolicy;
+
+    @Enumerated(EnumType.STRING)
+    private AgentSandboxPolicy sandboxPolicy;
+
+    private Long maximumRuntimeMillis;
+
+    @Column(columnDefinition = "TEXT")
+    private String attachmentsJson;
+
     private String terminalReason;
 
     @Column(nullable = false)
@@ -145,6 +164,15 @@ public class AgentTurnEntity
         cancellationRequestedAt = turn.cancellationRequestedAt().orElse(null);
         providerTurnReference = turn.providerTurnReference().map(ProviderTurnRef::value).orElse(null);
         model = turn.model().orElse(null);
+        requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
+        effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
+        permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
+        sandboxPolicy = turn.settings().map(AgentTurnSettings::sandboxPolicy).orElse(null);
+        maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
+        attachmentsJson = turn.settings()
+                .map(AgentTurnSettings::attachments)
+                .map(AgentAttachmentReferenceJson::encode)
+                .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         inputTokens = turn.metrics().inputTokens();
         cachedInputTokens = turn.metrics().cachedInputTokens();
@@ -156,6 +184,14 @@ public class AgentTurnEntity
 
     public AgentTurn toDomain()
     {
+        Optional<AgentTurnSettings> settings = Optional.ofNullable(maximumRuntimeMillis)
+                .map(runtime -> new AgentTurnSettings(
+                        Optional.ofNullable(requestedModel),
+                        Optional.ofNullable(effort),
+                        permissionPolicy,
+                        sandboxPolicy,
+                        Duration.ofMillis(runtime),
+                        AgentAttachmentReferenceJson.decode(attachmentsJson)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),
@@ -168,6 +204,7 @@ public class AgentTurnEntity
                 Optional.ofNullable(cancellationRequestedAt),
                 Optional.ofNullable(providerTurnReference).map(ProviderTurnRef::new),
                 Optional.ofNullable(model),
+                settings,
                 Optional.ofNullable(terminalReason),
                 new TurnMetrics(
                         inputTokens,

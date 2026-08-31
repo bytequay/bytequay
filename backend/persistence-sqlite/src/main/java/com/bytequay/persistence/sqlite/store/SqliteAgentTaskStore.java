@@ -111,6 +111,18 @@ public class SqliteAgentTaskStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        checkLimit(limit);
+        return repository.findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(workspaceId, PageRequest.of(0, limit)).stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AgentTask> listLive()
     {
         return repository.findByStateNotInOrderByCreatedAtAsc(TERMINAL_STATES).stream()

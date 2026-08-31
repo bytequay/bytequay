@@ -30,6 +30,8 @@ public interface AgentTaskJpaRepository
 {
     List<AgentTaskEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
+    List<AgentTaskEntity> findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(String workspaceId, Pageable pageable);
+
     List<AgentTaskEntity> findByStateNotInOrderByCreatedAtAsc(Collection<TaskState> states);
 
     @Query("""

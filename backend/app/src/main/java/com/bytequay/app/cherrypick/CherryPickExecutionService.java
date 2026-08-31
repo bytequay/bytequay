@@ -960,7 +960,9 @@ public class CherryPickExecutionService
                 execution.workspace().worktree(),
                 RepositoryIdentity.valueOf(execution.workspace().repository().fullName()),
                 "Cherry-pick " + execution.workspace().workBranch(),
-                AgentPermissionPolicy.CHERRY_PICK)).id();
+                AgentPermissionPolicy.CHERRY_PICK,
+                Optional.empty(),
+                false)).id();
     }
 
     /**

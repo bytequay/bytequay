@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { relativeTime } from '../relativeTime';
+import { providerAvailable } from '../settings/model';
 import type {
   AgentProviderStatus,
   CherryPickExecution,
@@ -69,7 +70,7 @@ export default function FlowView({
       .then(statuses => {
         if (!active) return;
         setProviders(statuses);
-        const preferred = statuses.find(status => status.health !== 'UNAVAILABLE') ?? statuses[0];
+        const preferred = statuses.find(status => providerAvailable(status.readiness)) ?? statuses[0];
         setLaneId(current => current || preferred?.laneId || '');
       })
       .catch(failure => {
@@ -192,7 +193,7 @@ export default function FlowView({
   const selectedProvider = providers.find(provider => provider.laneId === laneId);
   const canStart = applyItems.length > 0
     && selectedProvider !== undefined
-    && selectedProvider.health !== 'UNAVAILABLE'
+    && providerAvailable(selectedProvider.readiness)
     && !busy;
 
   const startButton = (
@@ -299,7 +300,7 @@ export default function FlowView({
               {providers.map(provider => (
                 <option key={provider.laneId} value={provider.laneId}>
                   {provider.laneId}
-                  {provider.health === 'UNAVAILABLE' ? ' · unavailable' : ''}
+                  {!providerAvailable(provider.readiness) ? ' · unavailable' : ''}
                 </option>
               ))}
             </select>

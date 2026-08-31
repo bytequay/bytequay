@@ -456,19 +456,21 @@ const noChildLaunchProfile = {
   multi_agent: false,
   multi_agent_v2: false,
 };
-
+const v1ChildLaunchProfile = {
+  name: "multi-agent-v1-enabled",
+  multi_agent: true,
+  multi_agent_v2: false,
+  agentMaxDepth: 2,
+};
+const v2ChildLaunchProfile = {
+  name: "multi-agent-v2-enabled",
+  multi_agent: false,
+  multi_agent_v2: true,
+};
 const appServerLaunchProfiles = [
   noChildLaunchProfile,
-  {
-    name: "multi-agent-v1-enabled",
-    multi_agent: true,
-    multi_agent_v2: false,
-  },
-  {
-    name: "multi-agent-v2-enabled",
-    multi_agent: false,
-    multi_agent_v2: true,
-  },
+  v1ChildLaunchProfile,
+  v2ChildLaunchProfile,
 ];
 
 const shellEnvironmentIncludeOnly = [
@@ -520,6 +522,16 @@ const backgroundEvidencePrompt =
   `Use the shell exactly once to run this exact command: ${backgroundEvidenceCommand}. ` +
   "Set yield_time_ms to 250. When it yields a running process, immediately reply exactly " +
   "bytequay-background-yielded. Do not call write_stdin or use another tool.";
+const rootChildMarker = "BYTEQUAY_ROOT_OK";
+const childMarker = "BYTEQUAY_CHILD_OK";
+const grandchildMarker = "BYTEQUAY_GRANDCHILD_OK";
+const childEvidencePrompt =
+  "This is a compatibility probe. Use only spawn and wait subagent controls. " +
+  "Spawn exactly one child and wait for it. Tell the child: 'Use only spawn and wait " +
+  "subagent controls. Spawn exactly one grandchild and wait for it. Tell the grandchild " +
+  `to use no tools, spawn no agent, and reply exactly ${grandchildMarker}. Then reply ` +
+  `exactly ${childMarker}.' After the child finishes, reply exactly ${rootChildMarker}. ` +
+  "Do not contact, interrupt, close, or resume any other agent.";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -2123,6 +2135,13 @@ function assertLaunchPolicy(response, launchProfile) {
       `feature ${feature} did not match the ${launchProfile.name} launch profile`,
     );
   }
+  if (launchProfile.agentMaxDepth !== undefined) {
+    assert.equal(
+      config.agents?.max_depth,
+      launchProfile.agentMaxDepth,
+      `effective agent depth did not match ${launchProfile.name}`,
+    );
+  }
   assert.deepEqual(
     config.shell_environment_policy,
     {
@@ -2169,6 +2188,13 @@ function assertLaunchPolicy(response, launchProfile) {
       sessionFlags.features?.[feature],
       launchProfile[feature],
       `session flags did not preserve ${feature} for ${launchProfile.name}`,
+    );
+  }
+  if (launchProfile.agentMaxDepth !== undefined) {
+    assert.equal(
+      sessionFlags.agents?.max_depth,
+      launchProfile.agentMaxDepth,
+      `session flags omitted agent depth for ${launchProfile.name}`,
     );
   }
   assert.deepEqual(
@@ -2342,12 +2368,13 @@ function canonicalPath(uri) {
   return realpathSync(fileURLToPath(uri));
 }
 
-async function completeTurn(rpc, params) {
+async function completeTurn(rpc, params, timeoutMs = 180_000) {
   const started = await rpc.request("turn/start", params);
   const completed = await rpc.waitFor(
     "turn/completed",
     (notification) => notification.threadId === params.threadId &&
       notification.turn.id === started.turn.id,
+    timeoutMs,
   );
   assert.equal(completed.turn.status, "completed", JSON.stringify(completed.turn.error));
   return completed.turn;
@@ -2473,7 +2500,27 @@ function appServerArguments(launchProfile) {
   for (const feature of ["multi_agent", "multi_agent_v2"]) {
     args.push(launchProfile[feature] ? "--enable" : "--disable", feature);
   }
+  if (launchProfile.agentMaxDepth !== undefined) {
+    args.push("-c", `agents.max_depth=${launchProfile.agentMaxDepth}`);
+  }
   return args;
+}
+
+async function verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile) {
+  const [hooks, skills, configs, requirements] = await Promise.all([
+    rpc.request("hooks/list", { cwds }),
+    rpc.request("skills/list", { cwds, forceReload: true }),
+    Promise.all(cwds.map((cwd) =>
+      rpc.request("config/read", { cwd, includeLayers: true }))),
+    rpc.request("configRequirements/read", null),
+  ]);
+  assertNoAmbientHooks(hooks, cwds);
+  assertOnlyBundledSystemSkills(skills, cwds, codexHome);
+  for (const config of configs) {
+    assertLaunchPolicy(config, launchProfile);
+    assertNoAmbientExecPolicyRules(config, codexHome);
+  }
+  assertNoManagedRequirements(requirements);
 }
 
 async function verifyCapabilityIsolation(
@@ -2483,26 +2530,15 @@ async function verifyCapabilityIsolation(
   cwds,
   launchProfile,
 ) {
-  const [mcpStatus, hooks, skills, configs, requirements] = await Promise.all([
+  const [mcpStatus] = await Promise.all([
     rpc.request("mcpServerStatus/list", {
       threadId,
       limit: 100,
       detail: "toolsAndAuthOnly",
     }),
-    rpc.request("hooks/list", { cwds }),
-    rpc.request("skills/list", { cwds, forceReload: true }),
-    Promise.all(cwds.map((cwd) =>
-      rpc.request("config/read", { cwd, includeLayers: true }))),
-    rpc.request("configRequirements/read", null),
+    verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile),
   ]);
   assert.deepEqual(mcpStatus.data, [], "isolated thread inherited MCP servers");
-  assertNoAmbientHooks(hooks, cwds);
-  assertOnlyBundledSystemSkills(skills, cwds, codexHome);
-  for (const config of configs) {
-    assertLaunchPolicy(config, launchProfile);
-    assertNoAmbientExecPolicyRules(config, codexHome);
-  }
-  assertNoManagedRequirements(requirements);
 }
 
 function commandRanIn(command, cwd, expectedCommand) {
@@ -2584,6 +2620,405 @@ function assertSingleCommandStart(items, label) {
   );
   assert.ok(activeItems[0].id, `${label} command had no item id`);
   return activeItems[0];
+}
+
+function childLaunchProfileForVersion(version) {
+  if (version === "v1") return v1ChildLaunchProfile;
+  if (version === "v2") return v2ChildLaunchProfile;
+  throw new Error(`model does not advertise a supported multi-agent version: ${version}`);
+}
+
+async function listAllModels(rpc) {
+  const models = [];
+  let cursor = null;
+  let pages = 0;
+  do {
+    const response = await rpc.request("model/list", {
+      cursor,
+      includeHidden: false,
+      limit: 100,
+    });
+    assert.ok(Array.isArray(response.data), "model/list omitted data");
+    models.push(...response.data);
+    cursor = response.nextCursor ?? null;
+    pages++;
+    assert.ok(pages <= 20, "model/list exceeded 20 pages");
+  } while (cursor);
+  return models;
+}
+
+function childThreadIds(thread, multiAgentVersion) {
+  assert.ok(["v1", "v2"].includes(multiAgentVersion));
+  const children = new Set();
+  for (const turn of thread.turns ?? []) {
+    for (const item of turn.items ?? []) {
+      if (
+        multiAgentVersion === "v1" &&
+        item.type === "collabAgentToolCall" &&
+        item.tool === "spawnAgent"
+      ) {
+        assert.equal(item.senderThreadId, thread.id, "V1 spawn sender did not own its history");
+        for (const childId of item.receiverThreadIds) {
+          assert.ok(childId && childId !== thread.id, "V1 spawn returned an invalid child ID");
+          children.add(childId);
+        }
+      }
+      if (
+        multiAgentVersion === "v2" &&
+        item.type === "subAgentActivity" &&
+        item.kind === "started"
+      ) {
+        assert.ok(
+          item.agentThreadId && item.agentThreadId !== thread.id,
+          "V2 activity returned an invalid child ID",
+        );
+        children.add(item.agentThreadId);
+      }
+    }
+  }
+  return children;
+}
+
+function childHistorySignature(threads, multiAgentVersion) {
+  return JSON.stringify(
+    [...threads.values()]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((thread) => [
+        thread.id,
+        thread.parentThreadId ?? null,
+        thread.sessionId,
+        thread.turns,
+        [...childThreadIds(thread, multiAgentVersion)].sort(),
+      ]),
+  );
+}
+
+function childHistoryDiagnostics(threads, multiAgentVersion) {
+  return JSON.stringify([...threads.values()].map((thread) => ({
+    children: [...childThreadIds(thread, multiAgentVersion)].sort(),
+    id: thread.id,
+    parentThreadId: thread.parentThreadId ?? null,
+    turns: thread.turns.map((turn) => ({
+      id: turn.id,
+      itemTypes: turn.items.map((item) => item.type),
+      status: turn.status,
+    })),
+  })));
+}
+
+async function readRecursiveChildHistory(rpc, rootThreadId, multiAgentVersion) {
+  const threads = new Map();
+  const pending = [rootThreadId];
+  while (pending.length > 0) {
+    const threadId = pending.shift();
+    if (threads.has(threadId)) continue;
+    const response = await rpc.request(
+      "thread/read",
+      { threadId, includeTurns: true },
+      10_000,
+    );
+    assert.equal(response.thread.id, threadId, "thread/read returned another thread");
+    threads.set(threadId, response.thread);
+    assert.ok(threads.size <= 3, "the child probe created more than three threads");
+    for (const childId of childThreadIds(response.thread, multiAgentVersion)) {
+      if (!threads.has(childId) && !pending.includes(childId)) pending.push(childId);
+    }
+  }
+  return threads;
+}
+
+async function waitForRecursiveChildHistory(
+  rpc,
+  rootThreadId,
+  multiAgentVersion,
+  timeoutMs = 60_000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let previousSignature = null;
+  let latest = new Map();
+  let latestFailure;
+  while (Date.now() < deadline) {
+    try {
+      latest = await readRecursiveChildHistory(rpc, rootThreadId, multiAgentVersion);
+    } catch (error) {
+      latestFailure = error;
+      previousSignature = null;
+      await delay(250);
+      continue;
+    }
+    latestFailure = undefined;
+    const signature = childHistorySignature(latest, multiAgentVersion);
+    const complete = [...latest.values()].every(
+      (thread) => thread.turns.length === 1 && thread.turns[0].status === "completed",
+    );
+    if (latest.size === 3 && complete) {
+      try {
+        assertChildTree(latest, rootThreadId, multiAgentVersion);
+        if (signature === previousSignature) return latest;
+      } catch (error) {
+        latestFailure = error;
+      }
+    }
+    previousSignature = signature;
+    await delay(250);
+  }
+  throw new Error(
+    `recursive child history did not reach a stable completed tree: ` +
+      `${latestFailure?.message ?? childHistoryDiagnostics(latest, multiAgentVersion)}`,
+  );
+}
+
+function assertChildActivity(thread, childId, multiAgentVersion) {
+  const items = thread.turns.flatMap((turn) => turn.items);
+  if (multiAgentVersion === "v1") {
+    const spawns = items.filter(
+      (item) => item.type === "collabAgentToolCall" &&
+        item.tool === "spawnAgent" &&
+        item.receiverThreadIds.includes(childId),
+    );
+    assert.equal(spawns.length, 1, `${thread.id} did not record exactly one V1 spawn`);
+    assert.equal(spawns[0].senderThreadId, thread.id);
+    assert.deepEqual(spawns[0].receiverThreadIds, [childId]);
+    assert.equal(spawns[0].status, "completed");
+    assert.ok(spawns[0].agentsStates[childId], "V1 spawn omitted the child state");
+    return null;
+  }
+
+  const activities = items.filter(
+    (item) => item.type === "subAgentActivity" && item.agentThreadId === childId,
+  );
+  assert.ok(activities.length > 0, `${thread.id} did not record V2 child activity`);
+  assert.equal(
+    activities.filter((item) => item.kind === "started").length,
+    1,
+    `${thread.id} did not record exactly one V2 child start`,
+  );
+  const paths = new Set(activities.map((item) => item.agentPath));
+  assert.equal(paths.size, 1, `${thread.id} changed the V2 child path`);
+  const path = [...paths][0];
+  assert.ok(path.startsWith("/"), `${thread.id} returned a non-absolute V2 child path`);
+  return path;
+}
+
+function assertChildTree(threads, rootThreadId, multiAgentVersion) {
+  assert.equal(threads.size, 3, "child history did not contain exactly three threads");
+  const root = threads.get(rootThreadId);
+  assert.ok(root, "child history omitted the root");
+  assert.equal(root.parentThreadId ?? null, null, "root unexpectedly has a parent");
+  const rootChildren = [...childThreadIds(root, multiAgentVersion)];
+  assert.equal(rootChildren.length, 1, "root did not create exactly one child");
+  const child = threads.get(rootChildren[0]);
+  assert.ok(child, "child history was not loaded");
+  assert.equal(child.parentThreadId, root.id, "child direct parent changed");
+  const childChildren = [...childThreadIds(child, multiAgentVersion)];
+  assert.equal(childChildren.length, 1, "child did not create exactly one grandchild");
+  const grandchild = threads.get(childChildren[0]);
+  assert.ok(grandchild, "grandchild history was not loaded");
+  assert.equal(grandchild.parentThreadId, child.id, "grandchild direct parent changed");
+  assert.deepEqual(
+    [...childThreadIds(grandchild, multiAgentVersion)],
+    [],
+    "grandchild created another agent",
+  );
+
+  const markers = new Map([
+    [root.id, rootChildMarker],
+    [child.id, childMarker],
+    [grandchild.id, grandchildMarker],
+  ]);
+  const collaborationItemType = multiAgentVersion === "v1"
+    ? "collabAgentToolCall"
+    : "subAgentActivity";
+  const allowedItemTypes = new Set([...passiveTurnItemTypes, collaborationItemType]);
+  const knownThreadIds = new Set(threads.keys());
+  const v2Paths = new Map();
+  for (const thread of threads.values()) {
+    assert.equal(thread.sessionId, root.sessionId, `${thread.id} left the root session tree`);
+    assert.equal(thread.turns.length, 1, `${thread.id} did not have exactly one turn`);
+    assert.equal(thread.turns[0].status, "completed", `${thread.id} turn did not complete`);
+    const items = thread.turns.flatMap((turn) => turn.items);
+    const messages = items.filter((item) => item.type === "agentMessage");
+    assert.ok(messages.length > 0, `${thread.id} omitted its completion message`);
+    assert.equal(
+      messages.at(-1).text.trim(),
+      markers.get(thread.id),
+      `${thread.id} did not end with its exact completion marker`,
+    );
+    for (const item of items) {
+      assert.ok(
+        allowedItemTypes.has(item.type),
+        `${thread.id} used disallowed or unknown item type ${item.type}`,
+      );
+      if (item.type === "collabAgentToolCall") {
+        assert.ok(
+          item.tool === "spawnAgent" || item.tool === "wait",
+          `${thread.id} used disallowed V1 collaboration tool ${item.tool}`,
+        );
+        assert.equal(item.status, "completed", `${thread.id} has incomplete V1 activity`);
+        assert.equal(item.senderThreadId, thread.id, `${thread.id} has foreign V1 activity`);
+        for (const receiverThreadId of item.receiverThreadIds) {
+          assert.ok(
+            knownThreadIds.has(receiverThreadId),
+            `${thread.id} contacted unknown V1 thread ${receiverThreadId}`,
+          );
+        }
+        for (const agentThreadId of Object.keys(item.agentsStates)) {
+          assert.ok(
+            knownThreadIds.has(agentThreadId),
+            `${thread.id} reported unknown V1 agent ${agentThreadId}`,
+          );
+        }
+      }
+      if (item.type === "subAgentActivity") {
+        assert.notEqual(item.kind, "interrupted", `${thread.id} has interrupted V2 activity`);
+        assert.ok(
+          knownThreadIds.has(item.agentThreadId),
+          `${thread.id} contacted unknown V2 thread ${item.agentThreadId}`,
+        );
+        assert.ok(item.agentPath.startsWith("/"), `${thread.id} has non-absolute V2 activity`);
+        const previousPath = v2Paths.get(item.agentThreadId);
+        assert.ok(
+          previousPath === undefined || previousPath === item.agentPath,
+          `${item.agentThreadId} changed V2 path`,
+        );
+        v2Paths.set(item.agentThreadId, item.agentPath);
+      }
+    }
+  }
+
+  if (multiAgentVersion === "v1") {
+    assert.ok(
+      grandchild.turns[0].items.every((item) => item.type !== "collabAgentToolCall"),
+      "V1 grandchild used a collaboration tool",
+    );
+  }
+
+  const childPath = assertChildActivity(root, child.id, multiAgentVersion);
+  const grandchildPath = assertChildActivity(child, grandchild.id, multiAgentVersion);
+  if (multiAgentVersion === "v2") {
+    assert.ok(
+      grandchildPath.startsWith(`${childPath}/`),
+      "V2 grandchild path is not nested beneath the child",
+    );
+  }
+}
+
+async function assertNoChildBackgroundTerminals(rpc, threadIds) {
+  for (const threadId of threadIds) {
+    let cursor = null;
+    let pages = 0;
+    do {
+      const response = await rpc.request("thread/backgroundTerminals/list", {
+        cursor,
+        limit: 100,
+        threadId,
+      });
+      assert.deepEqual(response.data, [], `${threadId} has a background terminal`);
+      cursor = response.nextCursor ?? null;
+      pages++;
+      assert.ok(pages <= 20, `${threadId} background terminals exceeded 20 pages`);
+    } while (cursor);
+  }
+}
+
+function checkChildHistoryHelpers() {
+  const thread = (id, parentThreadId, marker, items) => ({
+    id,
+    parentThreadId,
+    sessionId: "synthetic-session",
+    turns: [{
+      id: `turn-${id}`,
+      status: "completed",
+      items: [...items, { type: "agentMessage", text: marker }],
+    }],
+  });
+  const v1Spawn = (senderThreadId, receiverThreadId) => ({
+    type: "collabAgentToolCall",
+    tool: "spawnAgent",
+    status: "completed",
+    senderThreadId,
+    receiverThreadIds: [receiverThreadId],
+    agentsStates: { [receiverThreadId]: { status: "completed" } },
+  });
+  const v1Root = thread(
+    "root-v1",
+    null,
+    rootChildMarker,
+    [v1Spawn("root-v1", "child-v1")],
+  );
+  const v1Child = thread(
+    "child-v1",
+    "root-v1",
+    childMarker,
+    [v1Spawn("child-v1", "grandchild-v1")],
+  );
+  const v1Grandchild = thread(
+    "grandchild-v1",
+    "child-v1",
+    grandchildMarker,
+    [],
+  );
+  assertChildTree(new Map([
+    [v1Root.id, v1Root],
+    [v1Child.id, v1Child],
+    [v1Grandchild.id, v1Grandchild],
+  ]), v1Root.id, "v1");
+
+  const v2Activity = (agentThreadId, agentPath, kind) => ({
+    type: "subAgentActivity",
+    agentThreadId,
+    agentPath,
+    kind,
+  });
+  const v2Root = thread(
+    "root-v2",
+    null,
+    rootChildMarker,
+    [v2Activity("child-v2", "/child-v2", "started")],
+  );
+  const v2Child = thread(
+    "child-v2",
+    "root-v2",
+    childMarker,
+    [
+      v2Activity("root-v2", "/", "interacted"),
+      v2Activity("grandchild-v2", "/child-v2/grandchild-v2", "started"),
+    ],
+  );
+  const v2Grandchild = thread(
+    "grandchild-v2",
+    "child-v2",
+    grandchildMarker,
+    [v2Activity("child-v2", "/child-v2", "interacted")],
+  );
+  assert.deepEqual([...childThreadIds(v2Child, "v2")], ["grandchild-v2"]);
+  const v2Threads = new Map([
+    [v2Root.id, v2Root],
+    [v2Child.id, v2Child],
+    [v2Grandchild.id, v2Grandchild],
+  ]);
+  assertChildTree(v2Threads, v2Root.id, "v2");
+  const poisonedRoot = {
+    ...v2Root,
+    turns: [{
+      ...v2Root.turns[0],
+      items: [{ type: "commandExecution" }, ...v2Root.turns[0].items],
+    }],
+  };
+  const poisonedThreads = new Map(v2Threads).set(poisonedRoot.id, poisonedRoot);
+  assert.notEqual(
+    childHistorySignature(v2Threads, "v2"),
+    childHistorySignature(poisonedThreads, "v2"),
+    "child history signature ignored an item change",
+  );
+  assert.throws(
+    () => assertChildTree(poisonedThreads, poisonedRoot.id, "v2"),
+    /disallowed or unknown item type commandExecution/,
+  );
+
+  assert.equal(childLaunchProfileForVersion("v1").multi_agent, true);
+  assert.equal(childLaunchProfileForVersion("v1").agentMaxDepth, 2);
+  assert.equal(childLaunchProfileForVersion("v2").multi_agent_v2, true);
 }
 
 async function liveCompatibilityCheck() {
@@ -3212,19 +3647,286 @@ async function liveCompatibilityCheck() {
   if (failure) throw failure;
 }
 
+async function liveChildrenCompatibilityCheck() {
+  const root = mkdtempSync(join(tmpdir(), "bytequay-codex-live-children-"));
+  const cwd = join(root, "environment");
+
+  let appServer;
+  let execServer;
+  let rpc;
+  let failure;
+  let interruptedSignal;
+  let rejectInterruption;
+  const signalErrors = [];
+  const children = new Set();
+  const interruption = new Promise((_, reject) => {
+    rejectInterruption = reject;
+  });
+  void interruption.catch(() => {});
+  const interruptible = (promise) => Promise.race([promise, interruption]);
+  const registerChild = (child) => {
+    children.add(child);
+    if (interruptedSignal) {
+      try {
+        signalProcessGroup(child.pid, "SIGKILL");
+      } catch (error) {
+        signalErrors.push(error);
+      }
+    }
+  };
+  const stopRegisteredChild = async (child) => {
+    await stopProcess(child);
+    children.delete(child);
+  };
+  const handleSignal = (signal) => {
+    const firstSignal = !interruptedSignal;
+    interruptedSignal ??= signal;
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+    if (firstSignal) rejectInterruption(new Error(`received ${signal}`));
+    for (const child of children) {
+      try {
+        signalProcessGroup(child.pid, firstSignal ? "SIGTERM" : "SIGKILL");
+      } catch (error) {
+        signalErrors.push(error);
+      }
+    }
+  };
+  const handleSigint = () => handleSignal("SIGINT");
+  const handleSigterm = () => handleSignal("SIGTERM");
+  process.on("SIGINT", handleSigint);
+  process.on("SIGTERM", handleSigterm);
+  try {
+    const apiKey = requiredLiveApiKey();
+    mkdirSync(cwd);
+    const codexHome = createIsolatedCodexHome(root);
+    const appServerEnvironment = appServerProcessEnvironment(root, codexHome, apiKey);
+    const executor = executorProcessEnvironment(root, "exec", cwd);
+    initializeDisposableGitWorktree(cwd, executor.environment);
+    assert.equal(existsSync(join(codexHome, "auth.json")), false);
+    assert.equal(existsSync(join(executor.codexHome, "auth.json")), false);
+
+    ({ child: appServer, rpc } = await interruptible(
+      startAppServer(
+        root,
+        appServerEnvironment,
+        registerChild,
+        noChildLaunchProfile,
+      ),
+    ));
+    await interruptible(
+      verifyPreThreadIsolation(rpc, codexHome, [cwd], noChildLaunchProfile),
+    );
+    const models = await interruptible(listAllModels(rpc));
+    const childCapableModels = models.filter(
+      (candidate) =>
+        !candidate.hidden &&
+        candidate.inputModalities?.includes("text") &&
+        ["v1", "v2"].includes(candidate.multiAgentVersion),
+    );
+    const model = childCapableModels.find((candidate) => candidate.isDefault) ??
+      childCapableModels[0];
+    assert.ok(model, "model/list returned no visible text model with V1 or V2 multi-agent");
+    assert.ok(model.model, "selected child-capable model omitted its provider model ID");
+    assert.ok(model.supportedReasoningEfforts.length > 0);
+    assert.ok(
+      model.supportedReasoningEfforts.some(
+        (option) => option.reasoningEffort === model.defaultReasoningEffort,
+      ),
+      "child-capable model default effort is not advertised",
+    );
+    const launchProfile = childLaunchProfileForVersion(model.multiAgentVersion);
+    await interruptible(stopRegisteredChild(appServer));
+    appServer = undefined;
+    rpc = undefined;
+
+    execServer = await interruptible(
+      startExecServer(cwd, executor.environment, registerChild),
+    );
+    ({ child: appServer, rpc } = await interruptible(
+      startAppServer(root, appServerEnvironment, registerChild, launchProfile),
+    ));
+    const selectedModels = await interruptible(listAllModels(rpc));
+    const selectedModel = selectedModels.find(
+      (candidate) => candidate.id === model.id && candidate.model === model.model,
+    );
+    assert.ok(selectedModel, "selected child-capable model disappeared after restart");
+    assert.equal(selectedModel.hidden, false, "selected model became hidden after restart");
+    assert.ok(
+      selectedModel.inputModalities?.includes("text"),
+      "selected model lost text input after restart",
+    );
+    assert.equal(
+      selectedModel.multiAgentVersion,
+      model.multiAgentVersion,
+      "selected model changed multi-agent version after restart",
+    );
+    assert.ok(selectedModel.supportedReasoningEfforts.length > 0);
+    assert.ok(
+      selectedModel.supportedReasoningEfforts.some(
+        (option) => option.reasoningEffort === selectedModel.defaultReasoningEffort,
+      ),
+      "selected model default effort changed to an unadvertised value after restart",
+    );
+    await interruptible(
+      verifyPreThreadIsolation(rpc, codexHome, [cwd], launchProfile),
+    );
+
+    const environment = {
+      environmentId: "bytequay-cp1-children",
+      cwd,
+      runtimeWorkspaceRoots: [cwd],
+    };
+    await interruptible(rpc.request("environment/add", {
+      environmentId: environment.environmentId,
+      execServerUrl: execServer.url,
+      connectTimeoutMs: 10_000,
+    }));
+    const environmentInfo = await interruptible(rpc.request("environment/info", {
+      environmentId: environment.environmentId,
+    }));
+    assert.equal(canonicalPath(environmentInfo.cwd), realpathSync(cwd));
+    assert.ok(environmentInfo.shell.name && environmentInfo.shell.path);
+
+    const started = await interruptible(rpc.request("thread/start", {
+      cwd,
+      model: selectedModel.model,
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
+      ephemeral: false,
+      serviceName: "ByteQuay CP1 recursive-child fixture",
+      dynamicTools: [],
+      selectedCapabilityRoots: [],
+      environments: [environment],
+    }));
+    const rootThreadId = started.thread.id;
+    await interruptible(
+      verifyCapabilityIsolation(rpc, rootThreadId, codexHome, [cwd], launchProfile),
+    );
+
+    const rootTurn = await interruptible(completeTurn(rpc, {
+      threadId: rootThreadId,
+      input: [{
+        type: "text",
+        text: childEvidencePrompt,
+        text_elements: [],
+      }],
+      model: selectedModel.model,
+      effort: selectedModel.defaultReasoningEffort,
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      cwd,
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [cwd],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
+      environments: [environment],
+    }, 300_000));
+    const histories = await interruptible(
+      waitForRecursiveChildHistory(
+        rpc,
+        rootThreadId,
+        selectedModel.multiAgentVersion,
+      ),
+    );
+    assert.ok(
+      histories.get(rootThreadId).turns.some((turn) => turn.id === rootTurn.id),
+      "root history omitted the completed root turn",
+    );
+    assertChildTree(histories, rootThreadId, selectedModel.multiAgentVersion);
+    await interruptible(assertNoChildBackgroundTerminals(rpc, [...histories.keys()]));
+    assert.equal(rpc.serverRequests.length, 0, "child probe received an approval request");
+    assert.equal(
+      run("git", ["status", "--short", "--untracked-files=all"], {
+        cwd,
+        env: executor.environment,
+      }),
+      "",
+      "child probe changed the disposable Git worktree",
+    );
+    assertRuntimeHealthy(rpc, [["child environment", execServer]]);
+    assert.equal(
+      existsSync(join(codexHome, "auth.json")),
+      false,
+      "child App Server persisted the dedicated credential to auth.json",
+    );
+    assert.equal(existsSync(join(executor.codexHome, "auth.json")), false);
+
+    console.log(
+      `PASS live recursive child history ` +
+        `(${selectedModel.model}, ${selectedModel.multiAgentVersion})`,
+    );
+    console.log("PASS exactly one root child and one grandchild with completed markers");
+    console.log("PASS child profile isolation, clean worktree, and empty background terminals");
+  } catch (error) {
+    failure = error;
+  } finally {
+    const cleanupErrors = [];
+    try {
+      if (appServer?.stdin.writable) appServer.stdin.end();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    const processResults = await Promise.allSettled(
+      [...children].map((child) => stopProcess(child)),
+    );
+    let everyProcessGroupStopped = true;
+    for (const result of processResults) {
+      if (result.status === "rejected") {
+        everyProcessGroupStopped = false;
+        cleanupErrors.push(result.reason);
+      }
+    }
+    if (everyProcessGroupStopped) {
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    } else {
+      cleanupErrors.push(
+        new Error(`retained ${root} because a process group did not stop`),
+      );
+    }
+    if (interruptedSignal) {
+      cleanupErrors.push(new Error(`received ${interruptedSignal}`), ...signalErrors);
+    }
+    if (cleanupErrors.length > 0) {
+      failure = new AggregateError(
+        failure ? [failure, ...cleanupErrors] : cleanupErrors,
+        interruptedSignal
+          ? "live child compatibility check interrupted"
+          : "live child compatibility check cleanup failed",
+      );
+    }
+    process.off("SIGINT", handleSigint);
+    process.off("SIGTERM", handleSigterm);
+  }
+  if (failure) throw failure;
+}
+
 async function main() {
   const flags = new Set(process.argv.slice(2));
   for (const flag of flags) {
     assert.ok(
-      flag === "--live" || flag === "--update-bindings",
+      flag === "--live" || flag === "--live-children" || flag === "--update-bindings",
       `unknown option ${flag}`,
     );
   }
+  assert.ok(
+    !(flags.has("--live") && flags.has("--live-children")),
+    "--live and --live-children are separate provider-cost gates",
+  );
   staticCompatibilityCheck(flags.has("--update-bindings"));
+  checkChildHistoryHelpers();
   for (const launchProfile of appServerLaunchProfiles) {
     await checkAppServerConfigSourceIsolation(launchProfile);
   }
   if (flags.has("--live")) await liveCompatibilityCheck();
+  if (flags.has("--live-children")) await liveChildrenCompatibilityCheck();
 }
 
 main().catch((error) => {

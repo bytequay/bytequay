@@ -250,6 +250,10 @@ background terminal with targeted termination, child recursion, disk-backed
 restart recovery, cross-task event/approval/command/filesystem isolation, a
 safe live rerun with a dedicated API key that proves key isolation, and the
 written go/no-go result remain open.
+The checked-in fixture now has a separate `--live-children` path for the
+recursive proof, but this host has no dedicated compatibility API key and has
+not run it. Adding the executable gate is progress; only a passing live run
+closes child recursion.
 Production adoption of the shared isolation guards and a CP1-approved
 child-capable launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
@@ -302,8 +306,10 @@ effective, not merely present in command arguments: no child features,
 report one active `sessionFlags` layer and matching effective values for the
 selected multi-agent shape plus every disabled optional feature, disabled web
 search, empty MCP configuration, host-skill-discovery disable, and the minimal
-shell environment. `hooks/list` must be empty and error-free for the requested
-cwd. `skills/list` may return only bundled system skills whose canonical paths
+shell environment. The V1 profile additionally sets and verifies
+`agents.max_depth=2`, which is the bounded depth required for its grandchild
+proof. `hooks/list` must be empty and error-free for the requested cwd.
+`skills/list` may return only bundled system skills whose canonical paths
 remain beneath the isolated `CODEX_HOME/skills/.system`; it rejects every host,
 repository, plugin-owned, or out-of-root skill without pinning names or count.
 Synthetic poison cases exercise those rejection branches. This proves profile
@@ -385,6 +391,11 @@ Implementation:
 - [x] Start separate credential-free no-child, V1-only, and V2-only launch
   profiles and repeat the pre-thread config, managed-policy, rule, skill, and
   hook isolation assertions for each one.
+- [x] Add a separate dedicated-key `--live-children` path that discovers the
+  model's V1/V2 profile under the no-child baseline, restarts with only that
+  feature, sets and verifies the V1 depth-two requirement when applicable, and
+  fail-closed checks a bounded root/child/grandchild history,
+  markers, item types, approvals, worktree state, and background terminals.
 - [ ] Exercise recursive child discovery needed by the later quiescence
   barrier. Select only the child-capable profile advertised by the live model,
   then prove root, child, and grandchild history; profile selection alone

@@ -59,7 +59,14 @@ Before any thread exists, that probe repeats `config/read`, `skills/list`, and
 features disabled, only `multi_agent` enabled, and only `multi_agent_v2`
 enabled. Each process must report exactly one active `sessionFlags` layer whose
 multi-agent values match that launch profile and whose other optional features
-remain disabled. Disabled web search, host-skill-discovery disable, and the
+remain disabled. The V1 profile also fixes and verifies `agents.max_depth=2`,
+because [v0.151 defaults that value to
+one](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/core/src/config/mod.rs#L232)
+and its [V1 spawn handler rejects the next depth above that
+limit](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/core/src/tools/handlers/multi_agents/spawn.rs#L63-L70),
+so the default permits a root child but not that child's required grandchild;
+V2 does not use this V1 depth gate. Disabled web search,
+host-skill-discovery disable, and the
 minimal shell-environment policy must appear in both the session flags and the
 effective config, with an empty MCP-server map and no inherited shell
 environment setters, exclusions, or filters. Hook discovery must return one
@@ -130,14 +137,26 @@ This does not subscribe to child threads, build a graph, or publish V2
 activity; those runtime behaviors remain behind the live child-capable proof
 and later integration checkpoints.
 
-Run the live gate only with a dedicated API key that may make two model turns:
+Run the no-child live gate only with a dedicated API key. It makes two task
+turns and may make multiple provider requests:
 
 ```text
 BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
   node scripts/codex-app-server-compat.mjs --live
 ```
 
-The live gate initially starts one App Server and two version-matched loopback
+Run the recursive-child gate separately. It creates one root, one child, and
+one grandchild turn and may make multiple provider requests:
+
+```text
+BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
+  node scripts/codex-app-server-compat.mjs --live-children
+```
+
+The two live modes are intentionally mutually exclusive so their provider
+cost and evidence remain attributable.
+
+The `--live` gate initially starts one App Server and two version-matched loopback
 `exec-server` processes, each rooted in a clean disposable Git repository. It
 passes the dedicated key only to the App Server as
 `CODEX_API_KEY`; no credential is copied to disk. Each executor receives a
@@ -150,13 +169,33 @@ optional tools. Before each turn and again after restart, it repeats the
 effective launch-policy, skill-origin, hook, config-source, and managed-policy
 checks for every task cwd, then verifies that the thread sees no MCP servers.
 
-This live path is intentionally a no-child isolation baseline. The keyless
+The `--live` path is intentionally a no-child isolation baseline. The keyless
 probe proves that either child-capable launch profile can enable exactly one
 reviewed multi-agent feature while repeating every pre-thread isolation check.
-It still cannot close the recursive-child gate: a separate dedicated-key run
-must select the one protocol advertised by the chosen model and prove actual
-root, child, and grandchild discovery before that profile can become the
-production candidate.
+
+The `--live-children` path first starts the no-child profile, repeats the
+pre-thread isolation checks, pages `model/list`, and chooses a visible
+text-capable model that advertises V1 or V2 multi-agent support. It then
+restarts App Server with only that matching multi-agent feature enabled,
+repeats the isolation checks, registers one disposable Git environment, and
+sends one bounded root turn. The V1 launch also retains the verified
+`agents.max_depth=2` override required for the grandchild. Recursive
+`thread/read(includeTurns: true)` is the canonical discovery source. The gate
+reads every V1 `spawnAgent` or V2
+`started` edge to a fixed point and requires exactly root, child, and
+grandchild in one session with direct-parent identity, one completed turn
+each, and exact final markers. V2 upward `interacted` activity never creates a
+child edge. Only passive transcript items and the selected collaboration item
+type are accepted; unknown or execution-capable items fail closed. The gate
+also requires no approvals, no Git mutation, and an empty paginated
+background-terminal list for all three threads. This implements the live
+proof path but does not close the recursive-child gate until a dedicated-key
+run passes. The normal keyless command feeds synthetic V1 and V2 trees,
+including V2 upward `interacted` activity, through the same graph assertions;
+that is regression coverage for the checker, not model-behavior evidence.
+The bounded prompt asks each parent to wait to reduce nondeterminism, but V2
+history does not expose a distinct wait item. Acceptance therefore proves the
+topology and eventual terminal fixed point, not wait-call causality.
 
 It initializes with `experimentalApi`, reads the model catalog, registers and
 handshakes two temporary working directories, and starts one durable fixture
@@ -235,9 +274,10 @@ PASS empty background-terminal list and cleanup
 That run exposed a fixture-design risk: copying a rotating ChatGPT login can
 consume a refresh token in the disposable copy and invalidate the user's
 original login. The checked-in fixture therefore never copies `auth.json` and
-requires a dedicated API key. The final live gate still needs a run with that
-credential; the subscription-auth run is protocol evidence, not acceptance of
-the unsafe credential technique.
+requires a dedicated API key. Both checked-in live modes still need a run with
+that credential; the subscription-auth run is protocol evidence, not
+acceptance of the unsafe credential technique. The recursive-child mode has
+not been run on this host and makes no behavioral PASS claim yet.
 
 This is a **GO candidate for the tested CP1 reference slice**: the pinned
 binary supplies the environment registration and task/history primitives
@@ -249,9 +289,10 @@ recursive child discovery, cross-task event/approval/command/filesystem
 isolation, API-key isolation, and the written go/no-go result remain separate
 CP1 evidence. Offline
 approval codec coverage does not close either live gate. The keyless profile
-checks prove only launch-policy selection; production adoption of the
-executable guards and a behaviorally proven child-capable profile belongs to
-CP4. The safe no-child live path is now also
+checks prove only launch-policy selection; `--live-children` now supplies the
+bounded behavioral gate, but production adoption of the executable guards and
+its child-capable profile belongs to CP4 only after that gate passes. The safe
+no-child live path is now also
 configured to exercise one typed parent-command approval and one bounded
 Git-worktree mutation per repository without adding a model turn. It uses the
 second turn for the yielded-terminal proof and reuses the same durable thread

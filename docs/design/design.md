@@ -145,4 +145,6 @@ evidence. That gate also verifies the effective no-child isolation baseline,
 empty hook and MCP configuration, and permits only bundled system skills rooted
 in the isolated `CODEX_HOME`. Because the baseline disables multi-agent, CP1
 must separately prove a child-capable profile with the same readiness checks
-before CP1 completes or CP2 begins.
+before CP1 completes or CP2 begins. The compatibility fixture now provides an
+opt-in dedicated-key recursive-child gate for that proof; its presence is not
+evidence until the live run passes.

@@ -2241,7 +2241,10 @@ The connection and task sequence is:
    environment. This is a baseline, not the production subagent profile. Before
    CP1 completes or CP2 begins, the fixture must separately prove a
    child-capable profile that enables only the reviewed multi-agent feature
-   shape and repeats every isolation assertion.
+   shape and repeats every isolation assertion. The separate
+   `--live-children` fixture path performs that bounded root/child/grandchild
+   proof with a dedicated API key; its V1 profile sets and verifies
+   `agents.max_depth=2`, and only a passing run is evidence.
    Before creating a thread, call `config/read(includeLayers: true)` and require
    exactly one `sessionFlags` layer with the same effective feature and shell
    policy, an empty MCP-server map, and no inherited shell setters, exclusions,
@@ -2478,7 +2481,9 @@ shell environment, empty MCP and hook configuration, and isolated
 bundled-system-skill origin before creating a thread. Synthetic poison cases
 exercise the rejection branches. This baseline is not the final subagent
 profile; production adoption waits for the separate CP1 child-capable proof and
-belongs to CP4.
+belongs to CP4. The fixture now contains an opt-in `--live-children` path that
+selects the model-advertised V1/V2 profile and validates recursive history,
+but it has not passed on this host without the required dedicated API key.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for

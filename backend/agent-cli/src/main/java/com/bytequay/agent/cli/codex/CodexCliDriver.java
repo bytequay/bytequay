@@ -246,7 +246,7 @@ public final class CodexCliDriver
                             entry.supportedReasoningEfforts().stream()
                                     .map(CodexProtocol.ReasoningEffortOption::reasoningEffort)
                                     .collect(toImmutableList()),
-                            entry.defaultReasoningEffort(),
+                            Optional.of(entry.defaultReasoningEffort()),
                             entry.isDefault()))
                     .collect(toImmutableList());
         }

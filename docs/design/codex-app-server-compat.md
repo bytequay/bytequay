@@ -3,8 +3,10 @@
 ByteQuay's compatibility candidate is exactly `codex-cli 0.151.0`. The
 executable contract lives in `scripts/codex-app-server-compat.mjs`; its checked-in
 metadata records the schema-generation command and the SHA-256 hashes of both
-stable and experimental generated bundles. The fixture does not vendor a second
-copy of the 413 generated schema files.
+stable and experimental generated bundles. From those exact bundles, the
+fixture derives one compact committed projection manifest for only the Java
+records, fields, and enums ByteQuay consumes. It does not vendor the 413
+generated schema files or 820 generated TypeScript files.
 
 This is a reference-only development fixture, not a production readiness or
 version gate. Production uses the user-managed Codex CLI, keeps its startup
@@ -19,11 +21,28 @@ node scripts/codex-app-server-compat.mjs
 ```
 
 It rejects any other version, regenerates both schema variants in a new system
-temporary directory, checks their hashes and required fields, proves that the
-environment and background-terminal methods remain experimental, and removes
-the temporary directory. These offline Codex subprocesses also use a minimal
-allowlisted environment and an empty temporary `CODEX_HOME`; API-key variables
-from the caller are not inherited.
+temporary directory, checks their hashes and required fields, derives the
+compact projection again, and requires it to equal the committed
+`backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json`.
+It also proves that the environment and background-terminal methods remain
+experimental, then removes the temporary schemas. These offline Codex
+subprocesses use a minimal allowlisted environment and an empty temporary
+`CODEX_HOME`; API-key variables from the caller are not inherited.
+
+Regenerate the committed projection only when intentionally updating the exact
+reference contract:
+
+```text
+node scripts/codex-app-server-compat.mjs --update-bindings
+```
+
+The normal command verifies rather than rewrites the manifest. The
+`agent-cli` conformance test then uses reflection and real codec calls to
+require the projected Java record components, wire names, required/null
+behavior, and known enum values. Decoding remains tolerant of additive object
+fields, and each projected enum maps an unknown future wire value to
+`UNKNOWN`. This reference check never validates or rejects the user's
+production Codex version.
 
 Run the live gate only with a dedicated API key that may make two model turns:
 
@@ -99,6 +118,7 @@ slice also passed on 2026-08-30 with ChatGPT authentication and the advertised
 default model `gpt-5.6-sol`:
 
 ```text
+PASS compact Java projection matches the exact generated schema
 PASS exact Codex version 0.151.0
 PASS generated stable and experimental schema (codex app-server generate-json-schema --experimental --out <temporary-directory>)
 PASS live initialize and model/list (gpt-5.6-sol)

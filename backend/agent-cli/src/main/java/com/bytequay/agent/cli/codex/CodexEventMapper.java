@@ -288,7 +288,7 @@ final class CodexEventMapper
         return switch (status) {
             case IN_PROGRESS -> ProviderAgentEvent.ActivityState.PROGRESS;
             case COMPLETED -> ProviderAgentEvent.ActivityState.COMPLETED;
-            case FAILED, DECLINED, UNKNOWN -> ProviderAgentEvent.ActivityState.FAILED;
+            case FAILED, DECLINED, INTERRUPTED, UNKNOWN -> ProviderAgentEvent.ActivityState.FAILED;
         };
     }
 

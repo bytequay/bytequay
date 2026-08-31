@@ -1,0 +1,1757 @@
+{
+  "formatVersion": 1,
+  "codexVersion": "0.151.0",
+  "bundleSha256": {
+    "stable": "424b204943b18e5ffa52667a2aa397c9950730ec1e49ad767e2a016743990541",
+    "stableV2": "2442b15801bc019ad55987ad03e0f0ae60c51417825b9b6d708db640e6c2651c",
+    "experimental": "31ae67beb2c94cc9509f6a71968600062dc8c6d7fe45437ed3a9129838f4d2d9",
+    "experimentalV2": "a586cdc50f84c56c7654387e869b470a689796fa1c57678dcafb5921bb2d5255"
+  },
+  "records": [
+    {
+      "javaType": "TurnStartedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=turn/started]"
+      ],
+      "context": {
+        "method": "turn/started"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "threadId": "value",
+            "turn": {
+              "id": "value",
+              "items": [],
+              "status": "completed"
+            }
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "TurnCompletedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=turn/completed]"
+      ],
+      "context": {
+        "method": "turn/completed"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "threadId": "value",
+            "turn": {
+              "id": "value",
+              "items": [],
+              "status": "completed"
+            }
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "ItemStartedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/started]"
+      ],
+      "context": {
+        "method": "item/started"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "item": {
+              "command": "value",
+              "commandActions": [],
+              "cwd": "value",
+              "id": "value",
+              "status": "inProgress",
+              "type": "commandExecution"
+            },
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "ItemCompletedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/completed]"
+      ],
+      "context": {
+        "method": "item/completed"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "completedAtMs": 1,
+            "item": {
+              "command": "value",
+              "commandActions": [],
+              "cwd": "value",
+              "id": "value",
+              "status": "inProgress",
+              "type": "commandExecution"
+            },
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "CommandOutputNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/commandExecution/outputDelta]"
+      ],
+      "context": {
+        "method": "item/commandExecution/outputDelta"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "delta": "value",
+            "itemId": "value",
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "AgentMessageDeltaNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/agentMessage/delta]"
+      ],
+      "context": {
+        "method": "item/agentMessage/delta"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "delta": "value",
+            "itemId": "value",
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "PlanUpdatedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=turn/plan/updated]"
+      ],
+      "context": {
+        "method": "turn/plan/updated"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "plan": [],
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "TokenUsageUpdatedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=thread/tokenUsage/updated]"
+      ],
+      "context": {
+        "method": "thread/tokenUsage/updated"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "threadId": "value",
+            "tokenUsage": {
+              "last": {
+                "cachedInputTokens": 1,
+                "inputTokens": 1,
+                "outputTokens": 1,
+                "reasoningOutputTokens": 1,
+                "totalTokens": 1
+              },
+              "total": {
+                "cachedInputTokens": 1,
+                "inputTokens": 1,
+                "outputTokens": 1,
+                "reasoningOutputTokens": 1,
+                "totalTokens": 1
+              }
+            },
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "ErrorNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=error]"
+      ],
+      "context": {
+        "method": "error"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "error": {
+              "message": "value"
+            },
+            "threadId": "value",
+            "turnId": "value",
+            "willRetry": false
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "TurnNotificationParams",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnStartedNotification",
+        "v2#TurnCompletedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turn",
+          "wireName": "turn",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "id": "value",
+            "items": [],
+            "status": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "ItemNotificationParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ItemStartedNotification",
+        "v2#ItemCompletedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "item",
+          "wireName": "item",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "command": "value",
+            "commandActions": [],
+            "cwd": "value",
+            "id": "value",
+            "status": "inProgress",
+            "type": "commandExecution"
+          }
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ItemDeltaParams",
+      "mode": "decode",
+      "sources": [
+        "v2#CommandExecutionOutputDeltaNotification",
+        "v2#AgentMessageDeltaNotification"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "delta",
+          "wireName": "delta",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "PlanUpdatedParams",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnPlanUpdatedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "plan",
+          "wireName": "plan",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "TokenUsageParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadTokenUsageUpdatedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "tokenUsage",
+          "wireName": "tokenUsage",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "last": {
+              "cachedInputTokens": 1,
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "reasoningOutputTokens": 1,
+              "totalTokens": 1
+            },
+            "total": {
+              "cachedInputTokens": 1,
+              "inputTokens": 1,
+              "outputTokens": 1,
+              "reasoningOutputTokens": 1,
+              "totalTokens": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "ErrorParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ErrorNotification"
+      ],
+      "components": [
+        {
+          "javaName": "error",
+          "wireName": "error",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "message": "value"
+          }
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "willRetry",
+          "wireName": "willRetry",
+          "required": true,
+          "nullable": false,
+          "sample": false
+        }
+      ]
+    },
+    {
+      "javaType": "AgentMessageItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=agentMessage]"
+      ],
+      "context": {
+        "type": "agentMessage"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "text",
+          "wireName": "text",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "phase",
+          "wireName": "phase",
+          "required": false,
+          "nullable": true,
+          "sample": "commentary"
+        }
+      ]
+    },
+    {
+      "javaType": "CommandExecutionItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=commandExecution]"
+      ],
+      "context": {
+        "type": "commandExecution"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "command",
+          "wireName": "command",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        },
+        {
+          "javaName": "aggregatedOutput",
+          "wireName": "aggregatedOutput",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "exitCode",
+          "wireName": "exitCode",
+          "required": false,
+          "nullable": true,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "FileChangeItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=fileChange]"
+      ],
+      "context": {
+        "type": "fileChange"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "changes",
+          "wireName": "changes",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        }
+      ]
+    },
+    {
+      "javaType": "McpToolCallItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=mcpToolCall]"
+      ],
+      "context": {
+        "type": "mcpToolCall"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "server",
+          "wireName": "server",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "tool",
+          "wireName": "tool",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        }
+      ]
+    },
+    {
+      "javaType": "DynamicToolCallItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=dynamicToolCall]"
+      ],
+      "context": {
+        "type": "dynamicToolCall"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "tool",
+          "wireName": "tool",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        }
+      ]
+    },
+    {
+      "javaType": "CollabAgentToolCallItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=collabAgentToolCall]"
+      ],
+      "context": {
+        "type": "collabAgentToolCall"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "tool",
+          "wireName": "tool",
+          "required": true,
+          "nullable": false,
+          "sample": "spawnAgent"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        }
+      ]
+    },
+    {
+      "javaType": "FileUpdateChange",
+      "mode": "decode",
+      "sources": [
+        "v2#FileUpdateChange"
+      ],
+      "components": [
+        {
+          "javaName": "path",
+          "wireName": "path",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "kind",
+          "wireName": "kind",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "type": "update"
+          }
+        },
+        {
+          "javaName": "diff",
+          "wireName": "diff",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "FileChangeKind",
+      "mode": "decode",
+      "sources": [
+        "v2#PatchChangeKind[all variants]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "update",
+          "samples": [
+            "add",
+            "delete",
+            "update"
+          ]
+        },
+        {
+          "javaName": "movePath",
+          "wireName": "move_path",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "Turn",
+      "mode": "decode",
+      "sources": [
+        "v2#Turn"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "completed"
+        },
+        {
+          "javaName": "error",
+          "wireName": "error",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "message": "value"
+          }
+        },
+        {
+          "javaName": "durationMs",
+          "wireName": "durationMs",
+          "required": false,
+          "nullable": true,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "TurnError",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnError"
+      ],
+      "components": [
+        {
+          "javaName": "message",
+          "wireName": "message",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "PlanStep",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnPlanStep"
+      ],
+      "components": [
+        {
+          "javaName": "step",
+          "wireName": "step",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "pending"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadTokenUsage",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadTokenUsage"
+      ],
+      "components": [
+        {
+          "javaName": "total",
+          "wireName": "total",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cachedInputTokens": 1,
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "reasoningOutputTokens": 1,
+            "totalTokens": 1
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "TokenUsageBreakdown",
+      "mode": "decode",
+      "sources": [
+        "v2#TokenUsageBreakdown"
+      ],
+      "components": [
+        {
+          "javaName": "totalTokens",
+          "wireName": "totalTokens",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "inputTokens",
+          "wireName": "inputTokens",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "cachedInputTokens",
+          "wireName": "cachedInputTokens",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "outputTokens",
+          "wireName": "outputTokens",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "CommandApprovalRequest",
+      "mode": "decode",
+      "sources": [
+        "all#ServerRequest[method=item/commandExecution/requestApproval]"
+      ],
+      "context": {
+        "method": "item/commandExecution/requestApproval"
+      },
+      "decodeAs": "ServerRequest",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "itemId": "value",
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "FileChangeApprovalRequest",
+      "mode": "decode",
+      "sources": [
+        "all#ServerRequest[method=item/fileChange/requestApproval]"
+      ],
+      "context": {
+        "method": "item/fileChange/requestApproval"
+      },
+      "decodeAs": "ServerRequest",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "itemId": "value",
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "CommandApprovalParams",
+      "mode": "decode",
+      "sources": [
+        "all#CommandExecutionRequestApprovalParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "command",
+          "wireName": "command",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "reason",
+          "wireName": "reason",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "startedAtMs",
+          "wireName": "startedAtMs",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "FileChangeApprovalParams",
+      "mode": "decode",
+      "sources": [
+        "all#FileChangeRequestApprovalParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "reason",
+          "wireName": "reason",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "startedAtMs",
+          "wireName": "startedAtMs",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcEnvelope",
+      "mode": "decode",
+      "sources": [
+        "all#JSONRPCMessage[all variants]"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "method",
+          "wireName": "method",
+          "required": false,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "result",
+          "wireName": "result",
+          "required": false,
+          "nullable": false,
+          "sample": {}
+        },
+        {
+          "javaName": "error",
+          "wireName": "error",
+          "required": false,
+          "nullable": false,
+          "sample": {
+            "code": 1,
+            "message": "value"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcError",
+      "mode": "decode",
+      "sources": [
+        "all#JSONRPCErrorError"
+      ],
+      "components": [
+        {
+          "javaName": "code",
+          "wireName": "code",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "message",
+          "wireName": "message",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcRequest",
+      "mode": "encode",
+      "sources": [
+        "all#JSONRPCRequest"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "method",
+          "wireName": "method",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": false,
+          "nullable": false,
+          "sample": {}
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcNotification",
+      "mode": "encode",
+      "sources": [
+        "all#JSONRPCNotification"
+      ],
+      "components": [
+        {
+          "javaName": "method",
+          "wireName": "method",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": false,
+          "nullable": false,
+          "sample": {}
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcResponse",
+      "mode": "encode",
+      "sources": [
+        "all#JSONRPCResponse"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "result",
+          "wireName": "result",
+          "required": true,
+          "nullable": false,
+          "sample": {}
+        }
+      ]
+    },
+    {
+      "javaType": "JsonRpcFailure",
+      "mode": "encode",
+      "sources": [
+        "all#JSONRPCError"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "error",
+          "wireName": "error",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "code": 1,
+            "message": "value"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadStartResponse",
+        "v2#ThreadResumeResponse"
+      ],
+      "components": [
+        {
+          "javaName": "thread",
+          "wireName": "thread",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cliVersion": "value",
+            "createdAt": 1,
+            "cwd": "value",
+            "ephemeral": false,
+            "id": "value",
+            "modelProvider": "value",
+            "preview": "value",
+            "projectId": "value",
+            "sessionId": "value",
+            "source": {
+              "custom": "value"
+            },
+            "status": {
+              "activeFlags": [],
+              "type": "active"
+            },
+            "turns": [],
+            "updatedAt": 1
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "TurnThread",
+      "mode": "decode",
+      "sources": [
+        "v2#Thread"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "TurnStartResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnStartResponse"
+      ],
+      "components": [
+        {
+          "javaName": "turn",
+          "wireName": "turn",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "id": "value",
+            "items": [],
+            "status": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "ModelListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ModelListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "ModelEntry",
+      "mode": "decode",
+      "sources": [
+        "v2#Model"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "displayName",
+          "wireName": "displayName",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "description",
+          "wireName": "description",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "hidden",
+          "wireName": "hidden",
+          "required": true,
+          "nullable": false,
+          "sample": false
+        },
+        {
+          "javaName": "isDefault",
+          "wireName": "isDefault",
+          "required": true,
+          "nullable": false,
+          "sample": false
+        },
+        {
+          "javaName": "defaultReasoningEffort",
+          "wireName": "defaultReasoningEffort",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "supportedReasoningEfforts",
+          "wireName": "supportedReasoningEfforts",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "ReasoningEffortOption",
+      "mode": "decode",
+      "sources": [
+        "v2#ReasoningEffortOption"
+      ],
+      "components": [
+        {
+          "javaName": "reasoningEffort",
+          "wireName": "reasoningEffort",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ClientInfo",
+      "mode": "encode",
+      "sources": [
+        "v2#ClientInfo"
+      ],
+      "components": [
+        {
+          "javaName": "name",
+          "wireName": "name",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "title",
+          "wireName": "title",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "version",
+          "wireName": "version",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "InitializeParams",
+      "mode": "encode",
+      "sources": [
+        "v2#InitializeParams"
+      ],
+      "components": [
+        {
+          "javaName": "clientInfo",
+          "wireName": "clientInfo",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "name": "value",
+            "title": "value",
+            "version": "value"
+          }
+        },
+        {
+          "javaName": "capabilities",
+          "wireName": "capabilities",
+          "required": false,
+          "nullable": true,
+          "sample": {}
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadStartParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadStartParams"
+      ],
+      "components": [
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "approvalPolicy",
+          "wireName": "approvalPolicy",
+          "required": false,
+          "nullable": true,
+          "sample": "on-request"
+        },
+        {
+          "javaName": "sandbox",
+          "wireName": "sandbox",
+          "required": false,
+          "nullable": true,
+          "sample": "workspace-write"
+        },
+        {
+          "javaName": "serviceName",
+          "wireName": "serviceName",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadResumeParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadResumeParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "approvalPolicy",
+          "wireName": "approvalPolicy",
+          "required": false,
+          "nullable": true,
+          "sample": "on-request"
+        },
+        {
+          "javaName": "sandbox",
+          "wireName": "sandbox",
+          "required": false,
+          "nullable": true,
+          "sample": "workspace-write"
+        }
+      ]
+    },
+    {
+      "javaType": "TextInput",
+      "mode": "encode",
+      "sources": [
+        "v2#UserInput[type=text]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "text"
+        },
+        {
+          "javaName": "text",
+          "wireName": "text",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "TurnStartParams",
+      "mode": "encode",
+      "sources": [
+        "v2#TurnStartParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "input",
+          "wireName": "input",
+          "required": true,
+          "nullable": false,
+          "sample": [
+            {
+              "type": "text",
+              "text": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadUnsubscribeParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "TurnParams",
+      "mode": "encode",
+      "sources": [
+        "v2#TurnInterruptParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ApprovalResponse",
+      "mode": "encode",
+      "sources": [
+        "all#CommandExecutionRequestApprovalResponse",
+        "all#FileChangeRequestApprovalResponse"
+      ],
+      "components": [
+        {
+          "javaName": "decision",
+          "wireName": "decision",
+          "required": true,
+          "nullable": false,
+          "sample": "accept"
+        }
+      ]
+    },
+    {
+      "javaType": "ModelListParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ModelListParams"
+      ],
+      "components": []
+    }
+  ],
+  "enums": [
+    {
+      "javaType": "TurnStatus",
+      "sources": [
+        "v2#TurnStatus"
+      ],
+      "wireValues": [
+        "completed",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ]
+    },
+    {
+      "javaType": "ActivityStatus",
+      "sources": [
+        "v2#CommandExecutionStatus",
+        "v2#PatchApplyStatus",
+        "v2#McpToolCallStatus",
+        "v2#DynamicToolCallStatus",
+        "v2#CollabAgentToolCallStatus"
+      ],
+      "wireValues": [
+        "completed",
+        "declined",
+        "failed",
+        "inProgress",
+        "interrupted"
+      ]
+    },
+    {
+      "javaType": "PlanStepStatus",
+      "sources": [
+        "v2#TurnPlanStepStatus"
+      ],
+      "wireValues": [
+        "completed",
+        "inProgress",
+        "pending"
+      ]
+    },
+    {
+      "javaType": "MessagePhase",
+      "sources": [
+        "v2#MessagePhase"
+      ],
+      "wireValues": [
+        "commentary",
+        "final_answer"
+      ]
+    }
+  ]
+}

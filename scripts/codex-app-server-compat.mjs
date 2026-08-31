@@ -10,6 +10,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -29,6 +30,291 @@ const contract = {
   stableV2BundleSha256:
     "2442b15801bc019ad55987ad03e0f0ae60c51417825b9b6d708db640e6c2651c",
 };
+
+const referenceBindingsPath = fileURLToPath(new URL(
+  "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json",
+  import.meta.url,
+));
+
+function schemaSource(bundle, definition, discriminatorField, discriminatorValue) {
+  return {
+    bundle,
+    definition,
+    ...(discriminatorField ? { discriminatorField, discriminatorValue } : {}),
+  };
+}
+
+function mergedSchemaSource(bundle, definition, variantField) {
+  return { bundle, definition, mergeVariants: true, variantField };
+}
+
+function component(javaName, wireName = javaName, sample) {
+  return { javaName, wireName, sample };
+}
+
+function recordBinding(javaType, mode, sources, components) {
+  return { javaType, mode, sources, components };
+}
+
+const referenceRecordBindings = [
+  recordBinding("TurnStartedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "turn/started"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("TurnCompletedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "turn/completed"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("ItemStartedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/started"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("ItemCompletedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/completed"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("CommandOutputNotification", "decode", [
+    schemaSource(
+      "v2",
+      "ServerNotification",
+      "method",
+      "item/commandExecution/outputDelta",
+    ),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("AgentMessageDeltaNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/agentMessage/delta"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("PlanUpdatedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "turn/plan/updated"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("TokenUsageUpdatedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "thread/tokenUsage/updated"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("ErrorNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "error"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("TurnNotificationParams", "decode", [
+    schemaSource("v2", "TurnStartedNotification"),
+    schemaSource("v2", "TurnCompletedNotification"),
+  ], [component("threadId"), component("turn")]),
+  recordBinding("ItemNotificationParams", "decode", [
+    schemaSource("v2", "ItemStartedNotification"),
+    schemaSource("v2", "ItemCompletedNotification"),
+  ], [component("item"), component("threadId"), component("turnId")]),
+  recordBinding("ItemDeltaParams", "decode", [
+    schemaSource("v2", "CommandExecutionOutputDeltaNotification"),
+    schemaSource("v2", "AgentMessageDeltaNotification"),
+  ], [
+    component("threadId"),
+    component("turnId"),
+    component("itemId"),
+    component("delta"),
+  ]),
+  recordBinding("PlanUpdatedParams", "decode", [
+    schemaSource("v2", "TurnPlanUpdatedNotification"),
+  ], [component("plan"), component("threadId"), component("turnId")]),
+  recordBinding("TokenUsageParams", "decode", [
+    schemaSource("v2", "ThreadTokenUsageUpdatedNotification"),
+  ], [component("threadId"), component("turnId"), component("tokenUsage")]),
+  recordBinding("ErrorParams", "decode", [schemaSource("v2", "ErrorNotification")], [
+    component("error"),
+    component("threadId"),
+    component("turnId"),
+    component("willRetry"),
+  ]),
+  recordBinding("AgentMessageItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "agentMessage"),
+  ], [component("id"), component("text"), component("phase")]),
+  recordBinding("CommandExecutionItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "commandExecution"),
+  ], [
+    component("id"),
+    component("command"),
+    component("status"),
+    component("aggregatedOutput"),
+    component("exitCode"),
+  ]),
+  recordBinding("FileChangeItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "fileChange"),
+  ], [component("id"), component("changes"), component("status")]),
+  recordBinding("McpToolCallItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "mcpToolCall"),
+  ], [component("id"), component("server"), component("tool"), component("status")]),
+  recordBinding("DynamicToolCallItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "dynamicToolCall"),
+  ], [component("id"), component("tool"), component("status")]),
+  recordBinding("CollabAgentToolCallItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "collabAgentToolCall"),
+  ], [component("id"), component("tool"), component("status")]),
+  recordBinding("FileUpdateChange", "decode", [schemaSource("v2", "FileUpdateChange")], [
+    component("path"),
+    component("kind"),
+    component("diff"),
+  ]),
+  recordBinding("FileChangeKind", "decode", [
+    mergedSchemaSource("v2", "PatchChangeKind", "type"),
+  ], [component("type"), component("movePath", "move_path")]),
+  recordBinding("Turn", "decode", [schemaSource("v2", "Turn")], [
+    component("id"),
+    component("status"),
+    component("error"),
+    component("durationMs"),
+  ]),
+  recordBinding("TurnError", "decode", [schemaSource("v2", "TurnError")], [
+    component("message"),
+  ]),
+  recordBinding("PlanStep", "decode", [schemaSource("v2", "TurnPlanStep")], [
+    component("step"),
+    component("status"),
+  ]),
+  recordBinding("ThreadTokenUsage", "decode", [
+    schemaSource("v2", "ThreadTokenUsage"),
+  ], [component("total")]),
+  recordBinding("TokenUsageBreakdown", "decode", [
+    schemaSource("v2", "TokenUsageBreakdown"),
+  ], [
+    component("totalTokens"),
+    component("inputTokens"),
+    component("cachedInputTokens"),
+    component("outputTokens"),
+  ]),
+  recordBinding("CommandApprovalRequest", "decode", [
+    schemaSource("all", "ServerRequest", "method", "item/commandExecution/requestApproval"),
+  ], [component("id"), component("params")]),
+  recordBinding("FileChangeApprovalRequest", "decode", [
+    schemaSource("all", "ServerRequest", "method", "item/fileChange/requestApproval"),
+  ], [component("id"), component("params")]),
+  recordBinding("CommandApprovalParams", "decode", [
+    schemaSource("all", "CommandExecutionRequestApprovalParams"),
+  ], [
+    component("threadId"),
+    component("turnId"),
+    component("itemId"),
+    component("command"),
+    component("reason"),
+    component("startedAtMs"),
+  ]),
+  recordBinding("FileChangeApprovalParams", "decode", [
+    schemaSource("all", "FileChangeRequestApprovalParams"),
+  ], [
+    component("threadId"),
+    component("turnId"),
+    component("itemId"),
+    component("reason"),
+    component("startedAtMs"),
+  ]),
+  recordBinding("JsonRpcEnvelope", "decode", [
+    mergedSchemaSource("all", "JSONRPCMessage"),
+  ], [
+    component("id", "id", 1),
+    component("method"),
+    component("result", "result", {}),
+    component("error", "error", { code: 1, message: "value" }),
+  ]),
+  recordBinding("JsonRpcError", "decode", [schemaSource("all", "JSONRPCErrorError")], [
+    component("code"),
+    component("message"),
+  ]),
+  recordBinding("JsonRpcRequest", "encode", [schemaSource("all", "JSONRPCRequest")], [
+    component("id", "id", 1),
+    component("method"),
+    component("params", "params", {}),
+  ]),
+  recordBinding("JsonRpcNotification", "encode", [
+    schemaSource("all", "JSONRPCNotification"),
+  ], [component("method"), component("params", "params", {})]),
+  recordBinding("JsonRpcResponse", "encode", [schemaSource("all", "JSONRPCResponse")], [
+    component("id", "id", 1),
+    component("result", "result", {}),
+  ]),
+  recordBinding("JsonRpcFailure", "encode", [schemaSource("all", "JSONRPCError")], [
+    component("id", "id", 1),
+    component("error", "error", { code: 1, message: "value" }),
+  ]),
+  recordBinding("ThreadResponse", "decode", [
+    schemaSource("v2", "ThreadStartResponse"),
+    schemaSource("v2", "ThreadResumeResponse"),
+  ], [component("thread")]),
+  recordBinding("TurnThread", "decode", [schemaSource("v2", "Thread")], [
+    component("id"),
+  ]),
+  recordBinding("TurnStartResponse", "decode", [
+    schemaSource("v2", "TurnStartResponse"),
+  ], [component("turn")]),
+  recordBinding("ModelListResponse", "decode", [
+    schemaSource("v2", "ModelListResponse"),
+  ], [component("data")]),
+  recordBinding("ModelEntry", "decode", [schemaSource("v2", "Model")], [
+    component("id"),
+    component("displayName"),
+    component("description"),
+    component("hidden"),
+    component("isDefault"),
+    component("defaultReasoningEffort"),
+    component("supportedReasoningEfforts"),
+  ]),
+  recordBinding("ReasoningEffortOption", "decode", [
+    schemaSource("v2", "ReasoningEffortOption"),
+  ], [component("reasoningEffort")]),
+  recordBinding("ClientInfo", "encode", [schemaSource("v2", "ClientInfo")], [
+    component("name"),
+    component("title"),
+    component("version"),
+  ]),
+  recordBinding("InitializeParams", "encode", [schemaSource("v2", "InitializeParams")], [
+    component("clientInfo", "clientInfo", {
+      name: "value",
+      title: "value",
+      version: "value",
+    }),
+    component("capabilities"),
+  ]),
+  recordBinding("ThreadStartParams", "encode", [schemaSource("v2", "ThreadStartParams")], [
+    component("cwd"),
+    component("approvalPolicy", "approvalPolicy", "on-request"),
+    component("sandbox", "sandbox", "workspace-write"),
+    component("serviceName"),
+  ]),
+  recordBinding("ThreadResumeParams", "encode", [
+    schemaSource("v2", "ThreadResumeParams"),
+  ], [
+    component("threadId"),
+    component("cwd"),
+    component("approvalPolicy", "approvalPolicy", "on-request"),
+    component("sandbox", "sandbox", "workspace-write"),
+  ]),
+  recordBinding("TextInput", "encode", [
+    schemaSource("v2", "UserInput", "type", "text"),
+  ], [component("type"), component("text")]),
+  recordBinding("TurnStartParams", "encode", [schemaSource("v2", "TurnStartParams")], [
+    component("threadId"),
+    component("input", "input", [{ type: "text", text: "value" }]),
+  ]),
+  recordBinding("ThreadParams", "encode", [
+    schemaSource("v2", "ThreadUnsubscribeParams"),
+  ], [component("threadId")]),
+  recordBinding("TurnParams", "encode", [schemaSource("v2", "TurnInterruptParams")], [
+    component("threadId"),
+    component("turnId"),
+  ]),
+  recordBinding("ApprovalResponse", "encode", [
+    schemaSource("all", "CommandExecutionRequestApprovalResponse"),
+    schemaSource("all", "FileChangeRequestApprovalResponse"),
+  ], [component("decision", "decision", "accept")]),
+  recordBinding("ModelListParams", "encode", [schemaSource("v2", "ModelListParams")], []),
+];
+
+const referenceEnumBindings = [
+  { javaType: "TurnStatus", sources: [schemaSource("v2", "TurnStatus")] },
+  {
+    javaType: "ActivityStatus",
+    sources: [
+      schemaSource("v2", "CommandExecutionStatus"),
+      schemaSource("v2", "PatchApplyStatus"),
+      schemaSource("v2", "McpToolCallStatus"),
+      schemaSource("v2", "DynamicToolCallStatus"),
+      schemaSource("v2", "CollabAgentToolCallStatus"),
+    ],
+  },
+  { javaType: "PlanStepStatus", sources: [schemaSource("v2", "TurnPlanStepStatus")] },
+  { javaType: "MessagePhase", sources: [schemaSource("v2", "MessagePhase")] },
+];
 
 const experimentalMethods = [
   "environment/add",
@@ -345,7 +631,328 @@ function checkSchema(directory, experimental) {
   );
 }
 
-function staticCompatibilityCheck() {
+function bundleDefinition(bundle, definition) {
+  const schema = bundle.definitions[definition] ??
+    bundle.definitions[definition.replace(/^v[12]\//, "")];
+  assert.ok(schema, `generated schema lacks definition ${definition}`);
+  return schema;
+}
+
+function referencedDefinition(schema, bundle) {
+  if (!schema?.$ref) return schema;
+  const prefix = "#/definitions/";
+  assert.ok(schema.$ref.startsWith(prefix), `unsupported schema reference ${schema.$ref}`);
+  const definition = schema.$ref.slice(prefix.length).replaceAll("~1", "/").replaceAll("~0", "~");
+  return bundleDefinition(bundle, definition);
+}
+
+function mergeSchemas(base, variant) {
+  return {
+    ...base,
+    ...variant,
+    properties: {
+      ...(base.properties ?? {}),
+      ...(variant.properties ?? {}),
+    },
+    required: [...new Set([...(base.required ?? []), ...(variant.required ?? [])])],
+  };
+}
+
+function schemaVariants(schema, bundle) {
+  const resolved = referencedDefinition(schema, bundle);
+  return (resolved.oneOf ?? resolved.anyOf ?? []).map((variant) =>
+    referencedDefinition(variant, bundle));
+}
+
+function discriminatorValues(schema, bundle, field) {
+  const resolved = referencedDefinition(schema, bundle);
+  const property = resolved.properties?.[field];
+  if (!property) return [];
+  return enumValues(property, bundle);
+}
+
+function resolveBindingSource(source, bundles) {
+  const bundle = bundles[source.bundle];
+  assert.ok(bundle, `unknown schema bundle ${source.bundle}`);
+  const schema = bundleDefinition(bundle, source.definition);
+  const variants = schemaVariants(schema, bundle);
+  if (source.discriminatorField) {
+    const variant = variants.find((candidate) =>
+      discriminatorValues(candidate, bundle, source.discriminatorField)
+        .includes(source.discriminatorValue));
+    assert.ok(
+      variant,
+      `${source.definition} lacks ${source.discriminatorField}=${source.discriminatorValue}`,
+    );
+    return {
+      bundle,
+      schema: mergeSchemas(
+        { ...schema, oneOf: undefined, anyOf: undefined },
+        variant,
+      ),
+    };
+  }
+  if (source.mergeVariants) {
+    assert.ok(variants.length > 0, `${source.definition} has no variants to merge`);
+    const required = variants
+      .map((variant) => new Set(variant.required ?? []))
+      .reduce((intersection, names) =>
+        new Set([...intersection].filter((name) => names.has(name))));
+    return {
+      bundle,
+      variantValues: source.variantField
+        ? [...new Set(variants.flatMap((variant) =>
+          discriminatorValues(variant, bundle, source.variantField)))].sort()
+        : [],
+      schema: {
+        properties: Object.assign({}, ...variants.map((variant) => variant.properties ?? {})),
+        required: [...required],
+        type: "object",
+      },
+    };
+  }
+  return { bundle, schema };
+}
+
+function allowsNull(schema, bundle, visited = new Set()) {
+  if (!schema) return false;
+  if (schema.$ref) {
+    if (visited.has(schema.$ref)) return false;
+    const nextVisited = new Set(visited).add(schema.$ref);
+    return allowsNull(referencedDefinition(schema, bundle), bundle, nextVisited);
+  }
+  if (schema.const === null || schema.enum?.includes(null)) return true;
+  if (schema.type === "null" || Array.isArray(schema.type) && schema.type.includes("null")) {
+    return true;
+  }
+  if (schema.allOf?.length) {
+    return schema.allOf.every((variant) => allowsNull(variant, bundle, visited));
+  }
+  return [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]
+    .some((variant) => allowsNull(variant, bundle, visited));
+}
+
+function schemaRichness(schema, bundle) {
+  const resolved = referencedDefinition(schema, bundle);
+  if (allowsNull(resolved, bundle) &&
+      (resolved.type === "null" || resolved.const === null)) {
+    return -1;
+  }
+  return Object.keys(resolved.properties ?? {}).length * 10 +
+    (resolved.required ?? []).length;
+}
+
+function nonNullVariant(schema, bundle) {
+  return schemaVariants(schema, bundle)
+    .filter((variant) => !(variant.type === "null" || variant.const === null))
+    .sort((left, right) => schemaRichness(right, bundle) - schemaRichness(left, bundle))[0];
+}
+
+function sampleValue(schema, bundle, visited = new Set()) {
+  if (schema.default !== undefined && schema.default !== null) return schema.default;
+  if (schema.$ref) {
+    if (visited.has(schema.$ref)) return {};
+    return sampleValue(
+      referencedDefinition(schema, bundle),
+      bundle,
+      new Set(visited).add(schema.$ref),
+    );
+  }
+  if (schema.allOf?.length) {
+    const combined = schema.allOf
+      .map((variant) => referencedDefinition(variant, bundle))
+      .reduce(
+        (merged, variant) => mergeSchemas(merged, variant),
+        { ...schema, allOf: undefined },
+      );
+    return sampleValue(combined, bundle, visited);
+  }
+  const variant = nonNullVariant(schema, bundle);
+  if (variant) {
+    return sampleValue(
+      mergeSchemas({ ...schema, oneOf: undefined, anyOf: undefined }, variant),
+      bundle,
+      visited,
+    );
+  }
+  if (schema.const !== undefined && schema.const !== null) return schema.const;
+  const enumValue = schema.enum?.find((value) => value !== null);
+  if (enumValue !== undefined) return enumValue;
+  const type = Array.isArray(schema.type)
+    ? schema.type.find((candidate) => candidate !== "null")
+    : schema.type;
+  if (type === "array") return [];
+  if (type === "boolean") return false;
+  if (type === "integer" || type === "number") return Math.max(schema.minimum ?? 1, 0);
+  if (type === "string") return "value";
+  if (type === "object" || schema.properties) {
+    return Object.fromEntries(
+      (schema.required ?? []).map((name) => {
+        const property = schema.properties?.[name];
+        assert.ok(property, `${schema.title ?? "object"} lacks required property ${name}`);
+        return [name, sampleValue(property, bundle, visited)];
+      }),
+    );
+  }
+  assert.fail(`cannot generate sample for ${JSON.stringify(schema)}`);
+}
+
+function enumValues(schema, bundle, visited = new Set()) {
+  if (!schema) return [];
+  if (schema.$ref) {
+    if (visited.has(schema.$ref)) return [];
+    return enumValues(
+      referencedDefinition(schema, bundle),
+      bundle,
+      new Set(visited).add(schema.$ref),
+    );
+  }
+  const values = [
+    ...(schema.enum ?? []),
+    ...(schema.const === undefined ? [] : [schema.const]),
+  ].filter((value) => value !== null);
+  for (const variant of [...(schema.oneOf ?? []), ...(schema.anyOf ?? [])]) {
+    values.push(...enumValues(variant, bundle, visited));
+  }
+  for (const variant of schema.allOf ?? []) {
+    values.push(...enumValues(variant, bundle, visited));
+  }
+  return [...new Set(values)].sort();
+}
+
+function bindingSourceName(source) {
+  const discriminator = source.discriminatorField
+    ? `[${source.discriminatorField}=${source.discriminatorValue}]`
+    : source.mergeVariants ? "[all variants]" : "";
+  return `${source.bundle}#${source.definition}${discriminator}`;
+}
+
+function buildRecordBinding(binding, bundles) {
+  const resolvedSources = binding.sources.map((source) => ({
+    source,
+    ...resolveBindingSource(source, bundles),
+  }));
+  const wireNames = new Set(binding.components.map(({ wireName }) => wireName));
+  const contexts = binding.sources
+    .filter(({ discriminatorField }) => discriminatorField && !wireNames.has(discriminatorField))
+    .map(({ discriminatorField, discriminatorValue }) => ({
+      [discriminatorField]: discriminatorValue,
+    }));
+  const context = contexts[0];
+  for (const candidate of contexts.slice(1)) {
+    assert.deepEqual(candidate, context, `${binding.javaType} has conflicting contexts`);
+  }
+  const decodeTargets = [...new Set(binding.sources.flatMap(({ definition }) => {
+    const decodeAs = {
+      ServerNotification: "Notification",
+      ServerRequest: "ServerRequest",
+      ThreadItem: "ThreadItem",
+    }[definition];
+    return decodeAs ? [decodeAs] : [];
+  }))];
+  assert.ok(decodeTargets.length <= 1, `${binding.javaType} has conflicting decode targets`);
+
+  const components = binding.components.map(({ javaName, wireName, sample }) => {
+    const metadata = resolvedSources.map(({ bundle, schema, source, variantValues = [] }) => {
+      const property = schema.properties?.[wireName];
+      assert.ok(property, `${bindingSourceName(source)} lacks property ${wireName}`);
+      return {
+        required: (schema.required ?? []).includes(wireName),
+        nullable: allowsNull(property, bundle),
+        sample: sample ?? sampleValue(property, bundle),
+        ...(source.variantField === wireName ? { samples: variantValues } : {}),
+      };
+    });
+    for (const candidate of metadata.slice(1)) {
+      assert.equal(
+        candidate.required,
+        metadata[0].required,
+        `${binding.javaType}.${javaName} has inconsistent requiredness`,
+      );
+      assert.equal(
+        candidate.nullable,
+        metadata[0].nullable,
+        `${binding.javaType}.${javaName} has inconsistent nullability`,
+      );
+    }
+    return { javaName, wireName, ...metadata[0] };
+  });
+
+  if (binding.mode === "encode") {
+    for (const { schema, source } of resolvedSources) {
+      const represented = new Set([
+        ...wireNames,
+        ...(source.discriminatorField ? [source.discriminatorField] : []),
+      ]);
+      for (const required of schema.required ?? []) {
+        assert.ok(
+          represented.has(required),
+          `${binding.javaType} cannot encode required ${bindingSourceName(source)}.${required}`,
+        );
+      }
+    }
+  }
+
+  return {
+    javaType: binding.javaType,
+    mode: binding.mode,
+    sources: binding.sources.map(bindingSourceName),
+    ...(context ? { context } : {}),
+    ...(binding.mode === "decode" && decodeTargets[0]
+      ? { decodeAs: decodeTargets[0] }
+      : {}),
+    components,
+  };
+}
+
+function buildReferenceBindings(experimental, stable) {
+  const bundles = {
+    all: readJson(join(experimental, "codex_app_server_protocol.schemas.json")),
+    v2: readJson(join(experimental, "codex_app_server_protocol.v2.schemas.json")),
+  };
+  return {
+    formatVersion: 1,
+    codexVersion: contract.version,
+    bundleSha256: {
+      stable: sha256(join(stable, "codex_app_server_protocol.schemas.json")),
+      stableV2: sha256(join(stable, "codex_app_server_protocol.v2.schemas.json")),
+      experimental: sha256(join(experimental, "codex_app_server_protocol.schemas.json")),
+      experimentalV2: sha256(join(experimental, "codex_app_server_protocol.v2.schemas.json")),
+    },
+    records: referenceRecordBindings.map((binding) => buildRecordBinding(binding, bundles)),
+    enums: referenceEnumBindings.map((binding) => ({
+      javaType: binding.javaType,
+      sources: binding.sources.map(bindingSourceName),
+      wireValues: [...new Set(binding.sources.flatMap((source) => {
+        const { bundle, schema } = resolveBindingSource(source, bundles);
+        return enumValues(schema, bundle);
+      }))].sort(),
+    })),
+  };
+}
+
+function checkReferenceBindings(experimental, stable, updateBindings) {
+  const generated = buildReferenceBindings(experimental, stable);
+  if (updateBindings) {
+    mkdirSync(dirname(referenceBindingsPath), { recursive: true });
+    writeFileSync(referenceBindingsPath, `${JSON.stringify(generated, null, 2)}\n`);
+    console.log(`PASS wrote compact reference bindings to ${referenceBindingsPath}`);
+    return;
+  }
+  assert.ok(
+    existsSync(referenceBindingsPath),
+    "reference bindings are missing; run " +
+      "node scripts/codex-app-server-compat.mjs --update-bindings",
+  );
+  assert.deepEqual(
+    readJson(referenceBindingsPath),
+    generated,
+    "committed App Server reference bindings differ from the exact generated schema",
+  );
+  console.log("PASS compact Java projection matches the exact generated schema");
+}
+
+function staticCompatibilityCheck(updateBindings) {
   const root = mkdtempSync(join(tmpdir(), "bytequay-codex-schema-"));
   const codexHome = join(root, "codex-home");
   const temporaryDirectory = join(root, "tmp");
@@ -400,6 +1007,7 @@ function staticCompatibilityCheck() {
 
     checkSchema(experimental, true);
     checkSchema(stable, false);
+    checkReferenceBindings(experimental, stable, updateBindings);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -1560,9 +2168,12 @@ async function liveCompatibilityCheck() {
 async function main() {
   const flags = new Set(process.argv.slice(2));
   for (const flag of flags) {
-    assert.equal(flag, "--live", `unknown option ${flag}`);
+    assert.ok(
+      flag === "--live" || flag === "--update-bindings",
+      `unknown option ${flag}`,
+    );
   }
-  staticCompatibilityCheck();
+  staticCompatibilityCheck(flags.has("--update-bindings"));
   if (flags.has("--live")) await liveCompatibilityCheck();
 }
 

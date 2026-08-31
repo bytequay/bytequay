@@ -76,8 +76,8 @@ Already implemented and to be reused:
 Missing for the reviewed rich-task design:
 
 - [ ] Workspace-owned public task creation instead of renderer-selected paths.
-- [ ] One fixed reference Codex protocol fixture and version-tolerant
-  experimental bindings.
+- [ ] Production adoption of the CP1 reference projection and version-tolerant
+  decoding across the required experimental surface.
 - [ ] Proof that the reviewed per-task execution-environment design exists in
   that reference protocol and still works with the latest installed CLI.
 - [ ] A task-owned Codex executor/environment and fail-closed isolation.
@@ -238,21 +238,29 @@ Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
 **Status (2026-08-30):** the checked-in schema gate and live two-turn runtime
-slice are a GO candidate. CP1 is not complete: generated reference bindings,
-approval coverage, a non-empty background terminal, child recursion,
-cross-task isolation, a safe live rerun with a dedicated API key, and production
-adoption of the isolated launch profile remain open. See
+slice are a GO candidate. CP1 is not complete: approval coverage, a non-empty
+background terminal, child recursion, cross-task isolation, a safe live rerun
+with a dedicated API key, and production adoption of the isolated launch
+profile remain open. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
 **Progress (2026-08-31):** the offline gate now checks the command-approval and
 background-terminal list/terminate contracts, their required request/response
 fields, all six command decision variant names, and the `thread/resume` request
-constraints. The safe live path now uses clean disposable Git repositories and
-is ready to prove one real parent-command approval, one bounded mutation per
-repository, a yielded command with targeted termination, and disk-backed
-history recovery through a fresh App Server without adding another model turn
-or resending user input. This host has no dedicated compatibility API key, so
-those live claims remain unchecked until that gate actually passes.
+constraints. It also derives one compact committed projection manifest from the
+exact v0.151.0 generated bundles instead of committing 413 schemas or
+820 generated TypeScript files. The normal fixture command verifies the
+manifest; `--update-bindings` regenerates it intentionally. Java
+reflection/codec conformance enforces every consumed record component, wire
+name, required/null rule, and known enum value while retaining additive-field
+and future-enum tolerance. This remains reference-only and never gates the
+production user-managed CLI. The safe live path now uses clean disposable Git
+repositories and is ready to prove one real parent-command approval, one
+bounded mutation per repository, a yielded command with targeted termination,
+and disk-backed history recovery through a fresh App Server without adding
+another model turn or resending user input. This host has no dedicated
+compatibility API key, so those live claims remain unchecked until that gate
+actually passes.
 
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
@@ -266,9 +274,11 @@ Implementation:
 - [x] Generate JSON Schema from the exact selected binary, verify that the
   required experimental definitions are present, and preserve the generation
   command/version in the fixture metadata.
-- [ ] Make generated reference bindings authoritative for the fields ByteQuay
-  consumes while keeping production decoding tolerant of additive changes.
-  An incompatible required shape fails the affected operation and reports the
+- [x] Make the generated compact reference projection authoritative for the
+  fields ByteQuay consumes. The normal fixture verifies the committed manifest,
+  `--update-bindings` regenerates it, and Java reflection/codec conformance keeps
+  production decoding tolerant of additive fields and future enum values. An
+  incompatible required shape fails the affected operation and reports the
   detected running version instead of failing a version-text gate.
 - [x] Initialize with `capabilities.experimentalApi: true`, wait for the
   response, and send `initialized` before any other request.
@@ -331,6 +341,9 @@ Exit gate:
 
 Primary files:
 
+- `scripts/codex-app-server-compat.mjs`
+- `backend/agent-cli/src/test/resources/.../app-server-v0.151.0-bindings.json`
+- `backend/agent-cli/.../codex/TestCodexProtocolReferenceBindings.java`
 - `backend/agent-cli/.../codex/CodexAppServerClient.java`
 - `backend/agent-cli/.../codex/CodexProtocol.java`
 - `backend/agent-cli/.../codex/CodexProtocolCodec.java`
@@ -395,7 +408,8 @@ Implementation:
   decisions.
 - [ ] Preserve completed items as authoritative replacements for deltas sharing
   the same source/item identity.
-- [ ] Keep generated Codex DTOs and raw Claude blocks inside `agent-cli`.
+- [ ] Keep Codex wire DTOs, the compact generated reference projection, and raw
+  Claude blocks inside `agent-cli`.
 - [ ] Keep a schema-v1 JSONL reader: absent source fields render as an explicit
   root-level legacy stream rather than invented child identity.
 - [ ] Narrow task/turn responses so the renderer never receives a worktree path,

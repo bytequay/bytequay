@@ -57,12 +57,13 @@ The rich task surface is a new design for review; this document does not claim
 that the UI or the added contracts are already shipped. It extends the current
 service instead of introducing a second agent framework.
 
-The Codex driver's generated App Server DTOs remain private to `agent-cli`.
-They are the canonical Codex wire contract, but they are not ByteQuay's shared
-domain model. `agent-core` owns the smaller cross-provider task, turn,
-approval, queue, attachment, thread-correlation, and event contracts required
-by the product. Claude continues to adapt its native stream to those contracts;
-it does not pass through Codex App Server.
+The Codex driver's wire DTOs and compact generated reference projection remain
+private to `agent-cli`. The projection is authoritative for the consumed Codex
+wire surface and its conformance checks, but neither is ByteQuay's shared domain
+model. `agent-core` owns the smaller cross-provider task, turn, approval, queue,
+attachment, thread-correlation, and event contracts required by the product.
+Claude continues to adapt its native stream to those contracts; it does not
+pass through Codex App Server.
 
 The follow-up therefore has these fixed boundaries:
 
@@ -781,7 +782,8 @@ permission requests expose only their grantable subset. `ApprovalResponse` is
 a matching tagged union: command/file responses can distinguish one-time,
 session-scoped, deny, and cancel choices when legal; permission responses carry
 only the approved subset. The Codex driver converts these values with its
-generated protocol adapter, whose decoder tolerates additive runtime fields.
+reference-conformant protocol adapter, whose decoder tolerates additive runtime
+fields.
 
 Grantable always means supported by the selected App Server sandbox and
 approval policy. The renderer can choose only among the decisions preserved by
@@ -1205,8 +1207,8 @@ The provider event family is expanded only for observable provider facts:
 user-visible reasoning summaries, web/image activity, rich tool
 arguments/results, approval requests, and subagent lifecycle. Approval
 resolution, user delivery, and queue payloads originate in core.
-Generated App Server DTOs and raw Claude blocks remain private to their
-drivers.
+Codex wire DTOs, the compact reference projection, and raw Claude blocks remain
+private to their drivers.
 
 ## 5. Owned-process runtime interfaces
 
@@ -2347,35 +2349,64 @@ them. Raw reasoning text is not persisted or shown, even if a model or protocol
 version emits `item/reasoning/textDelta`; hidden chain-of-thought remains outside
 the ByteQuay contract.
 
-Reference protocol bindings are generated with the selected compatibility
-binary and committed or vendored with the driver:
+Reference protocol metadata is generated with the selected compatibility
+binary:
 
 ```text
 codex app-server generate-json-schema --experimental --out <schema-directory>
 ```
 
-The current [v0.151.0 compatibility fixture](codex-app-server-compat.md)
-regenerates stable and experimental schemas, verifies their bundle hashes and
-required surface. A recorded live slice proves two turns routed through two
-distinct executors without ambient fallback. The repeatable live fixture never
-copies rotating ChatGPT credentials. It gives every Codex subprocess a minimal
-allowlisted environment and a temporary `CODEX_HOME`. The live path is
-configured to pass its dedicated API key only to App Server and to omit the key
-and `CODEX_HOME` from model-requested commands; the dedicated-key rerun must
-prove that behavior. Exhaustive approvals, yielded-terminal termination,
-recursive children, restart recovery, fail-closed cross-task routing, and
-production adoption of that isolated launch profile remain CP1 gates.
+The fixture does not commit the 413 schema files or 820 generated
+TypeScript files. It derives one compact committed JSON projection containing
+only the record components, wire names, required/null rules, samples, and enum
+values consumed by ByteQuay's Java protocol adapter. The normal command
 
-That exact fixture is reference-only and never forms a production version
-allowlist. The driver probe runs `codex --version` for display and diagnostics,
-not acceptance: no reported version text, whether older, newer, prerelease, or
-unparseable, disables the lane. Startup self-update remains enabled. If a real
-request, response, or required event is incompatible, ByteQuay fails that
-operation without silently dropping data and includes the detected version text
-in the actionable issue-report diagnostic. When the reference schema supplies
-a stable notification key, the driver may use it to deduplicate usage updates;
-App Server notifications do not otherwise guarantee a JSON-RPC event ID. In
-every case, ByteQuay's own persisted `EventId` and task sequence make replay
+```text
+node scripts/codex-app-server-compat.mjs
+```
+
+regenerates the exact v0.151.0 schemas in a temporary directory and requires
+that derived projection to equal the committed manifest. An intentional
+reference update uses
+
+```text
+node scripts/codex-app-server-compat.mjs --update-bindings
+```
+
+The `agent-cli` conformance test reflects over the projected Java records and
+decodes or encodes generated samples to enforce every consumed component, wire
+name, required/null rule, and known enum value. Missing required fields fail
+closed, as do nulls for required non-null fields. Additive object fields remain
+decodable, and each projected enum
+uses an `UNKNOWN` default for future wire values. The compact manifest is the
+authoritative reference projection; it is not a second public domain model or
+a generated production client.
+
+The current [v0.151.0 compatibility fixture](codex-app-server-compat.md)
+regenerates stable and experimental schemas, verifies their bundle hashes,
+required surface, and compact Java projection. A recorded live slice proves
+two turns routed through two distinct executors without ambient fallback. The
+repeatable live fixture never copies rotating ChatGPT credentials. It gives
+every Codex subprocess a minimal allowlisted environment and a temporary
+`CODEX_HOME`. The live path is configured to pass its dedicated API key only
+to App Server and to omit the key and `CODEX_HOME` from model-requested
+commands; the dedicated-key rerun must prove that behavior. Exhaustive
+approvals, yielded-terminal termination, recursive children, restart recovery,
+fail-closed cross-task routing, and production adoption of that isolated launch
+profile remain CP1 gates.
+
+That exact fixture and its projection are reference-only and never form a
+production version allowlist. The driver probe runs `codex --version` for
+display and diagnostics, not acceptance: no reported version text, whether
+older, newer, prerelease, or unparseable, disables the lane. Startup self-update
+remains enabled. Production decoding keeps the same additive-field and
+future-enum tolerance checked by the conformance test. If a real request,
+response, or required event is incompatible, ByteQuay fails that operation
+without silently dropping data and includes the detected version text in the
+actionable issue-report diagnostic. When the reference schema supplies a stable
+notification key, the driver may use it to deduplicate usage updates; App
+Server notifications do not otherwise guarantee a JSON-RPC event ID. In every
+case, ByteQuay's own persisted `EventId` and task sequence make replay
 idempotent, and the driver follows only the counter semantics proven by the
 fixtures. It subtracts the baseline captured by
 `AgentMetricsService.beginTurn(...)` only when that schema explicitly defines
@@ -2560,8 +2591,8 @@ synthesize data.
 ## 9. Event and frontend contract
 
 One versioned ByteQuay event contract is canonical for JSONL, replay, SSE,
-Electron IPC, and React. Generated App Server DTOs and Claude JSON never become
-that contract.
+Electron IPC, and React. Codex wire DTOs, the compact reference projection, and
+Claude JSON never become that contract.
 
 Every envelope has:
 
@@ -3024,8 +3055,8 @@ until automated contract and integration tests prove:
    workspace and permission adapter; and
 14. the release explicitly accepts App Server's documented experimental
    maturity plus the unauthenticated same-host exec-server boundary, maintains
-   the exact v0.151.0 reference fixture and experimental bindings, and passes
-   per-task environment handshake/resume, multi-task routing,
+   the exact v0.151.0 reference fixture, compact projection, and experimental
+   surface, and passes per-task environment handshake/resume, multi-task routing,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,
    steering, and reconnect tests against the latest user-managed Codex CLI.
    No reported version text, including unparseable output, may fail readiness by

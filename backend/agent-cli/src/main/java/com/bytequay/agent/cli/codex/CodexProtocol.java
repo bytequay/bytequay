@@ -516,6 +516,8 @@ final class CodexProtocol
         FAILED,
         @JsonProperty("declined")
         DECLINED,
+        @JsonProperty("interrupted")
+        INTERRUPTED,
         @JsonEnumDefaultValue
         UNKNOWN,
     }
@@ -823,9 +825,9 @@ final class CodexProtocol
             String id,
             String displayName,
             String description,
-            boolean hidden,
-            boolean isDefault,
-            Optional<String> defaultReasoningEffort,
+            Boolean hidden,
+            Boolean isDefault,
+            String defaultReasoningEffort,
             List<ReasoningEffortOption> supportedReasoningEfforts)
     {
         ModelEntry
@@ -833,6 +835,8 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(displayName, "displayName");
             requireNonNull(description, "description is null");
+            requireNonNull(hidden, "hidden is null");
+            requireNonNull(isDefault, "isDefault is null");
             requireNonNull(defaultReasoningEffort, "defaultReasoningEffort is null");
             supportedReasoningEfforts = ImmutableList.copyOf(
                     requireNonNull(supportedReasoningEfforts, "supportedReasoningEfforts is null"));

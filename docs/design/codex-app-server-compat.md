@@ -54,14 +54,17 @@ missing `requirements` field, non-null value, request failure, or undecodable
 response as unavailable. The response must contain exactly that one top-level
 key; an unknown sibling policy field also fails closed.
 
-Before any thread exists, that probe also calls `config/read`, `skills/list`,
-and `hooks/list` for the no-child isolation baseline. It requires exactly one
-active `sessionFlags` layer containing every configured feature disable,
-disabled web search, host-skill-discovery disable, and the minimal
-shell-environment policy. The same values must appear in the effective config,
-with an empty MCP-server map and no inherited shell environment setters,
-exclusions, or filters. Hook discovery must return one clean, empty result for
-the requested canonical cwd.
+Before any thread exists, that probe repeats `config/read`, `skills/list`, and
+`hooks/list` with three separate App Server processes: both multi-agent
+features disabled, only `multi_agent` enabled, and only `multi_agent_v2`
+enabled. Each process must report exactly one active `sessionFlags` layer whose
+multi-agent values match that launch profile and whose other optional features
+remain disabled. Disabled web search, host-skill-discovery disable, and the
+minimal shell-environment policy must appear in both the session flags and the
+effective config, with an empty MCP-server map and no inherited shell
+environment setters, exclusions, or filters. Hook discovery must return one
+clean, empty result for the requested canonical cwd. This proves the isolated
+profiles can be selected; it does not prove that a model can create children.
 
 `skip_host_skill_discovery` does not make the v0.151 skill catalog empty. App
 Server materializes its bundled system skills beneath the isolated
@@ -147,11 +150,13 @@ optional tools. Before each turn and again after restart, it repeats the
 effective launch-policy, skill-origin, hook, config-source, and managed-policy
 checks for every task cwd, then verifies that the thread sees no MCP servers.
 
-This live path is intentionally a no-child isolation baseline. It cannot close
-the recursive-child gate while both multi-agent features are disabled. CP1
-must add a separate child-capable profile that enables only the reviewed
-multi-agent feature shape and repeats every isolation check before that profile
-can become the production candidate.
+This live path is intentionally a no-child isolation baseline. The keyless
+probe proves that either child-capable launch profile can enable exactly one
+reviewed multi-agent feature while repeating every pre-thread isolation check.
+It still cannot close the recursive-child gate: a separate dedicated-key run
+must select the one protocol advertised by the chosen model and prove actual
+root, child, and grandchild discovery before that profile can become the
+production candidate.
 
 It initializes with `experimentalApi`, reads the model catalog, registers and
 handshakes two temporary working directories, and starts one durable fixture
@@ -209,7 +214,9 @@ The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
 PASS compact Java projection matches the exact generated schema
 PASS exact Codex version 0.151.0
 PASS generated stable and experimental schema, including child-thread contract (codex app-server generate-json-schema --experimental --out <temporary-directory>)
-PASS App Server no-child baseline and config-source isolation
+PASS App Server no-child launch profile and config-source isolation
+PASS App Server multi-agent-v1-enabled launch profile and config-source isolation
+PASS App Server multi-agent-v2-enabled launch profile and config-source isolation
 ```
 
 Separately, a complete two-turn behavior slice passed on 2026-08-30 with
@@ -241,9 +248,10 @@ one representative real approval, the full modern live approval matrix,
 recursive child discovery, cross-task event/approval/command/filesystem
 isolation, API-key isolation, and the written go/no-go result remain separate
 CP1 evidence. Offline
-approval codec coverage does not close either live gate. Production adoption
-of the executable guards and a separately proven child-capable launch profile
-belongs to CP4. The safe no-child live path is now also
+approval codec coverage does not close either live gate. The keyless profile
+checks prove only launch-policy selection; production adoption of the
+executable guards and a behaviorally proven child-capable profile belongs to
+CP4. The safe no-child live path is now also
 configured to exercise one typed parent-command approval and one bounded
 Git-worktree mutation per repository without adding a model turn. It uses the
 second turn for the yielded-terminal proof and reuses the same durable thread

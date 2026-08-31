@@ -434,7 +434,7 @@ const legacyApprovalMethods = [
   "execCommandApproval",
 ];
 
-const disabledFeatures = [
+const alwaysDisabledFeatures = [
   "apps",
   "browser_use",
   "browser_use_external",
@@ -442,8 +442,6 @@ const disabledFeatures = [
   "hooks",
   "image_generation",
   "in_app_browser",
-  "multi_agent",
-  "multi_agent_v2",
   "plugins",
   "remote_plugin",
   "skill_mcp_dependency_install",
@@ -451,6 +449,26 @@ const disabledFeatures = [
   "tool_call_mcp_elicitation",
   "tool_suggest",
   "workspace_dependencies",
+];
+
+const noChildLaunchProfile = {
+  name: "no-child",
+  multi_agent: false,
+  multi_agent_v2: false,
+};
+
+const appServerLaunchProfiles = [
+  noChildLaunchProfile,
+  {
+    name: "multi-agent-v1-enabled",
+    multi_agent: true,
+    multi_agent_v2: false,
+  },
+  {
+    name: "multi-agent-v2-enabled",
+    multi_agent: false,
+    multi_agent_v2: true,
+  },
 ];
 
 const shellEnvironmentIncludeOnly = [
@@ -1850,8 +1868,8 @@ function startExecServer(cwd, environment, registerChild) {
   });
 }
 
-async function startAppServer(cwd, environment, registerChild) {
-  const child = spawn("codex", appServerArguments(), {
+async function startAppServer(cwd, environment, registerChild, launchProfile) {
+  const child = spawn("codex", appServerArguments(launchProfile), {
     cwd,
     detached: true,
     env: environment,
@@ -2085,7 +2103,7 @@ function assertPathWithin(root, candidate, message) {
   );
 }
 
-function assertBaselineLaunchPolicy(response) {
+function assertLaunchPolicy(response, launchProfile) {
   const config = response?.config;
   assert.ok(config && typeof config === "object", "config/read omitted effective config");
   assert.equal(config.web_search, "disabled", "web search was not disabled");
@@ -2095,8 +2113,15 @@ function assertBaselineLaunchPolicy(response) {
     true,
     "host skill discovery was not disabled",
   );
-  for (const feature of disabledFeatures) {
+  for (const feature of alwaysDisabledFeatures) {
     assert.equal(config.features?.[feature], false, `feature ${feature} was not disabled`);
+  }
+  for (const feature of ["multi_agent", "multi_agent_v2"]) {
+    assert.equal(
+      config.features?.[feature],
+      launchProfile[feature],
+      `feature ${feature} did not match the ${launchProfile.name} launch profile`,
+    );
   }
   assert.deepEqual(
     config.shell_environment_policy,
@@ -2132,11 +2157,18 @@ function assertBaselineLaunchPolicy(response) {
     true,
     "session flags omitted host-skill isolation",
   );
-  for (const feature of disabledFeatures) {
+  for (const feature of alwaysDisabledFeatures) {
     assert.equal(
       sessionFlags.features?.[feature],
       false,
       `session flags omitted disabled feature ${feature}`,
+    );
+  }
+  for (const feature of ["multi_agent", "multi_agent_v2"]) {
+    assert.equal(
+      sessionFlags.features?.[feature],
+      launchProfile[feature],
+      `session flags did not preserve ${feature} for ${launchProfile.name}`,
     );
   }
   assert.deepEqual(
@@ -2151,8 +2183,8 @@ function assertBaselineLaunchPolicy(response) {
   );
 }
 
-async function checkAppServerConfigSourceIsolation() {
-  const root = mkdtempSync(join(tmpdir(), "bytequay-codex-config-"));
+async function checkAppServerConfigSourceIsolation(launchProfile) {
+  const root = mkdtempSync(join(tmpdir(), `bytequay-codex-${launchProfile.name}-`));
   let child;
   let failure;
   let interruptedSignal;
@@ -2202,16 +2234,21 @@ async function checkAppServerConfigSourceIsolation() {
       /--ignore-rules\b/,
       "the reference App Server gained an exec-policy isolation option; re-review the gate",
     );
-    const started = await startAppServer(cleanWorkspace, environment, (startedChild) => {
-      child = startedChild;
-      if (interruptedSignal) {
-        try {
-          signalProcessGroup(child.pid, "SIGKILL");
-        } catch (error) {
-          signalErrors.push(error);
+    const started = await startAppServer(
+      cleanWorkspace,
+      environment,
+      (startedChild) => {
+        child = startedChild;
+        if (interruptedSignal) {
+          try {
+            signalProcessGroup(child.pid, "SIGKILL");
+          } catch (error) {
+            signalErrors.push(error);
+          }
         }
-      }
-    });
+      },
+      launchProfile,
+    );
     ({ child } = started);
     const [poisonedConfig, requirements] = await Promise.all([
       started.rpc.request("config/read", { cwd: cleanWorkspace, includeLayers: true }),
@@ -2238,7 +2275,7 @@ async function checkAppServerConfigSourceIsolation() {
       }),
       started.rpc.request("hooks/list", { cwds: [cleanWorkspace] }),
     ]);
-    assertBaselineLaunchPolicy(cleanConfig);
+    assertLaunchPolicy(cleanConfig, launchProfile);
     assertOnlyBundledSystemSkills(skills, [cleanWorkspace], codexHome);
     assertNoAmbientHooks(hooks, [cleanWorkspace]);
     assertCapabilityGuardsRejectPoison(cleanWorkspace, codexHome);
@@ -2284,7 +2321,7 @@ async function checkAppServerConfigSourceIsolation() {
   }
   if (failure) throw failure;
   console.log(
-    "PASS App Server no-child baseline and config-source isolation",
+    `PASS App Server ${launchProfile.name} launch profile and config-source isolation`,
   );
 }
 
@@ -2413,7 +2450,7 @@ function assertProofFile(cwd, environment) {
   );
 }
 
-function appServerArguments() {
+function appServerArguments(launchProfile) {
   const args = [
     "app-server",
     "--listen",
@@ -2432,11 +2469,20 @@ function appServerArguments() {
     "-c",
     "shell_environment_policy.experimental_use_profile=false",
   ];
-  for (const feature of disabledFeatures) args.push("--disable", feature);
+  for (const feature of alwaysDisabledFeatures) args.push("--disable", feature);
+  for (const feature of ["multi_agent", "multi_agent_v2"]) {
+    args.push(launchProfile[feature] ? "--enable" : "--disable", feature);
+  }
   return args;
 }
 
-async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
+async function verifyCapabilityIsolation(
+  rpc,
+  threadId,
+  codexHome,
+  cwds,
+  launchProfile,
+) {
   const [mcpStatus, hooks, skills, configs, requirements] = await Promise.all([
     rpc.request("mcpServerStatus/list", {
       threadId,
@@ -2453,7 +2499,7 @@ async function verifyCapabilityIsolation(rpc, threadId, codexHome, cwds) {
   assertNoAmbientHooks(hooks, cwds);
   assertOnlyBundledSystemSkills(skills, cwds, codexHome);
   for (const config of configs) {
-    assertBaselineLaunchPolicy(config);
+    assertLaunchPolicy(config, launchProfile);
     assertNoAmbientExecPolicyRules(config, codexHome);
   }
   assertNoManagedRequirements(requirements);
@@ -2610,7 +2656,12 @@ async function liveCompatibilityCheck() {
       startExecServer(cwdB, executorB.environment, registerChild),
     );
     ({ child: appServer, rpc } = await interruptible(
-      startAppServer(root, appServerEnvironment, registerChild),
+      startAppServer(
+        root,
+        appServerEnvironment,
+        registerChild,
+        noChildLaunchProfile,
+      ),
     ));
 
     const models = await interruptible(rpc.request("model/list", {}));
@@ -2674,7 +2725,13 @@ async function liveCompatibilityCheck() {
     const threadId = started.thread.id;
 
     await interruptible(
-      verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
+      verifyCapabilityIsolation(
+        rpc,
+        threadId,
+        codexHome,
+        [cwdA, cwdB],
+        noChildLaunchProfile,
+      ),
     );
 
     let approvalItemId;
@@ -2808,7 +2865,13 @@ async function liveCompatibilityCheck() {
     }));
     assert.equal(resumed.thread.id, threadId);
     await interruptible(
-      verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
+      verifyCapabilityIsolation(
+        rpc,
+        threadId,
+        codexHome,
+        [cwdA, cwdB],
+        noChildLaunchProfile,
+      ),
     );
 
     const secondTurnNotificationStart = rpc.notifications.length;
@@ -3000,7 +3063,12 @@ async function liveCompatibilityCheck() {
       startExecServer(cwdB, replacementExecutorB.environment, registerChild),
     );
     ({ child: appServer, rpc } = await interruptible(
-      startAppServer(root, appServerEnvironment, registerChild),
+      startAppServer(
+        root,
+        appServerEnvironment,
+        registerChild,
+        noChildLaunchProfile,
+      ),
     ));
     await interruptible(rpc.request("environment/add", {
       environmentId: environmentB.environmentId,
@@ -3024,7 +3092,13 @@ async function liveCompatibilityCheck() {
     }));
     assert.equal(recovered.thread.id, threadId);
     await interruptible(
-      verifyCapabilityIsolation(rpc, threadId, codexHome, [cwdA, cwdB]),
+      verifyCapabilityIsolation(
+        rpc,
+        threadId,
+        codexHome,
+        [cwdA, cwdB],
+        noChildLaunchProfile,
+      ),
     );
     const recoveredRead = await interruptible(
       rpc.request("thread/read", { threadId, includeTurns: true }),
@@ -3147,7 +3221,9 @@ async function main() {
     );
   }
   staticCompatibilityCheck(flags.has("--update-bindings"));
-  await checkAppServerConfigSourceIsolation();
+  for (const launchProfile of appServerLaunchProfiles) {
+    await checkAppServerConfigSourceIsolation(launchProfile);
+  }
   if (flags.has("--live")) await liveCompatibilityCheck();
 }
 

@@ -296,17 +296,20 @@ App Server call pins the
 `requirements` field to be present and null, and fails for an omitted or
 non-null value.
 
-The same pre-thread gate now proves the configured no-child isolation baseline
-is effective, not merely present in command arguments. `config/read` must
-report one active `sessionFlags` layer and matching effective values for every
-disabled optional feature, disabled web search, empty MCP configuration,
-host-skill-discovery disable, and the minimal shell environment. `hooks/list`
-must be empty and error-free for the requested cwd. `skills/list` may return
-only bundled system skills whose canonical paths remain beneath the isolated
-`CODEX_HOME/skills/.system`; it rejects every host, repository, plugin-owned,
-or out-of-root skill without pinning names or count. Synthetic poison cases
-exercise those rejection branches. This repairs evidence behind the existing
-capability-isolation checks; it closes none of the remaining live CP1 gates.
+The same pre-thread gate now proves three configured launch profiles are
+effective, not merely present in command arguments: no child features,
+`multi_agent` only, and `multi_agent_v2` only. Each separate App Server must
+report one active `sessionFlags` layer and matching effective values for the
+selected multi-agent shape plus every disabled optional feature, disabled web
+search, empty MCP configuration, host-skill-discovery disable, and the minimal
+shell environment. `hooks/list` must be empty and error-free for the requested
+cwd. `skills/list` may return only bundled system skills whose canonical paths
+remain beneath the isolated `CODEX_HOME/skills/.system`; it rejects every host,
+repository, plugin-owned, or out-of-root skill without pinning names or count.
+Synthetic poison cases exercise those rejection branches. This proves profile
+selection and repairs evidence behind the existing capability-isolation
+checks; without a model turn it does not prove child creation or close any
+remaining live CP1 gate.
 
 The offline schema gate now also pins the child-thread facts required by the
 later recursive live proof. Stable schema must expose subagent source kinds,
@@ -379,10 +382,13 @@ Implementation:
   metadata schema plus the experimental-only parent/ancestor list filters.
 - [x] Project and codec-test model multi-agent capability, V1/V2 child
   identity, and recursive thread/turn/item history without enabling routing.
+- [x] Start separate credential-free no-child, V1-only, and V2-only launch
+  profiles and repeat the pre-thread config, managed-policy, rule, skill, and
+  hook isolation assertions for each one.
 - [ ] Exercise recursive child discovery needed by the later quiescence
-  barrier. Use a separate child-capable profile that enables only the reviewed
-  multi-agent feature shape and repeat every capability-isolation assertion;
-  the no-child baseline cannot satisfy this item.
+  barrier. Select only the child-capable profile advertised by the live model,
+  then prove root, child, and grandchild history; profile selection alone
+  cannot satisfy this item.
 - [x] Call `thread/resume` for the still-loaded root and complete a second turn.
 - [ ] Restart App Server and prove disk-backed thread recovery.
 - [ ] Run two task environments through one App Server and prove event,
@@ -397,7 +403,8 @@ Implementation:
   disabled, empty dynamic tools, and empty capability roots. The keyless gate
   proves the feature flags, web-search mode, empty MCP map, host-skill setting,
   and complete shell-environment policy are active session flags for the
-  no-child baseline.
+  no-child, V1-only, and V2-only profiles. Exactly one multi-agent feature is
+  enabled in each child-capable profile.
 - [x] Give every compatibility subprocess a separate credential-free
   `CODEX_HOME` and minimal allowlisted process environment. Configure the
   model-requested shell environment to omit `CODEX_HOME` and `CODEX_API_KEY`.

@@ -21,7 +21,8 @@ surface is not mistaken for an existing one.
   rich task surface.
 - [Codex App Server compatibility fixture](codex-app-server-compat.md) records
   the executable v0.151.0 schema and live-runtime evidence, together with the
-  CP1 isolation and approval evidence that remains open.
+  CP1 isolation and representative live command-approval evidence that remains
+  open.
 - [Agent Task UI](agent-task-ui.md) specifies the proposed composer,
   transcript, approvals, folded activity, plans, images, subagent inspection,
   steering, queue, Electron transport, and incremental delivery sequence.
@@ -147,4 +148,5 @@ in the isolated `CODEX_HOME`. Because the baseline disables multi-agent, CP1
 must separately prove a child-capable profile with the same readiness checks
 before CP1 completes or CP2 begins. The compatibility fixture now provides an
 opt-in dedicated-key recursive-child gate for that proof; its presence is not
-evidence until the live run passes.
+evidence until the live run passes. CP1 exit requires dedicated-key passes from
+both the no-child `--live` fixture and the recursive `--live-children` fixture.

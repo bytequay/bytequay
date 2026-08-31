@@ -243,9 +243,9 @@ runtime, and logs.
 Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
-**Status (2026-08-31):** the checked-in schema gate and live two-turn runtime
-slice are a GO candidate. CP1 is not complete: representative and exhaustive
-live approval behavior, a bounded Git-worktree filesystem action, a non-empty
+**Status (2026-08-31):** the checked-in schema and two-root live runtime gates
+are implemented, but CP1 is not complete: one representative live
+command approval, a bounded Git-worktree filesystem action, a non-empty
 background terminal with targeted termination, child recursion, disk-backed
 restart recovery, cross-task event/approval/command/filesystem isolation, a
 safe live rerun with a dedicated API key that proves key isolation, and the
@@ -254,6 +254,10 @@ The checked-in fixture now has a separate `--live-children` path for the
 recursive proof, but this host has no dedicated compatibility API key and has
 not run it. Adding the executable gate is progress; only a passing live run
 closes child recursion.
+The no-child `--live` path now keeps two root tasks on separate executors,
+completes task B while task A has a yielded command, verifies event, approval,
+command, terminal, and filesystem ownership, and reloads both histories after
+an App Server restart. Only a dedicated-key pass closes those gates.
 Production adoption of the shared isolation guards and a CP1-approved
 child-capable launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
@@ -375,10 +379,11 @@ Implementation:
   and the opaque permission payload plus response scope from v0.151.0.
 - [x] Reject legacy `applyPatchApproval` and `execCommandApproval` server
   requests with a fail-closed JSON-RPC error.
-- [ ] Exercise one real approval request and typed response.
-- [ ] Exercise every supported modern approval request kind and legal response
-  shape through the live App Server path. Offline codec coverage does not close
-  this runtime gate.
+- [ ] Exercise one representative real command approval request and typed
+  `accept` response through the live App Server path. Exhaustive modern wire
+  coverage remains an offline schema/codec gate; richer product decision
+  matrices begin in CP2 only after ByteQuay defines its finite immutable safety
+  ceiling.
 - [x] Exercise background-terminal list and clean with an empty result.
 - [ ] Exercise a non-empty yielded background terminal and targeted terminate.
 - [x] Inspect `model/list` effort choices, text input support, and advertised
@@ -437,7 +442,8 @@ Exit gate:
 
 - [x] The checked-in offline compatibility fixture passes for the exact
   version.
-- [ ] The checked-in live fixture passes with a dedicated API key.
+- [ ] The checked-in `--live` fixture passes with a dedicated API key.
+- [ ] The checked-in `--live-children` fixture passes with a dedicated API key.
 - [x] The reference compatibility fixture rejects a different version and
   rejects changed schema bundle hashes or required fields.
 - [x] The executable fixture proves no managed requirements apply before the

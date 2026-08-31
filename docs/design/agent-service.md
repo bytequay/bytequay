@@ -800,10 +800,14 @@ variants, and opaque permission payload/scope, while legacy
 current bridge handles command and file-change requests only and maps its
 one-time provider-neutral allow/deny result to `accept`/`decline`. Preserving
 and rendering every product-permitted decision offered by the provider remain
-deferred. The product-permitted set is the intersection of the provider's
-legal offered decisions and ByteQuay's immutable safety ceiling; an empty set
-fails closed instead of producing an actionable approval. Until then, the
-bridge fails closed for non-command kinds, undisplayable commands,
+deferred. CP1 therefore requires one representative live command approval,
+not a live traversal of the protocol's full response union. CP2 must first
+define ByteQuay's finite decision matrix and immutable safety ceiling before
+adding richer live approval cases. The product-permitted set is the
+intersection of the provider's legal offered decisions and ByteQuay's
+immutable safety ceiling; an empty set fails closed instead of producing an
+actionable approval. Until then, the bridge fails closed for non-command kinds,
+undisplayable commands,
 additional/network permissions, file-change grant roots, scoped or unoffered
 decisions, and decisions returned after cancellation or turn replacement.
 `acceptWithExecpolicyAmendment` remains reference-codec coverage only: the
@@ -2456,22 +2460,26 @@ a generated production client.
 
 The current [v0.151.0 compatibility fixture](codex-app-server-compat.md)
 regenerates stable and experimental schemas, verifies their bundle hashes,
-required surface, and compact Java projection. A recorded live slice proves
-two turns routed through two distinct executors without ambient fallback. The
-repeatable live fixture never copies rotating ChatGPT credentials. It gives
+required surface, and compact Java projection. An earlier recorded live slice
+proves two turns routed through two distinct executors without ambient fallback.
+The current repeatable live fixture extends that check to two independent root
+tasks and three turns, but requires a new dedicated-key pass before that is
+evidence. It never copies rotating ChatGPT credentials. It gives
 every Codex subprocess a minimal allowlisted environment and a temporary
 `CODEX_HOME`. The live path is configured to pass its dedicated API key only
 to App Server and to omit the key and `CODEX_HOME` from model-requested
 commands; the dedicated-key rerun must prove that behavior. A bounded
-Git-worktree action and API-key isolation, representative and exhaustive live
-approval behavior, yielded-terminal termination, recursive children, restart
+Git-worktree action and API-key isolation, one representative live command
+approval, yielded-terminal termination, recursive children, restart
 recovery, fail-closed cross-task routing, and the written go/no-go result remain
-CP1 gates. The
-offline projection and codec tests already pin the modern approval methods,
+CP1 gates. The offline projection and codec tests already pin the modern
+approval methods,
 top-level fields, requiredness, command/file decision variants, and opaque
 permission payload/scope, and prove legacy approval methods fail closed; they
-do not prove the live bridge. The auth-free offline gate also validates a real
-isolated-user `allow` rule, observes its active user layer through App Server,
+do not prove the representative live callback. Richer product decision
+matrices begin in CP2 only after the immutable safety ceiling is defined. The
+auth-free offline gate also validates a real isolated-user `allow` rule,
+observes its active user layer through App Server,
 proves the ByteQuay source guard rejects it, and accepts a clean isolated
 workspace only after every tested task cwd has each returned system, user, or
 project policy-bearing config folder free of `.rules`. It separately pins
@@ -2484,6 +2492,8 @@ profile; production adoption waits for the separate CP1 child-capable proof and
 belongs to CP4. The fixture now contains an opt-in `--live-children` path that
 selects the model-advertised V1/V2 profile and validates recursive history,
 but it has not passed on this host without the required dedicated API key.
+CP1 exit requires dedicated-key passes from both the no-child `--live` path and
+the recursive `--live-children` path.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for

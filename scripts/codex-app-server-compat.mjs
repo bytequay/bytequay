@@ -493,6 +493,8 @@ const passiveTurnItemTypes = new Set([
 
 const proofFileName = "bytequay-cp1-proof.txt";
 const proofFileContents = "bytequay-cp1-proof\n";
+const taskBProofFileName = "bytequay-cp1-task-b-proof.txt";
+const taskBProofFileContents = "bytequay-cp1-task-b-proof\n";
 const execPolicyAllowedCommand = ["/usr/bin/git", "status", "--short"];
 const execPolicyRule = `prefix_rule(
     pattern = ["/usr/bin/git", "status", "--short"],
@@ -503,17 +505,24 @@ const execPolicyRule = `prefix_rule(
     ],
 )
 `;
-const environmentEvidenceCommand =
-  `printf 'bytequay-cp1-proof\\n' > ${proofFileName}; ` +
+const environmentEvidenceSuffix =
   'if [ -z "${CODEX_API_KEY+x}" ]; then key_state=absent; ' +
   "else key_state=present; fi; " +
   "printf 'CODEX_API_KEY_VISIBLE=%s\\nAPP_SERVER_SENTINEL=%s\\n" +
   "CODEX_HOME=%s\\nHOME=%s\\nPWD=%s\\n' \"$key_state\" " +
   '"${BYTEQUAY_CP1_APP_SERVER_SENTINEL-<unset>}" ' +
   '"${CODEX_HOME-<unset>}" "$HOME" "$PWD"';
+const environmentEvidenceCommand =
+  `printf 'bytequay-cp1-proof\\n' > ${proofFileName}; ${environmentEvidenceSuffix}`;
+const taskBEnvironmentEvidenceCommand =
+  `printf 'bytequay-cp1-task-b-proof\\n' > ${taskBProofFileName}; ` +
+  environmentEvidenceSuffix;
 
 const environmentEvidencePrompt =
   `Use the shell exactly once to run this exact command: ${environmentEvidenceCommand}. ` +
+  "Then reply with that exact output. Do not read files or use any other tool.";
+const taskBEnvironmentEvidencePrompt =
+  `Use the shell exactly once to run this exact command: ${taskBEnvironmentEvidenceCommand}. ` +
   "Then reply with that exact output. Do not read files or use any other tool.";
 const backgroundEvidenceCommand =
   `${environmentEvidenceCommand}; ` +
@@ -1614,6 +1623,7 @@ class JsonRpcProcess {
     this.nextId = 1;
     this.pending = new Map();
     this.notifications = [];
+    this.notificationCount = 0;
     this.serverRequestHandler = null;
     this.serverRequests = [];
     this.waiters = [];
@@ -1732,6 +1742,7 @@ class JsonRpcProcess {
     }
     if (!message.method) return;
 
+    this.notificationCount++;
     this.notifications.push(message);
     if (this.notifications.length > 2_000) this.notifications.shift();
     for (const waiter of [...this.waiters]) {
@@ -2380,6 +2391,125 @@ async function completeTurn(rpc, params, timeoutMs = 180_000) {
   return completed.turn;
 }
 
+function assertTaskNotificationIsolation(notifications, historiesByThread) {
+  const turnOwners = new Map();
+  const itemOwners = new Map();
+  const itemTurns = new Map();
+  for (const [threadId, thread] of historiesByThread) {
+    assert.equal(thread.id, threadId, `history key did not match thread ${threadId}`);
+    for (const turn of thread.turns) {
+      assert.ok(!turnOwners.has(turn.id), `turn ${turn.id} belongs to two task histories`);
+      turnOwners.set(turn.id, threadId);
+      for (const item of turn.items) {
+        assert.ok(item.id, `turn ${turn.id} contained an item without an id`);
+        assert.ok(!itemOwners.has(item.id), `item ${item.id} belongs to two task histories`);
+        itemOwners.set(item.id, threadId);
+        itemTurns.set(item.id, turn.id);
+      }
+    }
+  }
+
+  let threadScopedCount = 0;
+  for (const notification of notifications) {
+    const threadId = notification.params?.threadId;
+    if (threadId === undefined) continue;
+    threadScopedCount++;
+    assert.ok(
+      historiesByThread.has(threadId),
+      `notification ${notification.method} crossed into thread ${threadId}`,
+    );
+    const eventTurnIds = new Set(
+      [notification.params.turnId, notification.params.turn?.id]
+        .filter((turnId) => turnId !== undefined),
+    );
+    for (const turnId of eventTurnIds) {
+      assert.equal(
+        turnOwners.get(turnId),
+        threadId,
+        `notification ${notification.method} crossed turns in thread ${threadId}`,
+      );
+    }
+    const itemIds = [
+      notification.params.item?.id,
+      notification.params.itemId,
+      ...(notification.params.turn?.items ?? []).map((item) => item.id),
+    ];
+    for (const itemId of itemIds) {
+      if (itemId === undefined) continue;
+      assert.equal(
+        itemOwners.get(itemId),
+        threadId,
+        `notification ${notification.method} crossed items into thread ${threadId}`,
+      );
+      for (const turnId of eventTurnIds) {
+        assert.equal(
+          itemTurns.get(itemId),
+          turnId,
+          `notification ${notification.method} crossed items into turn ${turnId}`,
+        );
+      }
+    }
+  }
+  assert.ok(threadScopedCount > 0, "task isolation window contained no thread events");
+}
+
+function checkTaskNotificationIsolation() {
+  const histories = new Map([
+    ["thread-a", { id: "thread-a", turns: [{ id: "turn-a", items: [{ id: "item-a" }] }] }],
+    ["thread-b", { id: "thread-b", turns: [{ id: "turn-b", items: [{ id: "item-b" }] }] }],
+  ]);
+  assertTaskNotificationIsolation([
+    { method: "turn/started", params: { threadId: "thread-a", turn: { id: "turn-a" } } },
+    {
+      method: "item/started",
+      params: { threadId: "thread-b", turnId: "turn-b", item: { id: "item-b" } },
+    },
+  ], histories);
+  assert.throws(
+    () => assertTaskNotificationIsolation([
+      { method: "item/started", params: { threadId: "thread-c", turnId: "turn-c" } },
+    ], histories),
+    /crossed into thread thread-c/,
+  );
+  assert.throws(
+    () => assertTaskNotificationIsolation([
+      { method: "item/started", params: { threadId: "thread-a", turnId: "turn-b" } },
+    ], histories),
+    /crossed turns in thread thread-a/,
+  );
+  assert.throws(
+    () => assertTaskNotificationIsolation([
+      {
+        method: "item/started",
+        params: { threadId: "thread-a", turnId: "turn-a", item: { id: "item-b" } },
+      },
+    ], histories),
+    /crossed items into thread thread-a/,
+  );
+  assert.throws(
+    () => assertTaskNotificationIsolation([], new Map([
+      ["thread-a", histories.get("thread-a")],
+      ["thread-b", {
+        id: "thread-b",
+        turns: [{ id: "turn-b", items: [{ id: "item-a" }] }],
+      }],
+    ])),
+    /item item-a belongs to two task histories/,
+  );
+  assert.throws(
+    () => assertTaskNotificationIsolation([
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thread-a",
+          turn: { id: "turn-a", items: [{ id: "item-b" }] },
+        },
+      },
+    ], histories),
+    /crossed items into thread thread-a/,
+  );
+}
+
 async function waitForNoBackgroundTerminals(rpc, threadId, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (true) {
@@ -2389,6 +2519,19 @@ async function waitForNoBackgroundTerminals(rpc, threadId, timeoutMs = 5_000) {
     });
     if (response.data.length === 0) return response;
     assert.ok(Date.now() < deadline, `background terminals remained after ${timeoutMs} ms`);
+    await delay(50);
+  }
+}
+
+async function waitForBackgroundTerminal(rpc, threadId, itemId, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const response = await rpc.request("thread/backgroundTerminals/list", {
+      threadId,
+      limit: 100,
+    });
+    if (response.data.length === 1 && response.data[0].itemId === itemId) return response;
+    assert.ok(Date.now() < deadline, `background terminal ${itemId} was not listed`);
     await delay(50);
   }
 }
@@ -2461,10 +2604,15 @@ function initializeDisposableGitWorktree(cwd, environment) {
   );
 }
 
-function assertProofFile(cwd, environment) {
+function assertProofFile(
+  cwd,
+  environment,
+  fileName = proofFileName,
+  contents = proofFileContents,
+) {
   assert.equal(
-    readFileSync(join(cwd, proofFileName), "utf8"),
-    proofFileContents,
+    readFileSync(join(cwd, fileName), "utf8"),
+    contents,
     `unexpected proof file content in ${cwd}`,
   );
   assert.equal(
@@ -2472,7 +2620,7 @@ function assertProofFile(cwd, environment) {
       cwd,
       env: environment,
     }),
-    `?? ${proofFileName}`,
+    `?? ${fileName}`,
     `bounded proof file was not the only Git worktree mutation in ${cwd}`,
   );
 }
@@ -2525,20 +2673,24 @@ async function verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile) {
 
 async function verifyCapabilityIsolation(
   rpc,
-  threadId,
+  threadIdOrIds,
   codexHome,
   cwds,
   launchProfile,
 ) {
-  const [mcpStatus] = await Promise.all([
-    rpc.request("mcpServerStatus/list", {
-      threadId,
-      limit: 100,
-      detail: "toolsAndAuthOnly",
-    }),
+  const threadIds = Array.isArray(threadIdOrIds) ? threadIdOrIds : [threadIdOrIds];
+  const [mcpStatuses] = await Promise.all([
+    Promise.all(threadIds.map((threadId) =>
+      rpc.request("mcpServerStatus/list", {
+        threadId,
+        limit: 100,
+        detail: "toolsAndAuthOnly",
+      }))),
     verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile),
   ]);
-  assert.deepEqual(mcpStatus.data, [], "isolated thread inherited MCP servers");
+  for (const mcpStatus of mcpStatuses) {
+    assert.deepEqual(mcpStatus.data, [], "isolated thread inherited MCP servers");
+  }
 }
 
 function commandRanIn(command, cwd, expectedCommand) {
@@ -3145,7 +3297,7 @@ async function liveCompatibilityCheck() {
       cwd: cwdB,
       runtimeWorkspaceRoots: [cwdB],
     };
-    const started = await interruptible(rpc.request("thread/start", {
+    const startedA = await interruptible(rpc.request("thread/start", {
       cwd: cwdA,
       model: model.model,
       approvalPolicy: "untrusted",
@@ -3157,12 +3309,35 @@ async function liveCompatibilityCheck() {
       selectedCapabilityRoots: [],
       environments: [environmentA],
     }));
-    const threadId = started.thread.id;
+    const startedB = await interruptible(rpc.request("thread/start", {
+      cwd: cwdB,
+      model: model.model,
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
+      ephemeral: false,
+      serviceName: "ByteQuay CP1 compatibility fixture task B",
+      dynamicTools: [],
+      selectedCapabilityRoots: [],
+      environments: [environmentB],
+    }));
+    const threadAId = startedA.thread.id;
+    const threadBId = startedB.thread.id;
+    assert.notEqual(threadAId, threadBId, "two tasks shared a root thread");
+    assert.equal(startedA.thread.parentThreadId ?? null, null);
+    assert.equal(startedB.thread.parentThreadId ?? null, null);
+    assert.equal(startedA.thread.sessionId, threadAId, "task A is not a session root");
+    assert.equal(startedB.thread.sessionId, threadBId, "task B is not a session root");
+    assert.notEqual(
+      startedA.thread.sessionId,
+      startedB.thread.sessionId,
+      "two tasks shared a session tree",
+    );
 
     await interruptible(
       verifyCapabilityIsolation(
         rpc,
-        threadId,
+        [threadAId, threadBId],
         codexHome,
         [cwdA, cwdB],
         noChildLaunchProfile,
@@ -3171,9 +3346,9 @@ async function liveCompatibilityCheck() {
 
     let approvalItemId;
     let approvalTurnId;
-    const parentCommandApprovals = [];
+    const taskACommandApprovals = [];
     rpc.handleServerRequests("item/commandExecution/requestApproval", (params) => {
-      assert.equal(params.threadId, threadId);
+      assert.equal(params.threadId, threadAId);
       assert.ok(params.turnId, "command approval omitted turnId");
       assert.ok(params.itemId, "command approval omitted itemId");
       assert.equal(realpathSync(params.cwd), realpathSync(cwdA));
@@ -3202,13 +3377,13 @@ async function liveCompatibilityCheck() {
           false,
           "proof file existed before parent command approval",
         );
-        parentCommandApprovals.push(params);
+        taskACommandApprovals.push(params);
       }
       return { decision: "accept" };
     });
     const firstTurnNotificationStart = rpc.notifications.length;
     const firstCompletedTurn = await interruptible(completeTurn(rpc, {
-      threadId,
+      threadId: threadAId,
       input: [
         {
           type: "text",
@@ -3231,13 +3406,14 @@ async function liveCompatibilityCheck() {
       environments: [environmentA],
     }));
     rpc.stopHandlingServerRequests();
+    const serverRequestCountAfterTaskA = rpc.serverRequests.length;
 
     const firstTurnNotifications = rpc.notifications.slice(firstTurnNotificationStart);
     const firstStartedItems = firstTurnNotifications
       .filter(
         (notification) =>
           notification.method === "item/started" &&
-          notification.params.threadId === threadId,
+          notification.params.threadId === threadAId,
       )
       .map((notification) => notification.params.item);
     const firstStartedCommand = assertSingleCommandStart(firstStartedItems, "first turn");
@@ -3245,7 +3421,7 @@ async function liveCompatibilityCheck() {
       .filter(
         (notification) =>
           notification.method === "item/completed" &&
-          notification.params.threadId === threadId,
+          notification.params.threadId === threadAId,
       )
       .map((notification) => notification.params.item);
     const firstCompletedCommand = assertSingleCommand(
@@ -3256,12 +3432,12 @@ async function liveCompatibilityCheck() {
     assert.equal(firstCompletedCommand.id, firstStartedCommand.id);
     assert.ok(rpc.serverRequests.length >= 1, "first turn did not request approval");
     assert.equal(
-      parentCommandApprovals.length,
+      taskACommandApprovals.length,
       1,
-      "first turn did not request exactly one parent command approval",
+      "task A did not request exactly one command approval",
     );
-    assert.equal(parentCommandApprovals[0].itemId, firstStartedCommand.id);
-    assert.equal(parentCommandApprovals[0].turnId, firstCompletedTurn.id);
+    assert.equal(taskACommandApprovals[0].itemId, firstStartedCommand.id);
+    assert.equal(taskACommandApprovals[0].turnId, firstCompletedTurn.id);
     assertProofFile(cwdA, executorA.environment);
     assert.equal(
       existsSync(join(cwdB, proofFileName)),
@@ -3272,14 +3448,14 @@ async function liveCompatibilityCheck() {
       firstTurnNotifications.some(
         (notification) =>
           notification.method === "item/completed" &&
-          notification.params.threadId === threadId &&
+          notification.params.threadId === threadAId &&
           notification.params.item?.type === "agentMessage",
       ),
       "final agent message was not streamed",
     );
 
     const firstRead = await interruptible(
-      rpc.request("thread/read", { threadId, includeTurns: true }),
+      rpc.request("thread/read", { threadId: threadAId, includeTurns: true }),
     );
     assert.equal(firstRead.thread.turns.length, 1, "thread/read returned extra turns");
     assert.equal(firstRead.thread.turns[0].id, firstCompletedTurn.id);
@@ -3290,32 +3466,138 @@ async function liveCompatibilityCheck() {
     );
     assert.equal(firstHistoryCommand.id, firstCompletedCommand.id);
 
-    const resumed = await interruptible(rpc.request("thread/resume", {
-      threadId,
-      cwd: cwdB,
+    const resumedA = await interruptible(rpc.request("thread/resume", {
+      threadId: threadAId,
+      cwd: cwdA,
       approvalPolicy: "never",
       approvalsReviewer: "user",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
-    assert.equal(resumed.thread.id, threadId);
+    assert.equal(resumedA.thread.id, threadAId);
     await interruptible(
       verifyCapabilityIsolation(
         rpc,
-        threadId,
+        threadAId,
         codexHome,
         [cwdA, cwdB],
         noChildLaunchProfile,
       ),
     );
 
-    const secondTurnNotificationStart = rpc.notifications.length;
+    const taskIsolationNotificationStart = rpc.notificationCount;
     const secondCompletedTurn = await interruptible(completeTurn(rpc, {
-      threadId,
+      threadId: threadAId,
       input: [
         {
           type: "text",
           text: backgroundEvidencePrompt,
+          text_elements: [],
+        },
+      ],
+      model: model.model,
+      effort: model.defaultReasoningEffort,
+      approvalPolicy: "never",
+      approvalsReviewer: "user",
+      cwd: cwdA,
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: [cwdA],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
+      environments: [environmentA],
+    }));
+
+    const secondTurnNotificationCount = rpc.notificationCount - taskIsolationNotificationStart;
+    assert.ok(secondTurnNotificationCount < 2_000, "second turn overflowed the event buffer");
+    const secondTurnNotifications = rpc.notifications.slice(-secondTurnNotificationCount);
+    const secondStartedItems = secondTurnNotifications
+      .filter(
+        (notification) =>
+          notification.method === "item/started" &&
+          notification.params.threadId === threadAId,
+      )
+      .map((notification) => notification.params.item);
+    const secondStartedCommand = assertSingleCommandStart(
+      secondStartedItems,
+      "second turn",
+    );
+    assert.equal(secondStartedCommand.command, backgroundEvidenceCommand);
+    assert.equal(secondStartedCommand.status, "inProgress");
+    assert.equal(realpathSync(secondStartedCommand.cwd), realpathSync(cwdA));
+    const secondTurnCompletedItems = secondTurnNotifications
+      .filter(
+        (notification) =>
+          notification.method === "item/completed" &&
+          notification.params.threadId === threadAId,
+      )
+      .map((notification) => notification.params.item);
+    assert.deepEqual(
+      secondTurnCompletedItems.filter((item) => !passiveTurnItemTypes.has(item.type)),
+      [],
+      "yielded command completed before targeted termination",
+    );
+    assertProofFile(cwdA, executorA.environment);
+    assert.ok(
+      secondTurnNotifications.some(
+        (notification) =>
+          notification.method === "item/completed" &&
+          notification.params.threadId === threadAId &&
+          notification.params.item?.type === "agentMessage" &&
+          notification.params.item.text.trim(),
+      ),
+      "task A final agent message was not streamed",
+    );
+
+    const secondRead = await interruptible(
+      rpc.request("thread/read", { threadId: threadAId, includeTurns: true }),
+    );
+    assert.equal(secondRead.thread.turns.length, 2, "thread/read did not return two turns");
+    assert.equal(secondRead.thread.id, threadAId);
+    assert.equal(secondRead.thread.turns[0].id, firstCompletedTurn.id);
+    assert.equal(secondRead.thread.turns[1].id, secondCompletedTurn.id);
+    const firstReplayedCommand = assertSingleCommand(
+      secondRead.thread.turns[0].items,
+      cwdA,
+      "first replayed turn",
+    );
+    const secondHistoryCommand = assertSingleCommand(
+      secondRead.thread.turns[1].items,
+      cwdA,
+      "second turn history",
+      backgroundEvidenceCommand,
+      "inProgress",
+      null,
+    );
+    assert.equal(firstReplayedCommand.id, firstCompletedCommand.id);
+    assert.equal(secondHistoryCommand.id, secondStartedCommand.id);
+    assert.ok(
+      secondRead.thread.turns.at(-1).items.some(
+        (item) => item.type === "agentMessage" && item.text.trim(),
+      ),
+      "resumed thread did not return a final response",
+    );
+
+    const beforeCleanup = await interruptible(
+      waitForBackgroundTerminal(rpc, threadAId, secondStartedCommand.id),
+    );
+    assert.equal(beforeCleanup.nextCursor ?? null, null);
+    const backgroundTerminal = beforeCleanup.data[0];
+    assert.ok(
+      typeof backgroundTerminal.processId === "string" && backgroundTerminal.processId.trim(),
+      "background terminal omitted processId",
+    );
+    assert.equal(backgroundTerminal.command, backgroundEvidenceCommand);
+    assert.equal(realpathSync(backgroundTerminal.cwd), realpathSync(cwdA));
+
+    const taskBCompletedTurn = await interruptible(completeTurn(rpc, {
+      threadId: threadBId,
+      input: [
+        {
+          type: "text",
+          text: taskBEnvironmentEvidencePrompt,
           text_elements: [],
         },
       ],
@@ -3333,114 +3615,83 @@ async function liveCompatibilityCheck() {
       },
       environments: [environmentB],
     }));
-
-    const secondTurnNotifications = rpc.notifications.slice(secondTurnNotificationStart);
-    const secondStartedItems = secondTurnNotifications
-      .filter(
-        (notification) =>
-          notification.method === "item/started" &&
-          notification.params.threadId === threadId,
-      )
-      .map((notification) => notification.params.item);
-    const secondStartedCommand = assertSingleCommandStart(
-      secondStartedItems,
-      "second turn",
+    assert.equal(
+      rpc.serverRequests.length,
+      serverRequestCountAfterTaskA,
+      "task B emitted an approval request under the never policy",
     );
-    assert.equal(secondStartedCommand.command, backgroundEvidenceCommand);
-    assert.equal(secondStartedCommand.status, "inProgress");
-    assert.equal(realpathSync(secondStartedCommand.cwd), realpathSync(cwdB));
-    const secondTurnCompletedItems = secondTurnNotifications
-      .filter(
-        (notification) =>
-          notification.method === "item/completed" &&
-          notification.params.threadId === threadId,
-      )
-      .map((notification) => notification.params.item);
-    assert.deepEqual(
-      secondTurnCompletedItems.filter((item) => !passiveTurnItemTypes.has(item.type)),
-      [],
-      "yielded command completed before targeted termination",
+    const taskBRead = await interruptible(
+      rpc.request("thread/read", { threadId: threadBId, includeTurns: true }),
     );
-    assertProofFile(cwdB, executorB.environment);
-    assertProofFile(cwdA, executorA.environment);
-    assert.ok(
-      secondTurnNotifications.some(
-        (notification) =>
-          notification.method === "item/completed" &&
-          notification.params.threadId === threadId &&
-          notification.params.item?.type === "agentMessage" &&
-          notification.params.item.text.trim(),
-      ),
-      "executor B final agent message was not streamed",
-    );
-
-    const secondRead = await interruptible(
-      rpc.request("thread/read", { threadId, includeTurns: true }),
-    );
-    assert.equal(secondRead.thread.turns.length, 2, "thread/read did not return two turns");
-    assert.equal(secondRead.thread.id, threadId);
-    assert.equal(secondRead.thread.turns[0].id, firstCompletedTurn.id);
-    assert.equal(secondRead.thread.turns[1].id, secondCompletedTurn.id);
-    const firstReplayedCommand = assertSingleCommand(
-      secondRead.thread.turns[0].items,
-      cwdA,
-      "first replayed turn",
-    );
-    const secondHistoryCommand = assertSingleCommand(
-      secondRead.thread.turns[1].items,
+    assert.equal(taskBRead.thread.id, threadBId);
+    assert.equal(taskBRead.thread.turns.length, 1, "task B returned extra turns");
+    assert.equal(taskBRead.thread.turns[0].id, taskBCompletedTurn.id);
+    const taskBHistoryCommand = assertSingleCommand(
+      taskBRead.thread.turns[0].items,
       cwdB,
-      "second turn history",
-      backgroundEvidenceCommand,
-      "inProgress",
-      null,
+      "task B history",
+      taskBEnvironmentEvidenceCommand,
     );
-    assert.equal(firstReplayedCommand.id, firstCompletedCommand.id);
-    assert.equal(secondHistoryCommand.id, secondStartedCommand.id);
-    assert.ok(
-      secondRead.thread.turns.at(-1).items.some(
-        (item) => item.type === "agentMessage" && item.text.trim(),
-      ),
-      "resumed thread did not return a final response",
+    assertProofFile(
+      cwdB,
+      executorB.environment,
+      taskBProofFileName,
+      taskBProofFileContents,
     );
-    assert.ok(
-      !rpc.notifications.some(
-        (notification) =>
-          notification.method === "mcpServer/startupStatus/updated" &&
-          notification.params.threadId === threadId,
-      ),
-      "isolated thread started an inherited MCP server",
+    assert.equal(
+      existsSync(join(cwdA, taskBProofFileName)),
+      false,
+      "task B wrote its proof file into task A",
     );
+    assert.equal(
+      existsSync(join(cwdB, proofFileName)),
+      false,
+      "task A wrote its proof file into task B",
+    );
+    assert.equal(
+      new Set([
+        firstCompletedTurn.id,
+        secondCompletedTurn.id,
+        taskBCompletedTurn.id,
+      ]).size,
+      3,
+      "task turns shared an id",
+    );
+    assert.equal(
+      new Set([
+        firstCompletedCommand.id,
+        secondStartedCommand.id,
+        taskBHistoryCommand.id,
+      ]).size,
+      3,
+      "task commands shared an item id",
+    );
+    const taskBBackground = await interruptible(
+      rpc.request("thread/backgroundTerminals/list", { threadId: threadBId, limit: 100 }),
+    );
+    assert.deepEqual(taskBBackground.data, [], "task B inherited task A's terminal");
+    assert.equal(taskBBackground.nextCursor ?? null, null);
+    const stillRunningInA = await interruptible(
+      waitForBackgroundTerminal(rpc, threadAId, secondStartedCommand.id),
+    );
+    assert.equal(stillRunningInA.data[0].processId, backgroundTerminal.processId);
 
-    const beforeCleanup = await interruptible(rpc.request("thread/backgroundTerminals/list", {
-      threadId,
-      limit: 100,
-    }));
-    assert.equal(beforeCleanup.nextCursor ?? null, null);
-    assert.equal(beforeCleanup.data.length, 1, "yielded command was not listed exactly once");
-    const backgroundTerminal = beforeCleanup.data[0];
-    assert.equal(backgroundTerminal.itemId, secondStartedCommand.id);
-    assert.ok(
-      typeof backgroundTerminal.processId === "string" && backgroundTerminal.processId.trim(),
-      "background terminal omitted processId",
-    );
-    assert.equal(backgroundTerminal.command, backgroundEvidenceCommand);
-    assert.equal(realpathSync(backgroundTerminal.cwd), realpathSync(cwdB));
     const backgroundCompletion = rpc.waitFor(
       "item/completed",
       (notification) =>
-        notification.threadId === threadId &&
+        notification.threadId === threadAId &&
         notification.turnId === secondCompletedTurn.id &&
         notification.item?.id === secondStartedCommand.id,
     );
     const termination = await interruptible(rpc.request(
       "thread/backgroundTerminals/terminate",
-      { threadId, processId: backgroundTerminal.processId },
+      { threadId: threadAId, processId: backgroundTerminal.processId },
     ));
     assert.deepEqual(termination, { terminated: true });
     const terminatedItem = await interruptible(backgroundCompletion);
     const terminatedSecondCommand = assertSingleCommand(
       [terminatedItem.item],
-      cwdB,
+      cwdA,
       "targeted background termination",
       backgroundEvidenceCommand,
       "failed",
@@ -3454,27 +3705,132 @@ async function liveCompatibilityCheck() {
       "terminated command omitted its pre-yield output",
     );
     const afterTermination = await interruptible(
-      waitForNoBackgroundTerminals(rpc, threadId),
+      waitForNoBackgroundTerminals(rpc, threadAId),
     );
     assert.equal(afterTermination.nextCursor ?? null, null);
-    await interruptible(rpc.request("thread/backgroundTerminals/clean", { threadId }));
+    const taskBAfterTermination = await interruptible(
+      waitForNoBackgroundTerminals(rpc, threadBId),
+    );
+    assert.equal(taskBAfterTermination.nextCursor ?? null, null);
+    await interruptible(rpc.request(
+      "thread/backgroundTerminals/clean",
+      { threadId: threadAId },
+    ));
     const afterCleanup = await interruptible(rpc.request("thread/backgroundTerminals/list", {
-      threadId,
+      threadId: threadAId,
       limit: 100,
     }));
     assert.deepEqual(afterCleanup.data, []);
     const terminatedRead = await interruptible(
-      rpc.request("thread/read", { threadId, includeTurns: true }),
+      rpc.request("thread/read", { threadId: threadAId, includeTurns: true }),
+    );
+    assert.equal(terminatedRead.thread.id, threadAId);
+    assert.deepEqual(
+      terminatedRead.thread.turns.map((turn) => turn.id),
+      [firstCompletedTurn.id, secondCompletedTurn.id],
+      "task A history changed while task B ran",
     );
     const terminatedHistoryCommand = assertSingleCommand(
       terminatedRead.thread.turns[1].items,
-      cwdB,
+      cwdA,
       "terminated second turn history",
       backgroundEvidenceCommand,
       "failed",
       undefined,
     );
     assert.equal(terminatedHistoryCommand.id, terminatedSecondCommand.id);
+    const settledTaskBRead = await interruptible(
+      rpc.request("thread/read", { threadId: threadBId, includeTurns: true }),
+    );
+    assert.equal(settledTaskBRead.thread.id, threadBId);
+    assert.deepEqual(
+      settledTaskBRead.thread.turns.map((turn) => turn.id),
+      [taskBCompletedTurn.id],
+      "terminating task A changed task B history",
+    );
+    const taskIsolationNotificationCount =
+      rpc.notificationCount - taskIsolationNotificationStart;
+    assert.ok(
+      taskIsolationNotificationCount < 2_000,
+      "task isolation window overflowed the notification buffer",
+    );
+    const taskIsolationNotifications = rpc.notifications.slice(-taskIsolationNotificationCount);
+    assertTaskNotificationIsolation(
+      taskIsolationNotifications,
+      new Map([
+        [threadAId, terminatedRead.thread],
+        [threadBId, settledTaskBRead.thread],
+      ]),
+    );
+    const taskBStartedCommand = assertSingleCommandStart(
+      taskIsolationNotifications
+        .filter(
+          (notification) =>
+            notification.method === "item/started" &&
+            notification.params.threadId === threadBId,
+        )
+        .map((notification) => notification.params.item),
+      "task B event stream",
+    );
+    const taskBCompletedCommand = assertSingleCommand(
+      taskIsolationNotifications
+        .filter(
+          (notification) =>
+            notification.method === "item/completed" &&
+            notification.params.threadId === threadBId,
+        )
+        .map((notification) => notification.params.item),
+      cwdB,
+      "task B event stream",
+      taskBEnvironmentEvidenceCommand,
+    );
+    assert.equal(taskBStartedCommand.id, taskBHistoryCommand.id);
+    assert.equal(taskBCompletedCommand.id, taskBHistoryCommand.id);
+    assert.ok(
+      taskIsolationNotifications.some(
+        (notification) =>
+          notification.method === "item/completed" &&
+          notification.params.threadId === threadBId &&
+          notification.params.item?.type === "agentMessage" &&
+          notification.params.item.text.trim(),
+      ),
+      "task B final agent message was not streamed",
+    );
+    const notificationIndex = (method, predicate) => taskIsolationNotifications.findIndex(
+      (notification) => notification.method === method && predicate(notification.params),
+    );
+    const taskACommandStartedIndex = notificationIndex(
+      "item/started",
+      (params) => params.threadId === threadAId && params.item?.id === secondStartedCommand.id,
+    );
+    const taskBTurnStartedIndex = notificationIndex(
+      "turn/started",
+      (params) => params.threadId === threadBId && params.turn?.id === taskBCompletedTurn.id,
+    );
+    const taskBTurnCompletedIndex = notificationIndex(
+      "turn/completed",
+      (params) => params.threadId === threadBId && params.turn?.id === taskBCompletedTurn.id,
+    );
+    const taskACommandCompletedIndex = notificationIndex(
+      "item/completed",
+      (params) => params.threadId === threadAId && params.item?.id === secondStartedCommand.id,
+    );
+    assert.ok(
+      taskACommandStartedIndex >= 0 &&
+        taskACommandStartedIndex < taskBTurnStartedIndex &&
+        taskBTurnStartedIndex < taskBTurnCompletedIndex &&
+        taskBTurnCompletedIndex < taskACommandCompletedIndex,
+      "task B did not complete while task A's background command remained active",
+    );
+    assert.ok(
+      !rpc.notifications.some(
+        (notification) =>
+          notification.method === "mcpServer/startupStatus/updated" &&
+          (notification.params.threadId === threadAId ||
+            notification.params.threadId === threadBId),
+      ),
+      "an isolated task started an inherited MCP server",
+    );
 
     assertRuntimeHealthy(rpc, [
       ["environment A", execA],
@@ -3492,10 +3848,10 @@ async function liveCompatibilityCheck() {
     assert.equal(processGroupExists(oldExecAPid), false);
     assert.equal(processGroupExists(oldExecBPid), false);
 
-    const replacementExecutorB = executorProcessEnvironment(root, "exec-b-restarted", cwdB);
-    assert.equal(existsSync(join(replacementExecutorB.codexHome, "auth.json")), false);
-    execB = await interruptible(
-      startExecServer(cwdB, replacementExecutorB.environment, registerChild),
+    const replacementExecutorA = executorProcessEnvironment(root, "exec-a-restarted", cwdA);
+    assert.equal(existsSync(join(replacementExecutorA.codexHome, "auth.json")), false);
+    execA = await interruptible(
+      startExecServer(cwdA, replacementExecutorA.environment, registerChild),
     );
     ({ child: appServer, rpc } = await interruptible(
       startAppServer(
@@ -3506,42 +3862,49 @@ async function liveCompatibilityCheck() {
       ),
     ));
     await interruptible(rpc.request("environment/add", {
-      environmentId: environmentB.environmentId,
-      execServerUrl: execB.url,
+      environmentId: environmentA.environmentId,
+      execServerUrl: execA.url,
       connectTimeoutMs: 10_000,
     }));
-    const replacementInfoB = await interruptible(rpc.request("environment/info", {
-      environmentId: environmentB.environmentId,
+    const replacementInfoA = await interruptible(rpc.request("environment/info", {
+      environmentId: environmentA.environmentId,
     }));
-    assert.equal(canonicalPath(replacementInfoB.cwd), realpathSync(cwdB));
-    assert.ok(replacementInfoB.shell.name && replacementInfoB.shell.path);
+    assert.equal(canonicalPath(replacementInfoA.cwd), realpathSync(cwdA));
+    assert.ok(replacementInfoA.shell.name && replacementInfoA.shell.path);
 
     const restartNotificationStart = rpc.notifications.length;
-    const recovered = await interruptible(rpc.request("thread/resume", {
-      threadId,
-      cwd: cwdB,
+    const recoveredA = await interruptible(rpc.request("thread/resume", {
+      threadId: threadAId,
+      cwd: cwdA,
       approvalPolicy: "never",
       approvalsReviewer: "user",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
-    assert.equal(recovered.thread.id, threadId);
+    assert.equal(recoveredA.thread.id, threadAId);
     await interruptible(
       verifyCapabilityIsolation(
         rpc,
-        threadId,
+        threadAId,
         codexHome,
         [cwdA, cwdB],
         noChildLaunchProfile,
       ),
     );
-    const recoveredRead = await interruptible(
-      rpc.request("thread/read", { threadId, includeTurns: true }),
+    const [recoveredRead, recoveredTaskBRead] = await interruptible(Promise.all([
+      rpc.request("thread/read", { threadId: threadAId, includeTurns: true }),
+      rpc.request("thread/read", { threadId: threadBId, includeTurns: true }),
+    ]));
+    assert.equal(recoveredRead.thread.id, threadAId);
+    assert.deepEqual(
+      recoveredRead.thread.turns.map((turn) => turn.id),
+      [firstCompletedTurn.id, secondCompletedTurn.id],
     );
-    assert.equal(recoveredRead.thread.id, threadId);
-    assert.equal(recoveredRead.thread.turns.length, 2);
-    assert.equal(recoveredRead.thread.turns[0].id, firstCompletedTurn.id);
-    assert.equal(recoveredRead.thread.turns[1].id, secondCompletedTurn.id);
+    assert.equal(recoveredTaskBRead.thread.id, threadBId);
+    assert.deepEqual(
+      recoveredTaskBRead.thread.turns.map((turn) => turn.id),
+      [taskBCompletedTurn.id],
+    );
     const recoveredFirstCommand = assertSingleCommand(
       recoveredRead.thread.turns[0].items,
       cwdA,
@@ -3549,24 +3912,36 @@ async function liveCompatibilityCheck() {
     );
     const recoveredSecondCommand = assertSingleCommand(
       recoveredRead.thread.turns[1].items,
-      cwdB,
+      cwdA,
       "recovered second turn",
       backgroundEvidenceCommand,
       "failed",
       undefined,
     );
+    const recoveredTaskBCommand = assertSingleCommand(
+      recoveredTaskBRead.thread.turns[0].items,
+      cwdB,
+      "recovered task B turn",
+      taskBEnvironmentEvidenceCommand,
+    );
     assert.equal(recoveredFirstCommand.id, firstCompletedCommand.id);
     assert.equal(recoveredSecondCommand.id, terminatedSecondCommand.id);
+    assert.equal(recoveredTaskBCommand.id, taskBHistoryCommand.id);
     const recoveredBackground = await interruptible(
-      rpc.request("thread/backgroundTerminals/list", { threadId, limit: 100 }),
+      rpc.request("thread/backgroundTerminals/list", { threadId: threadAId, limit: 100 }),
     );
     assert.deepEqual(recoveredBackground.data, []);
-    assertProofFile(cwdA, executorA.environment);
-    assertProofFile(cwdB, replacementExecutorB.environment);
+    assertProofFile(cwdA, replacementExecutorA.environment);
+    assertProofFile(
+      cwdB,
+      executorB.environment,
+      taskBProofFileName,
+      taskBProofFileContents,
+    );
 
     await interruptible(delay(100));
     const settledRecoveredRead = await interruptible(
-      rpc.request("thread/read", { threadId, includeTurns: true }),
+      rpc.request("thread/read", { threadId: threadAId, includeTurns: true }),
     );
     assert.deepEqual(
       settledRecoveredRead.thread.turns.map((turn) => turn.id),
@@ -3582,7 +3957,7 @@ async function liveCompatibilityCheck() {
       "App Server restart started provider work without a new turn",
     );
     assertRuntimeHealthy(rpc, [
-      ["replacement environment B", execB],
+      ["replacement environment A", execA],
     ]);
     assert.equal(
       existsSync(join(codexHome, "auth.json")),
@@ -3591,13 +3966,13 @@ async function liveCompatibilityCheck() {
     );
     assert.equal(existsSync(join(executorA.codexHome, "auth.json")), false);
     assert.equal(existsSync(join(executorB.codexHome, "auth.json")), false);
-    assert.equal(existsSync(join(replacementExecutorB.codexHome, "auth.json")), false);
+    assert.equal(existsSync(join(replacementExecutorA.codexHome, "auth.json")), false);
 
     console.log(`PASS live initialize and model/list (${model.model})`);
     console.log("PASS dedicated API-key auth and credential-free executor processes");
     console.log("PASS empty MCP/hooks and disabled optional capabilities");
-    console.log("PASS environment A and B command routing without ambient fallback");
-    console.log("PASS command events, thread/read, resume, and two turns");
+    console.log("PASS two root tasks route commands, events, and files without cross-talk");
+    console.log("PASS command events, thread/read, resume, and task A's two turns");
     console.log("PASS yielded background-terminal list, targeted termination, and cleanup");
     console.log("PASS App Server restart and disk-backed thread recovery without resend");
   } catch (error) {
@@ -3922,6 +4297,7 @@ async function main() {
   );
   staticCompatibilityCheck(flags.has("--update-bindings"));
   checkChildHistoryHelpers();
+  checkTaskNotificationIsolation();
   for (const launchProfile of appServerLaunchProfiles) {
     await checkAppServerConfigSourceIsolation(launchProfile);
   }

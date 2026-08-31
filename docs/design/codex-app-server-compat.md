@@ -137,8 +137,8 @@ This does not subscribe to child threads, build a graph, or publish V2
 activity; those runtime behaviors remain behind the live child-capable proof
 and later integration checkpoints.
 
-Run the no-child live gate only with a dedicated API key. It makes two task
-turns and may make multiple provider requests:
+Run the no-child live gate only with a dedicated API key. It makes three turns
+across two independent root tasks and may make multiple provider requests:
 
 ```text
 BYTEQUAY_CODEX_COMPAT_API_KEY=<dedicated-key> \
@@ -198,24 +198,30 @@ history does not expose a distinct wait item. Acceptance therefore proves the
 topology and eventual terminal fixed point, not wait-call causality.
 
 It initializes with `experimentalApi`, reads the model catalog, registers and
-handshakes two temporary working directories, and starts one durable fixture
-thread in the isolated App Server home. Turn one selects executor A with the
-`untrusted` approval policy, accepts approval callbacks confined to that
-command item, and requires exactly one parent approval for the intended command
-before writing one bounded untracked proof file. The still-running App Server
-then receives `thread/resume`, and turn two selects executor B with no approval.
-Turn two writes its bounded proof file, emits an environment marker, and yields
-a tracked `/bin/sleep` process while the root turn completes. The fixture lists
-exactly that background terminal, correlates its process, item, command, and
-working-directory identities, terminates the listed process ID, observes the
-command item become failed with its pre-yield output intact, and verifies that
-the background list is empty before and after an idempotent clean.
+handshakes two temporary working directories, and starts two durable root
+threads with distinct session trees. Task A turn one selects executor A with
+the `untrusted` approval policy, accepts approval callbacks confined to that
+command item, and requires exactly one approval for the intended command before
+writing one bounded untracked proof file. The still-running App Server then
+resumes task A in the same environment. Its second turn writes the same bounded
+file, emits an environment marker, and yields a tracked `/bin/sleep` process
+while the turn completes.
 
-For both turns, the fixture verifies that the recorded shell action expands the
-environment variables and that the proof file is the only Git mutation in the
-selected repository. Before turn two, executor B's repository must not contain
-executor A's proof file; after turn two, each repository contains only its own
-file. This proves that the writes were not misrouted, not that either same-user
+While task A's process remains listed and in progress, task B completes one
+no-approval turn through executor B and writes a differently named and valued
+proof file. Only then does the fixture terminate task A's listed process. The
+captured event window must order task A command start, task B turn start, task B
+turn completion, and task A command completion. Every thread, turn, and item
+identity in that window must belong to the matching persisted task history;
+task B must emit no approval and no background terminal. The fixture correlates
+task A's process, item, command, and working-directory identities, observes its
+command become failed with pre-yield output intact, and verifies that cleanup
+does not change task B's history.
+
+For all three turns, the fixture verifies that the recorded shell action
+expands the environment variables and that each proof file is the only Git
+mutation in its repository. Each repository must contain only its task's file.
+This proves that the writes were not misrouted, not that either same-user
 process cannot read the other repository through an absolute path. Streamed
 command events and replayed history must report the executor-specific `HOME`,
 canonical working directory, unset command-level `CODEX_HOME`, absent API key,
@@ -224,21 +230,23 @@ Server's ambient process and verifies the tested shell environment policy.
 Every unexpected App Server request fails the fixture. A short command is not
 required to emit a separate output-delta notification.
 
-After both turns and background cleanup, the fixture stops and verifies the old
-App Server and executor process groups. It starts a fresh App Server with the
-same isolated App Server home and a fresh executor B, re-registers environment
-B, resumes and reads the durable thread without resending user input, and
-requires the same two turn IDs and command item IDs. No provider work may start
-during this recovery check. When the dedicated-key gate passes, this will prove
-the narrow persisted-history recovery shape; production ownership and crash
-recovery remain later checkpoints.
+After both tasks finish and task A's background process is cleaned, the fixture
+stops and verifies the old App Server and executor process groups. It starts a
+fresh App Server with the same isolated App Server home and a fresh executor A,
+re-registers environment A, resumes task A, and reads both durable root
+histories without resending user input. Task A must retain its two turn and
+command IDs; task B must retain its one disjoint turn and command ID. No provider
+work may start during this recovery check. When the dedicated-key gate passes,
+this will prove the narrow persisted-history recovery shape; production
+ownership and crash recovery remain later checkpoints.
 
-Turn one uses `approvalPolicy: "untrusted"`; turn two uses
-`approvalPolicy: "never"`. Both use a workspace-write shell sandbox restricted
-to the selected temporary environment root with shell network disabled. App
-Server still uses provider network traffic for the two model turns. The durable
-thread exists only inside the temporary App Server `CODEX_HOME`; each executor,
-including the replacement executor, has a separate empty home. After every
+Task A turn one uses `approvalPolicy: "untrusted"`; task A turn two and task B's
+turn use `approvalPolicy: "never"`. All three use a workspace-write shell
+sandbox restricted to the selected temporary environment root with shell
+network disabled. App Server still uses provider network traffic for the three
+model turns. Both durable threads exist only inside the temporary App Server
+`CODEX_HOME`; each executor, including the replacement executor, has a separate
+empty home. After every
 registered App Server and executor process group has stopped, those homes and
 the two environments are removed. Signal handling terminates every registered
 process group before cleanup. If group termination cannot be confirmed, the
@@ -279,24 +287,27 @@ that credential; the subscription-auth run is protocol evidence, not
 acceptance of the unsafe credential technique. The recursive-child mode has
 not been run on this host and makes no behavioral PASS claim yet.
 
-This is a **GO candidate for the tested CP1 reference slice**: the pinned
-binary supplies the environment registration and task/history primitives
-required to begin a client integration. It is not final product approval. A
-dedicated-key execution of the newly configured yielded-terminal, targeted
-termination, bounded Git-worktree filesystem action, restart-recovery checks,
-one representative real approval, the full modern live approval matrix,
-recursive child discovery, cross-task event/approval/command/filesystem
-isolation, API-key isolation, and the written go/no-go result remain separate
-CP1 evidence. Offline
-approval codec coverage does not close either live gate. The keyless profile
-checks prove only launch-policy selection; `--live-children` now supplies the
+The pinned binary supplies the environment registration and task/history
+primitives required to begin a client integration, but CP1 remains incomplete
+and this is not final product approval. Dedicated-key execution must prove the
+newly configured yielded-terminal, targeted termination, bounded Git-worktree
+filesystem action, restart-recovery checks, one representative real command
+approval, recursive child discovery, cross-task
+event/approval/command/filesystem isolation, API-key isolation, and the written
+go/no-go result. Exhaustive modern wire and codec coverage remains offline;
+richer product decision matrices begin in CP2 only after ByteQuay defines its
+finite immutable safety ceiling. Both `--live` and `--live-children` must pass
+before CP1 exits. Offline approval codec coverage does not close the
+representative live command-approval gate or either credentialed live gate.
+The keyless profile checks prove only launch-policy selection;
+`--live-children` now supplies the
 bounded behavioral gate, but production adoption of the executable guards and
 its child-capable profile belongs to CP4 only after that gate passes. The safe
 no-child live path is now also
-configured to exercise one typed parent-command approval and one bounded
-Git-worktree mutation per repository without adding a model turn. It uses the
-second turn for the yielded-terminal proof and reuses the same durable thread
-for restart recovery. It keeps its API key out of executor process
+configured to exercise one typed command approval and one bounded Git-worktree
+mutation per repository. It uses task A's second turn for the yielded-terminal
+proof, completes task B while that terminal is live, and recovers both durable
+root histories after restart. It keeps its API key out of executor process
 environments and records an exact command that checks that the key,
 `CODEX_HOME`, and App Server sentinel are absent. The dedicated-key rerun must
 prove these added behaviors. The fixture does not claim same-user filesystem read

@@ -797,7 +797,6 @@
 .pr-label { display: inline-flex; border-radius: 999px; color: #5d3b3b; padding: 2px 9px; font-size: 11.5px; font-weight: 600; }
 
 .pr-thread-row { margin-left: 43px; overflow: hidden; border: 1px solid #e4e8ec; border-radius: 10px; background: #f6f8fa; }
-.pr-thread-row + .pr-thread-row { margin-top: 12px; }
 .pr-thread-row > summary,
 .pr-inline-thread > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #59636e; cursor: pointer; list-style: none; }
 .pr-thread-row > summary { padding: 7px 14px; }

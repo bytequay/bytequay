@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.codex;
 
 import com.fasterxml.jackson.annotation.JsonEnumDefaultValue;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -81,7 +82,8 @@ final class CodexProtocol
      */
     sealed interface Params
             permits TurnNotificationParams, ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams,
-            TokenUsageParams, ErrorParams, UnknownParams, CommandApprovalParams, FileChangeApprovalParams
+            TokenUsageParams, ErrorParams, UnknownParams, CommandApprovalParams, FileChangeApprovalParams,
+            PermissionsApprovalParams
     {
         String threadId();
 
@@ -555,9 +557,13 @@ final class CodexProtocol
             @JsonSubTypes.Type(
                     name = "item/fileChange/requestApproval",
                     value = FileChangeApprovalRequest.class),
+            @JsonSubTypes.Type(
+                    name = "item/permissions/requestApproval",
+                    value = PermissionsApprovalRequest.class),
     })
     sealed interface ServerRequest
-            permits CommandApprovalRequest, FileChangeApprovalRequest, UnknownServerRequest
+            permits CommandApprovalRequest, FileChangeApprovalRequest, PermissionsApprovalRequest,
+            UnknownServerRequest
     {
         Object id();
 
@@ -566,6 +572,11 @@ final class CodexProtocol
         default String threadId()
         {
             return params().threadId();
+        }
+
+        default Optional<String> turnId()
+        {
+            return params().owningTurnId();
         }
     }
 
@@ -589,6 +600,16 @@ final class CodexProtocol
         }
     }
 
+    record PermissionsApprovalRequest(Object id, PermissionsApprovalParams params)
+            implements ServerRequest
+    {
+        PermissionsApprovalRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+    }
+
     record UnknownServerRequest(Object id, UnknownParams params)
             implements ServerRequest
     {
@@ -600,40 +621,107 @@ final class CodexProtocol
     }
 
     record CommandApprovalParams(
-            String threadId,
-            String turnId,
-            String itemId,
+            Optional<JsonNode> additionalPermissions,
+            Optional<String> approvalId,
+            Optional<List<JsonNode>> availableDecisions,
             Optional<String> command,
+            Optional<List<JsonNode>> commandActions,
+            Optional<String> cwd,
+            Optional<String> environmentId,
+            String itemId,
+            Optional<String> kind,
+            Optional<JsonNode> networkApprovalContext,
+            Optional<List<String>> proposedExecpolicyAmendment,
+            Optional<List<JsonNode>> proposedNetworkPolicyAmendments,
             Optional<String> reason,
-            Long startedAtMs)
+            Long startedAtMs,
+            String threadId,
+            String turnId)
             implements Params
     {
         CommandApprovalParams
         {
-            checkIdentifier(threadId, "threadId");
-            checkIdentifier(turnId, "turnId");
-            checkIdentifier(itemId, "itemId");
+            additionalPermissions = requireNonNull(additionalPermissions, "additionalPermissions is null")
+                    .filter(value -> !value.isNull() && !value.isMissingNode());
+            requireNonNull(approvalId, "approvalId is null");
+            availableDecisions = requireNonNull(availableDecisions, "availableDecisions is null").map(ImmutableList::copyOf);
             requireNonNull(command, "command is null");
+            commandActions = requireNonNull(commandActions, "commandActions is null").map(ImmutableList::copyOf);
+            requireNonNull(cwd, "cwd is null");
+            requireNonNull(environmentId, "environmentId is null");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(kind, "kind is null");
+            networkApprovalContext = requireNonNull(networkApprovalContext, "networkApprovalContext is null")
+                    .filter(value -> !value.isNull() && !value.isMissingNode());
+            proposedExecpolicyAmendment = requireNonNull(proposedExecpolicyAmendment, "proposedExecpolicyAmendment is null").map(ImmutableList::copyOf);
+            proposedNetworkPolicyAmendments = requireNonNull(proposedNetworkPolicyAmendments, "proposedNetworkPolicyAmendments is null").map(ImmutableList::copyOf);
             requireNonNull(reason, "reason is null");
             requireNonNull(startedAtMs, "startedAtMs is null");
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
         }
     }
 
     record FileChangeApprovalParams(
-            String threadId,
-            String turnId,
+            Optional<String> grantRoot,
             String itemId,
             Optional<String> reason,
-            Long startedAtMs)
+            Long startedAtMs,
+            String threadId,
+            String turnId)
             implements Params
     {
         FileChangeApprovalParams
         {
-            checkIdentifier(threadId, "threadId");
-            checkIdentifier(turnId, "turnId");
+            requireNonNull(grantRoot, "grantRoot is null");
             checkIdentifier(itemId, "itemId");
             requireNonNull(reason, "reason is null");
             requireNonNull(startedAtMs, "startedAtMs is null");
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
+    }
+
+    record PermissionsApprovalParams(
+            String cwd,
+            Optional<String> environmentId,
+            String itemId,
+            JsonNode permissions,
+            Optional<String> reason,
+            Long startedAtMs,
+            String threadId,
+            String turnId)
+            implements Params
+    {
+        PermissionsApprovalParams
+        {
+            checkIdentifier(cwd, "cwd");
+            requireNonNull(environmentId, "environmentId is null");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(permissions, "permissions is null");
+            checkArgument(!permissions.isNull(), "permissions is null");
+            requireNonNull(reason, "reason is null");
+            requireNonNull(startedAtMs, "startedAtMs is null");
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+        }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
         }
     }
 
@@ -803,11 +891,36 @@ final class CodexProtocol
         }
     }
 
-    record ApprovalResponse(String decision)
+    record CommandApprovalResponse(JsonNode decision)
     {
-        ApprovalResponse
+        CommandApprovalResponse
         {
-            checkIdentifier(decision, "decision");
+            requireNonNull(decision, "decision is null");
+            checkArgument(!decision.isNull(), "decision is null");
+        }
+    }
+
+    record FileChangeApprovalResponse(JsonNode decision)
+    {
+        FileChangeApprovalResponse
+        {
+            requireNonNull(decision, "decision is null");
+            checkArgument(!decision.isNull(), "decision is null");
+        }
+    }
+
+    record PermissionsApprovalResponse(
+            JsonNode permissions,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<String> scope,
+            Optional<Boolean> strictAutoReview)
+    {
+        PermissionsApprovalResponse
+        {
+            requireNonNull(permissions, "permissions is null");
+            checkArgument(!permissions.isNull(), "permissions is null");
+            requireNonNull(scope, "scope is null");
+            requireNonNull(strictAutoReview, "strictAutoReview is null");
         }
     }
 

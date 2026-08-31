@@ -772,6 +772,18 @@ public interface AgentEventService
 `AgentApprovalService` bridges provider permission requests and explicit
 frontend decisions.
 
+The tagged approval contract below is the CP2-and-later target, not current
+runtime behavior. CP1 projects and codec-tests the exact v0.151.0 modern
+approval methods, top-level fields, requiredness, command/file decision
+variants, and opaque permission payload/scope, while legacy
+`applyPatchApproval` and `execCommandApproval` requests fail closed. The
+current bridge handles command and file-change requests only and maps its
+one-time provider-neutral allow/deny result to `accept`/`decline`. Preserving
+all offered decisions and rendering them in the UI remain deferred. Until
+then, it fails closed for non-command kinds, undisplayable commands,
+additional/network permissions, file-change grant roots, scoped or unoffered
+decisions, and decisions returned after cancellation or turn replacement.
+
 `ApprovalRequest` is a tagged union for command execution, file change, and
 scoped-permission requests. Each variant carries its provider request ID,
 source thread/turn/item, human-readable details, and the decisions the driver
@@ -781,9 +793,9 @@ defaults; file requests use their protocol-defined fixed decisions, and
 permission requests expose only their grantable subset. `ApprovalResponse` is
 a matching tagged union: command/file responses can distinguish one-time,
 session-scoped, deny, and cancel choices when legal; permission responses carry
-only the approved subset. The Codex driver converts these values with its
-reference-conformant protocol adapter, whose decoder tolerates additive runtime
-fields.
+only the approved subset. The target Codex driver converts these values with
+its reference-conformant protocol adapter, whose decoder tolerates additive
+runtime fields.
 
 Grantable always means supported by the selected App Server sandbox and
 approval policy. The renderer can choose only among the decisions preserved by
@@ -2375,9 +2387,10 @@ node scripts/codex-app-server-compat.mjs --update-bindings
 
 The `agent-cli` conformance test reflects over the projected Java records and
 decodes or encodes generated samples to enforce every consumed component, wire
-name, required/null rule, and known enum value. Missing required fields fail
-closed, as do nulls for required non-null fields. Additive object fields remain
-decodable, and each projected enum
+name, required-field rule, required non-null value, and known enum value.
+Optional properties deliberately decode explicit null as absent; runtime
+mapping separately rejects security-sensitive approval shapes it cannot
+represent. Additive object fields remain decodable, and each projected enum
 uses an `UNKNOWN` default for future wire values. The compact manifest is the
 authoritative reference projection; it is not a second public domain model or
 a generated production client.
@@ -2391,9 +2404,13 @@ every Codex subprocess a minimal allowlisted environment and a temporary
 `CODEX_HOME`. The live path is configured to pass its dedicated API key only
 to App Server and to omit the key and `CODEX_HOME` from model-requested
 commands; the dedicated-key rerun must prove that behavior. Exhaustive
-approvals, yielded-terminal termination, recursive children, restart recovery,
-fail-closed cross-task routing, and production adoption of that isolated launch
-profile remain CP1 gates.
+live approval behavior, yielded-terminal termination, recursive children,
+restart recovery, and fail-closed cross-task routing remain CP1 gates. The
+offline projection and codec tests already pin the modern approval methods,
+top-level fields, requiredness, command/file decision variants, and opaque
+permission payload/scope, and prove legacy approval methods fail closed; they
+do not prove the live bridge. Production adoption of the CP1-proven isolated
+launch profile belongs to CP4.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for

@@ -38,11 +38,25 @@ node scripts/codex-app-server-compat.mjs --update-bindings
 
 The normal command verifies rather than rewrites the manifest. The
 `agent-cli` conformance test then uses reflection and real codec calls to
-require the projected Java record components, wire names, required/null
-behavior, and known enum values. Decoding remains tolerant of additive object
-fields, and each projected enum maps an unknown future wire value to
-`UNKNOWN`. This reference check never validates or rejects the user's
+require the projected Java record components, wire names, required fields,
+required non-null values, and known enum values. Optional properties
+deliberately decode explicit null as absent. Decoding also remains tolerant of
+additive object fields, and each projected enum maps an unknown future wire
+value to `UNKNOWN`. This reference check never validates or rejects the user's
 production Codex version.
+
+The projection and codec checks cover the v0.151.0 modern approval methods,
+top-level fields, requiredness, command requests with `command` and
+`writeStdin` kinds and every legal decision shape, file-change requests and
+their four decisions, and the opaque permission payload with top-level
+response fields and turn/session scope. Legacy
+`applyPatchApproval` and `execCommandApproval` requests remain unsupported and
+are proven to fail closed. This is offline wire evidence only. The current
+runtime bridge still maps command/file one-time allow or deny to
+`accept`/`decline`. It rejects command/file scope it cannot represent and
+stale or post-cancellation decisions; preserving the full choice set in
+ByteQuay's provider-neutral contract and UI is deferred to CP2 and later
+checkpoints.
 
 Run the live gate only with a dedicated API key that may make two model turns:
 
@@ -140,15 +154,16 @@ This is a **GO candidate for the tested CP1 reference slice**: the pinned
 binary supplies the environment registration and task/history primitives
 required to begin a client integration. It is not final product approval. A
 dedicated-key execution of the newly configured yielded-terminal, targeted
-termination, and restart-recovery checks, every approval shape/decision,
-recursive child discovery, cross-task
-event/approval/filesystem isolation, and production adoption of the isolated
-launch profile remain separate CP1
-evidence. The safe live path is now also configured to exercise one typed
-parent-command approval and one bounded Git-worktree mutation per repository
-without adding a model turn. It uses the second turn for the yielded-terminal
-proof and reuses the same durable thread for restart recovery. It keeps its API
-key out of executor process
+termination, restart-recovery checks, one representative real approval, the
+full modern live approval matrix, recursive child discovery, and cross-task
+event/approval/filesystem isolation, the fail-closed isolated exec allow-rule
+proof, and the written go/no-go result remain separate CP1 evidence. Offline
+approval codec coverage does not close either live gate. Production adoption
+of the isolated launch profile belongs to CP4. The safe live path is now also
+configured to exercise one typed parent-command approval and one bounded
+Git-worktree mutation per repository without adding a model turn. It uses the
+second turn for the yielded-terminal proof and reuses the same durable thread
+for restart recovery. It keeps its API key out of executor process
 environments and records an exact command that checks that the key,
 `CODEX_HOME`, and App Server sentinel are absent. The dedicated-key rerun must
 prove these added behaviors. The fixture does not claim same-user filesystem read

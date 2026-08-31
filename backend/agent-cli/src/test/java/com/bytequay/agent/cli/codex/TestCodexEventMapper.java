@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -116,18 +117,77 @@ class TestCodexEventMapper
     }
 
     @Test
-    void deserializesTypedApprovalRequest()
+    void deserializesFullCommandApprovalRequestAndBothKinds()
     {
         CodexProtocol.ServerRequest request = codec.decodeServerRequest("""
                 {"id":7,"method":"item/commandExecution/requestApproval","params":{
-                "threadId":"thread-1","turnId":"turn-1","itemId":"exec-1",
-                "command":"mvn verify","reason":null,"startedAtMs":1786884871461}}
+                "additionalPermissions":{"network":{"enabled":true}},
+                "approvalId":"approval-1","availableDecisions":["accept","decline"],
+                "command":"mvn verify","commandActions":[{"type":"unknown","command":"mvn verify"}],
+                "cwd":"/worktree","environmentId":"environment-1","itemId":"exec-1",
+                "kind":"writeStdin","networkApprovalContext":{"host":"example.com","protocol":"https"},
+                "proposedExecpolicyAmendment":["mvn verify"],
+                "proposedNetworkPolicyAmendments":[{"host":"example.com","action":"allow"}],
+                "reason":"needs network","startedAtMs":1786884871461,
+                "threadId":"thread-1","turnId":"turn-1"}}
                 """);
 
         assertThat(request).isInstanceOf(CodexProtocol.CommandApprovalRequest.class);
         CodexProtocol.CommandApprovalRequest approval = (CodexProtocol.CommandApprovalRequest) request;
+        assertThat(approval.params().additionalPermissions()).hasValueSatisfying(value ->
+                assertThat(value.path("network").path("enabled").asBoolean()).isTrue());
+        assertThat(approval.params().approvalId()).contains("approval-1");
+        assertThat(approval.params().availableDecisions().orElseThrow())
+                .extracting(JsonNode::asText)
+                .containsExactly("accept", "decline");
         assertThat(approval.params().command()).contains("mvn verify");
-        assertThat(approval.params().reason()).isEmpty();
+        assertThat(approval.params().commandActions().orElseThrow()).singleElement().satisfies(action ->
+                assertThat(action.path("type").asText()).isEqualTo("unknown"));
+        assertThat(approval.params().cwd()).contains("/worktree");
+        assertThat(approval.params().environmentId()).contains("environment-1");
+        assertThat(approval.params().kind()).contains("writeStdin");
+        assertThat(approval.params().networkApprovalContext()).hasValueSatisfying(value ->
+                assertThat(value.path("host").asText()).isEqualTo("example.com"));
+        assertThat(approval.params().proposedExecpolicyAmendment().orElseThrow()).containsExactly("mvn verify");
+        assertThat(approval.params().proposedNetworkPolicyAmendments().orElseThrow()).singleElement().satisfies(amendment ->
+                assertThat(amendment.path("action").asText()).isEqualTo("allow"));
+        assertThat(approval.params().reason()).contains("needs network");
+        assertThat(approval.turnId()).contains("turn-1");
+
+        CodexProtocol.CommandApprovalRequest command = (CodexProtocol.CommandApprovalRequest) codec.decodeServerRequest("""
+                {"id":8,"method":"item/commandExecution/requestApproval","params":{
+                "threadId":"thread-1","turnId":"turn-1","itemId":"exec-2",
+                "kind":"command","startedAtMs":1786884871462}}
+                """);
+        assertThat(command.params().kind()).contains("command");
+    }
+
+    @Test
+    void deserializesFileAndPermissionsApprovalRequests()
+    {
+        CodexProtocol.FileChangeApprovalRequest file = (CodexProtocol.FileChangeApprovalRequest) codec.decodeServerRequest("""
+                {"id":9,"method":"item/fileChange/requestApproval","params":{
+                "grantRoot":"/worktree/src","itemId":"patch-1","reason":"write files",
+                "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"turn-1"}}
+                """);
+        assertThat(file.params().grantRoot()).contains("/worktree/src");
+        assertThat(file.params().reason()).contains("write files");
+        assertThat(file.turnId()).contains("turn-1");
+
+        CodexProtocol.ServerRequest request = codec.decodeServerRequest("""
+                {"id":10,"method":"item/permissions/requestApproval","params":{
+                "cwd":"/worktree","environmentId":"environment-1","itemId":"permission-1",
+                "permissions":{"fileSystem":{"write":["/worktree/generated"]},"network":{"enabled":true}},
+                "reason":"generate files","startedAtMs":1786884871464,
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """);
+        assertThat(request).isInstanceOf(CodexProtocol.PermissionsApprovalRequest.class);
+        CodexProtocol.PermissionsApprovalRequest permissions = (CodexProtocol.PermissionsApprovalRequest) request;
+        assertThat(permissions.params().cwd()).isEqualTo("/worktree");
+        assertThat(permissions.params().environmentId()).contains("environment-1");
+        assertThat(permissions.params().permissions().path("network").path("enabled").asBoolean()).isTrue();
+        assertThat(permissions.params().reason()).contains("generate files");
+        assertThat(permissions.turnId()).contains("turn-1");
     }
 
     @Test

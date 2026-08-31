@@ -37,7 +37,9 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -512,23 +514,59 @@ public final class CodexCliDriver
         }
 
         @Override
-        public CompletionStage<?> onRequest(CodexProtocol.ServerRequest serverRequest)
+        public synchronized CompletionStage<?> onRequest(CodexProtocol.ServerRequest serverRequest)
+        {
+            if (closed
+                    || running == null
+                    || serverRequest.turnId().isEmpty()
+                    || !serverRequest.turnId().orElseThrow().equals(running.reference().value())) {
+                return CompletableFuture.failedFuture(
+                        new AgentUnavailableException("Codex request does not belong to the active turn"));
+            }
+            CodexRunningTurn expectedTurn = running;
+            synchronized (expectedTurn) {
+                if (expectedTurn.cancellationRequested()
+                        || expectedTurn.completion().toCompletableFuture().isDone()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex request does not belong to the active turn"));
+                }
+                return registerApproval(serverRequest, expectedTurn);
+            }
+        }
+
+        private CompletionStage<?> registerApproval(
+                CodexProtocol.ServerRequest serverRequest,
+                CodexRunningTurn expectedTurn)
         {
             ProviderApprovalRequest.Kind kind;
             String title;
             String detail;
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
+                if (approval.params().additionalPermissions().isPresent()
+                        || approval.params().networkApprovalContext().isPresent()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex command approval requests permissions ByteQuay cannot represent"));
+                }
+                if (approval.params().kind().filter(commandKind -> !commandKind.equals("command")).isPresent()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Unsupported Codex command approval kind"));
+                }
+                Optional<String> command = approval.params().command().filter(value -> !value.isBlank());
+                if (command.isEmpty()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex command approval has no displayable command"));
+                }
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
-                detail = approval.params().command()
-                        .filter(value -> !value.isBlank())
-                        .or(() -> approval.params().reason().filter(value -> !value.isBlank()))
-                        .orElse("Command approval");
-                detail = redactor.redact(detail);
+                detail = redactor.redact(command.orElseThrow());
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
+                if (approval.params().grantRoot().isPresent()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex file approval requests a scoped grant ByteQuay cannot represent"));
+                }
                 kind = ProviderApprovalRequest.Kind.FILE_CHANGE;
                 title = "Allow Codex file change";
                 detail = approval.params().reason()
@@ -550,7 +588,7 @@ public final class CodexCliDriver
                     ImmutableList.of(detail),
                     Instant.ofEpochMilli(startedAtMs));
             return context.approvals().request(approvalRequest, APPROVAL_TIMEOUT)
-                    .thenApply(decision -> approvalResponse(decision));
+                    .thenApply(decision -> approvalResponse(serverRequest, decision, expectedTurn));
         }
 
         @Override
@@ -586,10 +624,36 @@ public final class CodexCliDriver
             client.unregister(reference.providerValue(), this);
         }
 
-        private CodexProtocol.ApprovalResponse approvalResponse(ProviderApprovalDecision decision)
+        private synchronized Object approvalResponse(
+                CodexProtocol.ServerRequest serverRequest,
+                ProviderApprovalDecision decision,
+                CodexRunningTurn expectedTurn)
         {
-            return new CodexProtocol.ApprovalResponse(
-                    decision.decision() == ProviderApprovalDecision.Decision.ALLOW ? "accept" : "decline");
+            synchronized (expectedTurn) {
+                if (closed
+                        || running != expectedTurn
+                        || expectedTurn.cancellationRequested()
+                        || expectedTurn.completion().toCompletableFuture().isDone()) {
+                    throw new AgentUnavailableException("Codex approval no longer belongs to the active turn");
+                }
+                if (decision.scopedPermission().isPresent()) {
+                    throw new AgentUnavailableException("Codex approval does not support the requested scoped permission");
+                }
+                JsonNode wireDecision = TextNode.valueOf(
+                        decision.decision() == ProviderApprovalDecision.Decision.ALLOW ? "accept" : "decline");
+                if (serverRequest instanceof CodexProtocol.CommandApprovalRequest command) {
+                    if (command.params().availableDecisions().isPresent()
+                            && !command.params().availableDecisions().orElseThrow().contains(wireDecision)) {
+                        throw new AgentUnavailableException(
+                                "Codex command approval did not offer decision " + wireDecision.textValue());
+                    }
+                    return new CodexProtocol.CommandApprovalResponse(wireDecision);
+                }
+                if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest) {
+                    return new CodexProtocol.FileChangeApprovalResponse(wireDecision);
+                }
+                throw new AgentUnavailableException("Unsupported Codex approval response");
+            }
         }
     }
 
@@ -603,7 +667,10 @@ public final class CodexCliDriver
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
         private volatile Optional<String> finalResponse = Optional.empty();
 
-        private CodexRunningTurn(String threadId, String turnId, Duration maximumRuntime)
+        private CodexRunningTurn(
+                String threadId,
+                String turnId,
+                Duration maximumRuntime)
         {
             this.threadId = requireNonNull(threadId, "threadId is null");
             this.reference = new ProviderTurnRef(turnId);
@@ -628,7 +695,7 @@ public final class CodexCliDriver
         }
 
         @Override
-        public void cancel()
+        public synchronized void cancel()
         {
             if (!cancellationRequested.compareAndSet(false, true)) {
                 return;
@@ -688,6 +755,11 @@ public final class CodexCliDriver
                                     ? "Codex disconnected"
                                     : redactor.redact(message))),
                     Duration.between(startedAt, Instant.now())));
+        }
+
+        private synchronized boolean cancellationRequested()
+        {
+            return cancellationRequested.get();
         }
 
         private Duration elapsed(CodexProtocol.Turn turn)

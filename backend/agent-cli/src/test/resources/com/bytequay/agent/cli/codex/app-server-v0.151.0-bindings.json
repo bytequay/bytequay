@@ -1034,6 +1034,40 @@
       ]
     },
     {
+      "javaType": "PermissionsApprovalRequest",
+      "mode": "decode",
+      "sources": [
+        "all#ServerRequest[method=item/permissions/requestApproval]"
+      ],
+      "context": {
+        "method": "item/permissions/requestApproval"
+      },
+      "decodeAs": "ServerRequest",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cwd": "value",
+            "itemId": "value",
+            "permissions": {},
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        }
+      ]
+    },
+    {
       "javaType": "CommandApprovalParams",
       "mode": "decode",
       "sources": [
@@ -1041,17 +1075,85 @@
       ],
       "components": [
         {
-          "javaName": "threadId",
-          "wireName": "threadId",
-          "required": true,
-          "nullable": false,
+          "javaName": "additionalPermissions",
+          "wireName": "additionalPermissions",
+          "required": false,
+          "nullable": true,
+          "sample": {}
+        },
+        {
+          "javaName": "approvalId",
+          "wireName": "approvalId",
+          "required": false,
+          "nullable": true,
           "sample": "value"
         },
         {
-          "javaName": "turnId",
-          "wireName": "turnId",
-          "required": true,
-          "nullable": false,
+          "javaName": "availableDecisions",
+          "wireName": "availableDecisions",
+          "required": false,
+          "nullable": true,
+          "sample": [
+            "accept"
+          ],
+          "samples": [
+            [
+              "accept"
+            ],
+            [
+              "acceptForSession"
+            ],
+            [
+              {
+                "acceptWithExecpolicyAmendment": {
+                  "execpolicy_amendment": []
+                }
+              }
+            ],
+            [
+              {
+                "applyNetworkPolicyAmendment": {
+                  "network_policy_amendment": {
+                    "action": "allow",
+                    "host": "value"
+                  }
+                }
+              }
+            ],
+            [
+              "decline"
+            ],
+            [
+              "cancel"
+            ]
+          ]
+        },
+        {
+          "javaName": "command",
+          "wireName": "command",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "commandActions",
+          "wireName": "commandActions",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "environmentId",
+          "wireName": "environmentId",
+          "required": false,
+          "nullable": true,
           "sample": "value"
         },
         {
@@ -1062,11 +1164,35 @@
           "sample": "value"
         },
         {
-          "javaName": "command",
-          "wireName": "command",
+          "javaName": "kind",
+          "wireName": "kind",
+          "required": false,
+          "nullable": false,
+          "sample": "command"
+        },
+        {
+          "javaName": "networkApprovalContext",
+          "wireName": "networkApprovalContext",
           "required": false,
           "nullable": true,
-          "sample": "value"
+          "sample": {
+            "host": "value",
+            "protocol": "http"
+          }
+        },
+        {
+          "javaName": "proposedExecpolicyAmendment",
+          "wireName": "proposedExecpolicyAmendment",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        },
+        {
+          "javaName": "proposedNetworkPolicyAmendments",
+          "wireName": "proposedNetworkPolicyAmendments",
+          "required": false,
+          "nullable": true,
+          "sample": []
         },
         {
           "javaName": "reason",
@@ -1081,6 +1207,20 @@
           "required": true,
           "nullable": false,
           "sample": 1
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
         }
       ]
     },
@@ -1092,17 +1232,10 @@
       ],
       "components": [
         {
-          "javaName": "threadId",
-          "wireName": "threadId",
-          "required": true,
-          "nullable": false,
-          "sample": "value"
-        },
-        {
-          "javaName": "turnId",
-          "wireName": "turnId",
-          "required": true,
-          "nullable": false,
+          "javaName": "grantRoot",
+          "wireName": "grantRoot",
+          "required": false,
+          "nullable": true,
           "sample": "value"
         },
         {
@@ -1125,6 +1258,85 @@
           "required": true,
           "nullable": false,
           "sample": 1
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "PermissionsApprovalParams",
+      "mode": "decode",
+      "sources": [
+        "all#PermissionsRequestApprovalParams"
+      ],
+      "components": [
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "environmentId",
+          "wireName": "environmentId",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "permissions",
+          "wireName": "permissions",
+          "required": true,
+          "nullable": false,
+          "sample": {}
+        },
+        {
+          "javaName": "reason",
+          "wireName": "reason",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "startedAtMs",
+          "wireName": "startedAtMs",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        },
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
         }
       ]
     },
@@ -1677,10 +1889,44 @@
       ]
     },
     {
-      "javaType": "ApprovalResponse",
+      "javaType": "CommandApprovalResponse",
       "mode": "encode",
       "sources": [
-        "all#CommandExecutionRequestApprovalResponse",
+        "all#CommandExecutionRequestApprovalResponse"
+      ],
+      "components": [
+        {
+          "javaName": "decision",
+          "wireName": "decision",
+          "required": true,
+          "nullable": false,
+          "sample": "accept",
+          "samples": [
+            "accept",
+            "acceptForSession",
+            {
+              "acceptWithExecpolicyAmendment": {
+                "execpolicy_amendment": []
+              }
+            },
+            {
+              "applyNetworkPolicyAmendment": {
+                "network_policy_amendment": {
+                  "action": "allow",
+                  "host": "value"
+                }
+              }
+            },
+            "decline",
+            "cancel"
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "FileChangeApprovalResponse",
+      "mode": "encode",
+      "sources": [
         "all#FileChangeRequestApprovalResponse"
       ],
       "components": [
@@ -1689,7 +1935,47 @@
           "wireName": "decision",
           "required": true,
           "nullable": false,
-          "sample": "accept"
+          "sample": "accept",
+          "samples": [
+            "accept",
+            "acceptForSession",
+            "decline",
+            "cancel"
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "PermissionsApprovalResponse",
+      "mode": "encode",
+      "sources": [
+        "all#PermissionsRequestApprovalResponse"
+      ],
+      "components": [
+        {
+          "javaName": "permissions",
+          "wireName": "permissions",
+          "required": true,
+          "nullable": false,
+          "sample": {}
+        },
+        {
+          "javaName": "scope",
+          "wireName": "scope",
+          "required": false,
+          "nullable": false,
+          "sample": "turn",
+          "samples": [
+            "turn",
+            "session"
+          ]
+        },
+        {
+          "javaName": "strictAutoReview",
+          "wireName": "strictAutoReview",
+          "required": false,
+          "nullable": true,
+          "sample": false
         }
       ]
     },

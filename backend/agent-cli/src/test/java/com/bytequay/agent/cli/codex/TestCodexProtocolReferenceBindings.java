@@ -18,6 +18,7 @@ import com.fasterxml.jackson.annotation.JsonEnumDefaultValue;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
@@ -154,6 +155,27 @@ class TestCodexProtocolReferenceBindings
         }
     }
 
+    @Test
+    void enforcesApprovalResponseNullAndOmissionRules()
+            throws Exception
+    {
+        assertThatThrownBy(() -> new CodexProtocol.CommandApprovalResponse(NullNode.instance))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CodexProtocol.FileChangeApprovalResponse(NullNode.instance))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new CodexProtocol.PermissionsApprovalResponse(
+                NullNode.instance,
+                Optional.empty(),
+                Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.PermissionsApprovalResponse(
+                objectMapper.createObjectNode(),
+                Optional.empty(),
+                Optional.empty())));
+        assertThat(encoded.has("scope")).isFalse();
+    }
+
     private void verifyDecodeBinding(JsonNode binding, Class<?> type, RecordComponent[] actualComponents)
     {
         String description = description(binding);
@@ -220,6 +242,30 @@ class TestCodexProtocolReferenceBindings
     {
         String description = description(binding);
         ObjectNode sample = sample(binding);
+        verifyEncodedSample(binding, type, sample, description);
+
+        for (JsonNode component : binding.path("components")) {
+            JsonNode alternatives = component.get("samples");
+            if (alternatives == null) {
+                continue;
+            }
+            assertThat(alternatives.isArray()).as(description + " " + component.path("javaName").asText() + " samples").isTrue();
+            assertThat(alternatives).as(description + " " + component.path("javaName").asText() + " samples").isNotEmpty();
+            for (JsonNode alternative : alternatives) {
+                ObjectNode alternativeSample = sample.deepCopy();
+                alternativeSample.set(component.path("wireName").asText(), alternative.deepCopy());
+                verifyEncodedSample(binding, type, alternativeSample, description);
+            }
+        }
+    }
+
+    private void verifyEncodedSample(
+            JsonNode binding,
+            Class<?> type,
+            ObjectNode sample,
+            String description)
+            throws IOException
+    {
         Object value = codec.decodeResult(sample, type);
         JsonNode encoded = objectMapper.readTree(codec.encode(value));
 
@@ -227,7 +273,7 @@ class TestCodexProtocolReferenceBindings
         for (JsonNode component : binding.path("components")) {
             String wireName = component.path("wireName").asText();
             expectedWireNames.add(wireName);
-            assertThat(encoded.get(wireName)).as(description + " " + wireName).isEqualTo(component.get("sample"));
+            assertThat(encoded.get(wireName)).as(description + " " + wireName).isEqualTo(sample.get(wireName));
         }
         assertThat(ImmutableList.copyOf(encoded.fieldNames()))
                 .as(description)

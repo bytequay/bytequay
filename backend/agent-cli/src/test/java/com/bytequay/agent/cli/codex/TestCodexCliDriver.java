@@ -19,6 +19,7 @@ import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -46,6 +47,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -179,6 +182,187 @@ class TestCodexCliDriver
         driver.close();
     }
 
+    @Test
+    void rejectsLatePermissionAndLegacyRequestsWithoutRoutingAnApproval()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        AgentSession session = driver.open(context(Optional.empty(), approval), event -> {});
+        session.start(command("approval-routing"));
+        AppServerProcess server = supervisor.server();
+
+        server.emit("""
+                {"id":92,"method":"item/commandExecution/requestApproval","params":{
+                "threadId":"thread-1","turnId":"stale-turn","itemId":"exec-stale",
+                "command":"echo stale","availableDecisions":["accept","decline"],
+                "startedAtMs":1786884871461}}
+                """);
+        server.emit("""
+                {"id":93,"method":"item/permissions/requestApproval","params":{
+                "cwd":"/worktree","itemId":"permission-1","permissions":{},
+                "startedAtMs":1786884871462,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":94,"method":"execCommandApproval","params":{
+                "callId":"call-1","command":["echo","legacy"],"conversationId":"thread-1",
+                "cwd":"/worktree","parsedCmd":[]}}
+                """);
+        server.emit("""
+                {"id":95,"method":"applyPatchApproval","params":{
+                "callId":"call-2","conversationId":"thread-1","fileChanges":{}}}
+                """);
+        server.emit("""
+                {"id":96,"method":"item/commandExecution/requestApproval","params":{
+                "additionalPermissions":{"network":{"enabled":true}},"command":"curl example.com",
+                "itemId":"exec-permission","startedAtMs":1786884871463,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":97,"method":"item/commandExecution/requestApproval","params":{
+                "command":"input","itemId":"exec-input","kind":"writeStdin",
+                "startedAtMs":1786884871464,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":99,"method":"item/commandExecution/requestApproval","params":{
+                "command":"curl example.com","itemId":"exec-network",
+                "networkApprovalContext":{"host":"example.com","protocol":"https"},
+                "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":100,"method":"item/fileChange/requestApproval","params":{
+                "grantRoot":"/worktree/generated","itemId":"patch-scoped",
+                "startedAtMs":1786884871466,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":102,"method":"item/fileChange/requestApproval","params":{
+                "grantRoot":"","itemId":"patch-empty-root","startedAtMs":1786884871467,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+
+        assertThat(server.error(92).path("message").asText()).contains("active turn");
+        assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
+        assertThat(server.error(94).path("message").asText()).contains("no active thread");
+        assertThat(server.error(95).path("message").asText()).contains("no active thread");
+        assertThat(server.error(96).path("message").asText()).contains("cannot represent");
+        assertThat(server.error(97).path("message").asText()).contains("approval kind");
+        assertThat(server.error(99).path("message").asText()).contains("cannot represent");
+        assertThat(server.error(100).path("message").asText()).contains("scoped grant");
+        assertThat(server.error(102).path("message").asText()).contains("scoped grant");
+        assertThat(approval).hasValue(null);
+        driver.close();
+    }
+
+    @Test
+    void rejectsAnApprovalDecisionAfterItsTurnFinishes()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            approval.set(request);
+            return decision;
+        }), event -> {});
+        session.start(command("late-decision"));
+        AppServerProcess server = supervisor.server();
+
+        server.emit("""
+                {"id":98,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo late",
+                "itemId":"exec-late","startedAtMs":1786884871465,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(approval.get().detail()).isEqualTo("echo late");
+
+        server.failTurn();
+        session.start(command("replacement"));
+        decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
+
+        assertThat(server.error(98).path("message").asText()).contains("no longer belongs");
+        driver.close();
+    }
+
+    @Test
+    void rejectsAnApprovalDecisionAfterCancellationIsRequested()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            approval.set(request);
+            return decision;
+        }), event -> {});
+        RunningTurn turn = session.start(command("cancelled-decision"));
+        AppServerProcess server = supervisor.server();
+
+        server.emit("""
+                {"id":101,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo cancelled",
+                "itemId":"exec-cancelled","startedAtMs":1786884871466,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(approval.get().detail()).isEqualTo("echo cancelled");
+
+        server.holdInterruptCompletion();
+        turn.cancel();
+        approval.set(null);
+        server.emit("""
+                {"id":103,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo after-cancel",
+                "itemId":"exec-after-cancel","startedAtMs":1786884871467,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(server.error(103).path("message").asText()).contains("active turn");
+        assertThat(approval).hasValue(null);
+        decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
+
+        assertThat(server.error(101).path("message").asText()).contains("no longer belongs");
+        server.releaseInterruptCompletion();
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.CANCELLED);
+        driver.close();
+    }
+
+    @Test
+    void mapsOnlyOfferedUnscopedBinaryApprovalDecisions()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        AtomicReference<ProviderApprovalDecision> decision = new AtomicReference<>(ProviderApprovalDecision.deny());
+        AgentSession session = driver.open(context(Optional.empty(), approval, decision), event -> {});
+        session.start(command("approval-decisions"));
+        AppServerProcess server = supervisor.server();
+
+        server.emit("""
+                {"id":95,"method":"item/fileChange/requestApproval","params":{
+                "itemId":"patch-1","reason":"write file","startedAtMs":1786884871461,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(server.result(95).path("decision").asText()).isEqualTo("decline");
+
+        decision.set(ProviderApprovalDecision.allow(Optional.empty()));
+        server.emit("""
+                {"id":96,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["decline"],"command":"echo unavailable","itemId":"exec-1",
+                "startedAtMs":1786884871462,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(server.error(96).path("message").asText()).contains("did not offer decision accept");
+
+        decision.set(ProviderApprovalDecision.allow(Optional.of("session")));
+        server.emit("""
+                {"id":97,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept"],"command":"echo scoped","itemId":"exec-2",
+                "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        assertThat(server.error(97).path("message").asText()).contains("scoped permission");
+        assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
+        driver.close();
+    }
+
     private CodexCliDriver driver(ProcessSupervisor supervisor)
     {
         return new CodexCliDriver(
@@ -194,6 +378,27 @@ class TestCodexCliDriver
             Optional<AgentSessionRef> reference,
             AtomicReference<ProviderApprovalRequest> approval)
     {
+        return context(
+                reference,
+                approval,
+                new AtomicReference<>(ProviderApprovalDecision.allow(Optional.empty())));
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AtomicReference<ProviderApprovalRequest> approval,
+            AtomicReference<ProviderApprovalDecision> decision)
+    {
+        return context(reference, (request, timeout) -> {
+            approval.set(request);
+            return CompletableFuture.completedFuture(decision.get());
+        });
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AgentApprovalHandler approvals)
+    {
         return new AgentSessionContext(
                 "task-1",
                 worktree,
@@ -201,10 +406,7 @@ class TestCodexCliDriver
                 worktree.resolve("provider"),
                 AgentPermissionPolicy.AUTO,
                 reference,
-                (request, timeout) -> {
-                    approval.set(request);
-                    return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
-                });
+                approvals);
     }
 
     private static AgentTurnCommand command(String message)
@@ -275,8 +477,10 @@ class TestCodexCliDriver
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
+        private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
+        private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
+        private volatile CompletableFuture<Void> interruptCompletionGate = CompletableFuture.completedFuture(null);
         private volatile String activeTurn;
-        private volatile String approvalDecision = "";
 
         private AppServerProcess(ObjectMapper objectMapper, ProcessOutputSink output, boolean failThreadStart)
         {
@@ -332,14 +536,22 @@ class TestCodexCliDriver
                             + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null}}");
                 }
                 case "turn/interrupt" -> {
-                    respond(id, "{}");
-                    emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
-                            + "\"turn\":{\"id\":\"" + activeTurn
-                            + "\",\"status\":\"interrupted\",\"error\":null,\"durationMs\":1}}}");
+                    String interruptedTurn = activeTurn;
+                    CompletableFuture<Void> completionGate = interruptCompletionGate;
+                    Thread.ofVirtual().start(() -> {
+                        respond(id, "{}");
+                        completionGate.join();
+                        emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
+                                + "\"turn\":{\"id\":\"" + interruptedTurn
+                                + "\",\"status\":\"interrupted\",\"error\":null,\"durationMs\":1}}}");
+                    });
                 }
                 default -> {
-                    if (id == 91) {
-                        approvalDecision = message.path("result").path("decision").asText();
+                    if (message.has("result")) {
+                        results.put(id, message.path("result").deepCopy());
+                    }
+                    if (message.has("error")) {
+                        errors.put(id, message.path("error").deepCopy());
                     }
                 }
             }
@@ -350,6 +562,7 @@ class TestCodexCliDriver
             emit("{\"id\":91,\"method\":\"item/commandExecution/requestApproval\",\"params\":{"
                     + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\","
                     + "\"itemId\":\"exec-1\",\"command\":\"echo known-secret\","
+                    + "\"availableDecisions\":[\"accept\",\"decline\"],"
                     + "\"reason\":null,\"startedAtMs\":1786884871461}}");
             emit("{\"method\":\"item/agentMessage/delta\",\"params\":{"
                     + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\","
@@ -391,7 +604,32 @@ class TestCodexCliDriver
 
         private String approvalDecision()
         {
-            return approvalDecision;
+            return result(91).path("decision").asText();
+        }
+
+        private String activeTurn()
+        {
+            return activeTurn;
+        }
+
+        private void holdInterruptCompletion()
+        {
+            interruptCompletionGate = new CompletableFuture<>();
+        }
+
+        private void releaseInterruptCompletion()
+        {
+            interruptCompletionGate.complete(null);
+        }
+
+        private JsonNode result(long id)
+        {
+            return results.get(id);
+        }
+
+        private JsonNode error(long id)
+        {
+            return errors.get(id);
         }
 
         private void respond(long id, String result)
@@ -401,7 +639,8 @@ class TestCodexCliDriver
 
         private void emit(String message)
         {
-            output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(message + "\n"));
+            String line = message.replace("\n", "").replace("\r", "");
+            output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(line + "\n"));
         }
 
         @Override

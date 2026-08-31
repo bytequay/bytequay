@@ -52,6 +52,14 @@ function component(javaName, wireName = javaName, sample) {
   return { javaName, wireName, sample };
 }
 
+function sampledComponent(javaName, wireName = javaName) {
+  return { javaName, wireName, deriveSamples: true };
+}
+
+function sampledArrayComponent(javaName, wireName = javaName) {
+  return { javaName, wireName, deriveItemSamples: true };
+}
+
 function recordBinding(javaType, mode, sources, components) {
   return { javaType, mode, sources, components };
 }
@@ -180,24 +188,50 @@ const referenceRecordBindings = [
   recordBinding("FileChangeApprovalRequest", "decode", [
     schemaSource("all", "ServerRequest", "method", "item/fileChange/requestApproval"),
   ], [component("id"), component("params")]),
+  recordBinding("PermissionsApprovalRequest", "decode", [
+    schemaSource("all", "ServerRequest", "method", "item/permissions/requestApproval"),
+  ], [component("id"), component("params")]),
   recordBinding("CommandApprovalParams", "decode", [
     schemaSource("all", "CommandExecutionRequestApprovalParams"),
   ], [
-    component("threadId"),
-    component("turnId"),
-    component("itemId"),
+    component("additionalPermissions"),
+    component("approvalId"),
+    sampledArrayComponent("availableDecisions"),
     component("command"),
+    component("commandActions"),
+    component("cwd"),
+    component("environmentId"),
+    component("itemId"),
+    component("kind"),
+    component("networkApprovalContext"),
+    component("proposedExecpolicyAmendment"),
+    component("proposedNetworkPolicyAmendments"),
     component("reason"),
     component("startedAtMs"),
+    component("threadId"),
+    component("turnId"),
   ]),
   recordBinding("FileChangeApprovalParams", "decode", [
     schemaSource("all", "FileChangeRequestApprovalParams"),
   ], [
-    component("threadId"),
-    component("turnId"),
+    component("grantRoot"),
     component("itemId"),
     component("reason"),
     component("startedAtMs"),
+    component("threadId"),
+    component("turnId"),
+  ]),
+  recordBinding("PermissionsApprovalParams", "decode", [
+    schemaSource("all", "PermissionsRequestApprovalParams"),
+  ], [
+    component("cwd"),
+    component("environmentId"),
+    component("itemId"),
+    component("permissions"),
+    component("reason"),
+    component("startedAtMs"),
+    component("threadId"),
+    component("turnId"),
   ]),
   recordBinding("JsonRpcEnvelope", "decode", [
     mergedSchemaSource("all", "JSONRPCMessage"),
@@ -293,10 +327,15 @@ const referenceRecordBindings = [
     component("threadId"),
     component("turnId"),
   ]),
-  recordBinding("ApprovalResponse", "encode", [
+  recordBinding("CommandApprovalResponse", "encode", [
     schemaSource("all", "CommandExecutionRequestApprovalResponse"),
+  ], [sampledComponent("decision")]),
+  recordBinding("FileChangeApprovalResponse", "encode", [
     schemaSource("all", "FileChangeRequestApprovalResponse"),
-  ], [component("decision", "decision", "accept")]),
+  ], [sampledComponent("decision")]),
+  recordBinding("PermissionsApprovalResponse", "encode", [
+    schemaSource("all", "PermissionsRequestApprovalResponse"),
+  ], [component("permissions"), sampledComponent("scope"), component("strictAutoReview")]),
   recordBinding("ModelListParams", "encode", [schemaSource("v2", "ModelListParams")], []),
 ];
 
@@ -332,7 +371,16 @@ const stableMethods = [
   "thread/resume",
 ];
 
-const commandApprovalMethod = "item/commandExecution/requestApproval";
+const modernApprovalMethods = [
+  "item/commandExecution/requestApproval",
+  "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
+];
+
+const legacyApprovalMethods = [
+  "applyPatchApproval",
+  "execCommandApproval",
+];
 
 const disabledFeatures = [
   "apps",
@@ -429,10 +477,8 @@ function requestMethods(schema) {
 }
 
 function decisionVariants(schema, definition) {
-  return new Set(
-    schema.definitions[definition].oneOf.flatMap(
-      (variant) => variant.enum ?? Object.keys(variant.properties ?? {}),
-    ),
+  return schema.definitions[definition].oneOf.flatMap(
+    (variant) => variant.enum ?? Object.keys(variant.properties ?? {}),
   );
 }
 
@@ -448,15 +494,42 @@ function requireFields(schema, names) {
   }
 }
 
+function requireExactObjectShape(schema, properties, required) {
+  assert.deepEqual(
+    Object.keys(schema.properties ?? {}),
+    properties,
+    `${schema.title ?? "object"} properties changed`,
+  );
+  assert.deepEqual(
+    schema.required ?? [],
+    required,
+    `${schema.title ?? "object"} required fields changed`,
+  );
+}
+
+function requireDecisionPayload(schema, definition, decision, fields) {
+  const variant = schema.definitions[definition].oneOf.find(
+    (candidate) => candidate.properties?.[decision],
+  );
+  assert.ok(variant, `${definition} lacks ${decision}`);
+  requireExactObjectShape(variant, [decision], [decision]);
+  const payload = variant.properties[decision];
+  requireExactObjectShape(payload, fields, fields);
+  return payload;
+}
+
 function checkSchema(directory, experimental) {
   const requests = requestMethods(readJson(join(directory, "ClientRequest.json")));
   const serverRequests = requestMethods(readJson(join(directory, "ServerRequest.json")));
   for (const method of stableMethods) {
     assert.ok(requests.has(method), `generated schema lacks ${method}`);
   }
-  assert.ok(
-    serverRequests.has(commandApprovalMethod),
-    `generated schema lacks ${commandApprovalMethod}`,
+  assert.deepEqual(
+    [...serverRequests]
+      .filter((method) => method.toLowerCase().includes("approval"))
+      .sort(),
+    [...modernApprovalMethods, ...legacyApprovalMethods].sort(),
+    "approval request methods changed",
   );
   for (const method of experimentalMethods) {
     assert.equal(
@@ -506,55 +579,156 @@ function checkSchema(directory, experimental) {
   const commandApprovalParams = readJson(
     join(directory, "CommandExecutionRequestApprovalParams.json"),
   );
-  requireProperties(commandApprovalParams, [
+  requireExactObjectShape(commandApprovalParams, [
+    "additionalPermissions",
     "approvalId",
     "availableDecisions",
     "command",
+    "commandActions",
     "cwd",
     "environmentId",
     "itemId",
     "kind",
+    "networkApprovalContext",
+    "proposedExecpolicyAmendment",
+    "proposedNetworkPolicyAmendments",
     "reason",
     "startedAtMs",
     "threadId",
     "turnId",
-  ]);
-  requireFields(commandApprovalParams, ["itemId", "startedAtMs", "threadId", "turnId"]);
+  ], ["itemId", "startedAtMs", "threadId", "turnId"]);
   assert.deepEqual(
     commandApprovalParams.definitions.CommandExecutionApprovalKind.enum,
     ["command", "writeStdin"],
   );
 
+  const fileApprovalParams = readJson(
+    join(directory, "FileChangeRequestApprovalParams.json"),
+  );
+  requireExactObjectShape(fileApprovalParams, [
+    "grantRoot",
+    "itemId",
+    "reason",
+    "startedAtMs",
+    "threadId",
+    "turnId",
+  ], ["itemId", "startedAtMs", "threadId", "turnId"]);
+
+  const permissionsApprovalParams = readJson(
+    join(directory, "PermissionsRequestApprovalParams.json"),
+  );
+  requireExactObjectShape(permissionsApprovalParams, [
+    "cwd",
+    "environmentId",
+    "itemId",
+    "permissions",
+    "reason",
+    "startedAtMs",
+    "threadId",
+    "turnId",
+  ], ["cwd", "itemId", "permissions", "startedAtMs", "threadId", "turnId"]);
+
   const commandApprovalResponse = readJson(
     join(directory, "CommandExecutionRequestApprovalResponse.json"),
   );
-  requireProperties(commandApprovalResponse, ["decision"]);
-  requireFields(commandApprovalResponse, ["decision"]);
-  const commandDecisions = decisionVariants(
+  requireExactObjectShape(commandApprovalResponse, ["decision"], ["decision"]);
+  assert.deepEqual(
+    decisionVariants(commandApprovalResponse, "CommandExecutionApprovalDecision"),
+    [
+      "accept",
+      "acceptForSession",
+      "acceptWithExecpolicyAmendment",
+      "applyNetworkPolicyAmendment",
+      "decline",
+      "cancel",
+    ],
+    "command approval decisions changed",
+  );
+  const execpolicyDecision = requireDecisionPayload(
     commandApprovalResponse,
     "CommandExecutionApprovalDecision",
-  );
-  for (const decision of [
-    "accept",
-    "acceptForSession",
     "acceptWithExecpolicyAmendment",
+    ["execpolicy_amendment"],
+  );
+  assert.deepEqual(
+    execpolicyDecision.properties.execpolicy_amendment.type,
+    "array",
+    "execpolicy amendment shape changed",
+  );
+  assert.equal(
+    execpolicyDecision.properties.execpolicy_amendment.items?.type,
+    "string",
+    "execpolicy amendment entry shape changed",
+  );
+  const networkDecision = requireDecisionPayload(
+    commandApprovalResponse,
+    "CommandExecutionApprovalDecision",
     "applyNetworkPolicyAmendment",
-    "decline",
-    "cancel",
-  ]) {
-    assert.ok(commandDecisions.has(decision), `command approval lacks ${decision}`);
-  }
+    ["network_policy_amendment"],
+  );
+  assert.equal(
+    networkDecision.properties.network_policy_amendment.$ref,
+    "#/definitions/NetworkPolicyAmendment",
+    "network policy amendment shape changed",
+  );
+  requireExactObjectShape(
+    commandApprovalResponse.definitions.NetworkPolicyAmendment,
+    ["action", "host"],
+    ["action", "host"],
+  );
+  assert.equal(
+    commandApprovalResponse.definitions.NetworkPolicyAmendment.properties.action.$ref,
+    "#/definitions/NetworkPolicyRuleAction",
+    "network policy action shape changed",
+  );
+  assert.deepEqual(
+    commandApprovalResponse.definitions.NetworkPolicyRuleAction.enum,
+    ["allow", "deny"],
+  );
 
   const fileApprovalResponse = readJson(
     join(directory, "FileChangeRequestApprovalResponse.json"),
   );
-  const fileDecisions = decisionVariants(fileApprovalResponse, "FileChangeApprovalDecision");
-  for (const decision of ["accept", "acceptForSession", "decline", "cancel"]) {
-    assert.ok(fileDecisions.has(decision), `file approval lacks ${decision}`);
-  }
-  requireFields(readJson(join(directory, "PermissionsRequestApprovalResponse.json")), [
-    "permissions",
-  ]);
+  requireExactObjectShape(fileApprovalResponse, ["decision"], ["decision"]);
+  assert.deepEqual(
+    decisionVariants(fileApprovalResponse, "FileChangeApprovalDecision"),
+    ["accept", "acceptForSession", "decline", "cancel"],
+    "file approval decisions changed",
+  );
+
+  const permissionsApprovalResponse = readJson(
+    join(directory, "PermissionsRequestApprovalResponse.json"),
+  );
+  requireExactObjectShape(
+    permissionsApprovalResponse,
+    ["permissions", "scope", "strictAutoReview"],
+    ["permissions"],
+  );
+  assert.deepEqual(
+    permissionsApprovalResponse.definitions.PermissionGrantScope.enum,
+    ["turn", "session"],
+  );
+
+  requireExactObjectShape(
+    readJson(join(directory, "ApplyPatchApprovalParams.json")),
+    ["callId", "conversationId", "fileChanges", "grantRoot", "reason"],
+    ["callId", "conversationId", "fileChanges"],
+  );
+  requireExactObjectShape(
+    readJson(join(directory, "ApplyPatchApprovalResponse.json")),
+    ["decision"],
+    ["decision"],
+  );
+  requireExactObjectShape(
+    readJson(join(directory, "ExecCommandApprovalParams.json")),
+    ["approvalId", "callId", "command", "conversationId", "cwd", "parsedCmd", "reason"],
+    ["callId", "command", "conversationId", "cwd", "parsedCmd"],
+  );
+  requireExactObjectShape(
+    readJson(join(directory, "ExecCommandApprovalResponse.json")),
+    ["decision"],
+    ["decision"],
+  );
 
   const environmentAdd = readJson(join(directory, "v2", "EnvironmentAddParams.json"));
   requireProperties(environmentAdd, ["environmentId", "execServerUrl", "connectTimeoutMs"]);
@@ -632,7 +806,9 @@ function checkSchema(directory, experimental) {
 }
 
 function bundleDefinition(bundle, definition) {
+  const namespaced = definition.match(/^(v[12])\/(.+)$/);
   const schema = bundle.definitions[definition] ??
+    (namespaced ? bundle.definitions[namespaced[1]]?.[namespaced[2]] : undefined) ??
     bundle.definitions[definition.replace(/^v[12]\//, "")];
   assert.ok(schema, `generated schema lacks definition ${definition}`);
   return schema;
@@ -820,6 +996,34 @@ function enumValues(schema, bundle, visited = new Set()) {
   return [...new Set(values)].sort();
 }
 
+function topLevelSamples(schema, bundle) {
+  const resolved = referencedDefinition(schema, bundle);
+  const variants = schemaVariants(resolved, bundle);
+  const alternatives = variants.length > 0
+    ? variants
+      .filter((variant) => !(variant.type === "null" || variant.const === null))
+      .map((variant) => sampleValue(variant, bundle))
+    : enumValues(resolved, bundle);
+  const normal = schema.default ?? resolved.default ?? alternatives[0] ??
+    sampleValue(schema, bundle);
+  const samples = [];
+  const seen = new Set();
+  for (const value of [normal, ...alternatives]) {
+    const key = JSON.stringify(value);
+    if (!seen.has(key)) {
+      seen.add(key);
+      samples.push(value);
+    }
+  }
+  return samples;
+}
+
+function arrayItemSamples(schema, bundle) {
+  const resolved = referencedDefinition(schema, bundle);
+  assert.ok(resolved.items, "array schema lacks items");
+  return topLevelSamples(resolved.items, bundle).map((value) => [value]);
+}
+
 function bindingSourceName(source) {
   const discriminator = source.discriminatorField
     ? `[${source.discriminatorField}=${source.discriminatorValue}]`
@@ -852,15 +1056,20 @@ function buildRecordBinding(binding, bundles) {
   }))];
   assert.ok(decodeTargets.length <= 1, `${binding.javaType} has conflicting decode targets`);
 
-  const components = binding.components.map(({ javaName, wireName, sample }) => {
+  const components = binding.components.map(({ javaName, wireName, sample, deriveSamples, deriveItemSamples }) => {
     const metadata = resolvedSources.map(({ bundle, schema, source, variantValues = [] }) => {
       const property = schema.properties?.[wireName];
       assert.ok(property, `${bindingSourceName(source)} lacks property ${wireName}`);
+      const samples = deriveSamples
+        ? topLevelSamples(property, bundle)
+        : deriveItemSamples
+          ? arrayItemSamples(property, bundle)
+          : source.variantField === wireName ? variantValues : undefined;
       return {
         required: (schema.required ?? []).includes(wireName),
         nullable: allowsNull(property, bundle),
-        sample: sample ?? sampleValue(property, bundle),
-        ...(source.variantField === wireName ? { samples: variantValues } : {}),
+        sample: sample ?? (deriveSamples || deriveItemSamples ? samples[0] : sampleValue(property, bundle)),
+        ...(samples ? { samples } : {}),
       };
     });
     for (const candidate of metadata.slice(1)) {
@@ -873,6 +1082,11 @@ function buildRecordBinding(binding, bundles) {
         candidate.nullable,
         metadata[0].nullable,
         `${binding.javaType}.${javaName} has inconsistent nullability`,
+      );
+      assert.deepEqual(
+        candidate.samples,
+        metadata[0].samples,
+        `${binding.javaType}.${javaName} has inconsistent samples`,
       );
     }
     return { javaName, wireName, ...metadata[0] };

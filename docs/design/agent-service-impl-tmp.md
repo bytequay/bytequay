@@ -238,29 +238,31 @@ Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
 **Status (2026-08-30):** the checked-in schema gate and live two-turn runtime
-slice are a GO candidate. CP1 is not complete: approval coverage, a non-empty
-background terminal, child recursion, cross-task isolation, a safe live rerun
-with a dedicated API key, and production adoption of the isolated launch
-profile remain open. See
+slice are a GO candidate. CP1 is not complete: representative and exhaustive
+live approval behavior, a non-empty background terminal, child recursion,
+cross-task isolation, a fail-closed isolated exec allow rule, a safe live rerun
+with a dedicated API key, and the written go/no-go result remain open.
+Production adoption of the isolated launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
-**Progress (2026-08-31):** the offline gate now checks the command-approval and
-background-terminal list/terminate contracts, their required request/response
-fields, all six command decision variant names, and the `thread/resume` request
-constraints. It also derives one compact committed projection manifest from the
-exact v0.151.0 generated bundles instead of committing 413 schemas or
-820 generated TypeScript files. The normal fixture command verifies the
-manifest; `--update-bindings` regenerates it intentionally. Java
-reflection/codec conformance enforces every consumed record component, wire
-name, required/null rule, and known enum value while retaining additive-field
-and future-enum tolerance. This remains reference-only and never gates the
-production user-managed CLI. The safe live path now uses clean disposable Git
-repositories and is ready to prove one real parent-command approval, one
-bounded mutation per repository, a yielded command with targeted termination,
-and disk-backed history recovery through a fresh App Server without adding
-another model turn or resending user input. This host has no dedicated
-compatibility API key, so those live claims remain unchecked until that gate
-actually passes.
+**Progress (2026-08-31):** the offline gate now projects and codec-tests the
+v0.151.0 modern approval methods, top-level fields, requiredness, both command
+kinds, every command/file decision shape, and the opaque permission payload
+with its response scope. Legacy `applyPatchApproval` and
+`execCommandApproval` requests are deliberately unsupported and fail closed.
+The current runtime bridge still handles only command/file one-time
+`accept`/`decline` and fails closed for unrepresented scope or stale decisions;
+preserving every offered decision in the provider-neutral contract and UI
+begins in CP2. The gate also checks the background-terminal
+list/terminate and `thread/resume` contracts and derives one compact committed
+projection manifest instead of committing 413 schemas or 820 generated
+TypeScript files. The normal fixture command verifies the manifest;
+`--update-bindings` regenerates it intentionally. This remains reference-only
+and never gates the production user-managed CLI. The safe live path is ready
+to prove one real parent-command approval, one bounded mutation per repository,
+a yielded command with targeted termination, and disk-backed history recovery
+through a fresh App Server. This host has no dedicated compatibility API key,
+so those live claims remain unchecked until that gate actually passes.
 
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
@@ -296,9 +298,15 @@ Implementation:
   command-start, command-completion-with-output, and final-agent-message events.
 - [ ] Repeat a bounded filesystem action inside a disposable Git worktree with
   the proposed production sandbox shape.
+- [x] Project and codec-test the modern approval methods, top-level fields,
+  requiredness, both command kinds, every command/file wire decision shape,
+  and the opaque permission payload plus response scope from v0.151.0.
+- [x] Reject legacy `applyPatchApproval` and `execCommandApproval` server
+  requests with a fail-closed JSON-RPC error.
 - [ ] Exercise one real approval request and typed response.
-- [ ] Exercise every supported approval request kind and every legal decision
-  variant preserved by the generated contract.
+- [ ] Exercise every supported modern approval request kind and legal response
+  shape through the live App Server path. Offline codec coverage does not close
+  this runtime gate.
 - [x] Exercise background-terminal list and clean with an empty result.
 - [ ] Exercise a non-empty yielded background terminal and targeted terminate.
 - [x] Inspect `model/list` effort choices, text input support, and advertised
@@ -318,7 +326,8 @@ Implementation:
   `CODEX_HOME` and minimal allowlisted process environment. Configure the
   model-requested shell environment to omit `CODEX_HOME` and `CODEX_API_KEY`.
   Never copy a rotating ChatGPT login into the fixture.
-- [ ] Prove the production exec allow-rule configuration is fail closed.
+- [ ] Prove the proposed isolated exec allow-rule shape is fail closed in the
+  compatibility fixture; CP4 adopts the proven shape in production.
 - [x] Make a reference-fixture version, generated-bundle hash, or required
   method/field mismatch an actionable fixture failure.
 
@@ -551,6 +560,8 @@ Implementation:
 - [ ] Select exactly that task's environment for thread and turn start.
 - [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior.
+- [ ] Adopt the CP1-proven isolated subprocess environment and fail-closed exec
+  allow-rule shape in the production runtime path.
 - [ ] Verify inherited capabilities remain disabled after start and resume.
 - [ ] Route root and child events/approvals by provider thread and turn identity
   without cross-task fallback.

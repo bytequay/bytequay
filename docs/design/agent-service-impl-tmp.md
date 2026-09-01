@@ -671,8 +671,8 @@ outbox replay is idempotent across JSONL flush/mark crashes, repairs a partial
 tail, and publishes only after the event is flushed and marked. Startup keeps
 agent routes and mutation monitors behind one boolean gate while it drains the
 outbox, reconciles existing agent execution, and drains again. This is a
-foundation slice: task/turn/approval mutations have not all migrated to the
-unit of work. Turn acceptance now writes the bounded user message to a
+foundation slice: task and remaining turn mutations have not all migrated to
+the unit of work. Turn acceptance now writes the bounded user message to a
 task-owned blob, commits the accepted turn and blob-backed outbox row in one
 unit of work, and drains that event before opening or calling the provider.
 Interactive creation now resolves the selected repository's
@@ -680,6 +680,15 @@ exact `refs/remotes/origin/<default-branch>^{commit}`, provisions a managed
 task worktree, and publishes only workspace-scoped, path-free task responses.
 Task creation probes provider readiness and validates the requested model and
 effort against the existing cached catalog before resolving the workspace.
+Approval requests and their events now commit together before publication;
+resolution, expiry, cancellation, and provider-loss denial likewise commit
+with their outbox event before the provider callback resumes. Pending is
+derived from the absence of a durable decision rather than represented by a
+new lifecycle state. Only the callback needed by the live provider remains in
+memory. Reload recovery queries SQLite, and explicit decisions are serialized
+with turn cancellation while JSONL drain and provider continuation stay
+outside that task lock. Startup closes every durable pending approval before
+recovering active turns, including a terminal turn whose prior denial failed.
 
 Implementation:
 
@@ -703,9 +712,9 @@ Implementation:
   and `UNKNOWN`; never automatically resend an unknown delivery.
 - [ ] Persist each delivery's ID, start/steer kind, task/turn, idempotency key,
   timestamps, and redacted terminal reason.
-- [ ] Persist approval requests before publishing cards and persist
+- [x] Persist approval requests before publishing cards and persist
   resolution/expiry before resuming the provider callback.
-- [ ] Deny pending approvals durably on timeout, cancellation, terminal turn,
+- [x] Deny pending approvals durably on timeout, cancellation, terminal turn,
   or provider loss.
 - [x] Persist the immutable `TaskWorktree` ownership/path/branch/start-commit
   facts with the owning task; do not add an allocation table or lifecycle.
@@ -776,7 +785,7 @@ Exit gate:
   `eventId` and one sequence with no missing state event.
 - [x] Replay always contains the accepted user input before provider output.
 - [ ] Reconnect from the last sequence loses and duplicates no event.
-- [ ] A resolved/expired approval never reappears as pending after reload.
+- [x] A resolved/expired approval never reappears as pending after reload.
 - [x] Two live tasks derive distinct canonical worktree paths and branches.
 - [x] Provisioning tests prove success returns only a fully verified worktree;
   a half-finished or mismatched orphan is preserved and reported.

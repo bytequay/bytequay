@@ -68,10 +68,12 @@ public final class AgentMaintenance
 
     public void recover()
     {
+        // This also closes approvals whose turn became terminal before a
+        // previous denial could be persisted.
+        approvalService.denyAllPending();
         turnStore.listRecoverable().forEach(turn -> {
             synchronized (runtimeRegistry.taskLock(turn.taskId())) {
                 turnStore.find(turn.id()).filter(current -> current.state().active()).ifPresent(current -> {
-                    approvalService.denyPending(current.id());
                     TurnMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
                     turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
                             TurnState.INTERRUPTED,

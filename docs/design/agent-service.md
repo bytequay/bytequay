@@ -103,10 +103,12 @@ replay events, and legacy rows/logs remain readable. The workspace-safe public
 request and narrowed response records are intentionally not active routes yet.
 CP3 must first provide the managed worktree and crash-safe outbox; CP4 must
 apply each accepted settings snapshot to the App Server runtime. Pending
-approvals are still process-local and most state/event writes have not moved
-to the crash-safe outbox. Accepted turns now commit their blob-backed user
-message through that outbox and drain it before provider delivery. Codex image
-inputs, steering, and durable queueing are absent, and
+approval records and their lifecycle events are now durable; only the live
+provider callback remains process-local. Startup closes all durable pending
+approvals, including rows owned by an already-terminal turn. Most other
+state/event writes have not moved to the crash-safe outbox. Accepted turns now
+commit their blob-backed user message through that outbox and drain it before
+provider delivery. Codex image inputs, steering, and durable queueing are absent, and
 Electron has no agent REST/SSE bridge. These are implementation prerequisites,
 not optional renderer polish.
 
@@ -2870,7 +2872,8 @@ does not claim provider exactly-once delivery.
 
 `agent_approval` stores the tagged request, source IDs, product-permitted
 available decisions,
-state, typed response, and request/resolution timestamps.
+the typed response when resolved, and request/resolution timestamps. Pending is
+derived from the missing response; it is not a separate lifecycle state.
 
 `agent_process_launch` begins when `prepare(...)` returns and stores the launch
 ID, closed owner kind and opaque owner ID,

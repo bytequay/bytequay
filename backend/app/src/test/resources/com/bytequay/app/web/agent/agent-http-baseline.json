@@ -47,11 +47,11 @@
       "acceptedResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
-        "state": "RUNNING",
-        "version": 1,
+        "state": "COMPLETED",
+        "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
-        "endedAt": null,
+        "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
         "settings": {
           "model": "test-model",
@@ -167,11 +167,11 @@
       "acceptedResponse": {
         "id": "<turn-2>",
         "taskId": "<task-id>",
-        "state": "RUNNING",
-        "version": 1,
+        "state": "COMPLETED",
+        "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
-        "endedAt": null,
+        "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
         "settings": {
           "model": "test-model",

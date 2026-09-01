@@ -27,6 +27,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.ApprovalDecision;
+import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
@@ -55,6 +56,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -70,7 +72,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
@@ -93,6 +97,7 @@ class TestDefaultAgentTurnService
     private DefaultAgentEventService events;
     private DefaultAgentMetricsService metrics;
     private RecordingApprovalService approvals;
+    private ScheduledExecutorService scheduler;
     private DeterministicAgentDriver driver;
     private AgentTask task;
     private DefaultAgentTaskService taskService;
@@ -127,7 +132,14 @@ class TestDefaultAgentTurnService
         events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
+        scheduler = Executors.newSingleThreadScheduledExecutor();
         service = service(driver, new AgentRuntimeRegistry());
+    }
+
+    @AfterEach
+    void tearDown()
+    {
+        scheduler.shutdownNow();
     }
 
     private static final class UnusedWorktreeService
@@ -181,6 +193,22 @@ class TestDefaultAgentTurnService
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.ASSISTANT_MESSAGE)
                 .extracting(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text())
                 .containsExactly("first response", "second response");
+    }
+
+    @Test
+    void handlesProviderCompletionThatPrecedesStartReturn()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry);
+        approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
+        driver.completeNextStart();
+
+        AgentTurn completed = service.start(command("first", "key-1"));
+
+        assertThat(completed.state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(completed.terminalReason()).isEmpty();
+        assertThat(approvals.deniedTurns).containsExactly(completed.id());
+        assertThat(runtimeRegistry.running(completed.id())).isEmpty();
     }
 
     @Test
@@ -279,6 +307,7 @@ class TestDefaultAgentTurnService
     void rejectsConcurrentTurnAndCancelsTheLiveProviderRun()
     {
         AgentTurn running = service.start(command("first", "key-1"));
+        driver.beforeCancel(() -> assertThat(approvals.deniedTurns).contains(running.id()));
 
         assertThatThrownBy(() -> service.start(command("second", "key-2")))
                 .isInstanceOf(AgentConflictException.class)
@@ -287,7 +316,20 @@ class TestDefaultAgentTurnService
         AgentTurn cancelled = service.cancel(running.id());
         assertThat(cancelled.state()).isEqualTo(TurnState.CANCELLED);
         assertThat(cancelled.cancellationRequestedAt()).contains(NOW);
-        assertThat(approvals.deniedTurns).containsExactly(running.id());
+        assertThat(approvals.deniedTurns).contains(running.id());
+    }
+
+    @Test
+    void stillCancelsProviderWhenDurableApprovalDenialFails()
+    {
+        AgentTurn running = service.start(command("first", "key-1"));
+        approvals.failNextDeny(new AgentStorageException("blocked approval store"));
+
+        assertThatThrownBy(() -> service.cancel(running.id()))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("blocked approval store");
+
+        assertThat(service.get(running.id()).state()).isEqualTo(TurnState.CANCELLED);
     }
 
     @Test
@@ -311,6 +353,92 @@ class TestDefaultAgentTurnService
                 .join());
 
         assertThat(service.cancel(running.id()).state()).isEqualTo(TurnState.CANCELLED);
+    }
+
+    @Test
+    void releasesTaskLockBeforeDenyingApprovalsAfterCompletion()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry);
+        approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
+        AgentTurn running = service.start(command("first", "key-1"));
+
+        driver.complete("done");
+
+        assertThat(service.get(running.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(approvals.deniedTurns).contains(running.id());
+    }
+
+    @Test
+    void releasesTaskLockBeforeDenyingApprovalsAfterStartFailure()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry);
+        approvals.beforeDeny(() -> awaitTaskLock(runtimeRegistry));
+        driver.failNextStart();
+
+        assertThatThrownBy(() -> service.start(command("fail", "key-1")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("start failed");
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
+                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+    }
+
+    @Test
+    void restartClosesApprovalWhenCompletionDenialCouldNotPersist()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
+        service = service(driver, runtimeRegistry, events, durableApprovals);
+        AgentTurn running = service.start(command("first", "key-1"));
+        ProviderApprovalRequest providerRequest = approvalRequest("completion-approval");
+        CompletableFuture<ProviderApprovalDecision> provider = driver.requestApproval(providerRequest, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        ApprovalRequest approval = stores.listPending(running.id()).getFirst().request();
+        stores.failApprovalResolve(new AgentStorageException("blocked approval resolution"));
+
+        driver.complete("done");
+
+        assertThat(service.get(running.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(stores.find(approval.id()).orElseThrow().pending()).isTrue();
+        assertThat(provider).isCompletedExceptionally();
+
+        durableApprovals(new AgentRuntimeRegistry()).denyAllPending();
+
+        assertThat(stores.find(approval.id()).orElseThrow().pending()).isFalse();
+    }
+
+    @Test
+    void restartClosesApprovalWhenFailedStartDenialCouldNotPersist()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
+        service = service(driver, runtimeRegistry, events, durableApprovals);
+        ApprovalId approvalId = ApprovalId.random();
+        driver.beforeStart(() -> {
+            AgentTurn accepted = stores.findActive(task.id()).orElseThrow();
+            durableApprovals.request(new ApprovalRequest(
+                    approvalId,
+                    task.id(),
+                    accepted.id(),
+                    approvalRequest("start-approval"),
+                    NOW), Duration.ofMinutes(1));
+            stores.failApprovalResolve(new AgentStorageException("blocked approval resolution"));
+            throw new IllegalStateException("start failed after approval");
+        });
+
+        assertThatThrownBy(() -> service.start(command("fail", "key-1")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("start failed after approval");
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
+                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+        assertThat(stores.find(approvalId).orElseThrow().pending()).isTrue();
+
+        durableApprovals(new AgentRuntimeRegistry()).denyAllPending();
+
+        assertThat(stores.find(approvalId).orElseThrow().pending()).isFalse();
     }
 
     @Test
@@ -396,6 +524,32 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void preservesFailureWhenSessionReferenceAndCloseThrowTheSameInstance()
+    {
+        IllegalStateException failure = new IllegalStateException("session transport failed");
+        driver.failNextSessionReferenceAndClose(failure);
+
+        assertThatThrownBy(() -> service.start(command("fail", "key-1")))
+                .isSameAs(failure);
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
+                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+    }
+
+    @Test
+    void preservesFailureWhenTurnReferenceAndCancelThrowTheSameInstance()
+    {
+        IllegalStateException failure = new IllegalStateException("turn transport failed");
+        driver.failNextTurnReferenceAndCancel(failure);
+
+        assertThatThrownBy(() -> service.start(command("fail", "key-1")))
+                .isSameAs(failure);
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
+                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+    }
+
+    @Test
     void preservesEachTurnsEffectiveSettingsAndOpaqueAttachmentReferences()
     {
         Path attachmentPath = temporaryDirectory.resolve("image.png").toAbsolutePath();
@@ -459,6 +613,15 @@ class TestDefaultAgentTurnService
             AgentRuntimeRegistry runtimeRegistry,
             AgentEventService configuredEvents)
     {
+        return service(configuredDriver, runtimeRegistry, configuredEvents, approvals);
+    }
+
+    private DefaultAgentTurnService service(
+            DeterministicAgentDriver configuredDriver,
+            AgentRuntimeRegistry runtimeRegistry,
+            AgentEventService configuredEvents,
+            AgentApprovalService configuredApprovals)
+    {
         return new DefaultAgentTurnService(
                 stores,
                 stores,
@@ -469,10 +632,23 @@ class TestDefaultAgentTurnService
                 new StaticAgentDriverRegistry(ImmutableList.of(configuredDriver)),
                 configuredEvents,
                 metrics,
-                approvals,
+                configuredApprovals,
                 runtimeRegistry,
                 CLOCK,
                 Duration.ofMinutes(5));
+    }
+
+    private DefaultAgentApprovalService durableApprovals(AgentRuntimeRegistry runtimeRegistry)
+    {
+        return new DefaultAgentApprovalService(
+                stores,
+                stores,
+                stores,
+                stores,
+                events,
+                scheduler,
+                CLOCK,
+                runtimeRegistry);
     }
 
     private StartAgentTurnCommand command(String message, String idempotencyKey)
@@ -482,6 +658,15 @@ class TestDefaultAgentTurnService
                 message,
                 ImmutableList.<AgentAttachment>of(),
                 idempotencyKey);
+    }
+
+    private void awaitTaskLock(AgentRuntimeRegistry runtimeRegistry)
+    {
+        CompletableFuture.runAsync(() -> {
+            synchronized (runtimeRegistry.taskLock(task.id())) {
+                // Acquiring the monitor proves approval callbacks run outside it.
+            }
+        }).orTimeout(5, TimeUnit.SECONDS).join();
     }
 
     private static ProviderUsageSample usage(String eventId, long input, long cached, long output)
@@ -497,11 +682,26 @@ class TestDefaultAgentTurnService
                 NOW);
     }
 
+    private static ProviderApprovalRequest approvalRequest(String requestId)
+    {
+        return new ProviderApprovalRequest(
+                requestId,
+                ProviderApprovalRequest.Kind.COMMAND,
+                "Run command",
+                "git status",
+                ImmutableList.of("command:git status"),
+                ImmutableList.of(DENY),
+                root(),
+                NOW);
+    }
+
     private static final class RecordingApprovalService
             implements AgentApprovalService
     {
         private final List<ApprovalRequest> requests = new ArrayList<>();
         private final List<TurnId> deniedTurns = new ArrayList<>();
+        private Runnable beforeDeny = () -> {};
+        private RuntimeException denyFailure;
 
         @Override
         public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
@@ -525,6 +725,28 @@ class TestDefaultAgentTurnService
         public void denyPending(TurnId turnId)
         {
             deniedTurns.add(turnId);
+            beforeDeny.run();
+            if (denyFailure != null) {
+                RuntimeException failure = denyFailure;
+                denyFailure = null;
+                throw failure;
+            }
+        }
+
+        @Override
+        public void denyAllPending()
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        private void failNextDeny(RuntimeException failure)
+        {
+            denyFailure = failure;
+        }
+
+        private void beforeDeny(Runnable action)
+        {
+            beforeDeny = action;
         }
     }
 

@@ -28,14 +28,14 @@ public interface AgentApprovalService
     /**
      * Registers a provider permission request and awaits a decision asynchronously.
      *
-     * <p>The request is emitted as a normalized approval event. Expiry completes
-     * the returned stage with a denial; approval is never inferred from a frontend
-     * disconnect.
+     * <p>The request and its normalized event are persisted before publication.
+     * Expiry completes the returned stage with a denial; approval is never inferred
+     * from a frontend disconnect.
      *
      * @param request permission request owned by one task and turn
      * @param timeout maximum time to wait for the user
      * @return explicit decision or timeout denial
-     * @throws AgentConflictException when the approval identifier is already pending
+     * @throws AgentConflictException when the approval identifier already exists
      */
     CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout);
 
@@ -47,7 +47,7 @@ public interface AgentApprovalService
      *
      * @param command approval identifier, decision, and optional scoped permission
      * @return recorded decision
-     * @throws ApprovalNotFoundException when no such approval is pending
+     * @throws ApprovalNotFoundException when no such approval exists
      * @throws AgentConflictException when a different decision was already recorded
      */
     ApprovalDecision resolve(ResolveApprovalCommand command);
@@ -58,4 +58,7 @@ public interface AgentApprovalService
      * @param turnId turn whose approvals should be closed
      */
     void denyPending(TurnId turnId);
+
+    /** Denies every unresolved durable approval during startup recovery. */
+    void denyAllPending();
 }

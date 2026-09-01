@@ -13,16 +13,21 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
+import com.bytequay.agent.core.ApprovalDecision;
+import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -41,16 +46,20 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 final class InMemoryAgentStores
-        implements AgentTaskStore, AgentTurnStore, AgentEventOutboxStore, AgentUnitOfWork
+        implements AgentTaskStore, AgentTurnStore, AgentApprovalStore, AgentEventOutboxStore, AgentUnitOfWork
 {
     private final Map<TaskId, AgentTask> tasks = new HashMap<>();
     private final Map<TurnId, AgentTurn> turns = new HashMap<>();
+    private final Map<ApprovalId, AgentApproval> approvals = new LinkedHashMap<>();
     private final Map<EventId, AgentEventOutboxEntry> outbox = new LinkedHashMap<>();
     private RuntimeException taskInsertFailure;
     private boolean persistBeforeTaskInsertFailure;
     private int taskFindCalls;
     private int failingTaskFindCall = -1;
     private RuntimeException taskFindFailure;
+    private RuntimeException approvalFindFailure;
+    private RuntimeException approvalFindAfterResolveFailure;
+    private RuntimeException approvalResolveFailure;
 
     @Override
     public <T> T execute(Work<T> work)
@@ -226,6 +235,69 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public synchronized void insert(AgentApproval approval)
+    {
+        if (approvals.putIfAbsent(approval.request().id(), approval) != null) {
+            throw new AgentConflictException("Approval already exists: " + approval.request().id());
+        }
+    }
+
+    @Override
+    public synchronized Optional<AgentApproval> find(ApprovalId approvalId)
+    {
+        if (approvalFindFailure != null) {
+            RuntimeException failure = approvalFindFailure;
+            approvalFindFailure = null;
+            throw failure;
+        }
+        return Optional.ofNullable(approvals.get(approvalId));
+    }
+
+    @Override
+    public synchronized boolean resolve(
+            ApprovalId approvalId,
+            ApprovalDecision decision,
+            AgentEventPayload.ApprovalOutcome outcome)
+    {
+        if (approvalResolveFailure != null) {
+            RuntimeException failure = approvalResolveFailure;
+            approvalResolveFailure = null;
+            throw failure;
+        }
+        AgentApproval approval = approvals.get(approvalId);
+        if (approval == null || !approval.pending()) {
+            return false;
+        }
+        approvals.put(approvalId, approval.resolve(decision, outcome));
+        if (approvalFindAfterResolveFailure != null) {
+            approvalFindFailure = approvalFindAfterResolveFailure;
+            approvalFindAfterResolveFailure = null;
+        }
+        return true;
+    }
+
+    @Override
+    public synchronized List<AgentApproval> listPending(TurnId turnId)
+    {
+        return approvals.values().stream()
+                .filter(approval -> approval.request().turnId().equals(turnId))
+                .filter(AgentApproval::pending)
+                .sorted(Comparator.comparing((AgentApproval approval) -> approval.request().requestedAt())
+                        .thenComparing(approval -> approval.request().id().toString()))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized List<AgentApproval> listPending()
+    {
+        return approvals.values().stream()
+                .filter(AgentApproval::pending)
+                .sorted(Comparator.comparing((AgentApproval approval) -> approval.request().requestedAt())
+                        .thenComparing(approval -> approval.request().id().toString()))
+                .collect(toImmutableList());
+    }
+
+    @Override
     public synchronized void insert(AgentEventOutboxEntry entry)
     {
         if (outbox.putIfAbsent(entry.eventId(), entry) != null) {
@@ -303,5 +375,25 @@ final class InMemoryAgentStores
     {
         failingTaskFindCall = call;
         taskFindFailure = failure;
+    }
+
+    synchronized void failApprovalFind(RuntimeException failure)
+    {
+        approvalFindFailure = failure;
+    }
+
+    synchronized void failApprovalFindAfterResolve(RuntimeException failure)
+    {
+        approvalFindAfterResolveFailure = failure;
+    }
+
+    synchronized void failApprovalResolve(RuntimeException failure)
+    {
+        approvalResolveFailure = failure;
+    }
+
+    synchronized void clearApprovalFindFailure()
+    {
+        approvalFindFailure = null;
     }
 }

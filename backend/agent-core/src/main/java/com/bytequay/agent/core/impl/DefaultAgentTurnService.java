@@ -130,6 +130,10 @@ public final class DefaultAgentTurnService
     public AgentTurn start(StartAgentTurnCommand command)
     {
         requireNonNull(command, "command is null");
+        StartedTurn started = null;
+        RunningTurn failedRunningTurn = null;
+        TurnId failedTurnId = null;
+        RuntimeException startFailure = null;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPendingEvents(command.taskId());
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
@@ -211,25 +215,41 @@ public final class DefaultAgentTurnService
                             Optional.empty(),
                             Instant.now(clock)));
                     runtimeRegistry.registerRunning(running.id(), runningTurn);
-                    try {
-                        observeCompletion(running, runningTurn);
-                    }
-                    catch (RuntimeException failure) {
-                        runtimeRegistry.removeRunning(running.id(), runningTurn);
-                        throw failure;
-                    }
-                    return running;
+                    started = new StartedTurn(running, runningTurn);
                 }
                 catch (RuntimeException failure) {
-                    cancelAfterStartFailure(runningTurn, failure);
+                    failedRunningTurn = runningTurn;
                     throw failure;
                 }
             }
             catch (RuntimeException failure) {
-                failStart(accepted.id(), failure);
-                throw failure;
+                recordFailedStart(accepted.id(), failure);
+                failedTurnId = accepted.id();
+                startFailure = failure;
             }
         }
+        if (startFailure != null) {
+            if (failedRunningTurn != null) {
+                cancelAndSuppressFailure(failedRunningTurn, startFailure);
+            }
+            denyPendingAndSuppressFailure(failedTurnId, startFailure);
+            throw startFailure;
+        }
+
+        StartedTurn completedStart = requireNonNull(started, "started turn is null");
+        try {
+            observeCompletion(completedStart.turn(), completedStart.runningTurn());
+        }
+        catch (RuntimeException failure) {
+            synchronized (runtimeRegistry.taskLock(command.taskId())) {
+                runtimeRegistry.removeRunning(completedStart.turn().id(), completedStart.runningTurn());
+                recordFailedStart(completedStart.turn().id(), failure);
+            }
+            cancelAndSuppressFailure(completedStart.runningTurn(), failure);
+            denyPendingAndSuppressFailure(completedStart.turn().id(), failure);
+            throw failure;
+        }
+        return requireTurn(completedStart.turn().id());
     }
 
     private void drainPendingEvents(TaskId taskId)
@@ -261,8 +281,15 @@ public final class DefaultAgentTurnService
             running = runtimeRegistry.running(turnId)
                     .orElseThrow(() -> new AgentConflictException("Turn has no live provider handle: " + turnId));
         }
-        // Provider cancellation may take provider locks or complete callbacks that
-        // re-enter this service, so it must run after releasing the task lock.
+        // Approval and provider cancellation may complete callbacks that
+        // re-enter this service, so both run after releasing the task lock.
+        try {
+            approvalService.denyPending(turnId);
+        }
+        catch (RuntimeException failure) {
+            cancelAndSuppressFailure(running, failure);
+            throw failure;
+        }
         running.cancel();
         return requireTurn(turnId);
     }
@@ -366,17 +393,18 @@ public final class DefaultAgentTurnService
             Optional<String> reason = terminalState == TurnState.COMPLETED
                     ? Optional.empty()
                     : Optional.of(failure == null ? result.terminalReason().orElseThrow() : failureMessage(failure));
-            approvalService.denyPending(turn.id());
             TurnMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
             AgentTurn latest = requireTurn(turn.id());
             turnStore.update(latest.finish(terminalState, finalMetrics, reason, Instant.now(clock)));
         }
+        // Completing an approval can run provider continuations. The terminal
+        // turn is the barrier that rejects new requests after releasing the lock.
+        approvalService.denyPending(observedTurn.id());
     }
 
-    private void failStart(TurnId turnId, RuntimeException failure)
+    private void recordFailedStart(TurnId turnId, RuntimeException failure)
     {
         try {
-            approvalService.denyPending(turnId);
             TurnMetrics finalMetrics = metricsService.finishTurn(turnId, TurnState.FAILED);
             AgentTurn turn = requireTurn(turnId);
             if (!turn.state().terminal()) {
@@ -388,17 +416,33 @@ public final class DefaultAgentTurnService
             }
         }
         catch (RuntimeException cleanupFailure) {
-            failure.addSuppressed(cleanupFailure);
+            if (failure != cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
         }
     }
 
-    private static void cancelAfterStartFailure(RunningTurn runningTurn, RuntimeException failure)
+    private void denyPendingAndSuppressFailure(TurnId turnId, RuntimeException failure)
+    {
+        try {
+            approvalService.denyPending(turnId);
+        }
+        catch (RuntimeException cleanupFailure) {
+            if (failure != cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+        }
+    }
+
+    private static void cancelAndSuppressFailure(RunningTurn runningTurn, RuntimeException failure)
     {
         try {
             runningTurn.cancel();
         }
         catch (RuntimeException cancellationFailure) {
-            failure.addSuppressed(cancellationFailure);
+            if (failure != cancellationFailure) {
+                failure.addSuppressed(cancellationFailure);
+            }
         }
     }
 
@@ -408,7 +452,9 @@ public final class DefaultAgentTurnService
             session.close();
         }
         catch (RuntimeException closeFailure) {
-            failure.addSuppressed(closeFailure);
+            if (failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
         }
     }
 
@@ -454,5 +500,14 @@ public final class DefaultAgentTurnService
         }
         String message = cause.getMessage();
         return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+    }
+
+    private record StartedTurn(AgentTurn turn, RunningTurn runningTurn)
+    {
+        private StartedTurn
+        {
+            requireNonNull(turn, "turn is null");
+            requireNonNull(runningTurn, "runningTurn is null");
+        }
     }
 }

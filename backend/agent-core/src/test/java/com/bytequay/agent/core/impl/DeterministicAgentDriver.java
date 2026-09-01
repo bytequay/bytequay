@@ -68,8 +68,11 @@ final class DeterministicAgentDriver
     private final List<AgentTurnCommand> commands = new ArrayList<>();
     private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
     private RuntimeException probeFailure;
+    private RuntimeException nextSessionReferenceAndCloseFailure;
+    private RuntimeException nextTurnReferenceAndCancelFailure;
     private DeterministicSession currentSession;
     private boolean failNextStart;
+    private boolean completeNextStart;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
     private Runnable beforeCancel = () -> {};
@@ -108,7 +111,9 @@ final class DeterministicAgentDriver
                 1,
                 "session-" + UUID.randomUUID()));
         openedReferences.add(reference);
-        currentSession = new DeterministicSession(context, events, reference);
+        RuntimeException sessionFailure = nextSessionReferenceAndCloseFailure;
+        nextSessionReferenceAndCloseFailure = null;
+        currentSession = new DeterministicSession(context, events, reference, sessionFailure);
         if (usageOnOpen != null) {
             events.emit(new ProviderAgentEvent.Usage(usageOnOpen));
             usageOnOpen = null;
@@ -134,6 +139,21 @@ final class DeterministicAgentDriver
     synchronized void failNextStart()
     {
         failNextStart = true;
+    }
+
+    synchronized void completeNextStart()
+    {
+        completeNextStart = true;
+    }
+
+    synchronized void failNextSessionReferenceAndClose(RuntimeException failure)
+    {
+        nextSessionReferenceAndCloseFailure = failure;
+    }
+
+    synchronized void failNextTurnReferenceAndCancel(RuntimeException failure)
+    {
+        nextTurnReferenceAndCancelFailure = failure;
     }
 
     synchronized void emitUsageOnOpen(ProviderUsageSample sample)
@@ -195,19 +215,28 @@ final class DeterministicAgentDriver
         private final AgentSessionContext context;
         private final AgentEventSink events;
         private final AgentSessionRef reference;
+        private final RuntimeException referenceAndCloseFailure;
         private DeterministicRunningTurn running;
         private boolean closed;
 
-        private DeterministicSession(AgentSessionContext context, AgentEventSink events, AgentSessionRef reference)
+        private DeterministicSession(
+                AgentSessionContext context,
+                AgentEventSink events,
+                AgentSessionRef reference,
+                RuntimeException referenceAndCloseFailure)
         {
             this.context = context;
             this.events = events;
             this.reference = reference;
+            this.referenceAndCloseFailure = referenceAndCloseFailure;
         }
 
         @Override
         public AgentSessionRef reference()
         {
+            if (referenceAndCloseFailure != null) {
+                throw referenceAndCloseFailure;
+            }
             return reference;
         }
 
@@ -223,12 +252,18 @@ final class DeterministicAgentDriver
                 beforeStart.run();
                 checkState(running == null || running.completion.isDone(), "deterministic turn is already running");
                 commands.add(command);
-                running = new DeterministicRunningTurn(context, events, command, beforeCancel);
+                RuntimeException turnFailure = nextTurnReferenceAndCancelFailure;
+                nextTurnReferenceAndCancelFailure = null;
+                running = new DeterministicRunningTurn(context, events, command, beforeCancel, turnFailure);
                 running.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.empty(),
                         Optional.empty(),
                         ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                         "turn started"));
+                if (completeNextStart) {
+                    completeNextStart = false;
+                    running.complete("immediate response");
+                }
                 return running;
             }
         }
@@ -238,6 +273,9 @@ final class DeterministicAgentDriver
         {
             synchronized (DeterministicAgentDriver.this) {
                 closed = true;
+                if (referenceAndCloseFailure != null) {
+                    throw referenceAndCloseFailure;
+                }
             }
         }
     }
@@ -249,6 +287,7 @@ final class DeterministicAgentDriver
         private final AgentEventSink events;
         private final AgentTurnCommand command;
         private final Runnable beforeCancel;
+        private final RuntimeException referenceAndCancelFailure;
         private final ProviderTurnRef reference;
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
 
@@ -256,18 +295,23 @@ final class DeterministicAgentDriver
                 AgentSessionContext context,
                 AgentEventSink events,
                 AgentTurnCommand command,
-                Runnable beforeCancel)
+                Runnable beforeCancel,
+                RuntimeException referenceAndCancelFailure)
         {
             this.context = context;
             this.events = events;
             this.command = command;
             this.beforeCancel = beforeCancel;
+            this.referenceAndCancelFailure = referenceAndCancelFailure;
             this.reference = new ProviderTurnRef("turn-" + command.turnId());
         }
 
         @Override
         public ProviderTurnRef reference()
         {
+            if (referenceAndCancelFailure != null) {
+                throw referenceAndCancelFailure;
+            }
             return reference;
         }
 
@@ -280,6 +324,9 @@ final class DeterministicAgentDriver
         @Override
         public void cancel()
         {
+            if (referenceAndCancelFailure != null) {
+                throw referenceAndCancelFailure;
+            }
             if (completion.isDone()) {
                 return;
             }

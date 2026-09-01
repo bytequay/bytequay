@@ -81,7 +81,7 @@ class TestAgentMaintenance
         assertThat(stores.find(turnId).orElseThrow().terminalReason())
                 .contains("Backend restarted while the turn was active");
         assertThat(workspace.restored).containsExactly(liveTaskId);
-        assertThat(approvals.denied).containsExactly(turnId);
+        assertThat(approvals.recoveredAll).isTrue();
         assertThat(stores.find(terminal.id())).contains(terminal);
     }
 
@@ -207,7 +207,7 @@ class TestAgentMaintenance
     private static final class RecordingApprovals
             implements AgentApprovalService
     {
-        private final List<TurnId> denied = new ArrayList<>();
+        private boolean recoveredAll;
 
         @Override
         public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
@@ -224,7 +224,13 @@ class TestAgentMaintenance
         @Override
         public void denyPending(TurnId turnId)
         {
-            denied.add(turnId);
+            throw new AssertionError("Recovery should close all durable approvals before recovering turns");
+        }
+
+        @Override
+        public void denyAllPending()
+        {
+            recoveredAll = true;
         }
     }
 

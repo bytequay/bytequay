@@ -38,6 +38,7 @@ import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
 import com.bytequay.agent.core.impl.GitAgentWorkspaceService;
 import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
+import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -160,11 +161,24 @@ public class AgentConfiguration
 
     @Bean
     public AgentApprovalService agentApprovalService(
+            AgentApprovalStore approvalStore,
+            AgentTurnStore turnStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
             AgentEventService eventService,
             ScheduledExecutorService agentApprovalScheduler,
-            Clock agentClock)
+            Clock agentClock,
+            AgentRuntimeRegistry runtimeRegistry)
     {
-        return new DefaultAgentApprovalService(eventService, agentApprovalScheduler, agentClock);
+        return new DefaultAgentApprovalService(
+                approvalStore,
+                turnStore,
+                unitOfWork,
+                outboxStore,
+                eventService,
+                agentApprovalScheduler,
+                agentClock,
+                runtimeRegistry);
     }
 
     @Bean

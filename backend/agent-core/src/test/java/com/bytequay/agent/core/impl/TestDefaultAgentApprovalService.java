@@ -13,10 +13,17 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventOutboxEntry;
+import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
@@ -26,6 +33,7 @@ import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.google.common.collect.ImmutableList;
@@ -37,10 +45,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
@@ -59,6 +67,7 @@ class TestDefaultAgentApprovalService
     private static final Instant NOW = Instant.parse("2026-08-16T00:00:00Z");
 
     private ScheduledExecutorService scheduler;
+    private InMemoryAgentStores stores;
     private RecordingEventService eventService;
     private DefaultAgentApprovalService service;
 
@@ -82,11 +91,17 @@ class TestDefaultAgentApprovalService
     void setUp()
     {
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        eventService = new RecordingEventService();
+        stores = new InMemoryAgentStores();
+        eventService = new RecordingEventService(stores);
         service = new DefaultAgentApprovalService(
+                stores,
+                stores,
+                stores,
+                stores,
                 eventService,
                 scheduler,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new AgentRuntimeRegistry());
     }
 
     @AfterEach
@@ -101,6 +116,7 @@ class TestDefaultAgentApprovalService
         ApprovalRequest request = request(TurnId.random());
         CompletableFuture<ApprovalDecision> future = service.request(request, Duration.ofMinutes(1))
                 .toCompletableFuture();
+        assertThat(stores.find(request.id())).contains(AgentApproval.pending(request));
         ResolveApprovalCommand command = new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
@@ -109,6 +125,8 @@ class TestDefaultAgentApprovalService
         ApprovalDecision decision = service.resolve(command);
 
         assertThat(future).isCompletedWithValue(decision);
+        assertThat(stores.find(request.id()).orElseThrow().decision()).contains(decision);
+        assertThat(stores.outboxEntries()).allSatisfy(entry -> assertThat(entry.sequence()).isPresent());
         assertThat(service.resolve(command)).isEqualTo(decision);
         assertThat(eventService.events).hasSize(2);
         assertThat(eventService.events.getFirst()).satisfies(event -> {
@@ -161,6 +179,20 @@ class TestDefaultAgentApprovalService
     }
 
     @Test
+    void failsProviderCallbackWhenTimeoutCannotReadDurableApproval()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        CompletableFuture<ApprovalDecision> provider = service.request(request, Duration.ofMillis(100))
+                .toCompletableFuture();
+        stores.failApprovalFind(new AgentStorageException("blocked approval lookup"));
+
+        assertThatThrownBy(() -> provider.get(1, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(AgentStorageException.class)
+                .hasRootCauseMessage("blocked approval lookup");
+        assertThat(stores.find(request.id()).orElseThrow().pending()).isTrue();
+    }
+
+    @Test
     void exposesAndAcceptsOnlyProviderOfferedProductDecisions()
     {
         ApprovalRequest request = request(
@@ -202,6 +234,26 @@ class TestDefaultAgentApprovalService
     }
 
     @Test
+    void rejectsUserDecisionAfterTurnCancellation()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        CompletableFuture<ApprovalDecision> provider = service.request(request, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        AgentTurn turn = stores.find(request.turnId()).orElseThrow();
+        stores.update(turn.requestCancellation(NOW));
+
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
+                request.id(),
+                ApprovalDecision.Decision.ALLOW,
+                Optional.empty())))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("no longer accepts decisions");
+
+        service.denyPending(request.turnId());
+        assertThat(provider.join().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
+    }
+
+    @Test
     void rejectsApprovalWithNoProductDecision()
     {
         assertThatThrownBy(() -> request(TurnId.random(), ImmutableList.of()))
@@ -234,6 +286,50 @@ class TestDefaultAgentApprovalService
     }
 
     @Test
+    void attemptsEveryPendingDenialWhenOneEventDrainFails()
+    {
+        TurnId turnId = TurnId.random();
+        ApprovalRequest firstRequest = request(turnId);
+        ApprovalRequest secondRequest = request(turnId);
+        CompletableFuture<ApprovalDecision> first = service.request(firstRequest, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        CompletableFuture<ApprovalDecision> second = service.request(secondRequest, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        eventService.failNextResolutionDrain();
+
+        assertThatThrownBy(() -> service.denyPending(turnId))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("blocked resolution event");
+
+        assertThat(first).isCompletedExceptionally();
+        assertThat(second.join().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
+        assertThat(stores.find(firstRequest.id()).orElseThrow().pending()).isFalse();
+        assertThat(stores.find(secondRequest.id()).orElseThrow().pending()).isFalse();
+        assertThat(stores.outboxEntries()).allSatisfy(entry -> assertThat(entry.sequence()).isPresent());
+    }
+
+    @Test
+    void settlesEveryLiveCallbackWhenTheTaskChannelKeepsFailing()
+    {
+        TurnId turnId = TurnId.random();
+        ApprovalRequest firstRequest = request(turnId);
+        ApprovalRequest secondRequest = request(turnId);
+        CompletableFuture<ApprovalDecision> first = service.request(firstRequest, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        CompletableFuture<ApprovalDecision> second = service.request(secondRequest, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        AgentStorageException channelFailure = new AgentStorageException("blocked task channel");
+        eventService.failResolutionDrains(channelFailure);
+
+        assertThatThrownBy(() -> service.denyPending(turnId)).isSameAs(channelFailure);
+
+        assertThat(first).isCompletedExceptionally();
+        assertThat(second).isCompletedExceptionally();
+        assertThat(stores.find(firstRequest.id()).orElseThrow().pending()).isFalse();
+        assertThat(stores.find(secondRequest.id()).orElseThrow().pending()).isFalse();
+    }
+
+    @Test
     void persistsResolutionBeforeContinuingProvider()
             throws Exception
     {
@@ -249,9 +345,99 @@ class TestDefaultAgentApprovalService
                         Optional.empty())));
 
         eventService.awaitResolutionAppend();
+        assertThat(stores.find(request.id()).orElseThrow().decision())
+                .get()
+                .extracting(ApprovalDecision::decision)
+                .isEqualTo(ApprovalDecision.Decision.ALLOW);
+        assertThat(stores.outboxEntries().getLast().sequence()).isPresent();
         assertThat(provider).isNotDone();
         eventService.releaseResolutionAppend();
         assertThat(resolving.get(1, TimeUnit.SECONDS)).isEqualTo(provider.get(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void reloadDeniesDurablePendingApprovalWithoutAProviderCallback()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        CompletableFuture<ApprovalDecision> abandonedProvider = service.request(request, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        RecordingEventService restartedEvents = new RecordingEventService(stores);
+        DefaultAgentApprovalService restarted = new DefaultAgentApprovalService(
+                stores,
+                stores,
+                stores,
+                stores,
+                restartedEvents,
+                scheduler,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new AgentRuntimeRegistry());
+
+        restarted.denyAllPending();
+
+        AgentApproval resolved = stores.find(request.id()).orElseThrow();
+        assertThat(resolved.pending()).isFalse();
+        assertThat(resolved.decision().orElseThrow().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
+        assertThat(resolved.outcome()).contains(AgentEventPayload.ApprovalOutcome.CANCELLED);
+        assertThat(restartedEvents.events).singleElement().satisfies(event ->
+                assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
+        assertThat(abandonedProvider).isNotDone();
+    }
+
+    @Test
+    void retriesResolutionEventAfterItsStateWasCommitted()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        CompletableFuture<ApprovalDecision> provider = service.request(request, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        ResolveApprovalCommand command = new ResolveApprovalCommand(
+                request.id(),
+                ApprovalDecision.Decision.ALLOW,
+                Optional.empty());
+        eventService.failNextResolutionDrain();
+
+        assertThatThrownBy(() -> service.resolve(command))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("blocked resolution event");
+
+        assertThat(provider).isCompletedExceptionally();
+        assertThat(stores.find(request.id()).orElseThrow().decision())
+                .get()
+                .extracting(ApprovalDecision::decision)
+                .isEqualTo(ApprovalDecision.Decision.ALLOW);
+        assertThat(stores.outboxEntries().getLast().sequence()).isEmpty();
+
+        RecordingEventService restartedEvents = new RecordingEventService(stores);
+        DefaultAgentApprovalService restarted = new DefaultAgentApprovalService(
+                stores,
+                stores,
+                stores,
+                stores,
+                restartedEvents,
+                scheduler,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new AgentRuntimeRegistry());
+        assertThat(restarted.resolve(command).decision()).isEqualTo(ApprovalDecision.Decision.ALLOW);
+        assertThat(stores.outboxEntries().getLast().sequence()).isPresent();
+        assertThat(restartedEvents.events).singleElement().satisfies(event ->
+                assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
+    }
+
+    @Test
+    void resumesProviderWithoutReadingBackACommittedResolution()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        CompletableFuture<ApprovalDecision> provider = service.request(request, Duration.ofMinutes(1))
+                .toCompletableFuture();
+        stores.failApprovalFindAfterResolve(new AgentStorageException("blocked approval readback"));
+
+        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(
+                request.id(),
+                ApprovalDecision.Decision.ALLOW,
+                Optional.empty()));
+
+        assertThat(provider).isCompletedWithValue(decision);
+        stores.clearApprovalFindFailure();
+        assertThat(stores.find(request.id()).orElseThrow().decision()).contains(decision);
     }
 
     @Test
@@ -279,10 +465,13 @@ class TestDefaultAgentApprovalService
     {
         ApprovalRequest request = request(TurnId.random());
         scheduler.shutdownNow();
-        eventService.onApprovalRequest(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty())));
+        eventService.onApprovalRequest(() -> {
+            assertThat(stores.find(request.id())).contains(AgentApproval.pending(request));
+            service.resolve(new ResolveApprovalCommand(
+                    request.id(),
+                    ApprovalDecision.Decision.ALLOW,
+                    Optional.empty()));
+        });
 
         ApprovalDecision decision = service.request(request, Duration.ofMinutes(1))
                 .toCompletableFuture()
@@ -296,7 +485,7 @@ class TestDefaultAgentApprovalService
                         .isEqualTo(AgentEventPayload.ApprovalOutcome.ALLOWED));
     }
 
-    private static ApprovalRequest request(TurnId turnId)
+    private ApprovalRequest request(TurnId turnId)
     {
         return request(
                 turnId,
@@ -305,13 +494,15 @@ class TestDefaultAgentApprovalService
                         DENY));
     }
 
-    private static ApprovalRequest request(
+    private ApprovalRequest request(
             TurnId turnId,
             List<ProviderApprovalRequest.Decision> availableDecisions)
     {
-        return new ApprovalRequest(
+        Optional<AgentTurn> existingTurn = stores.find(turnId);
+        TaskId taskId = existingTurn.map(AgentTurn::taskId).orElseGet(TaskId::random);
+        ApprovalRequest request = new ApprovalRequest(
                 ApprovalId.random(),
-                TaskId.random(),
+                taskId,
                 turnId,
                 new ProviderApprovalRequest(
                         "provider-request-" + turnId,
@@ -328,19 +519,91 @@ class TestDefaultAgentApprovalService
                                 Optional.of("provider-item")),
                         NOW),
                 NOW);
+        if (existingTurn.isEmpty()) {
+            stores.insert(AgentTurn.accepted(
+                    turnId,
+                    taskId,
+                    "approval-" + request.id(),
+                    new AgentTurnSettings(
+                            Optional.empty(),
+                            Optional.empty(),
+                            AgentPermissionPolicy.AUTO,
+                            AgentSandboxPolicy.WORKSPACE_WRITE,
+                            Duration.ofMinutes(1),
+                            ImmutableList.of()),
+                    NOW));
+        }
+        return request;
     }
 
     private static final class RecordingEventService
             implements AgentEventService
     {
-        private final List<UnsequencedAgentEvent> events = new ArrayList<>();
+        private final InMemoryAgentStores stores;
+        private final List<UnsequencedAgentEvent> events = new CopyOnWriteArrayList<>();
         private final CountDownLatch resolutionAppendEntered = new CountDownLatch(1);
         private final CountDownLatch releaseResolutionAppend = new CountDownLatch(1);
-        private boolean blockResolutionAppend;
-        private Runnable approvalRequestCallback = () -> {};
+        private volatile boolean blockResolutionAppend;
+        private volatile boolean failNextResolutionDrain;
+        private volatile RuntimeException resolutionDrainFailure;
+        private volatile Runnable approvalRequestCallback = () -> {};
+
+        private RecordingEventService(InMemoryAgentStores stores)
+        {
+            this.stores = stores;
+        }
 
         @Override
         public AgentEventEnvelope append(UnsequencedAgentEvent event)
+        {
+            return record(event, events.size() + 1, NOW);
+        }
+
+        @Override
+        public AgentEventEnvelope drain(EventId eventId)
+        {
+            AgentEventOutboxEntry entry = stores.find(eventId).orElseThrow();
+            AgentEventPayload payload = switch (entry.payload()) {
+                case AgentEventOutboxPayload.Inline inline -> inline.payload();
+                case AgentEventOutboxPayload.UserMessageBlob ignored -> throw new AssertionError("unexpected blob event");
+            };
+            if (failNextResolutionDrain && payload instanceof AgentEventPayload.ApprovalResolved) {
+                failNextResolutionDrain = false;
+                throw new AgentStorageException("blocked resolution event");
+            }
+            if (resolutionDrainFailure != null && payload instanceof AgentEventPayload.ApprovalResolved) {
+                throw resolutionDrainFailure;
+            }
+            long sequence = entry.sequence().orElseGet(() -> stores.outboxEntries().stream()
+                    .map(AgentEventOutboxEntry::sequence)
+                    .flatMap(Optional::stream)
+                    .mapToLong(Long::longValue)
+                    .max()
+                    .orElse(0) + 1);
+            if (entry.sequence().isEmpty()) {
+                stores.markAppended(eventId, sequence);
+            }
+            UnsequencedAgentEvent event = new UnsequencedAgentEvent(
+                    entry.eventId(),
+                    entry.taskId(),
+                    entry.turnId(),
+                    entry.source(),
+                    payload);
+            if (events.stream().noneMatch(existing -> existing.eventId().equals(eventId))) {
+                return record(event, sequence, entry.occurredAt());
+            }
+            return new AgentEventEnvelope(
+                    AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                    event.eventId(),
+                    sequence,
+                    event.taskId(),
+                    event.turnId(),
+                    event.source(),
+                    entry.occurredAt(),
+                    event.payload());
+        }
+
+        private AgentEventEnvelope record(UnsequencedAgentEvent event, long sequence, Instant occurredAt)
         {
             events.add(event);
             if (event.payload() instanceof AgentEventPayload.ApprovalRequested) {
@@ -361,18 +624,12 @@ class TestDefaultAgentApprovalService
             return new AgentEventEnvelope(
                     AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
                     event.eventId(),
-                    events.size(),
+                    sequence,
                     event.taskId(),
                     event.turnId(),
                     event.source(),
-                    NOW,
+                    occurredAt,
                     event.payload());
-        }
-
-        @Override
-        public AgentEventEnvelope drain(EventId eventId)
-        {
-            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -390,6 +647,16 @@ class TestDefaultAgentApprovalService
         private void blockResolutionAppend()
         {
             blockResolutionAppend = true;
+        }
+
+        private void failNextResolutionDrain()
+        {
+            failNextResolutionDrain = true;
+        }
+
+        private void failResolutionDrains(RuntimeException failure)
+        {
+            resolutionDrainFailure = failure;
         }
 
         private void awaitResolutionAppend()

@@ -122,6 +122,7 @@ public final class CodexCliDriver
     private final SecretRedactor redactor;
     private final CodexAppServerClient client;
     private final TaskExecServerManager execServers;
+    private final CodexIsolationGuard isolation;
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
@@ -151,6 +152,7 @@ public final class CodexCliDriver
                 objectMapper,
                 redactor);
         this.execServers = new TaskExecServerManager(supervisor, client, executable, this.environment, redactor);
+        this.isolation = new CodexIsolationGuard(client);
     }
 
     @Override
@@ -274,6 +276,9 @@ public final class CodexCliDriver
         // App Server's shared default environment.
         CodexProtocol.TurnEnvironmentParams environment =
                 execServers.open(context.taskId(), context.worktree());
+        // One App Server serves every task, so inherited capabilities are shared rather than
+        // scoped. They are proven absent for this worktree before any thread exists.
+        isolation.verify(context.worktree());
         String method;
         Object params;
         if (existing.isPresent()) {

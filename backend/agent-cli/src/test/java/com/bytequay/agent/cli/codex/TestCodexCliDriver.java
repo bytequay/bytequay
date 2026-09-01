@@ -440,6 +440,35 @@ class TestCodexCliDriver
                 .hasMessageContaining("different working directory");
     }
 
+    @Test
+    void refusesASessionWhenAnInheritedCapabilityCannotBeProvenAbsent()
+    {
+        // Managed policy applies, so an exec rule could be inherited without ByteQuay seeing it.
+        assertThatThrownBy(() -> openWith(server -> server.reportManagedRequirements(
+                "{\"requirements\":{\"allowLoginShell\":true}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("managed requirements apply");
+
+        // An unknown sibling field means a policy dimension exists that this release cannot read.
+        assertThatThrownBy(() -> openWith(server -> server.reportManagedRequirements(
+                "{\"requirements\":null,\"futurePolicy\":{}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("unknown managed-policy field");
+
+        // A lifecycle hook would run outside the task's execution environment.
+        assertThatThrownBy(() -> openWith(server -> server.reportHooks("[{\"name\":\"stop\"}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("lifecycle hooks apply");
+    }
+
+    /** Opens a session against a scripted App Server configured by {@code setup}. */
+    private void openWith(java.util.function.Consumer<ScriptedProcessSupervisor> setup)
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        setup.accept(supervisor);
+        driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+    }
+
     private CodexCliDriver driver(ProcessSupervisor supervisor)
     {
         return new CodexCliDriver(
@@ -511,6 +540,18 @@ class TestCodexCliDriver
         private AppServerProcess server;
         private final List<Path> execServerCwds = new CopyOnWriteArrayList<>();
         private final List<ProcessOwner> execServerOwners = new CopyOnWriteArrayList<>();
+        private volatile String managedRequirements = "{\"requirements\":null}";
+        private volatile String hooks = "[]";
+
+        private void reportManagedRequirements(String response)
+        {
+            managedRequirements = response;
+        }
+
+        private void reportHooks(String discovered)
+        {
+            hooks = discovered;
+        }
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
         {
@@ -607,7 +648,8 @@ class TestCodexCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("ws://127.0.0.1:45671\n"));
                 return new IdleProcess();
             }
-            server = new AppServerProcess(objectMapper, output, failThreadStart, this::environmentCwd);
+            server = new AppServerProcess(
+                    objectMapper, output, failThreadStart, this::environmentCwd, () -> managedRequirements, () -> hooks);
             return server;
         }
 
@@ -655,6 +697,8 @@ class TestCodexCliDriver
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
         private final List<JsonNode> environmentAdds = new CopyOnWriteArrayList<>();
         private final List<String> threadEnvironmentIds = new CopyOnWriteArrayList<>();
+        private final Supplier<String> managedRequirements;
+        private final Supplier<String> hooks;
         private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
         private final Supplier<String> environmentCwd;
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
@@ -666,12 +710,16 @@ class TestCodexCliDriver
                 ObjectMapper objectMapper,
                 ProcessOutputSink output,
                 boolean failThreadStart,
-                Supplier<String> environmentCwd)
+                Supplier<String> environmentCwd,
+                Supplier<String> managedRequirements,
+                Supplier<String> hooks)
         {
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
             this.environmentCwd = environmentCwd;
+            this.managedRequirements = managedRequirements;
+            this.hooks = hooks;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -732,6 +780,10 @@ class TestCodexCliDriver
             long id = message.path("id").asLong();
             switch (method) {
                 case "initialize" -> respond(id, "{}");
+                case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
+                        + message.path("params").path("cwds").get(0).asText()
+                        + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
                 case "environment/add" -> {
                     environmentAdds.add(message.path("params").deepCopy());
                     respond(id, "{}");

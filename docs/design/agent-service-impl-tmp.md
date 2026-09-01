@@ -944,11 +944,16 @@ Implementation:
 - [x] Select exactly that task's environment for thread and turn start.
 - [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior.
-- [ ] Adopt the CP1-proven isolated subprocess environment, pre-turn
+- [~] Adopt the CP1-proven isolated subprocess environment, pre-turn
   child-capable launch profile plus the skill-origin, hook, config-layer
   rule-source, and managed-requirements guards in the production runtime path.
   Do not claim a per-thread override disables exec-policy rules; v0.151 exposes
-  none.
+  none. Landed so far: the managed-requirements and lifecycle-hook guards run
+  before any thread exists and fail closed. The managed-requirements check reads
+  the raw response on purpose, because the rule is about unknown sibling fields
+  and a decoded record would ignore exactly the field that must fail it. Still
+  open: skill origin, config-layer rule sources, the isolated subprocess
+  environment, and the child-capable launch profile.
 - [ ] Verify inherited capabilities remain disabled after start and resume.
   Force skill discovery and repeat the origin/error guard immediately before
   every `turn/start`, including the first turn after resume/restart.

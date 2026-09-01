@@ -2017,6 +2017,77 @@
       ]
     },
     {
+      "javaType": "CwdsParams",
+      "mode": "encode",
+      "sources": [
+        "v2#HooksListParams"
+      ],
+      "components": [
+        {
+          "javaName": "cwds",
+          "wireName": "cwds",
+          "required": false,
+          "nullable": false,
+          "sample": [
+            "value"
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "HooksListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#HooksListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "HooksListEntry",
+      "mode": "decode",
+      "sources": [
+        "v2#HooksListEntry"
+      ],
+      "components": [
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "hooks",
+          "wireName": "hooks",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "errors",
+          "wireName": "errors",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "warnings",
+          "wireName": "warnings",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
       "javaType": "EnvironmentAddParams",
       "mode": "encode",
       "sources": [

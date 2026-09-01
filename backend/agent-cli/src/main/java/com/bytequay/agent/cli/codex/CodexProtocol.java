@@ -891,6 +891,41 @@ final class CodexProtocol
 
     record EmptyParams() {}
 
+    /** Selects the working directories a discovery request should report on. */
+    record CwdsParams(List<String> cwds)
+    {
+        CwdsParams
+        {
+            cwds = ImmutableList.copyOf(cwds);
+            checkArgument(!cwds.isEmpty(), "cwds is empty");
+        }
+    }
+
+    record HooksListResponse(List<HooksListEntry> data)
+    {
+        HooksListResponse
+        {
+            data = ImmutableList.copyOf(data);
+        }
+    }
+
+    /**
+     * Hook discovery for one working directory.
+     *
+     * <p>Discovered hooks and discovery errors both fail the isolation check: a hook that applies is
+     * unsafe, and a directory that could not be scanned is unproven.
+     */
+    record HooksListEntry(String cwd, List<Object> hooks, List<Object> errors, List<String> warnings)
+    {
+        HooksListEntry
+        {
+            checkIdentifier(cwd, "cwd");
+            hooks = ImmutableList.copyOf(hooks);
+            errors = ImmutableList.copyOf(errors);
+            warnings = ImmutableList.copyOf(warnings);
+        }
+    }
+
     record EmptyResponse() {}
 
     /**

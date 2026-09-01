@@ -355,6 +355,24 @@ const referenceRecordBindings = [
     component("cwd"),
     component("runtimeWorkspaceRoots"),
   ]),
+  recordBinding("CwdsParams", "encode", [
+    schemaSource("v2", "HooksListParams"),
+  ], [
+    component("cwds", "cwds", ["value"]),
+  ]),
+  recordBinding("HooksListResponse", "decode", [
+    schemaSource("v2", "HooksListResponse"),
+  ], [
+    component("data"),
+  ]),
+  recordBinding("HooksListEntry", "decode", [
+    schemaSource("v2", "HooksListEntry"),
+  ], [
+    component("cwd"),
+    component("hooks"),
+    component("errors"),
+    component("warnings"),
+  ]),
   recordBinding("EnvironmentAddParams", "encode", [
     schemaSource("v2", "EnvironmentAddParams"),
   ], [

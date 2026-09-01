@@ -16,6 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
+import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
@@ -66,9 +67,9 @@ import java.util.concurrent.ScheduledExecutorService;
 public class AgentConfiguration
 {
     @Bean
-    public ProcessSupervisor processSupervisor(AgentProperties properties)
+    public ProcessSupervisor processSupervisor(AgentProperties properties, LaunchIntentRecorder intents)
     {
-        return new DefaultProcessSupervisor(properties.runtimeRoot().resolve("_processes"));
+        return new DefaultProcessSupervisor(properties.runtimeRoot().resolve("_processes"), intents);
     }
 
     @Bean(destroyMethod = "close")

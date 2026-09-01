@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
+import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.PreparedProcess;
@@ -54,12 +55,14 @@ class TestDefaultProcessSupervisor
     @TempDir
     private Path launches;
 
+    private final InMemoryLaunchIntentRecorder intents = new InMemoryLaunchIntentRecorder();
+
     private DefaultProcessSupervisor supervisor;
 
     @BeforeEach
     void createSupervisor()
     {
-        supervisor = new DefaultProcessSupervisor(launches);
+        supervisor = new DefaultProcessSupervisor(launches, intents);
     }
 
     @Test
@@ -261,10 +264,13 @@ class TestDefaultProcessSupervisor
         assertThat(marker.argvDigest()).isNotBlank();
         assertThat(marker.pid()).isEmpty();
         assertThat(store.gateReleased(prepared.launchId())).isFalse();
+        assertThat(intents.find(prepared.launchId()).orElseThrow().state())
+                .isEqualTo(LaunchIntent.State.PREPARED);
 
         prepared.abandon();
 
         assertThat(store.read(prepared.launchId())).isEmpty();
+        assertThat(intents.find(prepared.launchId())).isEmpty();
     }
 
     @Test
@@ -289,10 +295,14 @@ class TestDefaultProcessSupervisor
 
         assertThat(terminal.phase()).isEqualTo(LaunchPhase.TERMINAL);
         assertThat(terminal.treeTermination()).contains(exit.treeTermination());
+        // The intent must be committed before the launcher exists and advanced only after the gate.
+        assertThat(intents.transitions()).containsExactly("prepared", "attempting", "running", "terminal");
+        assertThat(intents.verifiedStopped(process.launchId())).contains(true);
 
         supervisor.acknowledge(process.launchId());
 
         assertThat(store.read(process.launchId())).isEmpty();
+        assertThat(intents.find(process.launchId())).isEmpty();
     }
 
     @Test
@@ -310,6 +320,7 @@ class TestDefaultProcessSupervisor
 
         LaunchMarkerStore store = new LaunchMarkerStore(launches);
         assertThat(store.read(prepared.launchId())).isEmpty();
+        assertThat(intents.find(prepared.launchId())).isEmpty();
         assertThat(store.gateReleased(prepared.launchId())).isFalse();
         assertThat(supervisor.recoverOwnedProcesses()).isEmpty();
         Thread.sleep(500);

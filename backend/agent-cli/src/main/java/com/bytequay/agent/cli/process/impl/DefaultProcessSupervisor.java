@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
+import com.bytequay.agent.cli.process.LaunchIntent;
+import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -25,6 +27,7 @@ import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +46,9 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -59,6 +64,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -84,11 +90,13 @@ public final class DefaultProcessSupervisor
     private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
 
     private final LaunchMarkerStore store;
+    private final LaunchIntentRecorder intents;
     private final String backendId = UUID.randomUUID().toString();
 
-    public DefaultProcessSupervisor(Path launchDirectory)
+    public DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents)
     {
         this.store = new LaunchMarkerStore(launchDirectory);
+        this.intents = requireNonNull(intents, "intents is null");
     }
 
     @Override
@@ -103,14 +111,22 @@ public final class DefaultProcessSupervisor
                 executable,
                 argvDigest(spec.argv()));
         store.write(marker);
+        intents.prepared(marker.launchId(), spec.owner(), executable, marker.argvDigest());
         return new GatedLaunch(spec, executable, marker);
     }
 
     @Override
     public List<OwnedProcessRecovery> recoverOwnedProcesses()
     {
-        return store.list().stream()
-                .map(this::recover)
+        Map<String, LaunchIntent> committed = intents.list().stream()
+                .collect(toImmutableMap(LaunchIntent::launchId, intent -> intent));
+        Set<String> launches = ImmutableSet.<String>builder()
+                .addAll(store.list())
+                .addAll(committed.keySet())
+                .build();
+        return launches.stream()
+                .sorted()
+                .map(launchId -> recover(launchId, Optional.ofNullable(committed.get(launchId))))
                 .filter(Optional::isPresent)
                 .map(Optional::orElseThrow)
                 .collect(toImmutableList());
@@ -120,32 +136,61 @@ public final class DefaultProcessSupervisor
     public void acknowledge(String launchId)
     {
         requireNonNull(launchId, "launchId is null");
+        intents.forget(launchId);
         store.delete(launchId);
     }
 
-    private Optional<OwnedProcessRecovery> recover(String launchId)
+    private Optional<OwnedProcessRecovery> recover(String launchId, Optional<LaunchIntent> intent)
     {
         Optional<LaunchMarker> found = store.read(launchId);
         if (found.isEmpty()) {
+            // A committed intent that never reached the spawn is provably unlaunched. Any later
+            // intent without its marker is an unexplained loss and must block rather than be
+            // assumed harmless.
+            boolean unlaunched = intent
+                    .filter(committed -> committed.state() == LaunchIntent.State.PREPARED)
+                    .isPresent();
             return Optional.of(new OwnedProcessRecovery(
                     launchId,
                     Optional.empty(),
                     Optional.empty(),
-                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                    "Launch marker is missing or undecodable"));
+                    unlaunched
+                            ? OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED
+                            : OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    unlaunched
+                            ? "Committed intent was never attempted and has no marker"
+                            : "Launch marker is missing or undecodable"));
         }
         LaunchMarker marker = found.orElseThrow();
         if (marker.backendId().equals(backendId)) {
             return Optional.empty();
         }
-        return Optional.of(reconcile(marker));
+        return Optional.of(reconcile(marker, intent));
     }
 
-    private OwnedProcessRecovery reconcile(LaunchMarker marker)
+    /**
+     * Rejects a marker whose recorded process facts cannot have followed its committed intent.
+     *
+     * <p>The owner always commits {@code ATTEMPTING} before a launcher can exist, so a marker that
+     * observed a launcher under a merely prepared or absent intent is an impossible ordering.
+     */
+    private static boolean impossibleOrdering(LaunchMarker marker, Optional<LaunchIntent> intent)
+    {
+        if (marker.phase() == LaunchPhase.PREPARED) {
+            return false;
+        }
+        return intent.map(committed -> committed.state() == LaunchIntent.State.PREPARED).orElse(true);
+    }
+
+    private OwnedProcessRecovery reconcile(LaunchMarker marker, Optional<LaunchIntent> intent)
     {
         String launchId = marker.launchId();
         boolean released = store.gateReleased(launchId);
         LaunchPhase phase = marker.phase();
+        if (phase != LaunchPhase.TERMINAL && impossibleOrdering(marker, intent)) {
+            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Recorded process facts do not follow the committed launch intent");
+        }
         if (phase == LaunchPhase.TERMINAL) {
             return result(marker, marker.treeTermination()
                             .map(termination -> termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
@@ -402,6 +447,7 @@ public final class DefaultProcessSupervisor
         {
             requireNonNull(output, "output is null");
             checkState(used.compareAndSet(false, true), "Prepared launch was already used");
+            intents.attempting(launchId());
             Process launcher = spawnLauncher();
             LaunchMarker recorded = prepared;
             boolean released = false;
@@ -421,6 +467,7 @@ public final class DefaultProcessSupervisor
                 store.writeGate(launchId(), LaunchMarkerStore.RELEASE);
                 recorded = recorded.withPhase(LaunchPhase.RUNNING);
                 store.write(recorded);
+                intents.running(launchId());
                 return new DefaultManagedProcess(recorded, launcher, identity.pid(), group, spec, output);
             }
             catch (RuntimeException failure) {
@@ -435,6 +482,7 @@ public final class DefaultProcessSupervisor
         public void abandon()
         {
             if (used.compareAndSet(false, true)) {
+                intents.forget(launchId());
                 store.delete(launchId());
             }
         }
@@ -450,6 +498,7 @@ public final class DefaultProcessSupervisor
                 launcher.destroyForcibly();
                 store.write(recorded.terminal(
                         new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
+                intents.terminal(launchId(), termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
                 return;
             }
             store.writeGate(launchId(), LaunchMarkerStore.CANCEL);
@@ -466,6 +515,7 @@ public final class DefaultProcessSupervisor
                 Thread.currentThread().interrupt();
                 launcher.destroyForcibly();
             }
+            intents.forget(launchId());
             store.delete(launchId());
         }
 
@@ -769,6 +819,8 @@ public final class DefaultProcessSupervisor
         {
             try {
                 store.write(marker.terminal(result));
+                intents.terminal(marker.launchId(),
+                        result.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED);
             }
             catch (RuntimeException ignored) {
                 // The in-process result still stands; recovery treats a missing marker as

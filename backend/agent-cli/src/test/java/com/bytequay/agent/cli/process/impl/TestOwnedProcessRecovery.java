@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.process.impl;
 
 import com.bytequay.agent.cli.process.ExecutionProfile;
+import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -60,6 +61,7 @@ class TestOwnedProcessRecovery
     private Path launches;
 
     private final List<Process> spawned = new ArrayList<>();
+    private final InMemoryLaunchIntentRecorder intents = new InMemoryLaunchIntentRecorder();
 
     @AfterEach
     void stopSpawnedProcesses()
@@ -71,7 +73,7 @@ class TestOwnedProcessRecovery
     void restartStopsARunningProcessTreeAndIgnoresItsOwnLaunches()
             throws Exception
     {
-        DefaultProcessSupervisor first = new DefaultProcessSupervisor(launches);
+        DefaultProcessSupervisor first = new DefaultProcessSupervisor(launches, intents);
         StringBuilder stdout = new StringBuilder();
         CountDownLatch reported = new CountDownLatch(1);
         ManagedProcess process = first
@@ -87,7 +89,8 @@ class TestOwnedProcessRecovery
 
         assertThat(first.recoverOwnedProcesses()).isEmpty();
 
-        List<OwnedProcessRecovery> recovered = new DefaultProcessSupervisor(launches).recoverOwnedProcesses();
+        List<OwnedProcessRecovery> recovered =
+                new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
 
         assertThat(recovered).singleElement().satisfies(result -> {
             assertThat(result.launchId()).isEqualTo(process.launchId());
@@ -232,6 +235,55 @@ class TestOwnedProcessRecovery
     }
 
     @Test
+    void failsClosedForACommittedIntentWhoseMarkerIsMissing()
+    {
+        intents.commit("attempted", LaunchIntent.State.ATTEMPTING);
+
+        assertThat(recover()).satisfies(result -> {
+            assertThat(result.launchId()).isEqualTo("attempted");
+            assertThat(result.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+            assertThat(result.detail()).contains("missing");
+        });
+    }
+
+    @Test
+    void acceptsACommittedIntentThatWasNeverAttempted()
+    {
+        intents.commit("never-started", LaunchIntent.State.PREPARED);
+
+        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED);
+    }
+
+    @Test
+    void failsClosedWhenProcessFactsPrecedeTheCommittedIntent()
+    {
+        // The owner always commits ATTEMPTING before a launcher can exist, so a running marker
+        // under a merely prepared intent is an ordering that cannot have happened.
+        new LaunchMarkerStore(launches).write(marker(
+                LaunchPhase.RUNNING,
+                Optional.of(1L),
+                Optional.of(Instant.EPOCH),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                "/bin/sleep"));
+        intents.commit("launch-1", LaunchIntent.State.PREPARED);
+
+        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
+    @Test
+    void failsClosedForAnOrphanMarkerWithNoCommittedIntent()
+    {
+        new LaunchMarkerStore(launches).write(marker(
+                LaunchPhase.RUNNING,
+                Optional.of(1L),
+                Optional.of(Instant.EPOCH),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                "/bin/sleep"));
+
+        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
+    @Test
     void failsClosedForACorruptMarker()
             throws Exception
     {
@@ -264,14 +316,22 @@ class TestOwnedProcessRecovery
 
     private OwnedProcessRecovery recover()
     {
-        List<OwnedProcessRecovery> results = new DefaultProcessSupervisor(launches).recoverOwnedProcesses();
+        List<OwnedProcessRecovery> results =
+                new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
         assertThat(results).hasSize(1);
         return results.getFirst();
     }
 
+    /** Writes a marker together with the committed intent its recorded process facts imply. */
     private void write(LaunchMarker marker)
     {
         new LaunchMarkerStore(launches).write(marker);
+        intents.commit(marker.launchId(), switch (marker.phase()) {
+            case PREPARED -> LaunchIntent.State.PREPARED;
+            case GATED -> LaunchIntent.State.ATTEMPTING;
+            case RELEASE_PENDING, RUNNING -> LaunchIntent.State.RUNNING;
+            case TERMINAL -> LaunchIntent.State.TERMINAL;
+        });
     }
 
     private static LaunchMarker marker(

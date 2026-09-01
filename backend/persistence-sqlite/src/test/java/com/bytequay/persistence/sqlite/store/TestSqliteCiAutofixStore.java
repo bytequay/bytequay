@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
@@ -31,17 +32,24 @@ import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
+import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CiAutofixRunJpaRepository;
+import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -76,6 +84,12 @@ class TestSqliteCiAutofixStore
 
     @Autowired
     private CiAutofixRunJpaRepository runRepository;
+
+    @Autowired
+    private WorkspaceJpaRepository workspaceRepository;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Autowired
     private EntityManager entityManager;
@@ -141,7 +155,8 @@ class TestSqliteCiAutofixStore
         entityManager.flush();
         entityManager.clear();
 
-        SqliteCiAutofixStore restartedStore = new SqliteCiAutofixStore(runRepository, attemptRepository);
+        SqliteCiAutofixStore restartedStore = new SqliteCiAutofixStore(
+                runRepository, attemptRepository, workspaceRepository);
         assertThat(restartedStore.find(run.id())).contains(run);
         assertThat(restartedStore.findByIdempotencyKey("round-trip")).contains(run);
         assertThat(restartedStore.findByAgentTaskId("task-1")).contains(run);
@@ -255,6 +270,44 @@ class TestSqliteCiAutofixStore
         assertThatThrownBy(() -> store.listRecent(0)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void resolvesLegacyWorktreeToItsManagedWorkspace()
+    {
+        String legacyPath = "/tmp/workspaces/legacy/repository";
+        assertThat(jdbc.queryForObject(
+                "SELECT \"notnull\" FROM pragma_table_info('ci_autofix_run') WHERE name = 'workspace_id'",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT \"notnull\" FROM pragma_table_info('ci_autofix_run') WHERE name = 'worktree'",
+                Integer.class)).isOne();
+        workspaceRepository.saveAndFlush(WorkspaceEntity.fromDomain(workspace("legacy", legacyPath)));
+        CiAutofixRun run = newRun("legacy", "legacy-feature", NOW);
+        store.insert(run);
+        jdbc.update(
+                "UPDATE ci_autofix_run SET workspace_id = NULL, worktree = ? WHERE id = ?",
+                legacyPath,
+                run.id().toString());
+        entityManager.clear();
+
+        assertThat(store.find(run.id()).orElseThrow().scope().workspaceId()).isEqualTo("legacy");
+    }
+
+    @Test
+    void rejectsAnIncompletePhysicalRepository()
+    {
+        CiAutofixRun run = newRun("incomplete-repository", "feature", NOW);
+        store.insert(run);
+        jdbc.update(
+                "UPDATE ci_autofix_run SET physical_repository_owner = NULL WHERE id = ?",
+                run.id().toString());
+        entityManager.clear();
+
+        assertThatThrownBy(() -> store.find(run.id()))
+                .isInstanceOf(CiAutofixStorageException.class)
+                .hasRootCauseInstanceOf(AgentStorageException.class)
+                .hasStackTraceContaining("physical repository is incomplete");
+    }
+
     private static CiAutofixRun newRun(String key, String headRef, Instant now)
     {
         return newRun(key, headRef, PullRequestRef.of("bytequay", "sample", 7), now);
@@ -271,11 +324,13 @@ class TestSqliteCiAutofixStore
                 key,
                 new Scope(
                         pullRequest,
+                        "workspace-" + key,
+                        Optional.of(RepoRef.of("bytequay", "physical")),
                         "author",
                         headRef,
                         "main",
-                        Path.of("/tmp/bytequay-ci-worktree-" + key),
                         "codex"),
+                HEAD,
                 HEAD,
                 BASE,
                 new Authorization(true, true, true, 3, now, now.plus(Duration.ofHours(8))),
@@ -298,5 +353,30 @@ class TestSqliteCiAutofixStore
                         1,
                         Optional.of(new LogReference("blobs/log-" + number, "text/plain", 10, false)))),
                 now);
+    }
+
+    private static Workspace workspace(String id, String localRepositoryPath)
+    {
+        RepoRef repository = RepoRef.of("bytequay", "sample");
+        return new Workspace(
+                id,
+                repository.fullName(),
+                100,
+                repository,
+                Optional.empty(),
+                Optional.empty(),
+                100,
+                repository,
+                Topology.DIRECT,
+                "main",
+                "https://github.com/bytequay/sample.git",
+                Optional.empty(),
+                Optional.empty(),
+                localRepositoryPath,
+                Optional.empty(),
+                Optional.empty(),
+                0,
+                NOW,
+                NOW);
     }
 }

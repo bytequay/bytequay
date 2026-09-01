@@ -256,6 +256,50 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "SESSION_OPENED",
+        "message": "Provider session opened"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 3,
+      "taskId": "<task-id>",
+      "turnId": "<turn-1>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_STARTED",
+        "message": "Turn started"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 4,
+      "taskId": "<task-id>",
+      "turnId": "<turn-1>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
         "providerEventId": "message-<turn-1>",
         "providerOccurredAt": null
       },
@@ -270,7 +314,29 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 3,
+      "sequence": 5,
+      "taskId": "<task-id>",
+      "turnId": "<turn-1>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_COMPLETED",
+        "message": "Turn completed"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 6,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -293,7 +359,29 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 4,
+      "sequence": 7,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_STARTED",
+        "message": "Turn started"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -311,6 +399,28 @@
         "messageKind": "ANSWER",
         "phase": "FINAL",
         "text": "deterministic: second"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 9,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_COMPLETED",
+        "message": "Turn completed"
       }
     }
   ],
@@ -318,7 +428,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 3,
+      "sequence": 6,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -341,7 +451,29 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 4,
+      "sequence": 7,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_STARTED",
+        "message": "Turn started"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -360,12 +492,34 @@
         "phase": "FINAL",
         "text": "deterministic: second"
       }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 9,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TURN_COMPLETED",
+        "message": "Turn completed"
+      }
     }
   ],
   "sse": {
     "schemaVersion": 2,
     "eventId": "<event-id>",
-    "sequence": 3,
+    "sequence": 6,
     "taskId": "<task-id>",
     "turnId": "<turn-2>",
     "source": {
@@ -420,7 +574,7 @@
       "permissionPolicy": "AUTO"
     },
     "state": "COMPLETED",
-    "version": 4,
+    "version": 10,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": "<timestamp>",

@@ -17,16 +17,18 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
 import com.bytequay.app.git.SequenceState;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.ActionJournal;
 import com.bytequay.core.rebase.BranchRebase.ActionType;
@@ -60,7 +62,7 @@ public class BranchRebaseService
 
     private final BranchRebaseStore store;
     private final AgentTaskService tasks;
-    private final AgentWorkspaceService workspaces;
+    private final WorktreeService worktrees;
     private final AgentTurnService turns;
     private final RebaseSequencerDriver sequencer;
     private final GitCommandRunner git;
@@ -70,7 +72,7 @@ public class BranchRebaseService
     public BranchRebaseService(
             BranchRebaseStore store,
             AgentTaskService tasks,
-            AgentWorkspaceService workspaces,
+            WorktreeService worktrees,
             AgentTurnService turns,
             RebaseSequencerDriver sequencer,
             GitCommandRunner git,
@@ -78,7 +80,7 @@ public class BranchRebaseService
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.sequencer = requireNonNull(sequencer, "sequencer is null");
         this.git = requireNonNull(git, "git is null");
@@ -102,39 +104,44 @@ public class BranchRebaseService
             }
             return found;
         }
-        WorkspaceSnapshot workspace = requireCallerScope(command);
-        requireLocalBranch(command.worktree(), command.workBranch());
-        requireLocalBranch(command.worktree(), command.baseBranch());
-        if (command.workBranch().equals(command.baseBranch())) {
+        WorktreeSnapshot snapshot = requireCallerScope(command);
+        TaskWorktree taskWorktree = snapshot.worktree();
+        Path worktree = taskWorktree.canonicalWorktree();
+        String workBranch = taskWorktree.generatedBranch();
+        requireLocalBranch(worktree, workBranch);
+        requireLocalBranch(worktree, command.baseBranch());
+        if (workBranch.equals(command.baseBranch())) {
             throw new BranchRebaseException("Work branch and base branch are the same");
         }
-        String originalTip = workspace.head();
-        String baseSha = required(command.worktree(),
+        String originalTip = snapshot.head();
+        String baseSha = required(worktree,
                 "rev-parse", "--verify", "refs/heads/" + command.baseBranch() + "^{commit}");
-        String workRef = required(command.worktree(),
-                "rev-parse", "--verify", "refs/heads/" + command.workBranch() + "^{commit}");
+        String workRef = required(worktree,
+                "rev-parse", "--verify", "refs/heads/" + workBranch + "^{commit}");
         if (!workRef.equals(originalTip)) {
             throw new BranchRebaseException("Checked-out work branch does not point at HEAD");
         }
-        String fork = required(command.worktree(), "merge-base", originalTip, baseSha);
-        if (!required(command.worktree(), "rev-list", "--min-parents=2", fork + ".." + originalTip)
+        String fork = required(worktree, "merge-base", originalTip, baseSha);
+        if (!required(worktree, "rev-list", "--min-parents=2", fork + ".." + originalTip)
                 .isBlank()) {
             throw new BranchRebaseException("Rebase range contains merge commits");
         }
-        requireNoLiveRebase(command.worktree());
+        requireNoLiveRebase(worktree);
 
         BranchRebase proposed = BranchRebase.create(
                 BranchRebaseId.random(),
                 command.idempotencyKey(),
-                command.agentTaskId().toString(),
-                command.repository(),
-                command.worktree(),
-                command.workBranch(),
+                taskWorktree.taskId().toString(),
+                RepoRef.of(
+                        taskWorktree.physicalRepository().owner(),
+                        taskWorktree.physicalRepository().name()),
+                worktree,
+                workBranch,
                 command.baseBranch(),
                 originalTip,
                 baseSha,
                 clock.instant());
-        if (isAncestor(command.worktree(), baseSha, originalTip)) {
+        if (isAncestor(worktree, baseSha, originalTip)) {
             return store.createOrGet(proposed.finish(
                     FinishReason.COMPLETED,
                     "Work branch already contains the base",
@@ -439,25 +446,21 @@ public class BranchRebaseService
                 clock.instant()));
     }
 
-    private WorkspaceSnapshot requireCallerScope(StartBranchRebaseCommand command)
+    private WorktreeSnapshot requireCallerScope(StartBranchRebaseCommand command)
     {
-        AgentTask task = tasks.get(command.agentTaskId());
+        TaskWorktree taskWorktree = command.taskWorktree();
+        AgentTask task = tasks.get(taskWorktree.taskId());
         if (task.state() != TaskState.OPEN) {
             throw new BranchRebaseException("Agent task is not live");
         }
-        WorkspaceSnapshot workspace = workspaces.inspect(command.worktree());
-        if (!task.worktree().equals(workspace.worktree())
-                || !task.repository().toString().equalsIgnoreCase(command.repository().fullName())
-                || !workspace.repository().toString().equalsIgnoreCase(command.repository().fullName())) {
+        if (task.taskWorktree().filter(taskWorktree::equals).isEmpty()) {
             throw new BranchRebaseException("Agent task does not own this repository worktree");
         }
-        if (workspace.branch().filter(command.workBranch()::equals).isEmpty()) {
-            throw new BranchRebaseException("Worktree is not on " + command.workBranch());
-        }
-        if (workspace.dirty() || sequencer.observe(command.worktree()).kind() != SequenceState.Kind.COMPLETED) {
+        WorktreeSnapshot snapshot = worktrees.inspect(taskWorktree);
+        if (snapshot.dirty() || snapshot.gitOperationInProgress()) {
             throw new BranchRebaseException("Worktree is dirty or another Git operation is open");
         }
-        return workspace;
+        return snapshot;
     }
 
     private void requireNoLiveRebase(Path worktree)
@@ -511,10 +514,12 @@ public class BranchRebaseService
 
     private static boolean sameRequest(BranchRebase rebase, StartBranchRebaseCommand command)
     {
-        return rebase.agentTaskId().equals(command.agentTaskId().toString())
-                && rebase.repository().equals(command.repository())
-                && rebase.worktree().equals(command.worktree())
-                && rebase.workBranch().equals(command.workBranch())
+        return rebase.agentTaskId().equals(command.taskWorktree().taskId().toString())
+                && rebase.repository().equals(RepoRef.of(
+                        command.taskWorktree().physicalRepository().owner(),
+                        command.taskWorktree().physicalRepository().name()))
+                && rebase.worktree().equals(command.taskWorktree().canonicalWorktree())
+                && rebase.workBranch().equals(command.taskWorktree().generatedBranch())
                 && rebase.baseBranch().equals(command.baseBranch());
     }
 

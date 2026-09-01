@@ -466,6 +466,7 @@ public record CherryPickExecution(
     public record Workspace(
             Optional<String> workspaceId,
             RepoRef repository,
+            Optional<RepoRef> physicalRepository,
             String sourceRemote,
             String targetRemote,
             String targetBranch,
@@ -480,6 +481,11 @@ public record CherryPickExecution(
             requireNonNull(repository, "repository is null");
             checkText(repository.owner(), "repository owner", 100);
             checkText(repository.repo(), "repository name", 100);
+            requireNonNull(physicalRepository, "physicalRepository is null");
+            physicalRepository.ifPresent(value -> {
+                checkText(value.owner(), "physical repository owner", 100);
+                checkText(value.repo(), "physical repository name", 100);
+            });
             checkText(sourceRemote, "sourceRemote", 100);
             checkText(targetRemote, "targetRemote", 100);
             checkText(targetBranch, "targetBranch", 255);

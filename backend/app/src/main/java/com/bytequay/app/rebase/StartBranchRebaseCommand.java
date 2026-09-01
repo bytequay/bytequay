@@ -13,31 +13,20 @@
  */
 package com.bytequay.app.rebase;
 
-import com.bytequay.agent.core.TaskId;
-import com.bytequay.core.domain.RepoRef;
-
-import java.nio.file.Path;
+import com.bytequay.agent.core.TaskWorktree;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Exact local scope authorized for one branch rebase. */
 public record StartBranchRebaseCommand(
-        TaskId agentTaskId,
-        RepoRef repository,
-        Path worktree,
-        String workBranch,
+        TaskWorktree taskWorktree,
         String baseBranch,
         String idempotencyKey)
 {
     public StartBranchRebaseCommand
     {
-        requireNonNull(agentTaskId, "agentTaskId is null");
-        requireNonNull(repository, "repository is null");
-        requireNonNull(worktree, "worktree is null");
-        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        worktree = worktree.normalize();
-        text(workBranch, "workBranch", 255);
+        requireNonNull(taskWorktree, "taskWorktree is null");
         text(baseBranch, "baseBranch", 255);
         text(idempotencyKey, "idempotencyKey", 200);
     }

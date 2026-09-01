@@ -1,7 +1,7 @@
 # Managed Worktree Service
 
-> **Status: implemented for interactive creation; workflow migration in
-> progress.** This document records the separate-worktree decision for every
+> **Status: implemented and verified for every agent-backed workflow on
+> 2026-09-01.** This document records the separate-worktree decision for every
 > agent-backed workflow. It replaces flow-specific worktree creation and the
 > former existing-checkout lease model.
 
@@ -16,6 +16,14 @@ The service is synchronous and stateless. It creates a worktree, verifies an
 existing worktree, or removes a verified clean worktree. A successful method
 return is the result; there is no worktree lifecycle enum, recovery endpoint,
 allocation table, cleanup disposition, or cleanup authority model.
+
+The owning task may record when removal succeeds so its workflow monitor can
+retry an interrupted cleanup. That timestamp is a durable operation fact in
+the task record, not worktree-service state; a workflow authorizes cleanup only
+after its own terminal result is durable. A failed attempt advances the task's
+existing `updatedAt`, and policy monitors apply a one-minute retry cutoff. This
+provides backoff and fair candidate selection without a worktree lifecycle or
+dedicated retry field.
 
 The renderer supplies a workspace ID, never a repository path, worktree parent,
 or worktree path. The application resolves the managed repository, freezes an
@@ -47,12 +55,12 @@ flowchart LR
 owns workspace resolution, `WorkspacePaths`, and Git execution. This is a
 module boundary, not a provider or workflow framework.
 
-The service replaces both:
+The service replaced both:
 
-- `AgentWorkspaceService`, which currently leases an existing caller-provided
-  path without creating or deleting it; and
-- `CherryPickWorkspace`, which currently implements a private cherry-pick-only
-  worktree lifecycle.
+- `AgentWorkspaceService`, which leased an existing caller-provided path
+  without creating or deleting it; and
+- `CherryPickWorkspace`, which implemented a private cherry-pick-only worktree
+  lifecycle.
 
 The service does not fetch, push, choose a base, interpret agent messages,
 decide a workflow result, delete a branch, or expose a path to the renderer.

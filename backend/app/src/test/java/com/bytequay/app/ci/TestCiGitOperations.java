@@ -228,6 +228,9 @@ class TestCiGitOperations
                 fixture.worktree(),
                 REPOSITORY,
                 HEAD_REF,
+                "origin",
+                REPOSITORY,
+                HEAD_REF,
                 expired,
                 command.journal()));
 
@@ -252,7 +255,7 @@ class TestCiGitOperations
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
-        assertThat(CiGitOperations.pushArguments(HEAD_REF, fixture.inputSha(), false))
+        assertThat(CiGitOperations.pushArguments("origin", HEAD_REF, fixture.inputSha(), false))
                 .containsExactly(
                         "push",
                         "--porcelain",
@@ -260,7 +263,7 @@ class TestCiGitOperations
                         "origin",
                         "HEAD:refs/heads/feature")
                 .doesNotContain("--force");
-        assertThat(CiGitOperations.pushArguments(HEAD_REF, fixture.inputSha(), true))
+        assertThat(CiGitOperations.pushArguments("origin", HEAD_REF, fixture.inputSha(), true))
                 .containsExactly("push", "--porcelain", "origin", "HEAD:refs/heads/feature");
     }
 
@@ -283,7 +286,7 @@ class TestCiGitOperations
         git(stale.worktree(), "switch", "-c", "remote-advance", stale.inputSha());
         write(stale.worktree().resolve("remote.txt"), "remote\n");
         commit(stale.worktree(), "Remote advance");
-        git(stale.worktree(), "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        git(stale.worktree(), "push", stale.remote().toString(), "HEAD:refs/heads/" + HEAD_REF);
         git(stale.worktree(), "switch", HEAD_REF);
 
         assertThat(service().push(push(stale, local, 0, authorization(true))).outcome())
@@ -347,10 +350,70 @@ class TestCiGitOperations
                 fixture.worktree(),
                 REPOSITORY,
                 HEAD_REF,
+                "origin",
+                REPOSITORY,
+                HEAD_REF,
                 authorization(true),
                 altered);
         assertThat(service().push(alteredCommand).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
+    }
+
+    @Test
+    void rejectsAmbiguousRemoteRoutingBeforePush()
+            throws IOException
+    {
+        Repository fixture = repository("ambiguous-push-routing");
+        write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
+        commit(fixture.worktree(), "fixup! Target change");
+        CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
+        PushCiHeadCommand command = push(fixture, inspection, 0, authorization(true));
+        Path redirected = fixture.remote().getParent().resolve("redirected.git");
+        git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
+
+        git(fixture.worktree(), "config", "remote.origin.pushurl", redirected.toUri().toString());
+        CiPushResult separatePushUrl = service().push(command);
+        assertThat(separatePushUrl.outcome()).isEqualTo(REJECTED);
+        assertThat(separatePushUrl.reason()).contains("ambiguous fetch or push routing");
+        gitFailure(redirected, "show-ref", "--verify", "refs/heads/" + HEAD_REF);
+
+        git(fixture.worktree(), "config", "--unset-all", "remote.origin.pushurl");
+        git(fixture.worktree(), "config", "--add", "remote.origin.url", REMOTE_URL);
+        CiPushResult multipleFetchUrls = service().push(command);
+        assertThat(multipleFetchUrls.outcome()).isEqualTo(REJECTED);
+        assertThat(multipleFetchUrls.reason()).contains("ambiguous fetch or push routing");
+        assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
+    }
+
+    @Test
+    void rejectsMatchingUrlRewritesBeforePush()
+            throws IOException
+    {
+        Repository fixture = repository("push-instead-of");
+        write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
+        commit(fixture.worktree(), "fixup! Target change");
+        CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
+        PushCiHeadCommand command = push(fixture, inspection, 0, authorization(true));
+        Path redirected = fixture.remote().getParent().resolve("redirected.git");
+        git(fixture.remote().getParent(), "init", "--bare", redirected.toString());
+        for (String rewrite : ImmutableList.of("pushInsteadOf", "insteadOf")) {
+            String rewriteKey = "url." + redirected.toUri() + "." + rewrite;
+            git(fixture.worktree(), "config", rewriteKey, REMOTE_URL);
+
+            CiPushResult rejected = service().push(command);
+
+            assertThat(rejected.outcome()).isEqualTo(REJECTED);
+            assertThat(rejected.reason()).contains("rewrite changes the authorized push destination");
+            assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
+            gitFailure(redirected, "show-ref", "--verify", "refs/heads/" + HEAD_REF);
+            git(fixture.worktree(), "config", "--unset-all", rewriteKey);
+        }
+
+        String rewriteKey = "url." + redirected.toUri() + ".pushInsteadOf";
+        git(fixture.worktree(), "config", rewriteKey, "https://github.com/other/project.git");
+        assertThat(service().push(command).outcome()).isEqualTo(PUSHED);
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        gitFailure(redirected, "show-ref", "--verify", "refs/heads/" + HEAD_REF);
     }
 
     @Test
@@ -402,6 +465,9 @@ class TestCiGitOperations
         PushCiHeadCommand unsafe = new PushCiHeadCommand(
                 fixture.worktree(),
                 REPOSITORY,
+                HEAD_REF,
+                "origin",
+                REPOSITORY,
                 "feature:refs/heads/other",
                 authorization(true),
                 journal(fixture, inspection, 0));
@@ -416,7 +482,7 @@ class TestCiGitOperations
     private CiGitOperations service()
     {
         return new CiGitOperations(
-                new GitCommandRunner(),
+                new RoutedGitCommandRunner(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -432,16 +498,20 @@ class TestCiGitOperations
         git(worktree, "config", "user.name", "ByteQuay Test");
         git(worktree, "config", "user.email", "bytequay@example.com");
         git(worktree, "remote", "add", "origin", REMOTE_URL);
-        git(worktree, "config", "url." + remote.toUri() + ".insteadOf", REMOTE_URL);
+        git(
+                worktree,
+                "config",
+                RoutedGitCommandRunner.ROUTE_CONFIG,
+                RoutedGitCommandRunner.route(remote, REMOTE_URL));
 
         write(worktree.resolve("source.txt"), "base\n");
         commit(worktree, "Base");
         String base = head(worktree);
-        git(worktree, "push", "origin", "HEAD:refs/heads/main");
+        git(worktree, "push", remote.toString(), "HEAD:refs/heads/main");
         write(worktree.resolve("source.txt"), "base\ntarget\n");
         commit(worktree, "Target change");
         String input = head(worktree);
-        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        git(worktree, "push", remote.toString(), "HEAD:refs/heads/" + HEAD_REF);
         return new Repository(worktree.toRealPath(), remote.toRealPath(), base, input);
     }
 
@@ -464,6 +534,8 @@ class TestCiGitOperations
                 fixture.worktree(),
                 REPOSITORY,
                 HEAD_REF,
+                "origin",
+                REPOSITORY,
                 "main",
                 baseSha,
                 "bytequay/ci-base/test-run");
@@ -497,6 +569,9 @@ class TestCiGitOperations
     {
         return new PushCiHeadCommand(
                 fixture.worktree(),
+                REPOSITORY,
+                HEAD_REF,
+                "origin",
                 REPOSITORY,
                 HEAD_REF,
                 authorization,
@@ -538,7 +613,7 @@ class TestCiGitOperations
         String value = git(
                 fixture.worktree(),
                 "ls-remote",
-                "origin",
+                fixture.remote().toString(),
                 "refs/heads/" + HEAD_REF);
         return value.split("\\s+", 2)[0];
     }

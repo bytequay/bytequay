@@ -55,6 +55,15 @@ public interface CherryPickExecutionStore
     Optional<CherryPickExecution> find(CherryPickExecutionId executionId);
 
     /**
+     * Finds the execution owned by one agent task.
+     *
+     * @param taskId durable agent task identifier
+     * @return matching execution, or empty
+     * @throws CherryPickStorageException when persistence fails
+     */
+    Optional<CherryPickExecution> findByAgentTaskId(String taskId);
+
+    /**
      * Lists executions in reverse update order.
      *
      * @param limit result limit between 1 and {@link #MAX_LIST_LIMIT}

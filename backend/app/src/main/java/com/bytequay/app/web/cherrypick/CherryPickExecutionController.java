@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.web.cherrypick;
 
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.cherrypick.CherryPickExecutionService;
 import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
-import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
@@ -41,16 +41,13 @@ import static java.util.Objects.requireNonNull;
 public class CherryPickExecutionController
 {
     private final WorkspaceRepositoryService workspaces;
-    private final WorkspacePaths paths;
     private final CherryPickExecutionService executions;
 
     public CherryPickExecutionController(
             WorkspaceRepositoryService workspaces,
-            WorkspacePaths paths,
             CherryPickExecutionService executions)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.paths = requireNonNull(paths, "paths is null");
         this.executions = requireNonNull(executions, "executions is null");
     }
 
@@ -75,7 +72,7 @@ public class CherryPickExecutionController
                                 request.pullRequestBody())),
                 workspaceId,
                 context.repository(),
-                paths.worktrees(workspaceId)));
+                RepositoryIdentity.valueOf(context.selectedRepository().fullName())));
     }
 
     @GetMapping("/api/cherry-pick-ranges/executions")
@@ -106,8 +103,7 @@ public class CherryPickExecutionController
             @PathVariable String workspaceId,
             @PathVariable String executionId)
     {
-        return CherryPickExecutionResponse.of(executions.cancel(
-                executionId(executionId), workspaceId, paths.repository(workspaceId)));
+        return CherryPickExecutionResponse.of(executions.cancel(executionId(executionId), workspaceId));
     }
 
     private static CherryPickExecutionId executionId(String value)

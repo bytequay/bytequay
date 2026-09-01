@@ -44,6 +44,16 @@ public record EventId(UUID value)
         return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
     }
 
+    public static EventId providerUsage(TaskId taskId, TurnId turnId, String providerEventId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(providerEventId, "providerEventId is null");
+        checkArgument(!providerEventId.isBlank(), "providerEventId is blank");
+        String key = "bytequay-agent-usage-v2:" + taskId + ":" + turnId + ":" + providerEventId;
+        return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
+    }
+
     @Override
     public String toString()
     {

@@ -22,9 +22,12 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,6 +42,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -92,12 +97,28 @@ class TestManagedWorktreeService
         assertThat(first.canonicalWorktree()).isNotEqualTo(second.canonicalWorktree());
         assertThat(first.generatedBranch()).isNotEqualTo(second.generatedBranch());
         assertThat(first.canonicalWorktree().getParent()).isEqualTo(paths.worktrees(WORKSPACE_ID).toRealPath());
+        assertThat(paths.canonicalTaskWorktree(WORKSPACE_ID, first.taskId().toString()))
+                .isEqualTo(first.canonicalWorktree());
         assertThat(service.provision(command(first.taskId()))).isEqualTo(first);
 
         WorktreeSnapshot snapshot = service.inspect(first);
         assertThat(snapshot.head()).isEqualTo(startCommit);
         assertThat(snapshot.dirty()).isFalse();
         assertThat(snapshot.gitOperationInProgress()).isFalse();
+    }
+
+    @Test
+    void derivesTheSameCanonicalTaskPathThroughASymlinkedRoot()
+            throws IOException
+    {
+        Path realRoot = Files.createDirectory(temporaryDirectory.resolve("real-root"));
+        Path linkedRoot = Files.createSymbolicLink(temporaryDirectory.resolve("linked-root"), realRoot);
+        WorkspacePaths linkedPaths = new WorkspacePaths(linkedRoot.toString());
+        Files.createDirectories(linkedPaths.workspace("workspace-2"));
+        TaskId taskId = TaskId.random();
+
+        assertThat(linkedPaths.canonicalTaskWorktree("workspace-2", taskId.toString()))
+                .isEqualTo(realRoot.toRealPath().resolve("workspace-2/worktrees").resolve(taskId.toString()));
     }
 
     @Test
@@ -120,6 +141,40 @@ class TestManagedWorktreeService
         assertThat(git.arguments()).noneMatch(arguments -> arguments.contains("--force")
                 || arguments.equals(List.of("worktree", "prune"))
                 || arguments.equals(List.of("branch", "-D", worktree.generatedBranch())));
+    }
+
+    @Test
+    void verifiesAndPushesARetainedBranchWithoutALiveWorktree()
+            throws IOException
+    {
+        Path remote = temporaryDirectory.resolve("remote.git");
+        run(temporaryDirectory, "init", "--bare", "--initial-branch=main", remote.toString());
+        run(repository, "config", "url." + remote.toUri() + ".insteadOf", ORIGIN);
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        Files.writeString(worktree.canonicalWorktree().resolve("change.txt"), "change\n");
+        run(worktree.canonicalWorktree(), "add", "change.txt");
+        run(worktree.canonicalWorktree(), "commit", "-m", "Change");
+        String expectedSha = run(worktree.canonicalWorktree(), "rev-parse", "HEAD").output().strip();
+        service.cleanup(worktree);
+
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
+                .thenReturn(ImmutableMap.of());
+        RemoteSourceStore remoteSources = mock(RemoteSourceStore.class);
+        when(remoteSources.findByWorkspace(WORKSPACE_ID)).thenReturn(List.of());
+        ManagedWorkspaceGit workspaceGit = new ManagedWorkspaceGit(paths, git, credentials, remoteSources);
+
+        assertThatThrownBy(() -> workspaceGit.pushBranch(
+                workspace(), worktree.generatedBranch(), startCommit))
+                .isInstanceOf(ManagedWorkspaceGit.Failure.class)
+                .hasMessageContaining("Generated branch does not match");
+        WorkspaceBranchPusher.Push pushed = workspaceGit.pushBranch(
+                workspace(), worktree.generatedBranch(), expectedSha);
+
+        assertThat(worktree.canonicalWorktree()).doesNotExist();
+        assertThat(pushed.sha()).isEqualTo(expectedSha);
+        assertThat(run(remote, "rev-parse", "refs/heads/" + worktree.generatedBranch()).output().strip())
+                .isEqualTo(expectedSha);
     }
 
     @Test

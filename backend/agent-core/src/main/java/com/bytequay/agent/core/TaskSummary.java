@@ -24,7 +24,7 @@ import static java.util.Objects.requireNonNull;
 
 public record TaskSummary(
         String finalResponse,
-        WorkspaceSnapshot workspace,
+        Optional<WorktreeSnapshot> worktree,
         List<TestFact> tests,
         TaskMetrics metrics,
         List<String> learnings,
@@ -33,11 +33,9 @@ public record TaskSummary(
     public TaskSummary
     {
         requireNonNull(finalResponse, "finalResponse is null");
-        requireNonNull(workspace, "workspace is null");
-        requireNonNull(tests, "tests is null");
+        requireNonNull(worktree, "worktree is null");
         tests = ImmutableList.copyOf(tests);
         requireNonNull(metrics, "metrics is null");
-        requireNonNull(learnings, "learnings is null");
         learnings = ImmutableList.copyOf(learnings);
         checkOptionalText(notes, "notes");
         checkArgument(learnings.stream().noneMatch(String::isBlank), "learnings contains a blank value");

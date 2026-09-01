@@ -211,17 +211,26 @@ public class AgentController
     @PostMapping("/tasks/{taskId}/complete")
     public AgentHttpModels.CompletionResponse completeTask(
             @PathVariable String taskId,
+            @RequestParam String workspaceId,
             @RequestBody(required = false) CompleteTaskRequest request)
     {
-        return AgentHttpModels.completion(completionService.complete(new CompleteAgentTaskCommand(
-                TaskId.valueOf(taskId),
-                request == null ? Optional.empty() : Optional.ofNullable(request.notes()))));
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        var completion = completionService.complete(new CompleteAgentTaskCommand(
+                id,
+                request == null ? Optional.empty() : Optional.ofNullable(request.notes())));
+        completionService.cleanupWorktree(id);
+        return AgentHttpModels.completion(completion);
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")
-    public AgentHttpModels.CleanupResponse cleanupTask(@PathVariable String taskId)
+    public AgentHttpModels.CleanupResponse cleanupTask(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
     {
-        return AgentHttpModels.cleanup(completionService.cleanup(TaskId.valueOf(taskId)));
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return AgentHttpModels.cleanup(completionService.cleanup(id));
     }
 
     @GetMapping("/providers/status")

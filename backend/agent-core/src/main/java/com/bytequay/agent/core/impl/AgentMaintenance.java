@@ -15,20 +15,26 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CleanupResult;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -36,10 +42,12 @@ import static java.util.Objects.requireNonNull;
 public final class AgentMaintenance
 {
     private static final String INTERRUPTION_REASON = "Backend restarted while the turn was active";
+    private static final Duration CLEANUP_RETRY_DELAY = Duration.ofMinutes(1);
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
-    private final AgentWorkspaceService workspaceService;
+    private final AgentUnitOfWork unitOfWork;
+    private final AgentEventOutboxStore outboxStore;
     private final AgentApprovalService approvalService;
     private final AgentMetricsService metricsService;
     private final AgentCompletionService completionService;
@@ -49,7 +57,8 @@ public final class AgentMaintenance
     public AgentMaintenance(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
-            AgentWorkspaceService workspaceService,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
             AgentApprovalService approvalService,
             AgentMetricsService metricsService,
             AgentCompletionService completionService,
@@ -58,7 +67,8 @@ public final class AgentMaintenance
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
+        this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
@@ -74,15 +84,37 @@ public final class AgentMaintenance
         turnStore.listRecoverable().forEach(turn -> {
             synchronized (runtimeRegistry.taskLock(turn.taskId())) {
                 turnStore.find(turn.id()).filter(current -> current.state().active()).ifPresent(current -> {
+                    WorktreeMutationClaim claim = WorktreeMutationClaim.turn(current.id(), current.createdAt());
+                    AgentTask task = taskStore.find(current.taskId()).orElseThrow();
+                    if (task.worktreeMutationClaim().isEmpty()) {
+                        taskStore.update(task.claimWorktreeMutation(claim, Instant.now(clock)));
+                    }
+                    else if (!task.worktreeMutationClaim().equals(Optional.of(claim))) {
+                        throw new IllegalStateException("Active turn does not own the task worktree claim: " + current.id());
+                    }
                     if (current.startedAt().isPresent()) {
                         return;
                     }
-                    TurnMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
-                    turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
-                            TurnState.INTERRUPTED,
-                            metrics,
-                            Optional.of(INTERRUPTION_REASON),
-                            Instant.now(clock)));
+                    EventId eventId = EventId.random();
+                    unitOfWork.execute(() -> {
+                        TurnMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
+                        Instant interruptedAt = Instant.now(clock);
+                        AgentTask claimedTask = taskStore.find(current.taskId()).orElseThrow();
+                        turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
+                                TurnState.INTERRUPTED,
+                                metrics,
+                                Optional.of(INTERRUPTION_REASON),
+                                interruptedAt));
+                        taskStore.update(claimedTask.releaseWorktreeMutation(claim, interruptedAt));
+                        outboxStore.insert(pendingLifecycle(
+                                eventId,
+                                current.taskId(),
+                                Optional.of(current.id()),
+                                AgentEventPayload.LifecyclePhase.INTERRUPTED,
+                                INTERRUPTION_REASON,
+                                interruptedAt));
+                        return null;
+                    });
                 });
             }
         });
@@ -93,31 +125,49 @@ public final class AgentMaintenance
                 if (current.state().terminal()) {
                     return;
                 }
-                try {
-                    workspaceService.restore(current.id(), current.worktree(), current.repository());
+                if (turnStore.findActive(current.id()).isPresent()) {
+                    return;
                 }
-                catch (RuntimeException failure) {
-                    if (turnStore.findActive(current.id()).isPresent()) {
-                        return;
+                if (current.worktreeMutationClaim().isPresent()) {
+                    WorktreeMutationClaim claim = current.worktreeMutationClaim().orElseThrow();
+                    if (claim.kind() == WorktreeMutationClaim.Kind.COMPLETION) {
+                        taskStore.update(current.releaseWorktreeMutation(claim, Instant.now(clock)));
                     }
-                    Instant failedAt = Instant.now(clock);
-                    String message = failure.getMessage() == null || failure.getMessage().isBlank()
-                            ? failure.getClass().getSimpleName()
-                            : failure.getMessage();
-                    taskStore.update(current.fail(
-                            "Cannot restore worktree lease: " + message,
-                            failedAt,
-                            failedAt.plus(DefaultAgentCompletionService.RETENTION_PERIOD)));
-                    workspaceService.release(current.id());
+                    return;
+                }
+                if (current.taskWorktree().isEmpty()) {
+                    failLegacyTask(current);
                 }
             }
+        });
+    }
+
+    private void failLegacyTask(AgentTask task)
+    {
+        String reason = "Task has no managed worktree ownership facts";
+        Instant failedAt = Instant.now(clock);
+        EventId eventId = EventId.random();
+        unitOfWork.execute(() -> {
+            AgentTask failed = taskStore.update(task.fail(
+                    reason,
+                    failedAt,
+                    failedAt.plus(DefaultAgentCompletionService.RETENTION_PERIOD)));
+            outboxStore.insert(pendingLifecycle(
+                    eventId,
+                    failed.id(),
+                    Optional.empty(),
+                    AgentEventPayload.LifecyclePhase.TASK_FAILED,
+                    reason,
+                    failedAt));
+            return null;
         });
     }
 
     public List<CleanupResult> cleanupDue(int limit)
     {
         checkArgument(limit > 0, "limit must be positive");
-        return taskStore.listCleanupDue(Instant.now(clock), limit).stream()
+        Instant now = Instant.now(clock);
+        return taskStore.listCleanupDue(now, now.minus(CLEANUP_RETRY_DELAY), limit).stream()
                 .map(AgentTask::id)
                 .map(completionService::cleanup)
                 .collect(toImmutableList());

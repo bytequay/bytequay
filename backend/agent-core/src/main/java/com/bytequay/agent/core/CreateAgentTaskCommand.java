@@ -14,74 +14,27 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentPermissionPolicy;
-
-import java.nio.file.Path;
-import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record CreateAgentTaskCommand(
+        TaskId taskId,
+        String workspaceId,
         AgentLaneId laneId,
-        Path worktree,
-        RepositoryIdentity repository,
+        RepositoryIdentity physicalRepository,
+        String startCommit,
         String title,
-        AgentTaskDefaults defaults,
-        Optional<String> workspaceId,
-        boolean interactive)
+        AgentTaskDefaults defaults)
 {
     public CreateAgentTaskCommand
     {
+        requireNonNull(taskId, "taskId is null");
+        checkNotBlank(workspaceId, "workspaceId");
         requireNonNull(laneId, "laneId is null");
-        requireNonNull(worktree, "worktree is null");
-        requireNonNull(repository, "repository is null");
+        requireNonNull(physicalRepository, "physicalRepository is null");
+        ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
         checkNotBlank(title, "title");
         requireNonNull(defaults, "defaults is null");
-        checkOptionalText(workspaceId, "workspaceId");
-        checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
-    }
-
-    public CreateAgentTaskCommand(
-            AgentLaneId laneId,
-            Path worktree,
-            RepositoryIdentity repository,
-            String title,
-            AgentPermissionPolicy permissionPolicy)
-    {
-        this(
-                laneId,
-                worktree,
-                repository,
-                title,
-                AgentTaskDefaults.forPermission(permissionPolicy),
-                Optional.empty(),
-                false);
-    }
-
-    public CreateAgentTaskCommand(
-            AgentLaneId laneId,
-            Path worktree,
-            RepositoryIdentity repository,
-            String title,
-            AgentPermissionPolicy permissionPolicy,
-            Optional<String> workspaceId,
-            boolean interactive)
-    {
-        this(
-                laneId,
-                worktree,
-                repository,
-                title,
-                AgentTaskDefaults.forPermission(permissionPolicy),
-                workspaceId,
-                interactive);
-    }
-
-    public AgentPermissionPolicy permissionPolicy()
-    {
-        return defaults.permissionPolicy();
     }
 }

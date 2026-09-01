@@ -95,6 +95,16 @@ public class SqliteCherryPickExecutionStore
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<CherryPickExecution> findByAgentTaskId(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return read("Cannot read cherry-pick execution for agent task " + taskId,
+                () -> repository.findByAgentTaskId(taskId).map(CherryPickExecutionEntity::toExecution),
+                CherryPickStorageException::new);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<CherryPickExecution> listRecent(int limit)
     {
         checkLimit(limit);

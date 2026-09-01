@@ -23,8 +23,10 @@ import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
+import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CiAutofixRunJpaRepository;
+import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -53,13 +55,16 @@ public class SqliteCiAutofixStore
 
     private final CiAutofixRunJpaRepository runRepository;
     private final CiAutofixAttemptJpaRepository attemptRepository;
+    private final WorkspaceJpaRepository workspaceRepository;
 
     public SqliteCiAutofixStore(
             CiAutofixRunJpaRepository runRepository,
-            CiAutofixAttemptJpaRepository attemptRepository)
+            CiAutofixAttemptJpaRepository attemptRepository,
+            WorkspaceJpaRepository workspaceRepository)
     {
         this.runRepository = requireNonNull(runRepository, "runRepository is null");
         this.attemptRepository = requireNonNull(attemptRepository, "attemptRepository is null");
+        this.workspaceRepository = requireNonNull(workspaceRepository, "workspaceRepository is null");
     }
 
     @Override
@@ -200,7 +205,13 @@ public class SqliteCiAutofixStore
                     .stream()
                     .map(CiAutofixAttemptEntity::toDomain)
                     .collect(toImmutableList());
-            return entity.toDomain(attempts);
+            String workspaceId = entity.workspaceId()
+                    .orElseGet(() -> workspaceRepository.findByLocalRepositoryPath(entity.legacyWorktree())
+                            .map(WorkspaceEntity::getId)
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Legacy CI Autofix run " + entity.getId()
+                                            + " does not belong to a managed workspace")));
+            return entity.toDomain(attempts, workspaceId);
         }
         catch (CiAutofixStorageException e) {
             throw e;

@@ -92,8 +92,8 @@ final class InteractiveAgentHttpContract
         requireNonNull(summary, "summary is null");
         return new TaskSummaryResponse(
                 summary.finalResponse(),
-                summary.workspace().branch(),
-                summary.workspace().head(),
+                summary.worktree().map(worktree -> worktree.worktree().generatedBranch()),
+                summary.worktree().map(worktree -> worktree.head()),
                 summary.tests(),
                 summary.metrics(),
                 summary.learnings(),
@@ -187,7 +187,7 @@ final class InteractiveAgentHttpContract
     record TaskSummaryResponse(
             String finalResponse,
             Optional<String> resultBranch,
-            String resultHead,
+            Optional<String> resultHead,
             List<TestFact> tests,
             TaskMetrics metrics,
             List<String> learnings,

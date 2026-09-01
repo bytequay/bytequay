@@ -16,9 +16,9 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -26,7 +26,6 @@ import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
-import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentDriver;
@@ -40,13 +39,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
+import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentTaskService
         implements AgentTaskService
 {
     private final AgentTaskStore taskStore;
-    private final AgentWorkspaceService workspaceService;
     private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
@@ -54,14 +53,12 @@ public final class DefaultAgentTaskService
 
     public DefaultAgentTaskService(
             AgentTaskStore taskStore,
-            AgentWorkspaceService workspaceService,
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
@@ -82,57 +79,23 @@ public final class DefaultAgentTaskService
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit()));
-        try {
-            resourceService.allocate(command.taskId());
-            Instant now = Instant.now(clock);
-            AgentTask task = AgentTask.created(
-                    command.taskId(),
-                    true,
-                    command.title(),
-                    command.laneId(),
-                    worktree,
-                    command.defaults(),
-                    now);
-            taskStore.insert(task);
-            return task;
-        }
-        catch (RuntimeException failure) {
-            rollbackManagedCreation(command.taskId(), worktree, failure);
-            throw failure;
-        }
+        return createManaged(command.taskId(), true, command.title(), command.laneId(), command.defaults(), worktree);
     }
 
     @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
-        requireReady(command.laneId(), command.permissionPolicy());
-        TaskId taskId = TaskId.random();
-        WorkspaceLease lease = workspaceService.acquire(
-                taskId,
-                command.worktree(),
-                command.repository());
-        try {
-            resourceService.allocate(taskId);
-            Instant now = Instant.now(clock);
-            AgentTask task = AgentTask.created(
-                    taskId,
-                    command.workspaceId(),
-                    command.interactive(),
-                    command.title(),
-                    command.laneId(),
-                    command.repository(),
-                    lease.worktree(),
-                    command.defaults(),
-                    now);
-            taskStore.insert(task);
-            return task;
+        requireReady(command.laneId(), command.defaults().permissionPolicy());
+        if (taskStore.find(command.taskId()).isPresent()) {
+            throw new AgentConflictException("Task already exists: " + command.taskId());
         }
-        catch (RuntimeException failure) {
-            rollbackResources(taskId, failure);
-            rollbackLease(lease, failure);
-            throw failure;
-        }
+        TaskWorktree worktree = worktreeService.provision(new ProvisionWorktreeCommand(
+                command.taskId(),
+                command.workspaceId(),
+                command.physicalRepository(),
+                command.startCommit()));
+        return createManaged(command.taskId(), false, command.title(), command.laneId(), command.defaults(), worktree);
     }
 
     @Override
@@ -218,32 +181,34 @@ public final class DefaultAgentTaskService
             failure.addSuppressed(ownershipFailure);
             return;
         }
-        rollbackResources(taskId, failure);
-        try {
-            worktreeService.cleanup(worktree);
-        }
-        catch (RuntimeException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
+        suppressFailure(failure, () -> resourceService.delete(taskId));
+        suppressFailure(failure, () -> worktreeService.cleanup(worktree));
     }
 
-    private void rollbackResources(TaskId taskId, RuntimeException failure)
+    private AgentTask createManaged(
+            TaskId taskId,
+            boolean interactive,
+            String title,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            TaskWorktree worktree)
     {
         try {
-            resourceService.delete(taskId);
+            resourceService.allocate(taskId);
+            AgentTask task = AgentTask.created(
+                    taskId,
+                    interactive,
+                    title,
+                    laneId,
+                    worktree,
+                    defaults,
+                    Instant.now(clock));
+            taskStore.insert(task);
+            return task;
         }
-        catch (RuntimeException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
-        }
-    }
-
-    private static void rollbackLease(WorkspaceLease lease, RuntimeException failure)
-    {
-        try {
-            lease.close();
-        }
-        catch (RuntimeException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
+        catch (RuntimeException failure) {
+            rollbackManagedCreation(taskId, worktree, failure);
+            throw failure;
         }
     }
 }

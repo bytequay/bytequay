@@ -50,7 +50,9 @@ public interface CiGitService
      *
      * <p>The caller must persist the supplied journal before calling this
      * method. The implementation rechecks authorization, repository, branch,
-     * local fingerprint, and remote SHA immediately before the push.
+     * local fingerprint, remote SHA, and effective push routing immediately
+     * before the push. Matching {@code url.*.insteadOf} and
+     * {@code url.*.pushInsteadOf} rewrites are rejected.
      *
      * @param command exact push journal and authorization
      * @return reconciled pushed, retryable, stale, uncertain, or rejected result

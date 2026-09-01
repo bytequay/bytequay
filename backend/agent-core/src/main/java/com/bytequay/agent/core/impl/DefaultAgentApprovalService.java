@@ -17,7 +17,6 @@ import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
-import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
@@ -50,6 +49,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
+import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
+import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -59,8 +61,6 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentApprovalService
         implements AgentApprovalService
 {
-    private static final int OUTBOX_BATCH_SIZE = 100;
-
     private final AgentApprovalStore approvalStore;
     private final AgentTurnStore turnStore;
     private final AgentUnitOfWork unitOfWork;
@@ -98,8 +98,8 @@ public final class DefaultAgentApprovalService
         requireNonNull(timeout, "timeout is null");
         checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout must be positive");
 
-        PendingApproval approval = new PendingApproval();
-        if (pending.putIfAbsent(request.id(), approval) != null) {
+        PendingApproval live = new PendingApproval();
+        if (pending.putIfAbsent(request.id(), live) != null) {
             throw new AgentConflictException("Approval identifier is already pending: " + request.id());
         }
         AgentApproval stored = AgentApproval.pending(request);
@@ -113,41 +113,48 @@ public final class DefaultAgentApprovalService
                 return null;
             });
             persisted = true;
-            drainPendingEvents(request.taskId());
+            drainPending(outboxStore, eventService, request.taskId());
             requestEventDrained = true;
             ScheduledFuture<?> timeoutFuture = scheduler.schedule(
-                    () -> timeout(request.id(), approval),
+                    () -> timeout(request.id(), live),
                     Math.max(1, timeout.toMillis()),
                     TimeUnit.MILLISECONDS);
-            approval.setTimeoutFuture(timeoutFuture);
-            return approval.future();
+            live.setTimeoutFuture(timeoutFuture);
+            return live.future();
         }
-        catch (RuntimeException e) {
-            boolean cancelled;
-            synchronized (approval) {
-                if (pending.get(request.id()) != approval) {
-                    return approval.future();
-                }
-                if (persisted) {
-                    try {
-                        resolveDurably(
-                                stored,
-                                denial(request.id(), false),
-                                AgentEventPayload.ApprovalOutcome.CANCELLED,
-                                requestEventDrained);
-                    }
-                    catch (RuntimeException resolutionFailure) {
-                        e.addSuppressed(resolutionFailure);
-                    }
-                }
-                cancelled = pending.remove(request.id(), approval);
-                approval.cancelTimeout();
-            }
-            if (cancelled) {
-                approval.future().completeExceptionally(e);
-            }
-            throw e;
+        catch (RuntimeException failure) {
+            return handleRegistrationFailure(
+                    stored,
+                    live,
+                    persisted,
+                    requestEventDrained,
+                    failure);
         }
+    }
+
+    private CompletionStage<ApprovalDecision> handleRegistrationFailure(
+            AgentApproval stored,
+            PendingApproval live,
+            boolean persisted,
+            boolean requestEventDrained,
+            RuntimeException failure)
+    {
+        ApprovalId approvalId = stored.request().id();
+        boolean cancelled;
+        synchronized (live) {
+            if (pending.get(approvalId) != live) {
+                return live.future();
+            }
+            if (persisted) {
+                suppressFailure(failure, () -> cancelPersistedRequest(stored, requestEventDrained));
+            }
+            cancelled = pending.remove(approvalId, live);
+            live.cancelTimeout();
+        }
+        if (cancelled) {
+            live.future().completeExceptionally(failure);
+        }
+        throw failure;
     }
 
     @Override
@@ -198,7 +205,7 @@ public final class DefaultAgentApprovalService
         RuntimeException firstFailure = null;
         for (AgentApproval approval : approvals) {
             try {
-                completePending(
+                resolveAndPublish(
                         approval,
                         denial(approval.request().id(), false),
                         AgentEventPayload.ApprovalOutcome.CANCELLED);
@@ -218,14 +225,14 @@ public final class DefaultAgentApprovalService
         }
     }
 
-    private void timeout(ApprovalId approvalId, PendingApproval approval)
+    private void timeout(ApprovalId approvalId, PendingApproval live)
     {
-        if (pending.get(approvalId) != approval) {
+        if (pending.get(approvalId) != live) {
             return;
         }
         try {
             AgentApproval stored = requireApproval(approvalId);
-            completePending(
+            resolveAndPublish(
                     stored,
                     denial(approvalId, true),
                     AgentEventPayload.ApprovalOutcome.EXPIRED);
@@ -245,12 +252,12 @@ public final class DefaultAgentApprovalService
                 timedOut);
     }
 
-    private ApprovalDecision completePending(
+    private void resolveAndPublish(
             AgentApproval approval,
             ApprovalDecision decision,
             AgentEventPayload.ApprovalOutcome outcome)
     {
-        return publishResolution(prepareResolution(approval, decision, outcome));
+        publishResolution(prepareResolution(approval, decision, outcome));
     }
 
     private PreparedResolution prepareResolution(
@@ -297,7 +304,7 @@ public final class DefaultAgentApprovalService
     private ApprovalDecision publishResolution(PreparedResolution resolution)
     {
         try {
-            drainPendingEvents(resolution.taskId());
+            drainPending(outboxStore, eventService, resolution.taskId());
         }
         catch (RuntimeException failure) {
             resolution.live().ifPresent(live -> live.future().completeExceptionally(failure));
@@ -310,27 +317,15 @@ public final class DefaultAgentApprovalService
         return resolution.decision();
     }
 
-    private ApprovalDecision resolveDurably(
-            AgentApproval approval,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome,
-            boolean drain)
+    private void cancelPersistedRequest(AgentApproval approval, boolean requestEventDrained)
     {
-        PreparedResolution resolution = recordResolution(approval, decision, outcome, Optional.empty());
-        if (!drain) {
-            return resolution.decision();
-        }
-        return publishResolution(resolution);
-    }
-
-    private void drainPendingEvents(TaskId taskId)
-    {
-        while (true) {
-            List<AgentEventOutboxEntry> events = outboxStore.listPending(taskId, OUTBOX_BATCH_SIZE);
-            if (events.isEmpty()) {
-                return;
-            }
-            events.forEach(event -> eventService.drain(event.eventId()));
+        PreparedResolution resolution = recordResolution(
+                approval,
+                denial(approval.request().id(), false),
+                AgentEventPayload.ApprovalOutcome.CANCELLED,
+                Optional.empty());
+        if (requestEventDrained) {
+            publishResolution(resolution);
         }
     }
 
@@ -397,20 +392,19 @@ public final class DefaultAgentApprovalService
     {
         ApprovalRequest request = approval.request();
         ProviderApprovalRequest providerRequest = request.providerRequest();
-        return new AgentEventOutboxEntry(
+        return pendingInline(
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
                 source(providerRequest, Optional.of(providerRequest.requestedAt())),
-                new AgentEventOutboxPayload.Inline(new AgentEventPayload.ApprovalRequested(
+                new AgentEventPayload.ApprovalRequested(
                         request.id().toString(),
                         approvalKind(providerRequest.kind()),
                         providerRequest.title(),
                         providerRequest.detail(),
                         true,
-                        availableDecisions(providerRequest))),
-                request.requestedAt(),
-                Optional.empty());
+                        availableDecisions(providerRequest)),
+                request.requestedAt());
     }
 
     private static AgentEventOutboxEntry resolutionEvent(
@@ -419,16 +413,15 @@ public final class DefaultAgentApprovalService
             AgentEventPayload.ApprovalOutcome outcome,
             EventId eventId)
     {
-        return new AgentEventOutboxEntry(
+        return pendingInline(
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
                 source(request.providerRequest(), Optional.empty()),
-                new AgentEventOutboxPayload.Inline(new AgentEventPayload.ApprovalResolved(
+                new AgentEventPayload.ApprovalResolved(
                         request.id().toString(),
-                        outcome)),
-                decision.resolvedAt(),
-                Optional.empty());
+                        outcome),
+                decision.resolvedAt());
     }
 
     private static List<AgentEventPayload.ApprovalOption> availableDecisions(ProviderApprovalRequest request)

@@ -16,29 +16,11 @@ package com.bytequay.agent.core;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCoreResourceValues
 {
-    @Test
-    void workspaceLeaseReleasesExactlyOnce()
-    {
-        AtomicInteger releases = new AtomicInteger();
-        WorkspaceLease lease = new WorkspaceLease(
-                TaskId.random(),
-                Path.of("/tmp/worktree"),
-                releases::incrementAndGet);
-
-        lease.close();
-        lease.close();
-
-        assertThat(lease.released()).isTrue();
-        assertThat(releases).hasValue(1);
-    }
-
     @Test
     void taskResourcesCannotEscapeTheirRuntimeDirectory()
     {

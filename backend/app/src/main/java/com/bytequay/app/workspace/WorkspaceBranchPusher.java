@@ -15,14 +15,12 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 
-import java.nio.file.Path;
-
 import static java.util.Objects.requireNonNull;
 
 /** Executes the one authenticated Git write allowed by workspace delivery. */
 interface WorkspaceBranchPusher
 {
-    Push pushBranch(Workspace workspace, Path worktree, String branch);
+    Push pushBranch(Workspace workspace, String branch, String expectedSha);
 
     record Push(String remote, String head, String sha)
     {

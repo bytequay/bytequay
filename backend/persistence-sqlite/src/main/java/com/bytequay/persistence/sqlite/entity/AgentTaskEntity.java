@@ -22,6 +22,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -92,6 +93,14 @@ public class AgentTaskEntity
     @Enumerated(EnumType.STRING)
     private TaskState state;
 
+    @Enumerated(EnumType.STRING)
+    private WorktreeMutationClaim.Kind mutationClaimKind;
+
+    private String mutationClaimOwnerId;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant mutationClaimAcquiredAt;
+
     @Version
     @Getter
     private long version;
@@ -136,6 +145,9 @@ public class AgentTaskEntity
     @Column(columnDefinition = "TEXT")
     private String summaryJson;
 
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant worktreeRemovedAt;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private CleanupState cleanupState;
@@ -174,6 +186,9 @@ public class AgentTaskEntity
         defaultEffort = task.defaults().effort().orElse(null);
         permissionPolicy = task.permissionPolicy();
         state = task.state();
+        mutationClaimKind = task.worktreeMutationClaim().map(WorktreeMutationClaim::kind).orElse(null);
+        mutationClaimOwnerId = task.worktreeMutationClaim().map(WorktreeMutationClaim::ownerId).orElse(null);
+        mutationClaimAcquiredAt = task.worktreeMutationClaim().map(WorktreeMutationClaim::acquiredAt).orElse(null);
         createdAt = task.createdAt();
         updatedAt = task.updatedAt();
         terminalAt = task.terminalAt().orElse(null);
@@ -188,6 +203,7 @@ public class AgentTaskEntity
         costProvenance = task.metrics().costProvenance();
         elapsedMillis = task.metrics().elapsed().toMillis();
         summaryJson = task.summary().map(AgentTaskSummaryJson::encode).orElse(null);
+        worktreeRemovedAt = task.worktreeRemovedAt().orElse(null);
         cleanupState = task.cleanupState();
         deleteAfter = task.deleteAfter().orElse(null);
         cleanupFailure = task.cleanupFailure().orElse(null);
@@ -195,6 +211,7 @@ public class AgentTaskEntity
 
     public AgentTask toDomain()
     {
+        Optional<TaskWorktree> storedWorktree = taskWorktree();
         Optional<AgentSessionRef> sessionReference = Optional.ofNullable(sessionLaneId)
                 .map(ignored -> new AgentSessionRef(
                         new AgentLaneId(sessionLaneId),
@@ -208,12 +225,13 @@ public class AgentTaskEntity
                 new AgentLaneId(laneId),
                 new RepositoryIdentity(repositoryOwner, repositoryName),
                 Path.of(worktree),
-                taskWorktree(),
+                storedWorktree,
                 new AgentTaskDefaults(
                         Optional.ofNullable(defaultModel),
                         Optional.ofNullable(defaultEffort),
                         permissionPolicy),
                 state,
+                worktreeMutationClaim(),
                 version,
                 createdAt,
                 updatedAt,
@@ -227,10 +245,22 @@ public class AgentTaskEntity
                         Optional.ofNullable(cost),
                         costProvenance,
                         Duration.ofMillis(elapsedMillis)),
-                Optional.ofNullable(summaryJson).map(AgentTaskSummaryJson::decode),
+                Optional.ofNullable(summaryJson).map(json -> AgentTaskSummaryJson.decode(json, storedWorktree)),
+                Optional.ofNullable(worktreeRemovedAt),
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure));
+    }
+
+    private Optional<WorktreeMutationClaim> worktreeMutationClaim()
+    {
+        if (mutationClaimKind == null && mutationClaimOwnerId == null && mutationClaimAcquiredAt == null) {
+            return Optional.empty();
+        }
+        if (mutationClaimKind == null || mutationClaimOwnerId == null || mutationClaimAcquiredAt == null) {
+            throw new AgentStorageException("Stored worktree mutation claim is incomplete: " + id);
+        }
+        return Optional.of(new WorktreeMutationClaim(mutationClaimKind, mutationClaimOwnerId, mutationClaimAcquiredAt));
     }
 
     private Optional<TaskWorktree> taskWorktree()

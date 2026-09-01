@@ -653,7 +653,7 @@ Primary files:
 - `frontend/src/agents/events.ts`
 - `frontend/src/agents/fixtures/agent-events-v2.json`
 
-## [ ] CP3 — Implement worktrees and make replay crash-safe
+## [x] CP3 — Implement worktrees and make replay crash-safe
 
 **Owner:** service/storage owner
 
@@ -664,55 +664,43 @@ Primary files:
 Purpose: implement the synchronous worktree boundary and make the event stream
 an authoritative reconstruction source rather than a best-effort activity log.
 
-**Progress (2026-09-01):** the first CP3 slice now persists immutable task
-worktree ownership, provides the one stateless synchronous managed-worktree
-implementation, and serializes repository worktree mutation against workspace
-removal. SQLite state and bounded event-outbox rows can share one transaction;
-outbox replay is idempotent across JSONL flush/mark crashes, repairs a partial
-tail, and publishes only after the event is flushed and marked. Startup keeps
-agent routes and mutation monitors behind one boolean gate while it drains the
-outbox, reconciles existing agent execution, and drains again. This is a
-foundation slice: task and remaining turn mutations have not all migrated to
-the unit of work. Turn acceptance now writes the bounded user message to a
-task-owned blob, commits the accepted turn and blob-backed outbox row in one
-unit of work, and drains that event before opening or calling the provider.
-Interactive creation now resolves the selected repository's
-exact `refs/remotes/origin/<default-branch>^{commit}`, provisions a managed
-task worktree, and publishes only workspace-scoped, path-free task responses.
-Task creation probes provider readiness and validates the requested model and
-effort against the existing cached catalog before resolving the workspace.
-Approval requests and their events now commit together before publication;
-resolution, expiry, cancellation, and provider-loss denial likewise commit
-with their outbox event before the provider callback resumes. Pending is
-derived from the absence of a durable decision rather than represented by a
-new lifecycle state. Only the callback needed by the live provider remains in
-memory. Reload recovery queries SQLite, and explicit decisions are serialized
-with turn cancellation while JSONL drain and provider continuation stay
-outside that task lock. Startup closes every durable pending approval before
-recovering active turns, including a terminal turn whose prior denial failed.
-Turn start reuses the durable `AgentTurn` instead of adding a second delivery
-entity, ID, repository, store, and lifecycle. The accepted turn's `startedAt`
-is persisted immediately before the single provider call. No `startedAt`
-means the input is known unsent; a provider reference on a `RUNNING` turn
-confirms receipt; and an interrupted turn with `startedAt` but no provider
-reference is uncertain. An uncertain send retains the blocking turn and its
-mutation claim while the task remains `OPEN`; the UI derives recovery required
-and disables Send and Complete. Startup derives the same facts from the active
-turn and never resends it. This is a fail-closed ownership barrier, not a task
-state machine: `DefaultAgentTurnService` owns the live entry,
-`AgentMaintenance` reconstructs it after restart, and CP3 has no automatic
-retry. CP4's quiescence proof will own the only live exit; the guarded
-mark-failed action will own the terminal exit. Services remain stateless.
-CP10 must add only the minimum independent record required for steering or
-queued input, because those inputs are not one-to-one with a turn.
+**Completed (2026-09-01):** every repository-scoped task now owns one
+persisted immutable `TaskWorktree` created by the stateless synchronous
+`WorktreeService`. Interactive tasks, cherry-pick, CI Autofix, Branch Rebase,
+pull-request activation, and the CI shell entry point all use that boundary;
+the former checkout lease and cherry-pick-only worktree implementations are
+removed. Clean completion removes only the verified worktree and retains its
+generated branch. Dirty, open-operation, mismatched, or uncertain work is
+preserved without adding a worktree lifecycle state or destructive fallback.
+
+SQLite atomically commits each event-bearing lifecycle boundary with its
+bounded outbox event: accepted input and `TURN` claim, first session reference,
+delivery start, definite turn terminalization and claim release, restart
+interruption, approval request/resolution, legacy task failure, and task
+completion. JSONL, SSE, provider, and Git I/O stay outside the transaction.
+The outbox drains before provider delivery, provider callback resumption, or
+the startup serving gate opens. After terminal state commits, the completed
+provider handle remains only as an in-process retry token until terminal-event
+drain and pending-approval denial both succeed; a turn read or the next start
+retries those idempotent actions. Replay is idempotent across the JSONL
+flush/outbox-mark crash window and repairs an unterminated tail.
+
+The one optional task-local mutation claim is an ownership token, not a task
+state machine. A definite terminal result releases it in the same transaction
+as the lifecycle event. A send that crossed the provider invocation boundary
+without a durable provider reference remains an active uncertain turn with its
+`TURN` claim after restart and is never resent automatically. CP4 owns provider
+process quiescence; CP10 owns the minimum independent queue/steer facts.
 
 Implementation:
 
 - [x] Add `AgentUnitOfWork` backed by one SQLite transaction.
 - [x] Add `AgentEventOutboxStore` and its SQLite entity/store.
 - [x] Make `TaskLogStore` find/append idempotently by `eventId`.
-- [ ] Commit every state mutation and its bounded unsequenced event together.
-- [ ] Drain the committed outbox to JSONL before SSE publication or provider
+- [x] Commit every event-bearing lifecycle mutation and its bounded
+  unsequenced event together. Metrics, defaults, cancellation intent, and
+  retention bookkeeping do not manufacture unrelated lifecycle events.
+- [x] Drain the committed outbox to JSONL before SSE publication or provider
   callback completion.
 - [x] Drain pending outbox rows before agent endpoints become ready at startup.
 - [x] Add an explicit agent-serving gate: either complete recovery before the
@@ -721,16 +709,17 @@ Implementation:
   diagnostics may remain available. `ApplicationReadyEvent` alone is too late
   because the HTTP server is already listening.
 - [x] For `turn/start`, write bounded user-message bytes to a task-owned blob
-  before the SQLite transaction, then persist only bounded metadata and its
-  blob reference with the accepted turn before attempting provider delivery.
+  before the SQLite transaction, fsync both the file and its containing
+  directory, then persist only bounded metadata and its blob reference with the
+  accepted turn before attempting provider delivery.
   CP10 applies the same rule to `turn/steer`.
 - [x] For direct `turn/start`, derive known-unsent, sending, delivered, and
   unknown as projections of the existing turn state, `startedAt`, and provider
   reference; do not persist a second enum or automatically resend an uncertain
   turn.
-- [ ] When CP10 implements steering or queueing, add only their independently
-  required delivery fact; do not reintroduce a parallel delivery row for a
-  direct start.
+- [x] Keep steering and queue delivery facts outside CP3. CP10 adds only their
+  independently required fact and does not reintroduce a parallel delivery row
+  for a direct start.
 - [x] Persist approval requests before publishing cards and persist
   resolution/expiry before resuming the provider callback.
 - [x] Deny pending approvals durably on timeout, cancellation, terminal turn,
@@ -758,31 +747,31 @@ Implementation:
   from the public route in the same change.
 - [x] Re-probe readiness before every accepted turn; a failed probe creates no
   turn or delivery and leaves the ready worktree unchanged.
-- [ ] Replace `AgentWorkspaceService` and cherry-pick's private
+- [x] Replace `AgentWorkspaceService` and cherry-pick's private
   `CherryPickWorkspace` creation/removal with the shared service.
-- [ ] Keep cherry-pick and CI cancellation non-destructive: dirty or uncertain
+- [x] Keep cherry-pick and CI cancellation non-destructive: dirty or uncertain
   work remains in place, and the shared worktree service exposes no force or
   branch-delete operation.
-- [ ] Change CI Autofix to accept `workspaceId`, provision a fresh worktree at
+- [x] Change CI Autofix to accept `workspaceId`, provision a fresh worktree at
   the verified PR head, and stop adopting the cherry-pick worktree. Branch
   Rebase continues to borrow the CI task's `TaskWorktree`.
-- [ ] Change completed cherry-pick delivery to push the retained verified branch
+- [x] Change completed cherry-pick delivery to push the retained verified branch
   from the managed repository so the worktree can be removed at range
   completion.
-- [ ] Update `WorkspaceBranchPusher`, `ManagedWorkspaceGit`, and
+- [x] Update `WorkspaceBranchPusher`, `ManagedWorkspaceGit`, and
   `DefaultWorkspacePullRequestService` to verify and push that retained local
   ref without requiring a live checked-out worktree.
-- [ ] Remove both remaining CI path-adoption entry points: pull-request delivery
+- [x] Remove both remaining CI path-adoption entry points: pull-request delivery
   starts CI from `workspaceId`, and `scripts/ci-autofix` selects a managed
   workspace instead of submitting its current checkout. Update the shell docs
   and tests with that contract.
-- [ ] Update CI local-branch validation and Branch Rebase calls to use the
+- [x] Update CI local-branch validation and Branch Rebase calls to use the
   generated branch from the task's `TaskWorktree` and Git facts from
   `WorktreeService.inspect(worktree)`, while exact-lease
   push continues to target the authorized remote PR branch.
 - [x] Serialize worktree add/remove per managed repository while allowing
   distinct verified worktrees to run concurrently.
-- [ ] Add one task-local worktree mutation claim acquired by turn start, later
+- [x] Add one task-local worktree mutation claim acquired by turn start, later
   queue claims, or completion. Recovery preserves and reconciles the existing
   claim; it does not invent a separate recovery-claim kind.
 - [x] Serialize workspace unwatch against worktree provisioning so no
@@ -790,20 +779,58 @@ Implementation:
   race coverage rather than relying on a query-only busy check.
 - [x] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
   workspace fixture before activating the new public request.
-- [ ] Keep provider delivery/process uncertainty in the active turn and its
+- [x] Keep provider delivery/process uncertainty in the active turn and its
   retained `TURN` claim while the task stays `OPEN`. A worktree ownership
   mismatch is an operation error: preserve the path and report it without
   creating another task or worktree state.
-- [ ] Keep a dirty terminal worktree in place with task cleanup
-  `ACTION_REQUIRED`; cleanup must reject it without removing or modifying it.
-- [ ] Keep provider, Git, JSONL, and SSE calls outside SQLite transactions.
+- [x] Never release a recovered `TURN` claim solely because its matching turn
+  row is terminal; only the later provider-quiescence proof can make that
+  ownership safe to release.
+- [x] Refuse task terminalization while its worktree is dirty or has an open Git
+  operation. Leave the task `OPEN`, release a failed completion claim, and
+  preserve the worktree without adding an `ACTION_REQUIRED` state.
+- [x] Keep task terminalization free of filesystem removal. Workflow callers
+  keep both task and workflow terminal facts durable before worktree cleanup.
+  Success paths persist `task terminal -> workflow FINISHED -> cleanup`;
+  cherry-pick cancellation first ensures the exact preassigned task exists,
+  then persists its explicit `CANCELLED` result before attempting to complete
+  the task, so a restart never has to infer cancellation from task state or
+  pending-item count. A post-write completion
+  refusal is logged without failing the already-durable cancellation response;
+  the worktree is preserved. Successful physical removal records one nullable
+  task fact. Policy-scoped workflow monitors cross-check `FINISHED` before
+  retrying a live task or cleanup, apply their batch limit only after that
+  cross-check so an absent or nonterminal workflow cannot starve a later
+  finished one, and use the task's existing `updatedAt` for one-minute failure
+  backoff. Both cleanup entry points drain pending task outbox events before
+  physical removal. Generic retention excludes managed workflow-policy tasks
+  until their monitor has recorded successful worktree removal, then retries
+  cleanup before deleting runtime resources. Do not add a cleanup lifecycle
+  state or global startup scan that could cross this crash barrier.
+- [x] Keep provider, Git, JSONL, and SSE calls outside SQLite transactions.
+- [x] Preassign and durably link the task ID before CI Autofix or cherry-pick
+  task provisioning. Persist the original physical repository and starting
+  commit/path facts, and let start and monitor use one idempotent ensure path.
+  A concurrent creator is adopted only after every frozen fact matches; a
+  legacy row missing both task and routing facts is preserved and rejected.
+  Paused CI monitor passes and both workflow cancellation paths also run that
+  same ensure operation before terminalizing, so the row-to-task crash gap
+  remains retryable without another lifecycle state. CI HTTP reads project the
+  gap as `PREPARING_AGENT` with no task metrics or generated branch.
+  An ordinary CI task-provisioning failure is surfaced while the inserted run
+  remains `ACTIVE` with its exact task ID; it does not write a terminal or
+  paused result across an unverified gap. Repeated start or monitor advance
+  retries ensure and then continues the normal flow.
+- [x] Scope direct interactive completion and cleanup by both `workspaceId`
+  and `getInteractive(...)`, so workflow-owned tasks cannot bypass their
+  workflow `FINISHED` barrier through the generic controller.
 
 Exit gate:
 
-- [ ] Crash tests around state commit, JSONL flush, and outbox mark yield one
+- [x] Crash tests around state commit, JSONL flush, and outbox mark yield one
   `eventId` and one sequence with no missing state event.
 - [x] Replay always contains the accepted user input before provider output.
-- [ ] Reconnect from the last sequence loses and duplicates no event.
+- [x] Reconnect from the last sequence loses and duplicates no event.
 - [x] A resolved/expired approval never reappears as pending after reload.
 - [x] Two live tasks derive distinct canonical worktree paths and branches.
 - [x] Provisioning tests prove success returns only a fully verified worktree;
@@ -811,17 +838,44 @@ Exit gate:
 - [x] Cleanup tests prove ownership mismatch, dirty state, or an open Git
   operation fails without removal; clean cleanup uses no force, removes only
   the verified worktree, and retains the generated branch.
-- [ ] Completed cherry-pick delivery works from the retained branch after its
+- [x] Cherry-pick success and CI-green regressions prove task completion
+  precedes durable workflow `FINISHED`; cancellation regressions prove the
+  explicit `FINISHED/CANCELLED` result may be written first. Every path proves
+  worktree cleanup runs only after both records are terminal.
+- [x] Crash regressions prove an active green CI run with an already-completed
+  task and a finished cancelled cherry-pick with a still-live task reconcile to
+  the same terminal result. Workflow monitors retry task completion or cleanup
+  until successful removal is recorded, with a one-minute `updatedAt` backoff
+  so a persistent failure neither hot-loops nor starves another candidate.
+- [x] Cleanup regressions prove committed terminal outbox events drain before
+  workflow worktree or retention removal, failed drain preserves both worktree
+  and runtime files, workflow batching cannot be blocked by an unmatched older
+  task, and generic retention cannot cross a workflow's `FINISHED` barrier.
+- [x] Retention cleanup uses the same existing update timestamp for a bounded
+  retry delay and oldest-eligible ordering, so a failed batch head cannot
+  starve a later due task.
+- [x] Completed cherry-pick delivery works from the retained branch after its
   worktree is gone, and CI Autofix uses a fresh worktree at the verified PR
   head.
-- [ ] Concurrent Send and Complete yield exactly one mutation claim.
-- [ ] Startup serves no agent mutation endpoint before event-outbox and owned
-  provider-process recovery finishes, and no task/event read or SSE stream
-  exposes partially reconciled execution facts. There is no worktree startup
-  scan.
+- [x] Start-crash regressions prove CI Autofix and cherry-pick recover their
+  preassigned task without allocating another identity, reject a changed
+  selected repository, and tolerate a create race by rereading and validating
+  the exact winning task.
+- [x] Cancellation regressions prove both workflows close the row-to-task
+  start-crash gap before writing a terminal result, while an unverifiable gap
+  keeps the workflow retryable. A paused dirty CI worktree remains paused
+  instead of attempting a second pause transition.
+- [x] HTTP regressions prove wrong-workspace and noninteractive task IDs cannot
+  call direct complete or cleanup.
+- [x] Competing Send and Complete observations yield exactly one mutation claim;
+  the optimistic task row rejects the stale claimant.
+- [x] Startup serves no agent task/event read, mutation, or SSE endpoint before
+  outbox, approval, active-turn, and mutation-claim reconciliation finishes.
+  There is no worktree startup scan. Owned provider-process recovery remains
+  the CP4 gate.
 - [x] HTTP tests prove workspace-scoped list/read, route/task mismatch rejection,
   path-free creation, and narrowed task/turn responses after activation.
-- [ ] Backend verification plus shared workflow regression suites pass.
+- [x] Backend verification plus shared workflow regression suites pass.
 
 Primary files:
 

@@ -13,27 +13,30 @@
  */
 package com.bytequay.agent.core;
 
-import java.nio.file.Path;
-import java.util.Optional;
+import java.time.Instant;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record WorkspaceSnapshot(
-        Path worktree,
-        RepositoryIdentity repository,
-        Optional<String> branch,
-        String head,
-        boolean dirty)
+/** Identifies the one operation currently allowed to mutate a task worktree. */
+public record WorktreeMutationClaim(Kind kind, String ownerId, Instant acquiredAt)
 {
-    public WorkspaceSnapshot
+    public WorktreeMutationClaim
     {
-        requireNonNull(worktree, "worktree is null");
-        requireNonNull(repository, "repository is null");
-        checkOptionalText(branch, "branch");
-        checkNotBlank(head, "head");
-        checkArgument(worktree.isAbsolute(), "worktree is not absolute");
+        requireNonNull(kind, "kind is null");
+        checkNotBlank(ownerId, "ownerId");
+        requireNonNull(acquiredAt, "acquiredAt is null");
+    }
+
+    public static WorktreeMutationClaim turn(TurnId turnId, Instant acquiredAt)
+    {
+        requireNonNull(turnId, "turnId is null");
+        return new WorktreeMutationClaim(Kind.TURN, turnId.toString(), acquiredAt);
+    }
+
+    public enum Kind
+    {
+        TURN,
+        COMPLETION
     }
 }

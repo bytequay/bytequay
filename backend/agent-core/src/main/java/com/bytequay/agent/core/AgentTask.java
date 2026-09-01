@@ -38,6 +38,7 @@ public record AgentTask(
         Optional<TaskWorktree> taskWorktree,
         AgentTaskDefaults defaults,
         TaskState state,
+        Optional<WorktreeMutationClaim> worktreeMutationClaim,
         long version,
         Instant createdAt,
         Instant updatedAt,
@@ -46,6 +47,7 @@ public record AgentTask(
         Optional<AgentSessionRef> sessionReference,
         TaskMetrics metrics,
         Optional<TaskSummary> summary,
+        Optional<Instant> worktreeRemovedAt,
         CleanupState cleanupState,
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure)
@@ -62,6 +64,7 @@ public record AgentTask(
         requireNonNull(taskWorktree, "taskWorktree is null");
         requireNonNull(defaults, "defaults is null");
         requireNonNull(state, "state is null");
+        requireNonNull(worktreeMutationClaim, "worktreeMutationClaim is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(terminalAt, "terminalAt is null");
@@ -69,6 +72,7 @@ public record AgentTask(
         requireNonNull(sessionReference, "sessionReference is null");
         requireNonNull(metrics, "metrics is null");
         requireNonNull(summary, "summary is null");
+        requireNonNull(worktreeRemovedAt, "worktreeRemovedAt is null");
         requireNonNull(cleanupState, "cleanupState is null");
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
@@ -91,7 +95,9 @@ public record AgentTask(
         checkArgument((state == TaskState.COMPLETED) == summary.isPresent(), "summary and task state disagree");
         checkArgument(summary.stream().allMatch(value -> value.metrics().equals(metrics)), "summary metrics and task metrics disagree");
         checkArgument(terminalAt.isEmpty() || deleteAfter.orElseThrow().isAfter(terminalAt.orElseThrow()), "deleteAfter must be after terminalAt");
+        checkArgument(worktreeRemovedAt.isEmpty() || state.terminal(), "a live task cannot have a removed worktree");
         checkArgument(state.terminal() || cleanupState == CleanupState.RETAINED, "a live task cannot enter cleanup");
+        checkArgument(!state.terminal() || worktreeMutationClaim.isEmpty(), "a terminal task cannot retain a worktree mutation claim");
         checkArgument((cleanupState == CleanupState.RETRY_PENDING) == cleanupFailure.isPresent(), "cleanupFailure and cleanupState disagree");
     }
 
@@ -117,6 +123,7 @@ public record AgentTask(
                 Optional.empty(),
                 defaults,
                 TaskState.OPEN,
+                Optional.empty(),
                 0,
                 now,
                 now,
@@ -124,6 +131,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 TaskMetrics.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
@@ -151,6 +159,7 @@ public record AgentTask(
                 Optional.of(taskWorktree),
                 defaults,
                 TaskState.OPEN,
+                Optional.empty(),
                 0,
                 now,
                 now,
@@ -158,6 +167,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 TaskMetrics.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
@@ -194,12 +204,33 @@ public record AgentTask(
 
     public AgentTask complete(TaskSummary completedSummary, Instant completedAt, Instant deletionDeadline)
     {
+        checkState(worktreeMutationClaim.isEmpty(), "task has a worktree mutation claim");
+        return completed(completedSummary, completedAt, deletionDeadline);
+    }
+
+    public AgentTask complete(
+            TaskSummary completedSummary,
+            Instant completedAt,
+            Instant deletionDeadline,
+            WorktreeMutationClaim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        checkState(worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
+        return completed(completedSummary, completedAt, deletionDeadline);
+    }
+
+    private AgentTask completed(
+            TaskSummary completedSummary,
+            Instant completedAt,
+            Instant deletionDeadline)
+    {
         requireState(TaskState.OPEN);
         requireNonNull(completedSummary, "completedSummary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
         return copy(
                 TaskState.COMPLETED,
+                Optional.empty(),
                 version,
                 completedAt,
                 Optional.of(completedAt),
@@ -222,8 +253,10 @@ public record AgentTask(
             return this;
         }
         requireState(TaskState.OPEN);
+        checkState(worktreeMutationClaim.isEmpty(), "task has a worktree mutation claim");
         return copy(
                 TaskState.FAILED,
+                Optional.empty(),
                 version,
                 failedAt,
                 Optional.of(failedAt),
@@ -240,14 +273,14 @@ public record AgentTask(
     {
         requireNonNull(reference, "reference is null");
         checkState(!state.terminal(), "cannot update a terminal task session");
-        return copy(state, version, now, terminalAt, terminalReason, Optional.of(reference), metrics,
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, Optional.of(reference), metrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     public AgentTask withMetrics(TaskMetrics updatedMetrics, Instant now)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
-        return copy(state, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics,
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
@@ -268,6 +301,7 @@ public record AgentTask(
                 taskWorktree,
                 updatedDefaults,
                 state,
+                worktreeMutationClaim,
                 version,
                 createdAt,
                 now,
@@ -276,6 +310,7 @@ public record AgentTask(
                 sessionReference,
                 metrics,
                 summary,
+                worktreeRemovedAt,
                 cleanupState,
                 deleteAfter,
                 cleanupFailure);
@@ -283,7 +318,7 @@ public record AgentTask(
 
     public AgentTask withVersion(long updatedVersion)
     {
-        return copy(state, updatedVersion, updatedAt, terminalAt, terminalReason, sessionReference, metrics,
+        return copy(state, worktreeMutationClaim, updatedVersion, updatedAt, terminalAt, terminalReason, sessionReference, metrics,
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
@@ -293,12 +328,77 @@ public record AgentTask(
         checkOptionalText(failure, "failure");
         checkState(state.terminal(), "cannot clean up a live task");
         checkState(cleanupState.canTransitionTo(updatedState), "invalid cleanup transition: " + cleanupState + " -> " + updatedState);
-        return copy(state, version, now, terminalAt, terminalReason, sessionReference, metrics,
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics,
                 summary, updatedState, deleteAfter, failure);
+    }
+
+    public AgentTask withWorktreeRemovedAt(Instant removedAt)
+    {
+        requireNonNull(removedAt, "removedAt is null");
+        checkState(state.terminal(), "cannot remove a live task worktree");
+        checkArgument(!removedAt.isBefore(updatedAt), "removedAt is before the current update time");
+        if (worktreeRemovedAt.isPresent()) {
+            return this;
+        }
+        return new AgentTask(
+                id,
+                workspaceId,
+                interactive,
+                title,
+                laneId,
+                repository,
+                worktree,
+                taskWorktree,
+                defaults,
+                state,
+                worktreeMutationClaim,
+                version,
+                createdAt,
+                removedAt,
+                terminalAt,
+                terminalReason,
+                sessionReference,
+                metrics,
+                summary,
+                Optional.of(removedAt),
+                cleanupState,
+                deleteAfter,
+                cleanupFailure);
+    }
+
+    public AgentTask withWorktreeCleanupAttemptAt(Instant attemptedAt)
+    {
+        requireNonNull(attemptedAt, "attemptedAt is null");
+        checkState(state.terminal(), "cannot clean up a live task worktree");
+        checkState(worktreeRemovedAt.isEmpty(), "task worktree is already removed");
+        checkArgument(!attemptedAt.isBefore(updatedAt), "attemptedAt is before the current update time");
+        return copy(state, worktreeMutationClaim, version, attemptedAt, terminalAt, terminalReason, sessionReference, metrics,
+                summary, cleanupState, deleteAfter, cleanupFailure);
+    }
+
+    public AgentTask claimWorktreeMutation(WorktreeMutationClaim claim, Instant now)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(now, "now is null");
+        requireState(TaskState.OPEN);
+        checkState(worktreeMutationClaim.isEmpty(), "task already has a worktree mutation claim");
+        return copy(state, Optional.of(claim), version, now, terminalAt, terminalReason, sessionReference, metrics,
+                summary, cleanupState, deleteAfter, cleanupFailure);
+    }
+
+    public AgentTask releaseWorktreeMutation(WorktreeMutationClaim claim, Instant now)
+    {
+        requireNonNull(claim, "claim is null");
+        requireNonNull(now, "now is null");
+        requireState(TaskState.OPEN);
+        checkState(worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
+        return copy(state, Optional.empty(), version, now, terminalAt, terminalReason, sessionReference, metrics,
+                summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     private AgentTask copy(
             TaskState updatedState,
+            Optional<WorktreeMutationClaim> updatedWorktreeMutationClaim,
             long updatedVersion,
             Instant updateTime,
             Optional<Instant> updatedTerminalAt,
@@ -322,6 +422,7 @@ public record AgentTask(
                 taskWorktree,
                 defaults,
                 updatedState,
+                updatedWorktreeMutationClaim,
                 updatedVersion,
                 createdAt,
                 updateTime,
@@ -330,6 +431,7 @@ public record AgentTask(
                 updatedSessionReference,
                 updatedMetrics,
                 updatedSummary,
+                worktreeRemovedAt,
                 updatedCleanupState,
                 updatedDeleteAfter,
                 updatedCleanupFailure);

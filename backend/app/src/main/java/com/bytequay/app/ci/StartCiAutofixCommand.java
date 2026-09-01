@@ -14,15 +14,13 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.core.domain.PullRequestRef;
 
-import java.nio.file.Path;
-
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record StartCiAutofixCommand(
-        PullRequestRef pullRequest,
-        Path worktree,
+        String workspaceId,
+        int pullRequestNumber,
         AgentLaneId laneId,
         int maxAttempts,
         boolean allowFailedJobReruns,
@@ -32,8 +30,9 @@ public record StartCiAutofixCommand(
 {
     public StartCiAutofixCommand
     {
-        requireNonNull(pullRequest, "pullRequest is null");
-        requireNonNull(worktree, "worktree is null");
+        requireNonNull(workspaceId, "workspaceId is null");
+        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        checkArgument(pullRequestNumber > 0, "pullRequestNumber must be positive");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
     }

@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.persistence.sqlite.entity.AgentTaskEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -39,14 +40,39 @@ public interface AgentTaskJpaRepository
     @Query("""
             FROM AgentTaskEntity task
             WHERE task.state IN :terminalStates
+              AND task.permissionPolicy = :permissionPolicy
+              AND task.generatedBranch IS NOT NULL
+              AND task.worktreeRemovedAt IS NULL
               AND task.cleanupState <> :deleted
-              AND (task.deleteAfter <= :now OR task.cleanupState = :retryPending)
-            ORDER BY task.deleteAfter ASC
+              AND task.updatedAt <= :retryBefore
+            ORDER BY task.updatedAt ASC
+            """)
+    List<AgentTaskEntity> findPendingWorktreeCleanup(
+            @Param("terminalStates") Collection<TaskState> terminalStates,
+            @Param("permissionPolicy") AgentPermissionPolicy permissionPolicy,
+            @Param("deleted") CleanupState deleted,
+            @Param("retryBefore") Instant retryBefore);
+
+    @Query("""
+            FROM AgentTaskEntity task
+            WHERE task.state IN :terminalStates
+              AND task.cleanupState <> :deleted
+              AND task.deleteAfter <= :now
+              AND (task.cleanupState <> :retryPending OR task.updatedAt <= :retryBefore)
+              AND (
+                    task.interactive = true
+                    OR task.generatedBranch IS NULL
+                    OR task.worktreeRemovedAt IS NOT NULL
+                    OR task.permissionPolicy NOT IN :workflowPolicies
+              )
+            ORDER BY task.updatedAt ASC
             """)
     List<AgentTaskEntity> findCleanupDue(
             @Param("terminalStates") Collection<TaskState> terminalStates,
             @Param("deleted") CleanupState deleted,
             @Param("retryPending") CleanupState retryPending,
+            @Param("workflowPolicies") Collection<AgentPermissionPolicy> workflowPolicies,
             @Param("now") Instant now,
+            @Param("retryBefore") Instant retryBefore,
             Pageable pageable);
 }

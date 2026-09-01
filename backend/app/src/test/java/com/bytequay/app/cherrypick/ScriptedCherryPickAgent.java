@@ -25,22 +25,27 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
+import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.spi.CostProvenance;
 import com.google.common.collect.ImmutableList;
 
-import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * A scripted agent: each turn runs one action against the worktree and ends in
@@ -54,17 +59,22 @@ final class ScriptedCherryPickAgent
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
 
-    private final Path worktree;
+    private final WorktreeService worktrees;
     private final Deque<Turn> script = new ArrayDeque<>();
     private final List<String> prompts = new ArrayList<>();
     private final List<AgentTurn> started = new ArrayList<>();
     private Runnable beforeTaskCreate = () -> {};
+    private Optional<Runnable> beforeNextCompletion = Optional.empty();
+    private Optional<Runnable> beforeNextCleanup = Optional.empty();
     private AgentTask task;
     private boolean completed;
+    private boolean terminalizeOnComplete;
+    private Optional<RuntimeException> completionFailure = Optional.empty();
+    private Optional<RuntimeException> cleanupFailure = Optional.empty();
 
-    ScriptedCherryPickAgent(Path worktree)
+    ScriptedCherryPickAgent(WorktreeService worktrees)
     {
-        this.worktree = worktree;
+        this.worktrees = requireNonNull(worktrees, "worktrees is null");
     }
 
     /** Queues one turn: what it does to the worktree, and how it ends. */
@@ -90,6 +100,36 @@ final class ScriptedCherryPickAgent
         return this;
     }
 
+    ScriptedCherryPickAgent failNextCleanup(RuntimeException failure)
+    {
+        cleanupFailure = Optional.of(requireNonNull(failure, "failure is null"));
+        return this;
+    }
+
+    ScriptedCherryPickAgent beforeNextCompletion(Runnable action)
+    {
+        beforeNextCompletion = Optional.of(requireNonNull(action, "action is null"));
+        return this;
+    }
+
+    ScriptedCherryPickAgent beforeNextCleanup(Runnable action)
+    {
+        beforeNextCleanup = Optional.of(requireNonNull(action, "action is null"));
+        return this;
+    }
+
+    ScriptedCherryPickAgent terminalizeOnComplete()
+    {
+        terminalizeOnComplete = true;
+        return this;
+    }
+
+    ScriptedCherryPickAgent failNextCompletion(RuntimeException failure)
+    {
+        completionFailure = Optional.of(requireNonNull(failure, "failure is null"));
+        return this;
+    }
+
     @Override
     public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
     {
@@ -99,36 +139,34 @@ final class ScriptedCherryPickAgent
     @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
-        beforeTaskCreate.run();
-        task = new AgentTask(
-                TaskId.random(),
-                Optional.empty(),
+        TaskWorktree worktree = worktrees.provision(new ProvisionWorktreeCommand(
+                command.taskId(),
+                command.workspaceId(),
+                command.physicalRepository(),
+                command.startCommit()));
+        Runnable callback = beforeTaskCreate;
+        beforeTaskCreate = () -> {};
+        callback.run();
+        if (task != null) {
+            throw new AgentConflictException("Task already exists: " + command.taskId());
+        }
+        task = AgentTask.created(
+                command.taskId(),
                 false,
                 command.title(),
                 command.laneId(),
-                command.repository(),
-                command.worktree(),
-                Optional.empty(),
+                worktree,
                 command.defaults(),
-                com.bytequay.agent.core.TaskState.OPEN,
-                0,
-                NOW,
-                NOW,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                new com.bytequay.agent.core.TaskMetrics(
-                        0, 0, 0, Optional.empty(), CostProvenance.UNAVAILABLE, java.time.Duration.ZERO),
-                Optional.empty(),
-                com.bytequay.agent.core.CleanupState.RETAINED,
-                Optional.empty(),
-                Optional.empty());
+                NOW);
         return task;
     }
 
     @Override
     public AgentTask get(TaskId taskId)
     {
+        if (task == null || !task.id().equals(taskId)) {
+            throw new AgentTaskNotFoundException(taskId);
+        }
         return task;
     }
 
@@ -182,8 +220,31 @@ final class ScriptedCherryPickAgent
     @Override
     public com.bytequay.agent.core.TaskCompletion complete(CompleteAgentTaskCommand command)
     {
+        beforeNextCompletion.ifPresent(Runnable::run);
+        beforeNextCompletion = Optional.empty();
+        if (completionFailure.isPresent()) {
+            RuntimeException failure = completionFailure.orElseThrow();
+            completionFailure = Optional.empty();
+            throw failure;
+        }
         completed = true;
+        if (terminalizeOnComplete && !task.state().terminal()) {
+            task = task.fail("scripted completion", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)));
+        }
         return null;
+    }
+
+    @Override
+    public void cleanupWorktree(TaskId taskId)
+    {
+        beforeNextCleanup.ifPresent(Runnable::run);
+        beforeNextCleanup = Optional.empty();
+        if (cleanupFailure.isPresent()) {
+            RuntimeException failure = cleanupFailure.orElseThrow();
+            cleanupFailure = Optional.empty();
+            throw failure;
+        }
+        worktrees.cleanup(task.taskWorktree().orElseThrow());
     }
 
     @Override

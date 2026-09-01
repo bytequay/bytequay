@@ -14,7 +14,9 @@
 package com.bytequay.app.web.ci;
 
 import com.bytequay.agent.core.AgentMetricsService;
-import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.ci.CiAutofixService;
@@ -22,7 +24,6 @@ import com.bytequay.app.ci.SendCiAutofixMessageCommand;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.domain.PullRequestRef;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,8 +35,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -47,11 +48,16 @@ public class CiAutofixController
 {
     private final CiAutofixService service;
     private final AgentMetricsService metricsService;
+    private final AgentTaskService taskService;
 
-    public CiAutofixController(CiAutofixService service, AgentMetricsService metricsService)
+    public CiAutofixController(
+            CiAutofixService service,
+            AgentMetricsService metricsService,
+            AgentTaskService taskService)
     {
         this.service = requireNonNull(service, "service is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
+        this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
     @PostMapping
@@ -60,13 +66,11 @@ public class CiAutofixController
             @RequestBody StartRequest request)
     {
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        requireNotBlank(request.repository(), "repository must not be blank");
-        requireNotBlank(request.worktree(), "worktree must not be blank");
+        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
         requireNotBlank(request.laneId(), "laneId must not be blank");
-        RepositoryIdentity repository = RepositoryIdentity.valueOf(request.repository());
         CiAutofixRun run = service.start(new StartCiAutofixCommand(
-                PullRequestRef.of(repository.owner(), repository.name(), request.pullRequestNumber()),
-                Path.of(request.worktree()),
+                request.workspaceId(),
+                request.pullRequestNumber(),
                 new AgentLaneId(request.laneId()),
                 request.maxAttempts(),
                 request.allowFailedJobReruns(),
@@ -111,15 +115,28 @@ public class CiAutofixController
 
     private CiAutofixHttpModels.RunResponse response(CiAutofixRun run)
     {
+        Optional<AgentTask> task = run.agentTaskId()
+                .map(TaskId::valueOf)
+                .flatMap(this::findTask);
         return CiAutofixHttpModels.run(
                 run,
-                run.agentTaskId().map(TaskId::valueOf).map(metricsService::taskTotals));
+                task.map(value -> metricsService.taskTotals(value.id())),
+                task.flatMap(value -> value.taskWorktree().map(worktree -> worktree.generatedBranch())));
+    }
+
+    private Optional<AgentTask> findTask(TaskId taskId)
+    {
+        try {
+            return Optional.of(taskService.get(taskId));
+        }
+        catch (AgentTaskNotFoundException ignored) {
+            return Optional.empty();
+        }
     }
 
     public record StartRequest(
-            String repository,
+            String workspaceId,
             int pullRequestNumber,
-            String worktree,
             String laneId,
             int maxAttempts,
             boolean allowFailedJobReruns,

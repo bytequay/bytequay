@@ -193,6 +193,11 @@ final class DeterministicAgentDriver
         requireCurrentTurn().complete(response);
     }
 
+    synchronized void failCompletion(RuntimeException failure)
+    {
+        requireCurrentTurn().failCompletion(failure);
+    }
+
     synchronized List<AgentSessionRef> openedReferences()
     {
         return ImmutableList.copyOf(openedReferences);
@@ -374,6 +379,12 @@ final class DeterministicAgentDriver
                     Optional.of(response),
                     Optional.empty(),
                     Duration.ZERO));
+        }
+
+        private void failCompletion(RuntimeException failure)
+        {
+            checkState(!completion.isDone(), "deterministic turn is already complete");
+            completion.completeExceptionally(failure);
         }
     }
 }

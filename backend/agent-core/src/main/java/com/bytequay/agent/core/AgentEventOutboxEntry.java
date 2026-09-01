@@ -16,6 +16,7 @@ package com.bytequay.agent.core;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -39,5 +40,40 @@ public record AgentEventOutboxEntry(
         requireNonNull(occurredAt, "occurredAt is null");
         requireNonNull(sequence, "sequence is null");
         checkArgument(sequence.stream().allMatch(value -> value > 0), "sequence must be positive");
+    }
+
+    public static AgentEventOutboxEntry pendingInline(
+            EventId eventId,
+            TaskId taskId,
+            Optional<TurnId> turnId,
+            AgentEventSource source,
+            AgentEventPayload payload,
+            Instant occurredAt)
+    {
+        return new AgentEventOutboxEntry(
+                eventId,
+                taskId,
+                turnId,
+                source,
+                new AgentEventOutboxPayload.Inline(payload),
+                occurredAt,
+                Optional.empty());
+    }
+
+    public static AgentEventOutboxEntry pendingLifecycle(
+            EventId eventId,
+            TaskId taskId,
+            Optional<TurnId> turnId,
+            AgentEventPayload.LifecyclePhase phase,
+            String message,
+            Instant occurredAt)
+    {
+        return pendingInline(
+                eventId,
+                taskId,
+                turnId,
+                root(),
+                new AgentEventPayload.Lifecycle(phase, message),
+                occurredAt);
     }
 }

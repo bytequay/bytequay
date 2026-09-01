@@ -25,4 +25,6 @@ public interface WorkspaceJpaRepository
     List<WorkspaceEntity> findAllByOrderByDisplayOrderAscCreatedAtAsc();
 
     Optional<WorkspaceEntity> findBySelectedRepositoryId(long selectedRepositoryId);
+
+    Optional<WorkspaceEntity> findByLocalRepositoryPath(String localRepositoryPath);
 }

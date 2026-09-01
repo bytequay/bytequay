@@ -708,7 +708,13 @@ class TestDefaultAgentEventService
         }
 
         @Override
-        public List<AgentTask> listCleanupDue(Instant now, int limit)
+        public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
+        public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
         {
             return ImmutableList.of();
         }

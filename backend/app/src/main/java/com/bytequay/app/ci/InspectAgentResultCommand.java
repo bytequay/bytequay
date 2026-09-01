@@ -25,7 +25,7 @@ import static java.util.Objects.requireNonNull;
 public record InspectAgentResultCommand(
         Path worktree,
         RepositoryIdentity repository,
-        String headRef,
+        String localBranch,
         String inputSha,
         String baseSha)
 {
@@ -34,7 +34,7 @@ public record InspectAgentResultCommand(
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         requireNonNull(repository, "repository is null");
-        checkText(headRef, "headRef", 255);
+        checkText(localBranch, "localBranch", 255);
         checkSha(inputSha, "inputSha");
         checkSha(baseSha, "baseSha");
     }

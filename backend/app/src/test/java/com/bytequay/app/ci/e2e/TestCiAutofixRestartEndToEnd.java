@@ -37,17 +37,24 @@ import com.bytequay.app.ci.FixupPositionCheck;
 import com.bytequay.app.ci.InspectAgentResultCommand;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.ci.SynchronizeCiBaseCommand;
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
+import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspaceProvisioningResult;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -111,14 +118,13 @@ class TestCiAutofixRestartEndToEnd
                     first.getBean(ScriptedGitHubActionsClient.class),
                     first.getBean(ScriptedAgentDriver.class));
             CiAutofixE2eHarness harness = harness(first, scripts);
-            fixture = harness.createFixture(temporaryDirectory.resolve("git"), "restart");
+            fixture = harness.createFixture("restart");
             E2eGitRepository repository = fixture.repository();
             harness.scriptPrimaryJourney(fixture);
             scripts.agent().enqueueCompleted(
                     repository.pullRequest(),
-                    repository.worktree(),
                     "Root cause: compilation missed a generated value. The fixup is ready.",
-                    ignored -> repository.createPositionedFixup("restart-fix.txt", "fixed\n"),
+                    worktree -> repository.createPositionedFixup(worktree, "restart-fix.txt", "fixed\n"),
                     "restart-local-check",
                     Optional.of("compile"),
                     Optional.of("restart-fix.txt"));
@@ -193,8 +199,12 @@ class TestCiAutofixRestartEndToEnd
             assertThat(fixture.repository().headRefUpdates()).isEqualTo(branchWrites + 1);
             assertThat(fixture.repository().commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
             assertThat(Files.readString(rawLog)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
-            assertThat(events.readAfter(taskId, 0, 100)).extracting(event -> event.sequence())
-                    .containsExactlyElementsOf(eventSequences);
+            List<Long> recoveredEventSequences = events.readAfter(taskId, 0, 100).stream()
+                    .map(event -> event.sequence())
+                    .collect(toImmutableList());
+            assertThat(recoveredEventSequences).startsWith(eventSequences.toArray(Long[]::new));
+            assertThat(recoveredEventSequences).hasSize(eventSequences.size() + 1);
+            assertThat(recoveredEventSequences.getLast()).isEqualTo(eventSequences.getLast() + 1);
             assertThat(metrics.taskTotals(taskId)).isEqualTo(metricsBeforeRestart);
             CiMemoryView memoryAfterRestart = memory.read(new ReadCiMemoryCommand(taskId, Optional.of("compile")));
             assertThat(memoryAfterRestart.matchedSections()).isPositive();
@@ -234,6 +244,7 @@ class TestCiAutofixRestartEndToEnd
                 "--spring.datasource.url=jdbc:sqlite:" + database + "?foreign_keys=ON",
                 "--spring.jpa.hibernate.ddl-auto=" + ddlMode,
                 "--bytequay.agent.runtime-root=" + runtimeRoot,
+                "--bytequay.workspace.root=" + runtimeRoot.resolveSibling("workspaces"),
                 "--bytequay.agent.codex-enabled=false",
                 "--bytequay.agent.claude-enabled=false",
                 "--bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
@@ -261,6 +272,8 @@ class TestCiAutofixRestartEndToEnd
                 context.getBean(AgentResourceService.class),
                 context.getBean(PullRequestJpaRepository.class),
                 context.getBean(PrDetailStore.class),
+                context.getBean(WorkspaceStore.class),
+                context.getBean(WorkspacePaths.class),
                 context.getBean(Clock.class));
     }
 
@@ -308,6 +321,11 @@ class TestCiAutofixRestartEndToEnd
         public void initialize(GenericApplicationContext context)
         {
             context.registerBean(
+                    "restartGitCommandRunner",
+                    GitCommandRunner.class,
+                    RoutedGitCommandRunner::new,
+                    bean -> bean.setPrimary(true));
+            context.registerBean(
                     ScriptedGitHubActionsClient.class,
                     () -> scripts.map(Scripts::gitHub)
                             .orElseGet(() -> new ScriptedGitHubActionsClient(context.getBean(TaskLogStore.class))),
@@ -343,6 +361,26 @@ class TestCiAutofixRestartEndToEnd
                         public UserProfile fetchUserProfile(String pat)
                         {
                             return new UserProfile("author", "Author", "", "", 0, 0, 0, "", "", "", "");
+                        }
+                    },
+                    bean -> bean.setPrimary(true));
+            context.registerBean(
+                    "restartWorkspaceProvisioningService",
+                    WorkspaceProvisioningService.class,
+                    () -> new WorkspaceProvisioningService()
+                    {
+                        @Override
+                        public WorkspaceProvisioningResult provision(String workspaceId)
+                        {
+                            WorkspaceStore store = context.getBean(WorkspaceStore.class);
+                            return WorkspaceProvisioningResult.success(store.findById(workspaceId).orElseThrow());
+                        }
+
+                        @Override
+                        public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
+                        {
+                            WorkspaceStore store = context.getBean(WorkspaceStore.class);
+                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow());
                         }
                     },
                     bean -> bean.setPrimary(true));
@@ -391,11 +429,11 @@ class TestCiAutofixRestartEndToEnd
             pushCalls++;
             CiPushResult result = delegate.push(command);
             checkState(result.outcome() == CiPushResult.Outcome.PUSHED, "test push did not succeed: %s", result);
-            String remoteHead = E2eGitRepository.git(
+            String remoteHead = E2eGitRepository.routedGit(
                     command.worktree(),
                     "ls-remote",
-                    "origin",
-                    "refs/heads/" + command.headRef()).split("\\s+", 2)[0];
+                    command.remote(),
+                    "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
             checkState(remoteHead.equals(command.journal().localHeadSha()), "remote did not receive the journaled SHA");
             return pushCalls == 1
                     ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result")

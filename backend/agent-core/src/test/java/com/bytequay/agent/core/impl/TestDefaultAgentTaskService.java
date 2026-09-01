@@ -19,7 +19,6 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -30,8 +29,6 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
-import com.bytequay.agent.core.WorkspaceLease;
-import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -65,7 +62,6 @@ class TestDefaultAgentTaskService
     private Path temporaryDirectory;
 
     private InMemoryAgentStores stores;
-    private RecordingWorkspaceService workspace;
     private RecordingWorktreeService managedWorktrees;
     private RecordingResourceService resources;
     private DeterministicAgentDriver driver;
@@ -75,14 +71,12 @@ class TestDefaultAgentTaskService
     void setUp()
     {
         stores = new InMemoryAgentStores();
-        workspace = new RecordingWorkspaceService(temporaryDirectory.resolve("worktree").toAbsolutePath());
         managedWorktrees = new RecordingWorktreeService(
                 temporaryDirectory.resolve("managed").toAbsolutePath());
         resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
         driver = new DeterministicAgentDriver();
         service = new DefaultAgentTaskService(
                 stores,
-                workspace,
                 managedWorktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
@@ -190,20 +184,20 @@ class TestDefaultAgentTaskService
     }
 
     @Test
-    void createsReadyTaskAndExposesDurableReads()
+    void createsInternalTaskWithManagedWorktreeAndExposesDurableReads()
     {
         AgentTask task = service.create(command());
 
         assertThat(task.state()).isEqualTo(TaskState.OPEN);
         assertThat(task.workspaceId()).contains(WORKSPACE_ID);
-        assertThat(task.interactive()).isTrue();
-        assertThat(task.worktree()).isEqualTo(workspace.worktree);
+        assertThat(task.interactive()).isFalse();
+        assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
         assertThat(resources.allocated).contains(task.id());
-        assertThat(workspace.released).isEmpty();
         assertThat(service.get(task.id())).isEqualTo(task);
-        assertThat(service.getInteractive(WORKSPACE_ID, task.id())).isEqualTo(task);
         assertThat(service.list(1)).containsExactly(task);
-        assertThat(service.list(WORKSPACE_ID, 1)).containsExactly(task);
+        assertThat(service.list(WORKSPACE_ID, 1)).isEmpty();
+        assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
+                .isInstanceOf(AgentTaskNotFoundException.class);
         assertThatThrownBy(() -> service.getInteractive("workspace-b", task.id()))
                 .isInstanceOf(AgentTaskNotFoundException.class);
         assertThatThrownBy(() -> service.list(0))
@@ -215,14 +209,7 @@ class TestDefaultAgentTaskService
     @Test
     void keepsInternalTasksOutOfWorkspaceReads()
     {
-        AgentTask task = service.create(new CreateAgentTaskCommand(
-                DeterministicAgentDriver.LANE_ID,
-                workspace.worktree,
-                REPOSITORY,
-                "Internal task",
-                AgentPermissionPolicy.AUTO,
-                Optional.empty(),
-                false));
+        AgentTask task = service.create(command());
 
         assertThat(service.list(WORKSPACE_ID, 10)).isEmpty();
         assertThatThrownBy(() -> service.getInteractive(WORKSPACE_ID, task.id()))
@@ -264,8 +251,7 @@ class TestDefaultAgentTaskService
                 .hasMessageContaining("unavailable");
         assertThat(resources.allocated).isEmpty();
         assertThat(resources.deleted).isEmpty();
-        assertThat(workspace.acquired).isEmpty();
-        assertThat(workspace.released).isEmpty();
+        assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
 
@@ -281,8 +267,7 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentUnavailableException.class);
         assertThat(resources.allocated).isEmpty();
         assertThat(resources.deleted).isEmpty();
-        assertThat(workspace.acquired).isEmpty();
-        assertThat(workspace.released).isEmpty();
+        assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
 
@@ -295,7 +280,7 @@ class TestDefaultAgentTaskService
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("partial allocation");
         assertThat(resources.deleted).containsExactlyElementsOf(resources.allocated);
-        assertThat(workspace.released).hasSize(1);
+        assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
     }
 
     @ParameterizedTest
@@ -307,7 +292,7 @@ class TestDefaultAgentTaskService
                 .hasMessageContaining("cannot enforce " + permissionPolicy);
 
         assertThat(resources.allocated).isEmpty();
-        assertThat(workspace.released).isEmpty();
+        assertThat(managedWorktrees.provisioned).isEmpty();
         assertThat(stores.tasks()).isEmpty();
     }
 
@@ -319,13 +304,13 @@ class TestDefaultAgentTaskService
     private CreateAgentTaskCommand command(AgentPermissionPolicy permissionPolicy)
     {
         return new CreateAgentTaskCommand(
+                TaskId.random(),
+                WORKSPACE_ID,
                 DeterministicAgentDriver.LANE_ID,
-                workspace.worktree,
                 REPOSITORY,
+                "0123456789012345678901234567890123456789",
                 "Test task",
-                permissionPolicy,
-                Optional.of(WORKSPACE_ID),
-                true);
+                AgentTaskDefaults.forPermission(permissionPolicy));
     }
 
     private CreateInteractiveAgentTaskCommand interactiveCommand(TaskId taskId)
@@ -380,49 +365,6 @@ class TestDefaultAgentTaskService
         public void cleanup(TaskWorktree worktree)
         {
             cleaned.add(worktree);
-        }
-    }
-
-    private static final class RecordingWorkspaceService
-            implements AgentWorkspaceService
-    {
-        private final Path worktree;
-        private final List<TaskId> acquired = new ArrayList<>();
-        private final List<TaskId> released = new ArrayList<>();
-
-        private RecordingWorkspaceService(Path worktree)
-        {
-            this.worktree = worktree;
-        }
-
-        @Override
-        public WorkspaceLease acquire(TaskId taskId, Path requestedPath, RepositoryIdentity repository)
-        {
-            acquired.add(taskId);
-            return new WorkspaceLease(taskId, worktree, () -> release(taskId));
-        }
-
-        @Override
-        public WorkspaceLease restore(TaskId taskId, Path canonicalWorktree, RepositoryIdentity repository)
-        {
-            return new WorkspaceLease(taskId, worktree, () -> release(taskId));
-        }
-
-        @Override
-        public WorkspaceSnapshot inspect(Path ignored)
-        {
-            return new WorkspaceSnapshot(
-                    worktree,
-                    REPOSITORY,
-                    Optional.of("main"),
-                    "0123456789012345678901234567890123456789",
-                    false);
-        }
-
-        @Override
-        public void release(TaskId taskId)
-        {
-            released.add(taskId);
         }
     }
 

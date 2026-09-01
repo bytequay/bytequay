@@ -33,6 +33,7 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -63,11 +64,32 @@ final class InMemoryAgentStores
     private RuntimeException approvalResolveFailure;
     private TurnState failingTurnUpdateState;
     private RuntimeException turnUpdateFailure;
+    private AgentEventPayload.Kind failingOutboxInsertKind;
+    private RuntimeException outboxInsertFailure;
 
     @Override
-    public <T> T execute(Work<T> work)
+    public synchronized <T> T execute(Work<T> work)
     {
-        return requireNonNull(work, "work is null").run();
+        requireNonNull(work, "work is null");
+        // Mirror SqliteAgentUnitOfWork rollback for this test double.
+        Map<TaskId, AgentTask> taskSnapshot = new HashMap<>(tasks);
+        Map<TurnId, AgentTurn> turnSnapshot = new HashMap<>(turns);
+        Map<ApprovalId, AgentApproval> approvalSnapshot = new LinkedHashMap<>(approvals);
+        Map<EventId, AgentEventOutboxEntry> outboxSnapshot = new LinkedHashMap<>(outbox);
+        try {
+            return work.run();
+        }
+        catch (RuntimeException | Error failure) {
+            tasks.clear();
+            tasks.putAll(taskSnapshot);
+            turns.clear();
+            turns.putAll(turnSnapshot);
+            approvals.clear();
+            approvals.putAll(approvalSnapshot);
+            outbox.clear();
+            outbox.putAll(outboxSnapshot);
+            throw failure;
+        }
     }
 
     @Override
@@ -147,14 +169,35 @@ final class InMemoryAgentStores
     }
 
     @Override
-    public synchronized List<AgentTask> listCleanupDue(Instant now, int limit)
+    public synchronized List<AgentTask> listPendingWorktreeCleanup(
+            AgentPermissionPolicy permissionPolicy,
+            Instant retryBefore)
+    {
+        return tasks.values().stream()
+                .filter(task -> task.state().terminal())
+                .filter(task -> task.permissionPolicy() == permissionPolicy)
+                .filter(task -> task.taskWorktree().isPresent())
+                .filter(task -> task.worktreeRemovedAt().isEmpty())
+                .filter(task -> task.cleanupState() != CleanupState.DELETED)
+                .filter(task -> !task.updatedAt().isAfter(retryBefore))
+                .sorted(Comparator.comparing(AgentTask::updatedAt))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
     {
         return tasks.values().stream()
                 .filter(task -> task.state().terminal())
                 .filter(task -> task.cleanupState() != CleanupState.DELETED)
-                .filter(task -> task.cleanupState() == CleanupState.RETRY_PENDING
-                        || task.deleteAfter().stream().anyMatch(deadline -> !deadline.isAfter(now)))
-                .sorted(Comparator.comparing(task -> task.deleteAfter().orElse(Instant.MAX)))
+                .filter(task -> task.deleteAfter().stream().anyMatch(deadline -> !deadline.isAfter(now)))
+                .filter(task -> task.cleanupState() != CleanupState.RETRY_PENDING || !task.updatedAt().isAfter(retryBefore))
+                .filter(task -> task.interactive()
+                        || task.taskWorktree().isEmpty()
+                        || task.worktreeRemovedAt().isPresent()
+                        || (task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX
+                        && task.permissionPolicy() != AgentPermissionPolicy.CHERRY_PICK))
+                .sorted(Comparator.comparing(AgentTask::updatedAt))
                 .limit(limit)
                 .collect(toImmutableList());
     }
@@ -309,6 +352,12 @@ final class InMemoryAgentStores
     @Override
     public synchronized void insert(AgentEventOutboxEntry entry)
     {
+        if (entry.payload().kind() == failingOutboxInsertKind) {
+            RuntimeException failure = outboxInsertFailure;
+            failingOutboxInsertKind = null;
+            outboxInsertFailure = null;
+            throw failure;
+        }
         if (outbox.putIfAbsent(entry.eventId(), entry) != null) {
             throw new AgentConflictException("Event already exists: " + entry.eventId());
         }
@@ -405,6 +454,12 @@ final class InMemoryAgentStores
     {
         failingTurnUpdateState = state;
         turnUpdateFailure = failure;
+    }
+
+    synchronized void failOutboxInsert(AgentEventPayload.Kind kind, RuntimeException failure)
+    {
+        failingOutboxInsertKind = requireNonNull(kind, "kind is null");
+        outboxInsertFailure = requireNonNull(failure, "failure is null");
     }
 
     synchronized void clearApprovalFindFailure()

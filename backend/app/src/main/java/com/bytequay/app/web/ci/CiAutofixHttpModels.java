@@ -29,17 +29,22 @@ final class CiAutofixHttpModels
 
     private CiAutofixHttpModels() {}
 
-    static RunResponse run(CiAutofixRun run, Optional<TaskMetrics> metrics)
+    static RunResponse run(
+            CiAutofixRun run,
+            Optional<TaskMetrics> metrics,
+            Optional<String> generatedLocalBranch)
     {
         return new RunResponse(
                 run.id().toString(),
+                run.scope().workspaceId(),
                 run.scope().pullRequest().repoFullName(),
                 run.scope().pullRequest().number(),
                 run.scope().author(),
                 run.scope().headRef(),
+                generatedLocalBranch,
                 run.scope().baseRef(),
                 run.status().name(),
-                activity(run),
+                activity(run, generatedLocalBranch.isPresent()),
                 run.version(),
                 run.createdAt(),
                 run.updatedAt(),
@@ -82,6 +87,11 @@ final class CiAutofixHttpModels
                 run.attempts().stream().map(CiAutofixHttpModels::attempt).collect(toImmutableList()));
     }
 
+    static RunResponse run(CiAutofixRun run, Optional<TaskMetrics> metrics)
+    {
+        return run(run, metrics, Optional.empty());
+    }
+
     private static AttemptResponse attempt(CiAutofixAttempt attempt)
     {
         return new AttemptResponse(
@@ -112,7 +122,7 @@ final class CiAutofixHttpModels
                 attempt.updatedAt());
     }
 
-    private static String activity(CiAutofixRun run)
+    private static String activity(CiAutofixRun run, boolean taskProvisioned)
     {
         if (run.status() == CiAutofixRun.Status.FINISHED) {
             return "FINISHED";
@@ -133,7 +143,7 @@ final class CiAutofixHttpModels
             return "RERUNNING_CI";
         }
         if (run.attempts().isEmpty()) {
-            return run.agentTaskId().isPresent() ? "WATCHING_CI" : "PREPARING_AGENT";
+            return taskProvisioned ? "WATCHING_CI" : "PREPARING_AGENT";
         }
         if (run.attempts().getLast().agentTurnId().isEmpty()) {
             return "PREPARING_AGENT";
@@ -153,10 +163,12 @@ final class CiAutofixHttpModels
 
     record RunResponse(
             String id,
+            String workspaceId,
             String repository,
             int pullRequestNumber,
             String author,
             String headRef,
+            Optional<String> generatedLocalBranch,
             String baseRef,
             String status,
             String activity,

@@ -15,7 +15,7 @@ package com.bytequay.app.rebase;
 
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.AgentWorkspaceService;
+import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
@@ -52,7 +52,7 @@ class TestBranchRebaseMonitorJob
         BranchRebaseService service = new BranchRebaseService(
                 store,
                 mock(AgentTaskService.class),
-                mock(AgentWorkspaceService.class),
+                mock(WorktreeService.class),
                 mock(AgentTurnService.class),
                 new RebaseSequencerDriver(git),
                 git,

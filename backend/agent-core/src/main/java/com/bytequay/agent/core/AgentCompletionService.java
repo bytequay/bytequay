@@ -16,9 +16,10 @@ package com.bytequay.agent.core;
 /**
  * Completes agent tasks and performs retention-aware runtime cleanup.
  *
- * <p>Completion stores the final summary and deletion deadline before releasing
- * the worktree. Cleanup removes ByteQuay-owned runtime resources only after the
- * deadline; a cleanup failure must not change the terminal task state or summary.
+ * <p>Completion stores the final summary and deletion deadline without changing
+ * the filesystem. The caller persists its own terminal result before requesting
+ * idempotent worktree removal. Runtime cleanup removes ByteQuay-owned resources
+ * only after the deadline; a cleanup failure must not change terminal facts.
  */
 public interface AgentCompletionService
 {
@@ -26,8 +27,9 @@ public interface AgentCompletionService
      * Closes an idle task and commits its durable final result.
      *
      * <p>The summary, completed state, terminal time, totals, and seven-day
-     * deletion deadline are committed together before the worktree lease is
-     * released. Runtime logs remain retained.
+     * deletion deadline are committed together. This method does not remove the
+     * worktree; callers invoke {@link #cleanupWorktree(TaskId)} only after their
+     * own terminal result is durable. Runtime logs remain retained.
      *
      * @param command task and optional user completion notes
      * @return durable completion summary and retention deadline
@@ -36,9 +38,21 @@ public interface AgentCompletionService
     TaskCompletion complete(CompleteAgentTaskCommand command);
 
     /**
-     * Deletes retained ByteQuay runtime resources after their deadline.
+     * Retries removal of a terminal task's verified clean worktree.
      *
-     * <p>The operation is idempotent. Deletion failure records
+     * <p>The generated branch is retained and the operation is idempotent when
+     * an earlier completion already removed the worktree.
+     *
+     * @param taskId terminal task whose worktree should be removed
+     * @throws AgentConflictException when the task is live or cleanup is unsafe
+     */
+    void cleanupWorktree(TaskId taskId);
+
+    /**
+     * Removes the terminal worktree and retained runtime resources after their deadline.
+     *
+     * <p>Worktree removal is retried before runtime deletion. The operation is
+     * idempotent. Any cleanup failure records
      * {@link CleanupState#RETRY_PENDING} without changing terminal task state or
      * summary.
      *

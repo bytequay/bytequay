@@ -26,6 +26,8 @@ public interface CherryPickExecutionJpaRepository
 {
     Optional<CherryPickExecutionEntity> findByStartIdempotencyKey(String startIdempotencyKey);
 
+    Optional<CherryPickExecutionEntity> findByAgentTaskId(String agentTaskId);
+
     List<CherryPickExecutionEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
     List<CherryPickExecutionEntity> findByStatusOrderByUpdatedAtAsc(Status status, Pageable pageable);

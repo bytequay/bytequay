@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
@@ -65,6 +66,12 @@ public class CherryPickExecutionEntity
 
     @Column(nullable = false)
     private String repositoryName;
+
+    // Nullable only for executions written before task provisioning became restart-safe.
+    private String physicalRepositoryOwner;
+
+    // Nullable only for executions written before task provisioning became restart-safe.
+    private String physicalRepositoryName;
 
     @Column(nullable = false)
     private String sourceRemote;
@@ -186,6 +193,8 @@ public class CherryPickExecutionEntity
         workspaceId = workspace.workspaceId().orElse(null);
         repositoryOwner = workspace.repository().owner();
         repositoryName = workspace.repository().repo();
+        physicalRepositoryOwner = workspace.physicalRepository().map(RepoRef::owner).orElse(null);
+        physicalRepositoryName = workspace.physicalRepository().map(RepoRef::repo).orElse(null);
         sourceRemote = workspace.sourceRemote();
         targetRemote = workspace.targetRemote();
         targetBranch = workspace.targetBranch();
@@ -229,6 +238,7 @@ public class CherryPickExecutionEntity
                 new Workspace(
                         Optional.ofNullable(workspaceId),
                         RepoRef.of(repositoryOwner, repositoryName),
+                        physicalRepository(),
                         sourceRemote,
                         targetRemote,
                         targetBranch,
@@ -262,6 +272,17 @@ public class CherryPickExecutionEntity
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
+    }
+
+    private Optional<RepoRef> physicalRepository()
+    {
+        if (physicalRepositoryOwner == null && physicalRepositoryName == null) {
+            return Optional.empty();
+        }
+        if (physicalRepositoryOwner == null || physicalRepositoryName == null) {
+            throw new AgentStorageException("Stored cherry-pick physical repository is incomplete: " + id);
+        }
+        return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
     }
 
     @Override

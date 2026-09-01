@@ -13,8 +13,14 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -119,7 +125,11 @@ class TestAgentHttpApi
     @Autowired
     private ModelSettingsService models;
 
+    @Autowired
+    private AgentTaskService tasks;
+
     private String workspaceId;
+    private Path repository;
 
     @BeforeEach
     void setUp()
@@ -128,7 +138,7 @@ class TestAgentHttpApi
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
-        Path repository = workspacePaths.repository(workspaceId);
+        repository = workspacePaths.repository(workspaceId);
         Files.createDirectories(repository);
         Files.writeString(
                 workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"),
@@ -246,6 +256,47 @@ class TestAgentHttpApi
     }
 
     @Test
+    void completesOnlyInteractiveTasksFromTheirWorkspace()
+            throws Exception
+    {
+        JsonNode interactive = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String interactiveTaskId = interactive.required("id").asText();
+
+        ResponseEntity<JsonNode> wrongWorkspace = post(
+                "/agent/tasks/" + interactiveTaskId + "/complete?workspaceId=another-workspace",
+                ImmutableMap.of(),
+                null);
+        assertThat(wrongWorkspace.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post(
+                "/agent/tasks/" + interactiveTaskId + "/cleanup?workspaceId=another-workspace",
+                ImmutableMap.of(),
+                null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(get("/agent/tasks/" + interactiveTaskId + "?workspaceId=" + workspaceId)
+                .getBody().required("state").asText()).isEqualTo("OPEN");
+
+        TaskId workflowTaskId = TaskId.random();
+        var workflowTask = tasks.create(new CreateAgentTaskCommand(
+                workflowTaskId,
+                workspaceId,
+                AgentLaneId.CODEX_CLI,
+                RepositoryIdentity.valueOf(REPOSITORY),
+                run("git", "-C", repository.toString(), "rev-parse", "--verify", "HEAD^{commit}"),
+                "Workflow-owned task",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO)));
+        ResponseEntity<JsonNode> nonInteractive = post(
+                "/agent/tasks/" + workflowTaskId + "/complete?workspaceId=" + workspaceId,
+                ImmutableMap.of(),
+                null);
+        assertThat(nonInteractive.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post(
+                "/agent/tasks/" + workflowTaskId + "/cleanup?workspaceId=" + workspaceId,
+                ImmutableMap.of(),
+                null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(tasks.get(workflowTaskId).state().name()).isEqualTo("OPEN");
+        assertThat(workflowTask.taskWorktree().orElseThrow().canonicalWorktree()).exists();
+    }
+
+    @Test
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {
@@ -277,15 +328,29 @@ class TestAgentHttpApi
 
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
         assertThat(events).isNotNull();
-        assertThat(events).hasSize(4);
+        assertThat(events).hasSize(9);
         assertThat(events)
                 .extracting(event -> event.get("type").asText())
-                .containsExactly("user_message", "assistant_message", "user_message", "assistant_message");
+                .containsExactly(
+                        "user_message",
+                        "lifecycle",
+                        "lifecycle",
+                        "assistant_message",
+                        "lifecycle",
+                        "user_message",
+                        "lifecycle",
+                        "assistant_message",
+                        "lifecycle");
         assertThat(events.get(0).get("payload").get("text").asText()).isEqualTo("first");
-        assertThat(events.get(1).get("payload").get("text").asText()).isEqualTo("deterministic: first");
-        assertThat(events.get(2).get("payload").get("text").asText()).isEqualTo("second");
-        assertThat(events.get(3).get("payload").get("text").asText()).isEqualTo("deterministic: second");
-        long firstSequence = events.get(1).get("sequence").asLong();
+        assertThat(events.get(1).get("payload").get("phase").asText()).isEqualTo("SESSION_OPENED");
+        assertThat(events.get(2).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
+        assertThat(events.get(3).get("payload").get("text").asText()).isEqualTo("deterministic: first");
+        assertThat(events.get(4).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
+        assertThat(events.get(5).get("payload").get("text").asText()).isEqualTo("second");
+        assertThat(events.get(6).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
+        assertThat(events.get(7).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(events.get(8).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
+        long firstSequence = events.get(4).get("sequence").asLong();
         assertThat(events.get(0).get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(events.get(0).get("eventId").asText()).isNotBlank();
         assertThat(events.get(0).get("source").isObject()).isTrue();
@@ -294,17 +359,21 @@ class TestAgentHttpApi
         JsonNode afterFirst = get("/agent/tasks/" + taskId + "/events?after=" + firstSequence + "&limit=10")
                 .getBody();
         assertThat(afterFirst).isNotNull();
-        assertThat(afterFirst).hasSize(2);
+        assertThat(afterFirst).hasSize(4);
         assertThat(afterFirst.get(0).get("type").asText()).isEqualTo("user_message");
         assertThat(afterFirst.get(0).get("payload").get("text").asText()).isEqualTo("second");
-        assertThat(afterFirst.get(1).get("type").asText()).isEqualTo("assistant_message");
-        assertThat(afterFirst.get(1).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(afterFirst.get(1).get("type").asText()).isEqualTo("lifecycle");
+        assertThat(afterFirst.get(1).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
+        assertThat(afterFirst.get(2).get("type").asText()).isEqualTo("assistant_message");
+        assertThat(afterFirst.get(2).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(afterFirst.get(3).get("type").asText()).isEqualTo("lifecycle");
+        assertThat(afterFirst.get(3).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
         JsonNode sseEvent = objectMapper.readTree(firstSseData(taskId, firstSequence));
         assertThat(sseEvent).isEqualTo(afterFirst.get(0));
 
         Map<String, String> completionRequest = ImmutableMap.of("notes", "ready for review");
         ResponseEntity<JsonNode> completion = post(
-                "/agent/tasks/" + taskId + "/complete",
+                "/agent/tasks/" + taskId + "/complete?workspaceId=" + workspaceId,
                 completionRequest,
                 null);
         assertThat(completion.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -340,7 +409,7 @@ class TestAgentHttpApi
         }
 
         ResponseEntity<JsonNode> earlyCleanup = post(
-                "/agent/tasks/" + taskId + "/cleanup",
+                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
                 ImmutableMap.of(),
                 null);
         assertThat(earlyCleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
@@ -494,7 +563,7 @@ class TestAgentHttpApi
         return "http://127.0.0.1:" + port + path;
     }
 
-    private static void run(String... command)
+    private static String run(String... command)
             throws IOException, InterruptedException
     {
         Process process = new ProcessBuilder(command)
@@ -503,5 +572,6 @@ class TestAgentHttpApi
         String output = new String(process.getInputStream().readAllBytes());
         int exitCode = process.waitFor();
         checkState(exitCode == 0, "Command failed: " + output);
+        return output.strip();
     }
 }

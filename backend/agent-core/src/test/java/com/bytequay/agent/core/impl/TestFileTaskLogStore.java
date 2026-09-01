@@ -345,6 +345,27 @@ class TestFileTaskLogStore
     }
 
     @Test
+    void removesBlobWhenParentDirectorySyncFails()
+            throws IOException
+    {
+        Path blobsDirectory = resources.require(taskId).blobsDirectory();
+        FileTaskLogStore failingStore = new FileTaskLogStore(resources, 4096, 8, directory -> {
+            assertThat(directory).isEqualTo(blobsDirectory);
+            try (var files = Files.list(directory)) {
+                assertThat(files.count()).isEqualTo(1);
+            }
+            throw new IOException("directory sync failed");
+        });
+
+        assertThatThrownBy(() -> failingStore.writeBlob(taskId, ByteBuffer.wrap(new byte[] {1, 2, 3}), "application/octet-stream"))
+                .isInstanceOf(AgentStorageException.class)
+                .hasRootCauseMessage("directory sync failed");
+        try (var files = Files.list(blobsDirectory)) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    @Test
     void rejectsUnsafeOrUnboundedBlobReads()
             throws IOException
     {

@@ -81,7 +81,7 @@ class TestDefaultAgentMetricsService
     }
 
     @Test
-    void derivesCumulativeUsageFromTaskBaselineAndDiscardsDuplicates()
+    void derivesCumulativeUsageFromDurableBaselineAfterServiceRestart()
     {
         TurnMetrics previousMetrics = metrics(100, 10, 20, "2.00");
         AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", turnSettings(), NOW)
@@ -97,6 +97,7 @@ class TestDefaultAgentMetricsService
         service.beginTurn(task.id(), current.id());
 
         TurnMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
+        service = new DefaultAgentMetricsService(taskStore, turnStore, clock);
         TurnMetrics duplicate = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
         TurnMetrics latest = service.record(task.id(), current.id(), cumulative("usage-2", 150, 15, 30, "2.75"));
 
@@ -260,7 +261,13 @@ class TestDefaultAgentMetricsService
         }
 
         @Override
-        public List<AgentTask> listCleanupDue(Instant now, int limit)
+        public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
+        public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
         {
             return ImmutableList.of();
         }

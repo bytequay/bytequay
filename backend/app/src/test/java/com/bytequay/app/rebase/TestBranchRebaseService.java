@@ -15,24 +15,25 @@ package com.bytequay.app.rebase;
 
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.FinishReason;
 import com.bytequay.core.rebase.BranchRebase.PauseReason;
@@ -73,7 +74,6 @@ class TestBranchRebaseService
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final GitCommandRunner GIT = new GitCommandRunner();
-    private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
     private static final RepositoryIdentity REPOSITORY_ID = RepositoryIdentity.valueOf("trinodb/trino");
 
     @TempDir
@@ -81,6 +81,7 @@ class TestBranchRebaseService
 
     private Path repository;
     private TaskId taskId;
+    private TaskWorktree taskWorktree;
     private InMemoryStore store;
     private FakeTurns turns;
     private RebaseSequencerDriver driver;
@@ -90,35 +91,40 @@ class TestBranchRebaseService
     void setUp()
             throws IOException
     {
-        Path created = Files.createDirectories(temporaryDirectory.resolve("repo"));
+        taskId = TaskId.random();
+        Path created = Files.createDirectories(temporaryDirectory.resolve(taskId.toString()));
         git(temporaryDirectory, "init", "--quiet", "-b", "main", created.toString());
         git(created, "config", "user.name", "ByteQuay Test");
         git(created, "config", "user.email", "bytequay@example.com");
         git(created, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
         repository = created.toRealPath();
-        taskId = TaskId.random();
+        taskWorktree = new TaskWorktree(
+                taskId,
+                "workspace-1",
+                REPOSITORY_ID,
+                repository,
+                workBranch(),
+                "a".repeat(40));
         store = new InMemoryStore();
         turns = new FakeTurns();
         driver = new RebaseSequencerDriver(GIT);
 
         AgentTaskService tasks = mock(AgentTaskService.class);
-        AgentWorkspaceService workspaces = mock(AgentWorkspaceService.class);
+        WorktreeService worktrees = mock(WorktreeService.class);
         AgentTask task = AgentTask.created(
                 taskId,
-                Optional.empty(),
                 false,
                 "Rebase feature",
                 AgentLaneId.CLAUDE_CLI,
-                REPOSITORY_ID,
-                repository,
-                AgentPermissionPolicy.CI_AUTOFIX,
+                taskWorktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX),
                 NOW);
         when(tasks.get(taskId)).thenReturn(task);
-        when(workspaces.inspect(repository)).thenAnswer(ignored -> workspaceSnapshot());
+        when(worktrees.inspect(taskWorktree)).thenAnswer(ignored -> worktreeSnapshot());
         service = new BranchRebaseService(
                 store,
                 tasks,
-                workspaces,
+                worktrees,
                 turns,
                 driver,
                 GIT,
@@ -129,7 +135,7 @@ class TestBranchRebaseService
     void finishesWithoutRewritingWhenWorkAlreadyContainsTheBase()
     {
         seed();
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         String original = change("feature.txt", "feature\n", "Feature");
 
         BranchRebase result = service.start(command("fast"));
@@ -401,12 +407,12 @@ class TestBranchRebaseService
     void movesAWorkBranchWhoseCommitsAreAlreadyInTheBase()
     {
         seed();
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         String original = change("feature.txt", "feature\n", "Feature");
         git(repository, "checkout", "--quiet", "main");
-        git(repository, "merge", "--quiet", "--ff-only", "feature");
+        git(repository, "merge", "--quiet", "--ff-only", workBranch());
         String base = change("main.txt", "main\n", "Main after feature");
-        git(repository, "checkout", "--quiet", "feature");
+        git(repository, "checkout", "--quiet", workBranch());
 
         BranchRebase rebase = service.start(command("already-upstream"));
         rebase = service.advance(rebase.id());
@@ -420,11 +426,11 @@ class TestBranchRebaseService
     void rejectsMergeCommitsAndDetachedOrWrongTaskScope()
     {
         seed();
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         change("feature.txt", "feature\n", "Feature");
         git(repository, "checkout", "--quiet", "-b", "side", "main");
         change("side.txt", "side\n", "Side");
-        git(repository, "checkout", "--quiet", "feature");
+        git(repository, "checkout", "--quiet", workBranch());
         git(repository, "merge", "--quiet", "--no-ff", "-m", "Merge side", "side");
 
         assertThatThrownBy(() -> service.start(command("merge")))
@@ -436,7 +442,7 @@ class TestBranchRebaseService
     void rejectsDirtyDetachedSameAndRemoteTrackingInputs()
     {
         seed();
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         write("dirty.txt", "not committed\n");
         assertThatThrownBy(() -> service.start(command("dirty")))
                 .isInstanceOf(BranchRebaseException.class)
@@ -446,17 +452,17 @@ class TestBranchRebaseService
         git(repository, "checkout", "--quiet", "--detach");
         assertThatThrownBy(() -> service.start(command("detached")))
                 .isInstanceOf(BranchRebaseException.class)
-                .hasMessageContaining("not on feature");
+                .hasMessageContaining("generated task branch");
 
-        git(repository, "checkout", "--quiet", "feature");
+        git(repository, "checkout", "--quiet", workBranch());
         StartBranchRebaseCommand same = new StartBranchRebaseCommand(
-                taskId, REPOSITORY, repository, "feature", "feature", "same-branch");
+                taskWorktree, workBranch(), "same-branch");
         assertThatThrownBy(() -> service.start(same))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("same");
 
         StartBranchRebaseCommand remote = new StartBranchRebaseCommand(
-                taskId, REPOSITORY, repository, "feature", "refs/remotes/origin/main", "remote-ref");
+                taskWorktree, "refs/remotes/origin/main", "remote-ref");
         assertThatThrownBy(() -> service.start(remote))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("valid local branch");
@@ -479,7 +485,7 @@ class TestBranchRebaseService
         cleanDivergence();
         service.start(command("same-request-key"));
         StartBranchRebaseCommand changed = new StartBranchRebaseCommand(
-                taskId, REPOSITORY, repository, "feature", "feature", "same-request-key");
+                taskWorktree, workBranch(), "same-request-key");
 
         assertThatThrownBy(() -> service.start(changed))
                 .isInstanceOf(BranchRebaseException.class)
@@ -489,11 +495,11 @@ class TestBranchRebaseService
     private Tips cleanDivergence()
     {
         seed();
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         String original = change("feature.txt", "feature\n", "Feature");
         git(repository, "checkout", "--quiet", "main");
         String base = change("main.txt", "main\n", "Main");
-        git(repository, "checkout", "--quiet", "feature");
+        git(repository, "checkout", "--quiet", workBranch());
         return new Tips(original, base);
     }
 
@@ -501,7 +507,7 @@ class TestBranchRebaseService
     {
         write("file.txt", "seed\n");
         commit("Base");
-        git(repository, "checkout", "--quiet", "-b", "feature");
+        git(repository, "checkout", "--quiet", "-b", workBranch());
         write("file.txt", "feature\n");
         commit("Feature conflict");
         String source = head();
@@ -510,17 +516,14 @@ class TestBranchRebaseService
         write("file.txt", "main\n");
         commit("Main conflict");
         String base = head();
-        git(repository, "checkout", "--quiet", "feature");
+        git(repository, "checkout", "--quiet", workBranch());
         return new Conflict(original, base, source);
     }
 
     private StartBranchRebaseCommand command(String key)
     {
         return new StartBranchRebaseCommand(
-                taskId,
-                REPOSITORY,
-                repository,
-                "feature",
+                taskWorktree,
                 "main",
                 key);
     }
@@ -561,16 +564,23 @@ class TestBranchRebaseService
         return git(repository, "rev-parse", "HEAD");
     }
 
-    private WorkspaceSnapshot workspaceSnapshot()
+    private WorktreeSnapshot worktreeSnapshot()
     {
         GitCommandRunner.Result branch = GIT.run(repository, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!branch.successful() || !branch.output().strip().equals(workBranch())) {
+            throw new BranchRebaseException("Worktree is not on the generated task branch");
+        }
         String status = git(repository, "status", "--porcelain=v1", "--untracked-files=all");
-        return new WorkspaceSnapshot(
-                repository,
-                REPOSITORY_ID,
-                branch.successful() ? Optional.of(branch.output().strip()) : Optional.empty(),
+        return new WorktreeSnapshot(
+                taskWorktree,
                 head(),
-                !status.isBlank());
+                !status.isBlank(),
+                false);
+    }
+
+    private String workBranch()
+    {
+        return "bytequay/task/" + taskId;
     }
 
     private static String git(Path directory, String... arguments)

@@ -21,6 +21,7 @@ import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.persistence.sqlite.entity.AgentTaskEntity;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.google.common.collect.ImmutableList;
@@ -44,6 +45,10 @@ public class SqliteAgentTaskStore
         implements AgentTaskStore
 {
     private static final List<TaskState> TERMINAL_STATES = ImmutableList.of(TaskState.COMPLETED, TaskState.FAILED);
+    // These policies have a separate durable workflow row that must reach FINISHED before removal.
+    private static final List<AgentPermissionPolicy> WORKFLOW_POLICIES = ImmutableList.of(
+            AgentPermissionPolicy.CI_AUTOFIX,
+            AgentPermissionPolicy.CHERRY_PICK);
 
     private final AgentTaskJpaRepository repository;
 
@@ -141,15 +146,33 @@ public class SqliteAgentTaskStore
 
     @Override
     @Transactional(readOnly = true)
-    public List<AgentTask> listCleanupDue(Instant now, int limit)
+    public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
+    {
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(retryBefore, "retryBefore is null");
+        return repository.findPendingWorktreeCleanup(
+                        TERMINAL_STATES,
+                        permissionPolicy,
+                        CleanupState.DELETED,
+                        retryBefore).stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
     {
         requireNonNull(now, "now is null");
+        requireNonNull(retryBefore, "retryBefore is null");
         checkLimit(limit);
         return repository.findCleanupDue(
                         TERMINAL_STATES,
                         CleanupState.DELETED,
                         CleanupState.RETRY_PENDING,
+                        WORKFLOW_POLICIES,
                         now,
+                        retryBefore,
                         PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());

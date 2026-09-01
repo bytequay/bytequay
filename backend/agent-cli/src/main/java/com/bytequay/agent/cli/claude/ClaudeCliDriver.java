@@ -698,8 +698,9 @@ public final class ClaudeCliDriver
 
         private void receive(String line)
         {
+            ClaudeProtocol.Message message = null;
             try {
-                ClaudeProtocol.Message message = codec.decode(line);
+                message = codec.decode(line);
                 if (message.sessionId().isPresent()
                         && !message.sessionId().orElseThrow().equals(session.reference.providerValue())) {
                     protocolFailure = "Claude returned a different session ID";
@@ -707,12 +708,15 @@ public final class ClaudeCliDriver
                     return;
                 }
                 message.sessionId().ifPresent(ignored -> session.markResumable());
+                mapper.map(message).forEach(session.events::emit);
                 if (message instanceof ClaudeProtocol.ResultMessage terminal) {
                     result = terminal;
                 }
-                mapper.map(message).forEach(session.events::emit);
             }
             catch (RuntimeException failure) {
+                if (message instanceof ClaudeProtocol.ResultMessage) {
+                    interruptionReason = "Unable to persist Claude terminal events: " + failureMessage(failure);
+                }
                 session.events.emit(new ProviderAgentEvent.Error(
                         Optional.empty(),
                         Optional.empty(),

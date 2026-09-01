@@ -14,18 +14,17 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentStorageException;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
-import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.CostProvenance;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -41,13 +40,15 @@ final class AgentTaskSummaryJson
     public static String encode(TaskSummary summary)
     {
         TaskMetrics metrics = summary.metrics();
+        Optional<WorktreeSnapshot> worktree = summary.worktree();
         SummaryValue value = new SummaryValue(
                 summary.finalResponse(),
-                summary.workspace().worktree().toString(),
-                summary.workspace().repository().toString(),
-                summary.workspace().branch().orElse(null),
-                summary.workspace().head(),
-                summary.workspace().dirty(),
+                worktree.map(snapshot -> snapshot.worktree().canonicalWorktree().toString()).orElse(null),
+                worktree.map(snapshot -> snapshot.worktree().physicalRepository().toString()).orElse(null),
+                worktree.map(snapshot -> snapshot.worktree().generatedBranch()).orElse(null),
+                worktree.map(WorktreeSnapshot::head).orElse(null),
+                worktree.map(WorktreeSnapshot::dirty).orElse(false),
+                worktree.map(WorktreeSnapshot::gitOperationInProgress).orElse(false),
                 summary.tests().stream()
                         .map(test -> new TestValue(test.name(), test.status(), test.detail().orElse(null)))
                         .collect(toImmutableList()),
@@ -67,7 +68,7 @@ final class AgentTaskSummaryJson
         }
     }
 
-    public static TaskSummary decode(String json)
+    public static TaskSummary decode(String json, Optional<TaskWorktree> taskWorktree)
     {
         try {
             SummaryValue value = OBJECT_MAPPER.readValue(json, SummaryValue.class);
@@ -78,14 +79,15 @@ final class AgentTaskSummaryJson
                     Optional.ofNullable(value.cost()).map(BigDecimal::new),
                     value.costProvenance(),
                     Duration.ofMillis(value.elapsedMillis()));
+            Optional<WorktreeSnapshot> worktree = Optional.ofNullable(value.head())
+                    .flatMap(head -> taskWorktree.map(task -> new WorktreeSnapshot(
+                            task,
+                            head,
+                            value.dirty(),
+                            Boolean.TRUE.equals(value.gitOperationInProgress()))));
             return new TaskSummary(
                     value.finalResponse(),
-                    new WorkspaceSnapshot(
-                            Path.of(value.worktree()),
-                            RepositoryIdentity.valueOf(value.repository()),
-                            Optional.ofNullable(value.branch()),
-                            value.head(),
-                            value.dirty()),
+                    worktree,
                     value.tests().stream()
                             .map(test -> new TestFact(test.name(), test.status(), Optional.ofNullable(test.detail())))
                             .collect(toImmutableList()),
@@ -108,6 +110,7 @@ final class AgentTaskSummaryJson
             String branch,
             String head,
             boolean dirty,
+            Boolean gitOperationInProgress,
             List<TestValue> tests,
             long inputTokens,
             long cachedInputTokens,

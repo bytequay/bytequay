@@ -5,7 +5,7 @@ set -euo pipefail
 usage()
 {
     cat <<'EOF'
-Usage: ci-autofix pr <owner/repository> <number> [--lane codex|claude] [--max-attempts 1..3]
+Usage: ci-autofix pr <owner/repository> <number> --workspace <workspace-id> [--lane codex|claude] [--max-attempts 1..3]
 
 Environment:
   BYTEQUAY_DESKTOP_SESSION_TOKEN  Override the token written by ./dev.sh
@@ -16,6 +16,7 @@ EOF
 
 lane=claude
 max_attempts=3
+workspace_id=
 if [[ "${1:-}" == --help ]]; then
     usage
     exit 0
@@ -33,6 +34,14 @@ while [[ $# -gt 0 ]]; do
             lane="${2:-}"
             [[ "$lane" == codex || "$lane" == claude ]] || {
                 echo "--lane requires codex or claude" >&2
+                exit 2
+            }
+            shift
+            ;;
+        --workspace)
+            workspace_id="${2:-}"
+            [[ -n "$workspace_id" ]] || {
+                echo "--workspace requires a saved ByteQuay workspace ID" >&2
                 exit 2
             }
             shift
@@ -56,8 +65,13 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+[[ -n "$workspace_id" ]] || {
+    echo "--workspace is required" >&2
+    usage >&2
+    exit 2
+}
 
-for command in curl git jq; do
+for command in curl jq; do
     command -v "$command" >/dev/null || {
         echo "Missing required command: $command" >&2
         exit 1
@@ -81,29 +95,7 @@ fi
     exit 2
 }
 
-worktree="$(git rev-parse --show-toplevel)"
-remote="$(git -C "$worktree" remote get-url origin)"
-case "$remote" in
-    git@github.com:*) worktree_repository="${remote#git@github.com:}" ;;
-    https://github.com/*) worktree_repository="${remote#https://github.com/}" ;;
-    ssh://git@github.com/*) worktree_repository="${remote#ssh://git@github.com/}" ;;
-    *)
-        echo "origin is not a supported GitHub remote: $remote" >&2
-        exit 1
-        ;;
-esac
-worktree_repository="${worktree_repository%.git}"
-[[ "$worktree_repository" =~ ^[^/]+/[^/]+$ ]] || {
-    echo "Cannot derive owner/repository from origin: $remote" >&2
-    exit 1
-}
-shopt -s nocasematch
-if [[ "$requested_repository" != "$worktree_repository" ]]; then
-    echo "Requested repository $requested_repository does not match worktree origin $worktree_repository" >&2
-    exit 1
-fi
-shopt -u nocasematch
-repository="$worktree_repository"
+repository="$requested_repository"
 
 api()
 {
@@ -140,10 +132,21 @@ print_event()
         end'
 }
 
+workspace="$(api "$base_url/api/workspaces/$workspace_id")"
+workspace_repository="$(jq -er '.summary.monitoredOwner + "/" + .summary.monitoredRepo' <<<"$workspace")"
+shopt -s nocasematch
+if [[ "$repository" != "$workspace_repository" ]]; then
+    echo "Requested repository $repository does not match workspace $workspace_id ($workspace_repository)" >&2
+    exit 1
+fi
+shopt -u nocasematch
+
 existing="$(api "$base_url/api/ci-autofix/runs?limit=200" | jq -c \
+    --arg workspaceId "$workspace_id" \
     --arg repository "$repository" \
     --argjson pullRequestNumber "$pull_request_number" \
     'first(.[] | select(
+        .workspaceId == $workspaceId and
         .repository == $repository and
         .pullRequestNumber == $pullRequestNumber and
         .status != "FINISHED")) // empty')"
@@ -168,15 +171,9 @@ else
         echo "Agent lane $lane cannot enforce CI_AUTOFIX; use --lane claude" >&2
         exit 1
     }
-    if [[ -n "$(git -C "$worktree" status --porcelain)" ]]; then
-        echo "Worktree must be clean before starting CI Autofix: $worktree" >&2
-        exit 1
-    fi
-    branch="$(git -C "$worktree" branch --show-current)"
+    echo "Workspace: $workspace_id"
     echo "Repository: $repository"
     echo "Pull request: #$pull_request_number"
-    echo "Worktree: $worktree"
-    echo "Branch: $branch"
     echo "Agent lane: $lane"
     echo "Authorization: up to $max_attempts fix attempts, failed-job reruns, local history rewrites, and exact-lease pushes"
     if ! IFS= read -r -p "Start CI Autofix? [y/N] " consent || [[ ! "$consent" =~ ^[Yy]$ ]]; then
@@ -184,15 +181,13 @@ else
         exit 1
     fi
     request="$(jq -n \
-        --arg repository "$repository" \
+        --arg workspaceId "$workspace_id" \
         --argjson pullRequestNumber "$pull_request_number" \
-        --arg worktree "$worktree" \
         --arg laneId "$lane" \
         --argjson maxAttempts "$max_attempts" \
         '{
-            repository: $repository,
+            workspaceId: $workspaceId,
             pullRequestNumber: $pullRequestNumber,
-            worktree: $worktree,
             laneId: $laneId,
             maxAttempts: $maxAttempts,
             allowFailedJobReruns: true,
@@ -205,6 +200,7 @@ else
         -d "$request" \
         "$base_url/api/ci-autofix/runs")"
     echo "Started CI Autofix run $(jq -r '.id' <<<"$run")"
+    jq -r 'select(.generatedLocalBranch != null) | "Local task branch: \(.generatedLocalBranch)"' <<<"$run"
 fi
 
 run_id="$(jq -er '.id' <<<"$run")"

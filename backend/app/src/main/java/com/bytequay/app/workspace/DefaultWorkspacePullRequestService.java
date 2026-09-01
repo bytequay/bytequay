@@ -33,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
@@ -139,7 +138,7 @@ public final class DefaultWorkspacePullRequestService
             }
             Push pushed;
             try {
-                pushed = git.pushBranch(workspace, execution.workspace().worktree(), execution.workspace().workBranch());
+                pushed = git.pushBranch(workspace, execution.workspace().workBranch(), execution.currentTargetSha());
             }
             catch (ManagedWorkspaceGit.Failure failure) {
                 throw WorkspaceException.deliveryFailed(failure.safeMessage());
@@ -313,10 +312,9 @@ public final class DefaultWorkspacePullRequestService
         if (workspace.upstreamRepositoryId().isPresent()) {
             return;
         }
-        RepoRef repository = workspace.monitoredRepository();
         ciAutofix.start(new StartCiAutofixCommand(
-                PullRequestRef.of(repository.owner(), repository.repo(), number),
-                execution.workspace().worktree(),
+                workspace.id(),
+                number,
                 new AgentLaneId(execution.workspace().laneId()),
                 CiAutofixRun.MAX_FIX_ATTEMPTS,
                 true,

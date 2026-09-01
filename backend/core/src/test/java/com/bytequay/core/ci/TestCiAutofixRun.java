@@ -30,7 +30,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -259,11 +258,13 @@ class TestCiAutofixRun
                 key,
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 7),
+                        "workspace-1",
+                        Optional.empty(),
                         "author",
                         headRef,
                         "main",
-                        Path.of("/tmp/bytequay-ci-worktree"),
                         "codex"),
+                HEAD,
                 HEAD,
                 BASE,
                 new Authorization(true, true, true, 3, now, now.plus(Duration.ofHours(8))),

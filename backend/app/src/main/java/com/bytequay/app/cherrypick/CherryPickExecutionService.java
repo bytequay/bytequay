@@ -14,6 +14,9 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
@@ -22,14 +25,20 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.GitSequencerDriver.NormalizationResult;
 import com.bytequay.app.git.SequenceState;
+import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.ActionJournal;
@@ -49,6 +58,7 @@ import com.bytequay.core.cherrypick.CherryPickItem.ConflictType;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Striped;
@@ -56,6 +66,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -64,6 +75,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
+import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
+import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
+import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -85,34 +100,40 @@ public class CherryPickExecutionService
 
     private final CherryPickPreviewService previews;
     private final CherryPickExecutionStore store;
-    private final CherryPickWorkspace workspaces;
     private final GitSequencerDriver sequencer;
     private final GitCommandRunner git;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final AgentCompletionService completions;
+    private final AgentDriverRegistry drivers;
+    private final WorkspaceRepositoryService workspaceRepositories;
+    private final WorkspacePaths workspacePaths;
     private final Clock clock;
     private final Striped<Lock> advanceLocks = Striped.lock(64);
 
     public CherryPickExecutionService(
             CherryPickPreviewService previews,
             CherryPickExecutionStore store,
-            CherryPickWorkspace workspaces,
             GitSequencerDriver sequencer,
             GitCommandRunner git,
             AgentTaskService tasks,
             AgentTurnService turns,
             AgentCompletionService completions,
+            AgentDriverRegistry drivers,
+            WorkspaceRepositoryService workspaceRepositories,
+            WorkspacePaths workspacePaths,
             Clock clock)
     {
         this.previews = requireNonNull(previews, "previews is null");
         this.store = requireNonNull(store, "store is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.sequencer = requireNonNull(sequencer, "sequencer is null");
         this.git = requireNonNull(git, "git is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.completions = requireNonNull(completions, "completions is null");
+        this.drivers = requireNonNull(drivers, "drivers is null");
+        this.workspaceRepositories = requireNonNull(workspaceRepositories, "workspaceRepositories is null");
+        this.workspacePaths = requireNonNull(workspacePaths, "workspacePaths is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -122,19 +143,19 @@ public class CherryPickExecutionService
      * @param command confirmed skips and the object IDs they were chosen against
      * @param workspaceId durable workspace that owns the managed clone
      * @param repository clone that owns the objects
-     * @param worktreeParent directory that will hold the generated worktree
+     * @param physicalRepository selected repository that physically owns the worktree
      * @return the durable execution
      */
     public CherryPickExecution start(
             StartCherryPickExecutionCommand command,
             String workspaceId,
             Path repository,
-            Path worktreeParent)
+            RepositoryIdentity physicalRepository)
     {
         requireNonNull(command, "command is null");
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(repository, "repository is null");
-        requireNonNull(worktreeParent, "worktreeParent is null");
+        requireNonNull(physicalRepository, "physicalRepository is null");
 
         // Answer a repeated start before creating anything: the live-execution
         // check below would otherwise reject the caller's own execution.
@@ -142,6 +163,9 @@ public class CherryPickExecutionService
         if (existing.isPresent()) {
             CherryPickExecution execution = existing.orElseThrow();
             requireWorkspace(execution.workspace().workspaceId(), workspaceId);
+            if (execution.status() != Status.FINISHED) {
+                ensureAgentTask(execution);
+            }
             return execution;
         }
 
@@ -150,67 +174,44 @@ public class CherryPickExecutionService
                         "Preview is unknown or expired; preview the range again"));
         requireWorkspace(preview.workspaceId(), workspaceId);
         requireUnmoved(preview, command);
+        AgentLaneId laneId = new AgentLaneId(command.laneId());
+        requireReady(drivers, laneId, AgentPermissionPolicy.CHERRY_PICK);
         previews.requireCurrentTarget(repository, preview);
         List<CherryPickItem> items = plan(preview, command.userSkippedSourceShas());
         requireNoLiveExecution(preview, workspaceId);
-
-        CherryPickWorkspace.Created created = workspaces.create(
-                repository,
-                worktreeParent,
-                preview.sourceBaseSha(),
-                preview.sourceTipSha(),
-                preview.targetSha());
-        CherryPickExecution proposed;
-        try {
-            requireOnItsBranch(created);
-            proposed = CherryPickExecution.create(
-                    CherryPickExecutionId.random(),
-                    command.idempotencyKey(),
-                    new Workspace(
-                            Optional.of(workspaceId),
-                            preview.repository(),
-                            preview.sourceRemote(),
-                            preview.targetRemote(),
-                            preview.targetBranch(),
-                            preview.localTargetBranch(),
-                            created.branch(),
-                            created.worktree(),
-                            command.laneId()),
-                    Optional.of(command.pullRequestDraft()),
-                    new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
-                    items,
-                    clock.instant());
-        }
-        catch (RuntimeException failure) {
-            workspaces.remove(repository, created);
-            throw failure;
+        WorkspaceRepositoryContext workspace = workspaceRepositories.requireReadyRepository(workspaceId);
+        RepositoryIdentity selectedRepository = new RepositoryIdentity(
+                workspace.selectedRepository().owner(),
+                workspace.selectedRepository().repo());
+        if (!workspace.repository().equals(repository) || !selectedRepository.equals(physicalRepository)) {
+            throw new CherryPickInvalidRequestException("Workspace repository routing changed before start");
         }
 
-        TaskId taskId;
-        try {
-            // The monitor may advance a RUNNING execution immediately, so the
-            // first durable projection must already own its ready agent task.
-            taskId = agentTask(proposed);
-        }
-        catch (RuntimeException failure) {
-            workspaces.remove(repository, created);
-            throw failure;
-        }
+        TaskId taskId = TaskId.random();
+        CherryPickExecution proposed = CherryPickExecution.create(
+                CherryPickExecutionId.random(),
+                command.idempotencyKey(),
+                new Workspace(
+                        Optional.of(workspaceId),
+                        preview.repository(),
+                        Optional.of(RepoRef.of(physicalRepository.owner(), physicalRepository.name())),
+                        preview.sourceRemote(),
+                        preview.targetRemote(),
+                        preview.targetBranch(),
+                        preview.localTargetBranch(),
+                        "bytequay/task/" + taskId,
+                        plannedWorktree(workspaceId, taskId),
+                        command.laneId()),
+                Optional.of(command.pullRequestDraft()),
+                new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
+                items,
+                clock.instant())
+                .withAgentTask(taskId.toString(), clock.instant());
 
-        CherryPickExecution execution;
-        try {
-            execution = store.createOrGet(proposed.withAgentTask(taskId.toString(), clock.instant()));
-            requireWorkspace(execution.workspace().workspaceId(), workspaceId);
-        }
-        catch (RuntimeException failure) {
-            discardUnpublishedTask(repository, created, taskId, failure);
-            throw failure;
-        }
-        if (!execution.id().equals(proposed.id())) {
-            // A concurrent request won the idempotency key. Its execution owns
-            // its own task and workspace; this request's pair is surplus.
-            completeAgentTask(taskId, "Superseded by an idempotent cherry-pick start");
-            workspaces.remove(repository, created);
+        CherryPickExecution execution = store.createOrGet(proposed);
+        requireWorkspace(execution.workspace().workspaceId(), workspaceId);
+        if (execution.status() != Status.FINISHED) {
+            ensureAgentTask(execution);
         }
         return execution;
     }
@@ -226,17 +227,13 @@ public class CherryPickExecutionService
     }
 
     /**
-     * Stops future work and removes the branch and worktree ByteQuay created.
-     *
-     * <p>They are ByteQuay's own, not user work, and the local target branch
-     * never received a cherry-pick, so nothing outside them needs repair.
+     * Stops future work and requests safe task completion.
      *
      * @param executionId execution identifier
      * @param workspaceId durable workspace that owns the execution
-     * @param repository clone that owns the worktree
      * @return the finished execution
      */
-    public CherryPickExecution cancel(CherryPickExecutionId executionId, String workspaceId, Path repository)
+    public CherryPickExecution cancel(CherryPickExecutionId executionId, String workspaceId)
     {
         Lock lock = advanceLocks.get(executionId.toString());
         lock.lock();
@@ -244,8 +241,10 @@ public class CherryPickExecutionService
             CherryPickExecution execution = get(executionId);
             requireWorkspace(execution.workspace().workspaceId(), workspaceId);
             if (execution.status() == Status.FINISHED) {
+                finishAgentTask(execution);
                 return execution;
             }
+            ensureAgentTask(execution);
             execution.currentTurnId().ifPresent(turnId -> {
                 try {
                     turns.cancel(TurnId.valueOf(turnId));
@@ -254,16 +253,9 @@ public class CherryPickExecutionService
                     log.warn("Cannot cancel turn {} for execution {}", turnId, execution.id(), failure);
                 }
             });
-            if (!ownsWorktree(execution)) {
-                // Refuse to delete something that is no longer recognisably ours.
-                return pause(execution, PauseReason.UNSAFE_GIT_STATE,
-                        "Worktree is not on " + execution.workspace().workBranch()
-                                + "; cancel left it untouched for you to inspect");
-            }
-            completeAgentTask(execution);
-            workspaces.remove(repository, new CherryPickWorkspace.Created(
-                    execution.workspace().workBranch(), execution.workspace().worktree()));
-            return store.save(execution.finish(FinishReason.CANCELLED, "Cancelled", clock.instant()));
+            CherryPickExecution finished = store.save(execution.finish(FinishReason.CANCELLED, "Cancelled", clock.instant()));
+            finishAgentTask(finished);
+            return finished;
         }
         finally {
             lock.unlock();
@@ -285,12 +277,16 @@ public class CherryPickExecutionService
         try {
             CherryPickExecution execution = get(executionId);
             if (execution.status() != Status.RUNNING) {
+                if (execution.status() == Status.FINISHED) {
+                    finishAgentTask(execution);
+                }
                 return execution;
             }
             if (execution.agentTaskId().isEmpty()) {
                 return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
                         "Execution has no agent task");
             }
+            ensureAgentTask(execution);
             if (execution.pendingItems().isEmpty()) {
                 return complete(execution);
             }
@@ -601,16 +597,6 @@ public class CherryPickExecutionService
     {
         if (actualWorkspaceId.filter(expectedWorkspaceId::equals).isEmpty()) {
             throw new CherryPickInvalidRequestException("Cherry-pick data does not belong to this workspace");
-        }
-    }
-
-    private void requireOnItsBranch(CherryPickWorkspace.Created created)
-    {
-        GitCommandRunner.Result branch = git.run(
-                created.worktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
-        if (!branch.successful() || !branch.output().strip().equals(created.branch())) {
-            throw new CherryPickConflictException(
-                    "Worktree is not on " + created.branch() + "; commits would reach no branch");
         }
     }
 
@@ -953,16 +939,96 @@ public class CherryPickExecutionService
         return execution.id() + ":" + position + ":" + attempt;
     }
 
-    private TaskId agentTask(CherryPickExecution execution)
+    private AgentTask agentTask(
+            TaskId taskId,
+            String workspaceId,
+            AgentLaneId laneId,
+            RepositoryIdentity physicalRepository,
+            String startCommit)
     {
         return tasks.create(new CreateAgentTaskCommand(
-                new AgentLaneId(execution.workspace().laneId()),
-                execution.workspace().worktree(),
-                RepositoryIdentity.valueOf(execution.workspace().repository().fullName()),
-                "Cherry-pick " + execution.workspace().workBranch(),
-                AgentPermissionPolicy.CHERRY_PICK,
-                Optional.empty(),
-                false)).id();
+                taskId,
+                workspaceId,
+                laneId,
+                physicalRepository,
+                startCommit,
+                "Cherry-pick task " + taskId,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CHERRY_PICK)));
+    }
+
+    private Path plannedWorktree(String workspaceId, TaskId taskId)
+    {
+        try {
+            return workspacePaths.canonicalTaskWorktree(workspaceId, taskId.toString());
+        }
+        catch (IOException failure) {
+            throw new CherryPickInvalidRequestException("Managed repository path cannot be resolved");
+        }
+    }
+
+    private AgentTask ensureAgentTask(CherryPickExecution execution)
+    {
+        TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
+        String workspaceId = requireWorkspaceId(execution);
+        RepositoryIdentity selectedRepository = repositoryIdentity(
+                workspaceRepositories.requireReadyRepository(workspaceId).selectedRepository());
+        AgentTask task;
+        RepositoryIdentity repository;
+        try {
+            task = tasks.get(taskId);
+            repository = frozenRepository(execution).orElse(task.repository());
+        }
+        catch (AgentTaskNotFoundException ignored) {
+            repository = frozenRepository(execution).orElseThrow(() -> new CherryPickConflictException(
+                    "Legacy cherry-pick execution has no frozen physical repository"));
+            requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
+            RepositoryIdentity created = repository;
+            task = createOrGet(tasks, taskId, () -> agentTask(
+                    taskId,
+                    workspaceId,
+                    new AgentLaneId(execution.workspace().laneId()),
+                    created,
+                    execution.range().initialTargetSha()));
+            return requireAgentTask(execution, task, repository);
+        }
+        requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
+        return requireAgentTask(execution, task, repository);
+    }
+
+    private static Optional<RepositoryIdentity> frozenRepository(CherryPickExecution execution)
+    {
+        return execution.workspace().physicalRepository().map(WorkflowAgentTasks::repositoryIdentity);
+    }
+
+    private static String requireWorkspaceId(CherryPickExecution execution)
+    {
+        return execution.workspace().workspaceId().orElseThrow(() ->
+                new CherryPickConflictException("Cherry-pick execution has no managed workspace"));
+    }
+
+    private static AgentTask requireAgentTask(
+            CherryPickExecution execution,
+            AgentTask task,
+            RepositoryIdentity repository)
+    {
+        TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
+        String workspaceId = requireWorkspaceId(execution);
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
+                new CherryPickConflictException("Cherry-pick agent task has no managed worktree"));
+        if (!task.id().equals(taskId)
+                || task.interactive()
+                || task.workspaceId().stream().noneMatch(workspaceId::equals)
+                || !worktree.workspaceId().equals(workspaceId)
+                || !task.laneId().equals(new AgentLaneId(execution.workspace().laneId()))
+                || task.permissionPolicy() != AgentPermissionPolicy.CHERRY_PICK
+                || !task.repository().equals(repository)
+                || !worktree.physicalRepository().equals(repository)
+                || !worktree.canonicalWorktree().equals(execution.workspace().worktree())
+                || !worktree.generatedBranch().equals(execution.workspace().workBranch())
+                || !worktree.startCommit().equals(execution.range().initialTargetSha())) {
+            throw new CherryPickConflictException("Cherry-pick agent task does not match the execution");
+        }
+        return task;
     }
 
     /**
@@ -1035,15 +1101,9 @@ public class CherryPickExecutionService
         CherryPickExecution reviewed = store.save(settled.withRangeReview(rangeReview(settled, state.head()),
                 clock.instant()));
         completeAgentTask(reviewed);
-        return store.save(reviewed.finish(FinishReason.COMPLETED, summary(reviewed), clock.instant()));
-    }
-
-    /** True only when the worktree still holds the branch ByteQuay created. */
-    private boolean ownsWorktree(CherryPickExecution execution)
-    {
-        GitCommandRunner.Result branch = git.run(
-                execution.workspace().worktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
-        return branch.successful() && branch.output().strip().equals(execution.workspace().workBranch());
+        CherryPickExecution finished = store.save(reviewed.finish(FinishReason.COMPLETED, summary(reviewed), clock.instant()));
+        cleanupAgentTask(finished);
+        return finished;
     }
 
     private CherryPickExecution.RangeReview rangeReview(CherryPickExecution execution, String currentTargetSha)
@@ -1066,32 +1126,31 @@ public class CherryPickExecutionService
 
     private void completeAgentTask(CherryPickExecution execution)
     {
+        execution.agentTaskId().ifPresent(taskId -> completeAgentTask(TaskId.valueOf(taskId), summary(execution)));
+    }
+
+    private void cleanupAgentTask(CherryPickExecution execution)
+    {
         execution.agentTaskId().ifPresent(taskId -> {
             try {
-                completeAgentTask(TaskId.valueOf(taskId), summary(execution));
+                completions.cleanupWorktree(TaskId.valueOf(taskId));
             }
             catch (RuntimeException failure) {
-                // The range is finished either way; a task that cannot be closed
-                // is a cleanup problem, not a result.
-                log.warn("Cannot complete agent task {} for execution {}", taskId, execution.id(), failure);
+                log.warn("Cannot clean up agent task {} for execution {}", taskId, execution.id(), failure);
             }
         });
     }
 
-    private void discardUnpublishedTask(
-            Path repository,
-            CherryPickWorkspace.Created created,
-            TaskId taskId,
-            RuntimeException failure)
+    private void finishAgentTask(CherryPickExecution execution)
     {
         try {
-            completeAgentTask(taskId, "Cherry-pick start failed before execution publication");
-            workspaces.remove(repository, created);
+            completeAgentTask(execution);
         }
-        catch (RuntimeException cleanupFailure) {
-            // Keep the worktree while the task may still hold its lease.
-            failure.addSuppressed(cleanupFailure);
+        catch (RuntimeException failure) {
+            log.warn("Cannot complete agent task for finished execution {}", execution.id(), failure);
+            return;
         }
+        cleanupAgentTask(execution);
     }
 
     private void completeAgentTask(TaskId taskId, String taskSummary)

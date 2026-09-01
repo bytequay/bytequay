@@ -14,9 +14,9 @@
 package com.bytequay.core.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -42,6 +42,7 @@ public record CiAutofixRun(
         Optional<PauseReason> pauseReason,
         Optional<FinishReason> finishReason,
         Optional<String> summary,
+        Optional<String> taskStartCommit,
         String expectedRemoteHead,
         String latestObservedBaseSha,
         Authorization authorization,
@@ -73,6 +74,8 @@ public record CiAutofixRun(
         requireNonNull(pauseReason, "pauseReason is null");
         requireNonNull(finishReason, "finishReason is null");
         checkOptionalText(summary, "summary", 8 * 1024);
+        requireNonNull(taskStartCommit, "taskStartCommit is null");
+        taskStartCommit.ifPresent(value -> checkSha(value, "taskStartCommit"));
         checkSha(expectedRemoteHead, "expectedRemoteHead");
         checkSha(latestObservedBaseSha, "latestObservedBaseSha");
         requireNonNull(authorization, "authorization is null");
@@ -112,6 +115,7 @@ public record CiAutofixRun(
             CiAutofixRunId id,
             String startIdempotencyKey,
             Scope scope,
+            String taskStartCommit,
             String expectedRemoteHead,
             String latestObservedBaseSha,
             Authorization authorization,
@@ -126,6 +130,7 @@ public record CiAutofixRun(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(taskStartCommit),
                 expectedRemoteHead,
                 latestObservedBaseSha,
                 authorization,
@@ -442,6 +447,7 @@ public record CiAutofixRun(
         private Optional<PauseReason> pauseReason;
         private Optional<FinishReason> finishReason;
         private Optional<String> summary;
+        private final Optional<String> taskStartCommit;
         private String expectedRemoteHead;
         private String latestObservedBaseSha;
         private int attemptsUsed;
@@ -469,6 +475,7 @@ public record CiAutofixRun(
             this.pauseReason = run.pauseReason;
             this.finishReason = run.finishReason;
             this.summary = run.summary;
+            this.taskStartCommit = run.taskStartCommit;
             this.expectedRemoteHead = run.expectedRemoteHead;
             this.latestObservedBaseSha = run.latestObservedBaseSha;
             this.attemptsUsed = run.attemptsUsed;
@@ -496,6 +503,7 @@ public record CiAutofixRun(
                     pauseReason,
                     finishReason,
                     summary,
+                    taskStartCommit,
                     expectedRemoteHead,
                     latestObservedBaseSha,
                     authorization,
@@ -629,10 +637,11 @@ public record CiAutofixRun(
 
     public record Scope(
             PullRequestRef pullRequest,
+            String workspaceId,
+            Optional<RepoRef> physicalRepository,
             String author,
             String headRef,
             String baseRef,
-            Path worktree,
             String laneId)
     {
         public Scope
@@ -640,12 +649,15 @@ public record CiAutofixRun(
             requireNonNull(pullRequest, "pullRequest is null");
             checkText(pullRequest.owner(), "repository owner", 100);
             checkText(pullRequest.repo(), "repository name", 100);
+            checkText(workspaceId, "workspaceId", 128);
+            requireNonNull(physicalRepository, "physicalRepository is null");
+            physicalRepository.ifPresent(repository -> {
+                checkText(repository.owner(), "physical repository owner", 100);
+                checkText(repository.repo(), "physical repository name", 100);
+            });
             checkText(author, "author", 100);
             checkText(headRef, "headRef", 255);
             checkText(baseRef, "baseRef", 255);
-            requireNonNull(worktree, "worktree is null");
-            checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-            worktree = worktree.normalize();
             checkText(laneId, "laneId", 100);
         }
 

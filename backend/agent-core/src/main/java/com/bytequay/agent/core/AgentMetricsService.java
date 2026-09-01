@@ -18,9 +18,11 @@ import com.bytequay.agent.spi.ProviderUsageSample;
 /**
  * Converts provider usage samples into durable turn and task metrics.
  *
- * <p>The service owns cumulative-versus-delta semantics and duplicate
- * suppression so repeated provider snapshots are not summed twice. Missing
- * monetary cost remains unavailable rather than being recorded as zero.
+ * <p>The service owns cumulative-versus-delta semantics. Its caller uses the
+ * usage event's durable outbox identity to suppress repeated delta samples when
+ * the provider supplies an identity; identity-less callbacks cannot be exactly
+ * deduplicated. Missing monetary cost remains unavailable rather than being
+ * recorded as zero.
  */
 public interface AgentMetricsService
 {
@@ -34,8 +36,8 @@ public interface AgentMetricsService
     UsageBaseline beginTurn(TaskId taskId, TurnId turnId);
 
     /**
-     * Applies one normalized provider usage sample without double-counting repeated
-     * snapshots or provider event identifiers.
+     * Applies one normalized provider usage sample. The caller must deduplicate
+     * provider event identifiers before invoking this method.
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample

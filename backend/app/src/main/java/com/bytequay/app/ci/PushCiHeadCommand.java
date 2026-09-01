@@ -25,8 +25,11 @@ import static java.util.Objects.requireNonNull;
 
 public record PushCiHeadCommand(
         Path worktree,
-        RepositoryIdentity repository,
-        String headRef,
+        RepositoryIdentity physicalRepository,
+        String localBranch,
+        String remote,
+        RepositoryIdentity remoteRepository,
+        String remoteHeadRef,
         Authorization authorization,
         PushJournal journal)
 {
@@ -34,8 +37,12 @@ public record PushCiHeadCommand(
     {
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        requireNonNull(repository, "repository is null");
-        checkText(headRef, "headRef", 255);
+        requireNonNull(physicalRepository, "physicalRepository is null");
+        checkText(localBranch, "localBranch", 255);
+        checkText(remote, "remote", 255);
+        checkArgument(!remote.startsWith("-"), "remote is invalid");
+        requireNonNull(remoteRepository, "remoteRepository is null");
+        checkText(remoteHeadRef, "remoteHeadRef", 255);
         requireNonNull(authorization, "authorization is null");
         requireNonNull(journal, "journal is null");
     }

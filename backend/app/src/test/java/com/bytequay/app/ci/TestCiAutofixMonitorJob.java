@@ -30,8 +30,10 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -49,6 +51,9 @@ import static org.mockito.Mockito.when;
 
 class TestCiAutofixMonitorJob
 {
+    private static final Instant MONITOR_NOW = Instant.parse("2026-09-01T00:00:00Z");
+    private static final Clock CLOCK = Clock.fixed(MONITOR_NOW, ZoneOffset.UTC);
+
     @Test
     void advancesABoundedBatchAndContinuesAfterOneRunFails()
     {
@@ -60,7 +65,7 @@ class TestCiAutofixMonitorJob
         when(store.listNonFinished(2)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
-        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 2).monitor();
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 2).monitor();
 
         verify(service).advance(first.id());
         verify(service).advance(second.id());
@@ -82,7 +87,7 @@ class TestCiAutofixMonitorJob
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return run;
         }).when(service).advance(run.id());
-        CiAutofixMonitorJob job = new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 1);
+        CiAutofixMonitorJob job = new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var firstPass = executor.submit(job::monitor);
@@ -122,7 +127,86 @@ class TestCiAutofixMonitorJob
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 1).monitor();
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+
+        verify(service).advance(finished.id());
+    }
+
+    @Test
+    void backsOffRecentlyFailedFinishedRunCompletion()
+    {
+        CiAutofixStore store = mock(CiAutofixStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        CiAutofixService service = mock(CiAutofixService.class);
+        TaskId taskId = TaskId.random();
+        CiAutofixRun finished = run()
+                .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
+                .finish(CiAutofixRun.FinishReason.CANCELLED, "cancelled", Instant.parse("2026-08-18T00:00:02Z"));
+        AgentTask recentlyUpdated = AgentTask.created(
+                taskId,
+                Optional.empty(),
+                false,
+                "CI Autofix",
+                AgentLaneId.CLAUDE_CLI,
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-ci-live-backoff"),
+                AgentPermissionPolicy.CI_AUTOFIX,
+                MONITOR_NOW);
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(recentlyUpdated));
+        when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
+
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void retriesWorktreeCleanupForFinishedRunsWithTerminalTasks()
+    {
+        CiAutofixStore store = mock(CiAutofixStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        CiAutofixService service = mock(CiAutofixService.class);
+        TaskId unfinishedTaskId = TaskId.random();
+        TaskId taskId = TaskId.random();
+        CiAutofixRun finished = run()
+                .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
+                .finish(
+                        CiAutofixRun.FinishReason.GREEN,
+                        "green",
+                        Instant.parse("2026-08-18T00:00:02Z"));
+        Instant now = Instant.parse("2026-08-18T00:00:00Z");
+        AgentTask task = AgentTask.created(
+                        taskId,
+                        Optional.empty(),
+                        false,
+                        "CI Autofix",
+                        AgentLaneId.CODEX_CLI,
+                        new RepositoryIdentity("bytequay", "sample"),
+                        Path.of("/tmp/bytequay-ci-cleanup-monitor"),
+                        AgentPermissionPolicy.CI_AUTOFIX,
+                        now)
+                .fail("finished", now.plusSeconds(1), now.plus(Duration.ofDays(7)));
+        AgentTask unfinishedTask = AgentTask.created(
+                        unfinishedTaskId,
+                        Optional.empty(),
+                        false,
+                        "CI Autofix",
+                        AgentLaneId.CODEX_CLI,
+                        new RepositoryIdentity("bytequay", "sample"),
+                        Path.of("/tmp/bytequay-ci-blocked-cleanup-monitor"),
+                        AgentPermissionPolicy.CI_AUTOFIX,
+                        now.minusSeconds(1))
+                .fail("finished", now, now.plus(Duration.ofDays(7)));
+        CiAutofixRun unfinished = run()
+                .assignAgentTask(unfinishedTaskId.toString(), Instant.parse("2026-08-18T00:00:01Z"));
+        when(taskStore.listPendingWorktreeCleanup(
+                AgentPermissionPolicy.CI_AUTOFIX,
+                MONITOR_NOW.minus(Duration.ofMinutes(1))))
+                .thenReturn(ImmutableList.of(unfinishedTask, task));
+        when(store.findByAgentTaskId(unfinishedTaskId.toString())).thenReturn(Optional.of(unfinished));
+        when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
+
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
 
         verify(service).advance(finished.id());
     }
@@ -134,7 +218,7 @@ class TestCiAutofixMonitorJob
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CiAutofixService service = mock(CiAutofixService.class);
 
-        new CiAutofixMonitorJob(store, taskStore, service, new AgentServingGate(), 1).monitor();
+        new CiAutofixMonitorJob(store, taskStore, service, new AgentServingGate(), CLOCK, 1).monitor();
 
         verifyNoInteractions(store, taskStore, service);
     }
@@ -148,11 +232,13 @@ class TestCiAutofixMonitorJob
                 id.toString(),
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 1),
+                        "workspace-1",
+                        Optional.empty(),
                         "author",
                         "feature",
                         "main",
-                        Path.of("/tmp/bytequay-ci-monitor"),
                         "codex"),
+                "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),
                 new Authorization(true, true, true, 3, now, now.plus(Duration.ofHours(8))),

@@ -1,10 +1,9 @@
 # CI Autofix Service Design
 
-> **Status: backend implemented; managed-worktree migration approved on
-> 2026-08-31 and pending.** The current implementation follows the
+> **Status: backend and managed-worktree migration implemented and verified on
+> 2026-09-01.** The current implementation follows the
 > locked scope, authority boundary, services, durable status model, and program
-> control facts approved on 2026-08-17. Before the rich agent task surface,
-> CI Autofix will move from a supplied checkout to the shared
+> control facts approved on 2026-08-17. CI Autofix uses the shared
 > [Managed Worktree Service](worktree-service.md). Verification evidence for
 > the current flow is recorded in [Implementation status](#12-implementation-status).
 
@@ -105,7 +104,15 @@ the shared non-destructive cleanup rule:
 | Dirty, open-sequencer, or uncertain local state | Do not settle; pause and preserve the worktree |
 
 Cleanup failure is retryable from the task/run's persisted immutable worktree
-facts and does not change an already recorded terminal run result. The
+facts and does not change an already recorded terminal run result. Successful
+removal records the task's `worktreeRemovedAt`; the monitor matches terminal
+tasks without that fact to a `FINISHED` CI run, applies its batch limit after
+that match, and retries idempotent completion/event delivery followed by
+cleanup. Cleanup drains pending task outbox events before removing the
+worktree. A failed task-completion or cleanup attempt advances the task's
+existing `updatedAt`;
+the monitor applies a one-minute cutoff before selecting it again, so a
+persistent unsafe candidate neither hot-loops nor starves later work. The
 worktree service has no destructive discard or branch-deletion mode.
 
 ## 3. Services
@@ -273,8 +280,11 @@ public interface CiGitService
      * Pushes one inspected local head with an exact lease.
      *
      * <p>Rechecks authorization, repository, branch, local fingerprint, and
-     * remote SHA. Uses a normal push for a descendant or exact
-     * force-with-lease for agent-rewritten PR history. Never uses plain force.
+     * remote SHA immediately before pushing. The selected remote must have
+     * exactly one matching fetch URL, no configured push URL, and no matching
+     * {@code url.*.insteadOf} or {@code url.*.pushInsteadOf} rewrite. Uses a
+     * normal push for a descendant or exact force-with-lease for agent-rewritten
+     * PR history. Never uses plain force.
      * The push journal is written before the process starts.
      *
      * @param command inspected local head and exact push authorization
@@ -551,7 +561,13 @@ The operations are:
 
 ```text
 if FINISHED:
+    after the one-minute failure backoff, complete a still-live task or re-enter
+    completed-task event delivery after a prior terminal-run write, if present
+    after the same backoff, retry worktree cleanup until successful removal is
+    recorded
     return
+if the final fixup check is VALID and the agent task is already COMPLETED:
+    reconcile the interrupted green finish, persist FINISHED, then clean up
 if a push outcome is uncertain:
     reconcile the exact local and remote SHAs; never blind-retry
 derive any requested terminal reason from cancellation, expired authorization,
@@ -560,7 +576,8 @@ if a terminal reason is requested:
     cancel active provider execution and wait for proven quiescence
     inspect the persisted task worktree and local Git
     if dirty, open-sequencer, or uncertain: pause with that finish reason pending
-    otherwise: finish and remove the clean worktree while retaining its branch
+    otherwise: persist FINISHED, complete the task when quiescent, then remove
+    the clean worktree while retaining its branch
 if PAUSED:
     return
 if an agent turn is running:
@@ -741,8 +758,9 @@ These files use the agent task's existing seven-day retention policy.
 - run ID and start idempotency key;
 - owning workspace ID;
 - repository, PR number, author, head ref, and base ref;
-- lane ID and agent task ID; immutable worktree facts remain with the shared
-  task record;
+- the original selected physical repository and original task start commit;
+- lane ID and preassigned agent task ID; the complete immutable worktree facts
+  remain with the shared task record;
 - `ACTIVE`, `PAUSED`, or `FINISHED`;
 - pause/finish reason and summary;
 - expected remote head and latest observed base SHA;
@@ -761,6 +779,27 @@ These files use the agent task's existing seven-day retention policy.
 - inspected local head, fingerprint, actual changed paths, and commit subjects;
 - expected remote SHA, pushed SHA, and push time; and
 - observed CI result and timeline event key.
+
+For populated pre-workspace databases, Hibernate adds the workspace-ID column
+as nullable and retains the former non-null worktree column. A legacy row is
+readable only when that recorded path exactly identifies a current managed
+workspace; the next write stores its workspace ID. An unmatched path fails
+with an explicit storage diagnostic and is never resumed against a guessed
+workspace.
+
+Start preassigns the task ID and inserts these frozen provisioning facts before
+it calls the task service. Start, repeated start, every non-finished monitor
+advance (including a paused run), and cancellation share one idempotent ensure
+operation: an absent task is created from those facts, while a concurrent
+create conflict is resolved by rereading and validating the exact task. A
+changed workspace repository selection is rejected. A legacy row may
+reuse an existing task's immutable worktree facts, but a legacy row with no
+task and no frozen physical repository is preserved rather than routed to
+today's selection. An ordinary provisioning failure is surfaced while the
+inserted run remains `ACTIVE` with the same preassigned task ID; it never writes
+a terminal or paused run across an unverified task gap. Repeated start or a
+later monitor pass retries the same ensure operation and then continues the
+normal flow.
 
 There is no fixup-target or commit-mapping table. Detailed prompts, output,
 diffs, and logs remain in existing agent runtime files.
@@ -782,12 +821,14 @@ rewrites, and exact-lease branch pushes. It requires an `Idempotency-Key`.
 The response contains status, derived activity, authorization expiry, current
 head/base/check facts, attempts, agent task/turn/rebase links, metrics,
 warnings, pushes, final-check result, and summary. A live linked rebase renders
-as `REBASING`. Agent messages remain in the existing event stream and are
-labeled display-only.
+as `REBASING`. A preassigned task that has not been provisioned yet renders as
+`PREPARING_AGENT` with absent task metrics and generated branch. Agent messages
+remain in the existing event stream and are labeled display-only.
 
 ## 10. Restart and idempotency
 
-- Repeating a start or message idempotency key returns the existing result.
+- Repeating a start or message idempotency key returns the existing result;
+  a start key already owned by another workspace is rejected.
 - A linked `currentRebaseId` resumes through `BranchRebaseService`; CI Autofix
   does not reconstruct or duplicate the rebase sequencer state.
 - On restart, a live turn without a live provider execution becomes
@@ -808,29 +849,33 @@ labeled display-only.
 1. Persist author consent, runs, attempts, and GitHub Actions logs.
 2. Add the atomic CI-memory rebuild and task-scoped `read_ci_memory` tool;
    verify task isolation, empty/recent reads, substring search, and size bounds.
-3. Resolve the verified PR head in the named workspace, provision a fresh task
-   worktree through the shared service, and start one agent task/turn with the
-   fixup prompt and memory tool.
+3. Resolve the verified PR head in the named workspace, preassign a task ID and
+   persist its immutable start/routing facts, then provision its fresh worktree
+   through the shared service and start one agent task/turn with the fixup
+   prompt and memory tool. Restart and concurrent-start recovery reuse that
+   preassigned ID.
 4. Inspect the committed agent result and lease-push it.
 5. Monitor CI, handle bounded empty-result reruns, and repeat failed heads.
 6. Run the one final fixup-position check, record the local timeline event,
-   complete the task when CI is green, and remove its verified clean worktree
-   while retaining the generated branch.
+   complete the task when CI is green, persist the run's `FINISHED` result, and
+   only then remove its verified clean worktree while retaining the generated
+   branch. A crash after task completion reconciles the already-valid final
+   check into the same green result; a terminal-run retry repeats idempotent
+   completion or cleanup after a one-minute `updatedAt` backoff until successful
+   removal is recorded.
 7. Synchronize the exact target SHA and gate initial/finished fix work through
    the program-owned Branch Rebase Service.
 
-The first implementation is complete when one consented authored PR can move
-from a failing GitHub Actions head to green, survive backend restart, and never
-use agent response text to control the program.
+The implementation proves that one consented authored PR can move from a
+failing GitHub Actions head to green, survive backend restart, and never use
+agent response text to control the program.
 
 ## 12. Implementation status
 
-The backend implementation completed on 2026-08-18.
-
-This evidence covers the current supplied-worktree implementation. The approved
-managed-worktree migration must replace the public path, use a fresh CI task
-worktree, add provision/inspect/non-destructive-cleanup coverage, and rerun the
-same CI authorization and end-to-end gates before the rich agent task release.
+The initial backend implementation completed on 2026-08-18. The managed
+worktree migration completed on 2026-09-01: the public start accepts a saved
+`workspaceId`, creates a fresh task worktree at the verified PR head, and uses
+the shared inspect and non-destructive cleanup boundary.
 
 The program-owned target-rebase migration completed on 2026-08-20.
 `mvn verify` passed the full reactor in 1 minute 8 seconds with zero
@@ -842,16 +887,15 @@ Git target-moved journey proves the program starts and continues the rebase,
 while the conflict agent only edits and stages the stopped conflict. The
 two-context restart journey also passed against the persisted schema.
 
-Verification evidence:
+Managed-worktree verification evidence (2026-09-01):
 
-- `mvn verify` passed all reactor modules with zero Checkstyle violations;
-  the `app` module ran 143 tests with no failures or errors, packaged the
-  application, and the complete reactor finished in 31.233 seconds.
+- `mvn verify` passed all seven reactor modules with zero Checkstyle violations;
+  the `app` module ran 592 tests with no failures or errors, packaged the
+  application, and the complete reactor finished in 1 minute 44 seconds after
+  the final CP3 crash-recovery audit.
 - The end-to-end suite has 14 journeys: 13 HTTP-started journeys in one shared
-  context and one full two-context restart journey. The standalone classes ran
-  in 14.15 and 4.576 seconds respectively.
-- The ordinary E2E class passed the maintained three-run stability gate without
-  an intermittent failure.
+  context and one full two-context restart journey. Both suites passed after
+  the managed-worktree migration.
 - The journeys use SQLite, a scripted test agent and GitHub Actions client,
   task runtime files, and a real temporary worktree/bare remote. They prove
   exact-lease fixup pushes, CI memory, metrics, summaries, timeline events,
@@ -885,9 +929,8 @@ One fast Spring test context uses the real:
 - agent task, turn, event, metric, completion, and resource services;
 - SQLite stores and restart projections;
 - task log files and `ci-memory.md`;
-- the current `GitAgentWorkspaceService`, `DefaultCiGitService`, a real
-  worktree, and a local bare Git remote; after the approved migration this
-  becomes the real stateless `ManagedWorktreeService`, while the task/run
+- the stateless `ManagedWorktreeService`, `CiGitOperations`, a real managed
+  repository and task worktree, and a local bare Git remote, while the task/run
   persists its immutable `TaskWorktree` facts;
   and
 - pull-request timeline storage.
@@ -917,12 +960,10 @@ flowchart LR
 
 The ordinary suite shares one context for speed and gives every scenario a
 unique repository, PR number, idempotency key, task worktree, and bare
-remote. The current supplied-worktree suite runs on one thread because its
-agent workspace lease is process-local. The managed-worktree migration removes
-that limitation and adds coverage for concurrent work in distinct task
-worktrees while keeping add/remove serialized per managed repository. One
-separate restart test closes and reopens a full application context against the
-same SQLite file, task runtime, persisted worktree facts, and remote.
+remote. Distinct tasks use distinct managed worktrees while add/remove remains
+serialized per managed repository. One separate restart test closes and
+reopens a full application context against the same SQLite file, task runtime,
+persisted worktree facts, and remote.
 
 The restart test creates the schema in the first context and opens the second
 with Hibernate DDL disabled. SQLite reports Hibernate-generated integer IDs as
@@ -938,7 +979,7 @@ The test-only package is `com.bytequay.app.ci.e2e`.
 | `TestCiAutofixEndToEnd` | HTTP-started journeys that share one Spring context |
 | `TestCiAutofixRestartEndToEnd` | The one close/reopen uncertain-push journey |
 | `CiAutofixE2eHarness` | Creates isolated fixtures, makes HTTP requests, advances the real service, and exposes snapshots |
-| `E2eGitRepository` | Creates the authored commit range, local worktree, target branch, and local bare origin |
+| `E2eGitRepository` | Creates the authored commit range, managed repository checkout, target branch, and local bare origin |
 | `ScriptedGitHubActionsClient` | Returns explicit snapshots/logs and keeps a rerun call ledger |
 | `ScriptedAgentDriver` | Emits real agent events/usage and applies scripted Git operations in the task worktree |
 | `CiAutofixMonitorTestDriver` | Test-source bridge in `com.bytequay.app.ci` that invokes the package-private real monitor job |
@@ -1019,6 +1060,7 @@ does not reproduce MCP or CLI protocols.
 | Cancellation | Cancelling a blocked active turn prevents every later rerun and push, retains a clean local branch, and preserves dirty work without a destructive cleanup path |
 | Final position rejection | Green CI with misplaced fixups runs the final check once and pauses without an automatic turn; agent prose cannot override it |
 | Lost push and restart | A push reaches the bare remote but its result is lost; after full context restart the journal and remote head reconcile without another push or timeline event, and the run finishes green |
+| Terminal cleanup restart | An interrupted green finish reuses the completed task and valid final check, and a finished run retries task completion or worktree cleanup after the one-minute failure backoff until successful removal is recorded |
 
 Repeated start/message idempotency keys are asserted in the journeys that use
 them. Timeline keys, workflow reruns, final checks, and branch pushes are also

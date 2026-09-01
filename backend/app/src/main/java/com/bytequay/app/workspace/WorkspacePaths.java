@@ -17,6 +17,7 @@ import com.bytequay.core.domain.Workspace;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 
@@ -78,5 +79,16 @@ public final class WorkspacePaths
     public Path worktrees(String workspaceId)
     {
         return workspace(workspaceId).resolve("worktrees").normalize();
+    }
+
+    /** Returns the canonical task-derived path before or after its worktree exists. */
+    public Path canonicalTaskWorktree(String workspaceId, String taskId)
+            throws IOException
+    {
+        requireNonNull(taskId, "taskId is null");
+        return workspace(workspaceId).toRealPath()
+                .resolve("worktrees")
+                .resolve(taskId)
+                .normalize();
     }
 }

@@ -14,6 +14,9 @@
 package com.bytequay.app.web.ci;
 
 import com.bytequay.agent.core.AgentMetricsService;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.ci.CiAutofixService;
@@ -72,6 +75,7 @@ class TestCiAutofixHttpApi
 
     private CiAutofixService service;
     private AgentMetricsService metrics;
+    private AgentTaskService tasks;
     private MockMvc mvc;
     private CiAutofixRun run;
 
@@ -80,6 +84,7 @@ class TestCiAutofixHttpApi
     {
         service = mock(CiAutofixService.class);
         metrics = mock(AgentMetricsService.class);
+        tasks = mock(AgentTaskService.class);
         run = run();
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         AgentProperties properties = new AgentProperties(
@@ -91,7 +96,7 @@ class TestCiAutofixHttpApi
                 "claude",
                 false);
         AgentServingGate servingGate = readyAgentServingGate();
-        mvc = standaloneSetup(new CiAutofixController(service, metrics))
+        mvc = standaloneSetup(new CiAutofixController(service, metrics, tasks))
                 .addFilters(new AgentRequestFilter(properties, objectMapper, servingGate))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -122,9 +127,8 @@ class TestCiAutofixHttpApi
 
         String startBody = """
                 {
-                  "repository":"bytequay/sample",
+                  "workspaceId":"workspace-1",
                   "pullRequestNumber":42,
-                  "worktree":"/private/tmp/secret-worktree",
                   "laneId":"codex",
                   "maxAttempts":3,
                   "allowFailedJobReruns":true,
@@ -138,6 +142,7 @@ class TestCiAutofixHttpApi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(startBody))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.workspaceId").value("workspace-1"))
                 .andExpect(jsonPath("$.repository").value("bytequay/sample"))
                 .andExpect(jsonPath("$.activity").value("PREPARING_AGENT"))
                 .andExpect(content().string(not(containsString("secret-worktree"))))
@@ -164,6 +169,8 @@ class TestCiAutofixHttpApi
         ArgumentCaptor<StartCiAutofixCommand> start = ArgumentCaptor.forClass(StartCiAutofixCommand.class);
         verify(service).start(start.capture());
         assertThat(start.getValue().idempotencyKey()).isEqualTo("start-key");
+        assertThat(start.getValue().workspaceId()).isEqualTo("workspace-1");
+        assertThat(start.getValue().pullRequestNumber()).isEqualTo(42);
         ArgumentCaptor<SendCiAutofixMessageCommand> message =
                 ArgumentCaptor.forClass(SendCiAutofixMessageCommand.class);
         verify(service).sendMessage(message.capture());
@@ -194,6 +201,24 @@ class TestCiAutofixHttpApi
         mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", run.id())
                         .header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    void readsAPreassignedRunBeforeItsTaskIsProvisioned()
+            throws Exception
+    {
+        TaskId taskId = TaskId.random();
+        CiAutofixRun preparing = run().assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
+        when(service.get(preparing.id())).thenReturn(preparing);
+        when(tasks.get(taskId)).thenThrow(new AgentTaskNotFoundException(taskId));
+
+        mvc.perform(get("/api/ci-autofix/runs/{runId}", preparing.id())
+                        .header(AgentController.SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.activity").value("PREPARING_AGENT"))
+                .andExpect(jsonPath("$.metrics").doesNotExist())
+                .andExpect(jsonPath("$.generatedLocalBranch").doesNotExist());
+        verify(metrics, never()).taskTotals(taskId);
     }
 
     @Test
@@ -246,11 +271,25 @@ class TestCiAutofixHttpApi
     }
 
     @Test
-    void exposesAnAssignedZeroAttemptRunAsWatchingCi()
+    void exposesAnAssignedButUnprovisionedRunAsPreparingAgent()
+    {
+        CiAutofixRun preparing = run().assignAgentTask("task-1", NOW.plusSeconds(1));
+
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(preparing, Optional.empty());
+
+        assertThat(response.activity()).isEqualTo("PREPARING_AGENT");
+        assertThat(response.attempts()).isEmpty();
+    }
+
+    @Test
+    void exposesAProvisionedZeroAttemptRunAsWatchingCi()
     {
         CiAutofixRun watching = run().assignAgentTask("task-1", NOW.plusSeconds(1));
 
-        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(watching, Optional.empty());
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(
+                watching,
+                Optional.empty(),
+                Optional.of("bytequay/task/task-1"));
 
         assertThat(response.activity()).isEqualTo("WATCHING_CI");
         assertThat(response.attempts()).isEmpty();
@@ -263,11 +302,13 @@ class TestCiAutofixHttpApi
                 "never-expose-this-key",
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 42),
+                        "workspace-1",
+                        Optional.empty(),
                         "author",
                         "feature",
                         "main",
-                        Path.of("/private/tmp/secret-worktree"),
                         "codex"),
+                "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),
                 new Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))),

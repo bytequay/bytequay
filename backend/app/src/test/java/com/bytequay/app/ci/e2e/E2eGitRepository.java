@@ -13,21 +13,20 @@
  */
 package com.bytequay.app.ci.e2e;
 
+import com.bytequay.app.ci.RoutedGitCommandRunner;
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -39,8 +38,12 @@ final class E2eGitRepository
     static final String BASE_REF = "main";
     static final String HEAD_REF = "feature";
 
-    private static final int MAXIMUM_OUTPUT_BYTES = 1024 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(10);
+    private static final Map<String, String> DETERMINISTIC_IDENTITY = ImmutableMap.of(
+            "GIT_AUTHOR_NAME", "ByteQuay E2E",
+            "GIT_AUTHOR_EMAIL", "ci-e2e@bytequay.local",
+            "GIT_COMMITTER_NAME", "ByteQuay E2E",
+            "GIT_COMMITTER_EMAIL", "ci-e2e@bytequay.local");
 
     private final PullRequestRef pullRequest;
     private final Path bareRemote;
@@ -68,17 +71,19 @@ final class E2eGitRepository
         requireNonNull(pullRequest, "pullRequest is null");
         Path template = requireTemplate(root.getParent());
         Path bareRemote = root.resolve("origin.git");
-        Path worktree = root.resolve("worktree");
+        Path worktree = root.resolve("repository");
         createDirectory(root);
         String remoteUrl = "https://github.com/" + pullRequest.repoFullName() + ".git";
-        String rewrite = "url." + bareRemote.toUri() + ".insteadOf=" + remoteUrl;
         git(root,
                 "clone", "--bare", "--config", "core.logAllRefUpdates=true",
                 template.toString(), bareRemote.toString());
-        git(root,
-                "-c", rewrite,
-                "clone", "--branch", HEAD_REF, remoteUrl, worktree.toString());
-        git(worktree, "config", "url." + bareRemote.toUri() + ".insteadOf", remoteUrl);
+        git(root, "clone", "--branch", HEAD_REF, bareRemote.toString(), worktree.toString());
+        git(worktree, "remote", "set-url", "origin", remoteUrl);
+        git(
+                worktree,
+                "config",
+                RoutedGitCommandRunner.ROUTE_CONFIG,
+                RoutedGitCommandRunner.route(bareRemote, remoteUrl));
         String baseSha = git(worktree, "rev-parse", "origin/" + BASE_REF);
         String headSha = head(worktree);
         try {
@@ -126,7 +131,7 @@ final class E2eGitRepository
 
     String remoteHead()
     {
-        String output = git(worktree, "ls-remote", "origin", "refs/heads/" + HEAD_REF);
+        String output = git(worktree, "ls-remote", bareRemote.toString(), "refs/heads/" + HEAD_REF);
         return output.split("\\s+", 2)[0];
     }
 
@@ -137,7 +142,12 @@ final class E2eGitRepository
 
     List<String> commitSubjects()
     {
-        String output = git(worktree, "log", "--reverse", "--format=%s", baseSha + "..HEAD");
+        String output = git(worktree,
+                "--git-dir=" + bareRemote,
+                "log",
+                "--reverse",
+                "--format=%s",
+                baseSha + "..refs/heads/" + HEAD_REF);
         return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().collect(toImmutableList()));
     }
 
@@ -157,7 +167,11 @@ final class E2eGitRepository
 
     String mergeBaseWithHead(String ref)
     {
-        return git(worktree, "merge-base", ref, "HEAD");
+        return git(worktree,
+                "--git-dir=" + bareRemote,
+                "merge-base",
+                ref,
+                "refs/heads/" + HEAD_REF);
     }
 
     String commitOnHead(String relativePath, String content, String subject)
@@ -172,69 +186,73 @@ final class E2eGitRepository
     {
         git(worktree, "checkout", "-B", BASE_REF, baseSha);
         String commit = commitOnHead(relativePath, content, subject);
-        git(worktree, "push", "origin", "HEAD:refs/heads/" + BASE_REF);
+        git(worktree, "push", bareRemote.toString(), "HEAD:refs/heads/" + BASE_REF);
         baseSha = commit;
         git(worktree, "checkout", HEAD_REF);
         return commit;
     }
 
-    void createPositionedFixup(String relativePath, String content)
+    void createPositionedFixup(Path targetWorktree, String relativePath, String content)
     {
-        String laterCommit = localHead();
-        String target = git(worktree, "rev-parse", "HEAD~1");
-        write(worktree.resolve(relativePath), content);
-        git(worktree, "add", relativePath);
-        git(worktree, "commit", "-m", "fixup! Target change");
-        String fixup = localHead();
+        String branch = git(targetWorktree, "branch", "--show-current");
+        checkState(!branch.isBlank(), "Task worktree is detached");
+        String laterCommit = head(targetWorktree);
+        String target = git(targetWorktree, "rev-parse", "HEAD~1");
+        write(targetWorktree.resolve(relativePath), content);
+        git(targetWorktree, "add", relativePath);
+        git(targetWorktree, "commit", "-m", "fixup! Target change");
+        String fixup = head(targetWorktree);
 
-        git(worktree, "checkout", "--detach", target);
-        git(worktree, "cherry-pick", fixup);
-        git(worktree, "cherry-pick", laterCommit);
-        moveFeatureToHead();
+        git(targetWorktree, "checkout", "--detach", target);
+        git(targetWorktree, "cherry-pick", fixup);
+        git(targetWorktree, "cherry-pick", laterCommit);
+        moveCurrentBranchToHead(targetWorktree, branch);
     }
 
-    void resolveTargetRebaseConflict()
+    void resolveTargetRebaseConflict(Path targetWorktree)
     {
-        write(worktree.resolve("target.txt"), "base target\ntarget\n");
-        git(worktree, "add", "target.txt");
+        write(targetWorktree.resolve("target.txt"), "base target\ntarget\n");
+        git(targetWorktree, "add", "target.txt");
     }
 
-    void foldPositionedFixup(String relativePath, String content)
+    void foldPositionedFixup(Path targetWorktree, String relativePath, String content)
     {
-        String laterCommit = localHead();
-        String fixup = git(worktree, "rev-parse", "HEAD~1");
-        git(worktree, "checkout", "--detach", fixup);
-        write(worktree.resolve(relativePath), content);
-        git(worktree, "add", relativePath);
-        git(worktree, "commit", "--amend", "--no-edit");
-        git(worktree, "cherry-pick", laterCommit);
-        moveFeatureToHead();
+        String branch = git(targetWorktree, "branch", "--show-current");
+        checkState(!branch.isBlank(), "Task worktree is detached");
+        String laterCommit = head(targetWorktree);
+        String fixup = git(targetWorktree, "rev-parse", "HEAD~1");
+        git(targetWorktree, "checkout", "--detach", fixup);
+        write(targetWorktree.resolve(relativePath), content);
+        git(targetWorktree, "add", relativePath);
+        git(targetWorktree, "commit", "--amend", "--no-edit");
+        git(targetWorktree, "cherry-pick", laterCommit);
+        moveCurrentBranchToHead(targetWorktree, branch);
     }
 
-    void createMisplacedFixup(String relativePath, String content)
+    void createMisplacedFixup(Path targetWorktree, String relativePath, String content)
     {
-        write(worktree.resolve(relativePath), content);
-        git(worktree, "add", relativePath);
-        git(worktree, "commit", "-m", "fixup! Target change");
+        write(targetWorktree.resolve(relativePath), content);
+        git(targetWorktree, "add", relativePath);
+        git(targetWorktree, "commit", "-m", "fixup! Target change");
     }
 
-    void commitInvalidConflictMarkers()
+    void commitInvalidConflictMarkers(Path targetWorktree)
     {
-        write(worktree.resolve("target.txt"), "<<<<<<< ours\ntarget\n=======\nother\n>>>>>>> theirs\n");
-        git(worktree, "add", "target.txt");
-        git(worktree, "commit", "-m", "fixup! Target change");
+        write(targetWorktree.resolve("target.txt"), "<<<<<<< ours\ntarget\n=======\nother\n>>>>>>> theirs\n");
+        git(targetWorktree, "add", "target.txt");
+        git(targetWorktree, "commit", "-m", "fixup! Target change");
     }
 
-    void restoreInitialHead()
+    void restoreInitialHead(Path targetWorktree)
     {
-        git(worktree, "reset", "--hard", initialHeadSha);
+        git(targetWorktree, "reset", "--hard", initialHeadSha);
     }
 
     String pushExternalHeadCommit()
     {
         git(worktree, "checkout", "--detach", initialHeadSha);
         String external = commitOnHead("external.txt", "external\n", "External update");
-        git(worktree, "push", "origin", "HEAD:refs/heads/" + HEAD_REF);
+        git(worktree, "push", bareRemote.toString(), "HEAD:refs/heads/" + HEAD_REF);
         git(worktree, "checkout", HEAD_REF);
         return external;
     }
@@ -244,73 +262,30 @@ final class E2eGitRepository
         git(worktree, "checkout", ref);
     }
 
-    private void moveFeatureToHead()
+    private static void moveCurrentBranchToHead(Path targetWorktree, String branch)
     {
-        git(worktree, "branch", "-f", HEAD_REF, "HEAD");
-        git(worktree, "checkout", HEAD_REF);
+        git(targetWorktree, "branch", "-f", branch, "HEAD");
+        git(targetWorktree, "checkout", branch);
     }
 
     static String git(Path directory, String... arguments)
     {
-        List<String> command = ImmutableList.<String>builder()
-                .add("git", "-C", directory.toString())
-                .add(arguments)
-                .build();
-        Process process;
-        try {
-            ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
-            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-            builder.environment().put("LC_ALL", "C");
-            builder.environment().put("GIT_AUTHOR_NAME", "ByteQuay E2E");
-            builder.environment().put("GIT_AUTHOR_EMAIL", "ci-e2e@bytequay.local");
-            builder.environment().put("GIT_COMMITTER_NAME", "ByteQuay E2E");
-            builder.environment().put("GIT_COMMITTER_EMAIL", "ci-e2e@bytequay.local");
-            process = builder.start();
-        }
-        catch (IOException e) {
-            throw new IllegalStateException("Cannot start " + String.join(" ", command), e);
-        }
-
-        CompletableFuture<CommandOutput> output = new CompletableFuture<>();
-        Thread.ofVirtual().name("ci-e2e-git-output").start(() -> drain(process.getInputStream(), output));
-        try {
-            if (!process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                throw new IllegalStateException("Git timed out: " + String.join(" ", command));
-            }
-            CommandOutput result = output.get(1, TimeUnit.SECONDS);
-            checkState(process.exitValue() == 0, "Git failed: " + String.join(" ", command) + "\n" + result.text());
-            checkState(!result.truncated(), "Git output exceeded " + MAXIMUM_OUTPUT_BYTES + " bytes: " + String.join(" ", command) + "\n" + result.text());
-            return result.text().strip();
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            process.destroyForcibly();
-            throw new IllegalStateException("Interrupted while waiting for Git", e);
-        }
-        catch (ExecutionException | TimeoutException e) {
-            process.destroyForcibly();
-            throw new IllegalStateException("Cannot read Git output", e);
-        }
+        return run(new GitCommandRunner(), directory, arguments);
     }
 
-    private static void drain(InputStream stream, CompletableFuture<CommandOutput> output)
+    static String routedGit(Path directory, String... arguments)
     {
-        try (stream; ByteArrayOutputStream captured = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            boolean truncated = false;
-            for (int read = stream.read(buffer); read >= 0; read = stream.read(buffer)) {
-                int remaining = MAXIMUM_OUTPUT_BYTES - captured.size();
-                if (remaining > 0) {
-                    captured.write(buffer, 0, Math.min(read, remaining));
-                }
-                truncated |= read > remaining;
-            }
-            output.complete(new CommandOutput(captured.toString(StandardCharsets.UTF_8), truncated));
-        }
-        catch (IOException e) {
-            output.completeExceptionally(e);
-        }
+        return run(new RoutedGitCommandRunner(), directory, arguments);
+    }
+
+    private static String run(GitCommandRunner runner, Path directory, String... arguments)
+    {
+        Result result = runner.run(
+                directory, COMMAND_TIMEOUT, DETERMINISTIC_IDENTITY, ImmutableList.copyOf(arguments));
+        String command = String.join(" ", arguments);
+        checkState(result.successful(), "Git failed: %s%n%s", command, result.output());
+        checkState(!result.truncated(), "Git output was truncated: %s", command);
+        return result.output().strip();
     }
 
     private static String head(Path worktree)
@@ -368,6 +343,4 @@ final class E2eGitRepository
             throw new IllegalStateException("Cannot write E2E fixture " + path, e);
         }
     }
-
-    private record CommandOutput(String text, boolean truncated) {}
 }

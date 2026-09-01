@@ -71,7 +71,7 @@ class TestAgentTaskLifecycle
     }
 
     @Test
-    void interactiveOwnershipRequiresWorkspace()
+    void interactiveTaskRequiresWorkspace()
     {
         assertThatThrownBy(() -> AgentTask.created(
                 TaskId.random(),
@@ -83,17 +83,6 @@ class TestAgentTaskLifecycle
                 WORKTREE,
                 AgentPermissionPolicy.AUTO,
                 CREATED_AT))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("workspaceId");
-
-        assertThatThrownBy(() -> new CreateAgentTaskCommand(
-                AgentLaneId.CODEX_CLI,
-                WORKTREE,
-                new RepositoryIdentity("bytequay", "bytequay"),
-                "Interactive task",
-                AgentPermissionPolicy.AUTO,
-                Optional.empty(),
-                true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("workspaceId");
     }
@@ -138,15 +127,21 @@ class TestAgentTaskLifecycle
 
     private static TaskSummary summary()
     {
-        WorkspaceSnapshot workspace = new WorkspaceSnapshot(
-                WORKTREE,
+        TaskId taskId = TaskId.valueOf("123e4567-e89b-12d3-a456-426614174000");
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-a",
                 new RepositoryIdentity("bytequay", "bytequay"),
-                Optional.of("feature"),
-                "0123456789abcdef",
-                true);
+                WORKTREE.resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789012345678901234567890123456789");
         return new TaskSummary(
                 "Implemented the requested change.",
-                workspace,
+                Optional.of(new WorktreeSnapshot(
+                        worktree,
+                        "1123456789012345678901234567890123456789",
+                        true,
+                        false)),
                 ImmutableList.of(new TestFact("mvn verify", TestFact.Status.PASSED, Optional.empty())),
                 TaskMetrics.empty(),
                 ImmutableList.of("Keep provider events normalized."),

@@ -16,10 +16,11 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -27,13 +28,22 @@ import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
@@ -71,6 +81,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
+import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
+import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
+import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -92,7 +106,10 @@ public class DefaultCiAutofixService
     private final AgentTaskService taskService;
     private final AgentTurnService turnService;
     private final AgentCompletionService completionService;
-    private final AgentWorkspaceService workspaceService;
+    private final AgentDriverRegistry drivers;
+    private final WorktreeService worktreeService;
+    private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceProvisioningService provisioning;
     private final CiAutofixLogReader logReader;
     private final CiMemoryService memoryService;
     private final CiGitService gitService;
@@ -109,7 +126,10 @@ public class DefaultCiAutofixService
             AgentTaskService taskService,
             AgentTurnService turnService,
             AgentCompletionService completionService,
-            AgentWorkspaceService workspaceService,
+            AgentDriverRegistry drivers,
+            WorktreeService worktreeService,
+            WorkspaceRepositoryService workspaces,
+            WorkspaceProvisioningService provisioning,
             CiAutofixLogReader logReader,
             CiMemoryService memoryService,
             CiGitService gitService,
@@ -123,7 +143,10 @@ public class DefaultCiAutofixService
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
-        this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.drivers = requireNonNull(drivers, "drivers is null");
+        this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.logReader = requireNonNull(logReader, "logReader is null");
         this.memoryService = requireNonNull(memoryService, "memoryService is null");
         this.gitService = requireNonNull(gitService, "gitService is null");
@@ -139,28 +162,44 @@ public class DefaultCiAutofixService
         validateStartCommand(command);
         Optional<CiAutofixRun> existing = store.findByIdempotencyKey(command.idempotencyKey());
         if (existing.isPresent()) {
-            return existing.orElseThrow();
+            CiAutofixRun run = existing.orElseThrow();
+            requireStartWorkspace(run, command.workspaceId());
+            if (run.status() != Status.FINISHED && run.agentTaskId().isPresent()) {
+                ensureAgentTask(run);
+            }
+            return run;
         }
 
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(command.pullRequest()));
+        requireReady(drivers, command.laneId(), AgentPermissionPolicy.CI_AUTOFIX);
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(command.workspaceId());
+        PullRequestRef pullRequest = PullRequestRef.of(
+                workspace.monitoredRepository().owner(),
+                workspace.monitoredRepository().repo(),
+                command.pullRequestNumber());
+        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(pullRequest));
         String currentUser = currentUser();
-        validatePullRequest(snapshot, command.pullRequest(), currentUser);
+        validatePullRequest(snapshot, pullRequest, currentUser);
 
-        RepositoryIdentity repository = repository(command.pullRequest());
-        WorkspaceSnapshot workspace = workspaceService.inspect(command.worktree());
-        validateStartWorkspace(workspace, repository, snapshot);
-
+        WorkspaceCodeSyncResult sync = provisioning.synchronizeCode(command.workspaceId());
+        checkArgument(sync.successful(), "Workspace repository could not be synchronized");
+        workspace = workspaces.requireReadyRepository(command.workspaceId());
+        validateStartWorkspace(workspace, pullRequest);
         Instant now = Instant.now(clock);
+        TaskId taskId = TaskId.random();
         CiAutofixRun run = CiAutofixRun.create(
                 CiAutofixRunId.random(),
                 command.idempotencyKey(),
                 new Scope(
-                        command.pullRequest(),
+                        pullRequest,
+                        command.workspaceId(),
+                        Optional.of(RepoRef.of(
+                                workspace.selectedRepository().owner(),
+                                workspace.selectedRepository().repo())),
                         currentUser,
                         snapshot.headRef(),
                         snapshot.baseRef(),
-                        workspace.worktree(),
                         command.laneId().toString()),
+                snapshot.headSha(),
                 snapshot.headSha(),
                 snapshot.baseSha(),
                 new Authorization(
@@ -170,34 +209,29 @@ public class DefaultCiAutofixService
                         command.maxAttempts(),
                         now,
                         now.plus(AUTHORIZATION_PERIOD)),
-                now);
+                now)
+                .assignAgentTask(taskId.toString(), now);
         try {
             store.insert(run);
         }
         catch (CiAutofixConflictException conflict) {
-            return store.findByIdempotencyKey(command.idempotencyKey()).orElseThrow(() -> conflict);
+            CiAutofixRun raced = store.findByIdempotencyKey(command.idempotencyKey()).orElseThrow(() -> conflict);
+            requireStartWorkspace(raced, command.workspaceId());
+            if (raced.status() != Status.FINISHED && raced.agentTaskId().isPresent()) {
+                ensureAgentTask(raced);
+            }
+            return raced;
         }
 
         AgentTask task;
         try {
-            task = taskService.create(new CreateAgentTaskCommand(
-                    command.laneId(),
-                    workspace.worktree(),
-                    repository,
-                    "CI Autofix " + command.pullRequest().fullName(),
-                    AgentPermissionPolicy.CI_AUTOFIX,
-                    Optional.empty(),
-                    false));
+            task = ensureAgentTask(run);
         }
         catch (RuntimeException failure) {
             log.error("Cannot create agent task for CI Autofix run {}", run.id(), failure);
-            return store.update(run.finish(
-                    FinishReason.ERROR,
-                    failureSummary("Agent task creation failed", failure),
-                    Instant.now(clock)));
+            throw failure;
         }
 
-        run = store.update(run.assignAgentTask(task.id().toString(), Instant.now(clock)));
         if (snapshot.actionableFailures().isEmpty()) {
             return run;
         }
@@ -281,13 +315,13 @@ public class DefaultCiAutofixService
                 || !snapshot.headSha().equals(run.expectedRemoteHead())) {
             throw new CiAutofixConflictException("Pull request head changed outside this CI Autofix run");
         }
+        requireWorkspace(run);
         AgentTask task = requireOpenTask(run);
-        workspaceService.restore(task.id(), task.worktree(), task.repository());
 
         if (run.currentRebaseId().isPresent()) {
             return resumeBranchRebase(run, command.message());
         }
-        validateMessageWorkspace(task, run, workspaceService.inspect(task.worktree()));
+        inspectWorktree(task, run);
 
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 task.id(),
@@ -345,6 +379,9 @@ public class DefaultCiAutofixService
             completeFinishedTask(run);
             return run;
         }
+        if (run.agentTaskId().isPresent()) {
+            ensureAgentTask(run);
+        }
         if (run.status() == Status.PAUSED) {
             return now.isBefore(run.authorization().expiresAt())
                     ? run
@@ -352,6 +389,20 @@ public class DefaultCiAutofixService
                             FinishReason.AUTHORIZATION_EXPIRED,
                             "CI Autofix authorization expired",
                             now);
+        }
+        Optional<CiAutofixRun> reconciledGreen = reconcileCompletedGreenTask(run, now);
+        if (reconciledGreen.isPresent()) {
+            return reconciledGreen.orElseThrow();
+        }
+        try {
+            requireWorkspace(run);
+        }
+        catch (RuntimeException failure) {
+            return pauseAndRefresh(
+                    run,
+                    PauseReason.ERROR,
+                    failureSummary("Workspace routing changed; CI Autofix was paused", failure),
+                    now);
         }
         if (run.pushJournal().isPresent()) {
             return reconcilePush(run, now);
@@ -492,10 +543,11 @@ public class DefaultCiAutofixService
         String inspectionBaseline = attempt.inputSha().equals(run.expectedRemoteHead())
                 ? attempt.inputSha()
                 : run.expectedRemoteHead();
+        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         CiGitInspection inspection = gitService.inspectAgentResult(new InspectAgentResultCommand(
-                run.scope().worktree(),
-                repository(run.scope().pullRequest()),
-                run.scope().headRef(),
+                worktree.worktree().canonicalWorktree(),
+                worktree.worktree().physicalRepository(),
+                worktree.worktree().generatedBranch(),
                 inspectionBaseline,
                 snapshot.baseSha()));
         return switch (inspection.outcome()) {
@@ -616,8 +668,13 @@ public class DefaultCiAutofixService
         if (latest.version() != run.version() || latest.status() != Status.ACTIVE) {
             return latest;
         }
+        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        WorkspaceRepositoryContext workspace = requireWorkspace(run);
         CiPushResult result = gitService.push(new PushCiHeadCommand(
-                run.scope().worktree(),
+                worktree.worktree().canonicalWorktree(),
+                worktree.worktree().physicalRepository(),
+                worktree.worktree().generatedBranch(),
+                workspace.sourceRemote(),
                 repository(run.scope().pullRequest()),
                 run.scope().headRef(),
                 run.authorization(),
@@ -728,10 +785,11 @@ public class DefaultCiAutofixService
     private CiAutofixRun finishGreenOrCheckFixups(CiAutofixRun run, Instant now)
     {
         if (run.finalFixupCheck().isEmpty()) {
+            WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
             FixupPositionCheck check = gitService.checkFixupPositions(new CheckFixupPositionsCommand(
-                    run.scope().worktree(),
-                    repository(run.scope().pullRequest()),
-                    run.scope().headRef(),
+                    worktree.worktree().canonicalWorktree(),
+                    worktree.worktree().physicalRepository(),
+                    worktree.worktree().generatedBranch(),
                     run.latestObservedBaseSha(),
                     run.expectedRemoteHead()));
             boolean valid = check.result() == FixupPositionCheck.Result.VALID
@@ -753,13 +811,35 @@ public class DefaultCiAutofixService
                     summary("Fixup commits are not in the required positions", check.diagnostics()),
                     now));
         }
+        cleanupSynchronizedBase(run);
         TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
                 TaskId.valueOf(run.agentTaskId().orElseThrow()),
                 Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
         CiAutofixRun finished = store.update(run.finish(
                 FinishReason.GREEN, completionSummary(run, completion), now));
-        cleanupSynchronizedBase(finished);
+        cleanupFinishedTask(finished);
         return finished;
+    }
+
+    private Optional<CiAutofixRun> reconcileCompletedGreenTask(CiAutofixRun run, Instant now)
+    {
+        if (run.agentTaskId().isEmpty()
+                || run.finalFixupCheck().map(FinalFixupCheck::result).filter(CheckResult.VALID::equals).isEmpty()) {
+            return Optional.empty();
+        }
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        if (taskService.get(taskId).state() != TaskState.COMPLETED) {
+            return Optional.empty();
+        }
+        TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
+                taskId,
+                Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
+        CiAutofixRun finished = store.update(run.finish(
+                FinishReason.GREEN,
+                completionSummary(run, completion),
+                now));
+        cleanupFinishedTask(finished);
+        return Optional.of(finished);
     }
 
     private CiAutofixRun observeCi(
@@ -786,20 +866,16 @@ public class DefaultCiAutofixService
                     summary("The pull request base could not be synchronized", synchronization.diagnostics()),
                     now)));
         }
-        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
-        validateMessageWorkspace(task, run, workspace);
-        if (workspace.dirty()) {
+        WorktreeSnapshot workspace = inspectWorktree(task, run);
+        if (workspace.dirty() || workspace.gitOperationInProgress()) {
             return RebaseGate.waiting(store.update(run.pause(
                     PauseReason.REBASE_PAUSED,
-                    "The worktree is dirty before the target rebase",
+                    "The worktree is dirty or another Git operation is open before the target rebase",
                     now)));
         }
         try {
             BranchRebase rebase = rebaseService.start(new StartBranchRebaseCommand(
-                    task.id(),
-                    RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()),
-                    run.scope().worktree(),
-                    run.scope().headRef(),
+                    workspace.worktree(),
                     synchronization.localBaseBranch().orElseThrow(),
                     rebaseKey(run, workspace.head(), snapshot.baseSha())));
             verifyBranchRebaseScope(run, rebase, snapshot.baseSha());
@@ -919,20 +995,21 @@ public class DefaultCiAutofixService
 
     private CiAutofixRun refreshPreparedAttempt(CiAutofixRun run, AgentTask task, Instant now)
     {
-        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
-        validateMessageWorkspace(task, run, workspace);
-        checkArgument(!workspace.dirty(), "CI Autofix worktree is dirty after the target rebase");
+        WorktreeSnapshot workspace = inspectWorktree(task, run);
+        checkArgument(!workspace.dirty() && !workspace.gitOperationInProgress(),
+                "CI Autofix worktree is dirty or another Git operation is open after the target rebase");
         CiAutofixAttempt attempt = run.attempts().getLast();
         return store.update(run.updateAttempt(attempt.withPreparedInput(workspace.head(), now), now));
     }
 
-    private static void verifyBranchRebaseScope(CiAutofixRun run, BranchRebase rebase, String baseSha)
+    private void verifyBranchRebaseScope(CiAutofixRun run, BranchRebase rebase, String baseSha)
     {
+        TaskWorktree worktree = requireTaskWorktree(requireOpenTask(run), run);
         if (!rebase.agentTaskId().equals(run.agentTaskId().orElseThrow())
                 || !rebase.repository().equals(RepoRef.of(
-                        run.scope().pullRequest().owner(), run.scope().pullRequest().repo()))
-                || !rebase.worktree().equals(run.scope().worktree())
-                || !rebase.workBranch().equals(run.scope().headRef())
+                        worktree.physicalRepository().owner(), worktree.physicalRepository().name()))
+                || !rebase.worktree().equals(worktree.canonicalWorktree())
+                || !rebase.workBranch().equals(worktree.generatedBranch())
                 || !rebase.baseBranch().equals(localBaseBranch(run))
                 || !rebase.baseSha().equals(baseSha)) {
             throw new CiAutofixConflictException("Branch rebase is outside the CI Autofix scope");
@@ -949,12 +1026,16 @@ public class DefaultCiAutofixService
         return "bytequay/ci-base/" + run.id();
     }
 
-    private static SynchronizeCiBaseCommand synchronizeBaseCommand(CiAutofixRun run, String baseSha)
+    private SynchronizeCiBaseCommand synchronizeBaseCommand(CiAutofixRun run, String baseSha)
     {
+        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        WorkspaceRepositoryContext workspace = requireWorkspace(run);
         return new SynchronizeCiBaseCommand(
-                run.scope().worktree(),
+                worktree.worktree().canonicalWorktree(),
+                worktree.worktree().physicalRepository(),
+                worktree.worktree().generatedBranch(),
+                workspace.sourceRemote(),
                 repository(run.scope().pullRequest()),
-                run.scope().headRef(),
                 run.scope().baseRef(),
                 baseSha,
                 localBaseBranch(run));
@@ -966,6 +1047,18 @@ public class DefaultCiAutofixService
             String message,
             Instant now)
     {
+        Optional<AgentTask> task = Optional.empty();
+        if (run.agentTaskId().isPresent()) {
+            try {
+                task = Optional.of(ensureAgentTask(run));
+            }
+            catch (RuntimeException failure) {
+                return preserveUnfinishedRun(
+                        run,
+                        failureSummary("The agent task could not be verified and was preserved", failure),
+                        now);
+            }
+        }
         cancelBranchRebase(run);
         run.currentTurnId().ifPresent(value -> {
             AgentTurn turn = turnService.get(TurnId.valueOf(value));
@@ -973,10 +1066,35 @@ public class DefaultCiAutofixService
                 turnService.cancel(turn.id());
             }
         });
+        if (task.isPresent()) {
+            WorktreeSnapshot worktree;
+            try {
+                worktree = inspectWorktree(task.orElseThrow(), run);
+            }
+            catch (RuntimeException failure) {
+                return preserveUnfinishedRun(
+                        run,
+                        failureSummary("The task worktree could not be verified and was preserved", failure),
+                        now);
+            }
+            if (worktree.dirty() || worktree.gitOperationInProgress()) {
+                return preserveUnfinishedRun(
+                        run,
+                        "The task worktree has local changes or an open Git operation and was preserved",
+                        now);
+            }
+        }
+        cleanupSynchronizedBase(run);
         CiAutofixRun finished = store.update(run.finish(reason, message, now));
-        cleanupSynchronizedBase(finished);
         completeFinishedTask(finished);
         return finished;
+    }
+
+    private CiAutofixRun preserveUnfinishedRun(CiAutofixRun run, String message, Instant now)
+    {
+        return run.status() == Status.PAUSED
+                ? run
+                : store.update(run.pause(PauseReason.ERROR, message, now));
     }
 
     private void completeFinishedTask(CiAutofixRun run)
@@ -984,23 +1102,33 @@ public class DefaultCiAutofixService
         if (run.agentTaskId().isEmpty()) {
             return;
         }
-        cleanupSynchronizedBase(run);
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         try {
             AgentTask task = taskService.get(taskId);
-            if (task.state().terminal()) {
-                return;
+            if (task.state() == TaskState.OPEN || task.state() == TaskState.COMPLETED) {
+                completionService.complete(new CompleteAgentTaskCommand(
+                        taskId,
+                        Optional.of("CI Autofix finished with " + run.finishReason().orElseThrow()
+                                + ": " + run.summary().orElse("No summary"))));
             }
-            completionService.complete(new CompleteAgentTaskCommand(
-                    taskId,
-                    Optional.of("CI Autofix finished with " + run.finishReason().orElseThrow()
-                            + ": " + run.summary().orElse("No summary"))));
+            cleanupFinishedTask(run);
         }
         catch (AgentConflictException deferred) {
             log.debug("CI Autofix task {} is not ready to close: {}", taskId, deferred.getMessage());
         }
         catch (RuntimeException failure) {
             log.warn("Cannot close finished CI Autofix task {}: {}", taskId, failureSummary(failure));
+        }
+    }
+
+    private void cleanupFinishedTask(CiAutofixRun run)
+    {
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        try {
+            completionService.cleanupWorktree(taskId);
+        }
+        catch (RuntimeException failure) {
+            log.warn("Cannot clean up finished CI Autofix task {}: {}", taskId, failureSummary(failure));
         }
     }
 
@@ -1044,9 +1172,9 @@ public class DefaultCiAutofixService
     {
         List<FailureEvidence> failures = logReader.readFailures(task.id(), snapshot);
         checkArgument(!failures.isEmpty(), "CI snapshot has no readable actionable failure");
-        WorkspaceSnapshot workspace = workspaceService.inspect(task.worktree());
-        validateMessageWorkspace(task, run, workspace);
-        checkArgument(!workspace.dirty(), "CI Autofix worktree is dirty before the fix attempt");
+        WorktreeSnapshot workspace = inspectWorktree(task, run);
+        checkArgument(!workspace.dirty() && !workspace.gitOperationInProgress(),
+                "CI Autofix worktree is dirty or another Git operation is open before the fix attempt");
         Instant now = Instant.now(clock);
         CiAutofixAttempt attempt = CiAutofixAttempt.create(
                 CiAutofixAttemptId.random(),
@@ -1061,7 +1189,7 @@ public class DefaultCiAutofixService
     private CiAutofixRun startAttemptTurn(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot)
     {
         CiAutofixAttempt attempt = run.attempts().getLast();
-        workspaceService.restore(task.id(), task.worktree(), task.repository());
+        inspectWorktree(task, run);
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 task.id(),
                 promptBuilder.build(snapshot, attempt),
@@ -1135,6 +1263,114 @@ public class DefaultCiAutofixService
         return task;
     }
 
+    private AgentTask ensureAgentTask(CiAutofixRun run)
+    {
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        RepositoryIdentity selectedRepository = repositoryIdentity(
+                workspaces.requireReadyRepository(run.scope().workspaceId()).selectedRepository());
+        AgentTask task;
+        RepositoryIdentity repository;
+        try {
+            task = taskService.get(taskId);
+            repository = frozenRepository(run).orElse(task.repository());
+        }
+        catch (AgentTaskNotFoundException ignored) {
+            repository = frozenRepository(run).orElseThrow(() -> new CiAutofixConflictException(
+                    "Legacy CI Autofix run has no frozen physical repository"));
+            requireSelectedRepository(selectedRepository, repository, CiAutofixConflictException::new);
+            String startCommit = run.taskStartCommit().orElseGet(() -> legacyTaskStartCommit(run));
+            RepositoryIdentity created = repository;
+            task = createOrGet(taskService, taskId, () -> createAgentTask(run, created, startCommit));
+            return requireAgentTask(run, task, repository);
+        }
+        requireSelectedRepository(selectedRepository, repository, CiAutofixConflictException::new);
+        return requireAgentTask(run, task, repository);
+    }
+
+    private static Optional<RepositoryIdentity> frozenRepository(CiAutofixRun run)
+    {
+        return run.scope().physicalRepository().map(WorkflowAgentTasks::repositoryIdentity);
+    }
+
+    private AgentTask createAgentTask(CiAutofixRun run, RepositoryIdentity repository, String startCommit)
+    {
+        return taskService.create(new CreateAgentTaskCommand(
+                TaskId.valueOf(run.agentTaskId().orElseThrow()),
+                run.scope().workspaceId(),
+                new AgentLaneId(run.scope().laneId()),
+                repository,
+                startCommit,
+                "CI Autofix " + run.scope().pullRequest().fullName(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX)));
+    }
+
+    private static AgentTask requireAgentTask(
+            CiAutofixRun run,
+            AgentTask task,
+            RepositoryIdentity repository)
+    {
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
+                new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
+        if (!task.id().equals(taskId)
+                || task.interactive()
+                || task.workspaceId().stream().noneMatch(run.scope().workspaceId()::equals)
+                || !task.laneId().equals(new AgentLaneId(run.scope().laneId()))
+                || task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX
+                || !task.repository().equals(repository)
+                || !worktree.workspaceId().equals(run.scope().workspaceId())
+                || !worktree.physicalRepository().equals(repository)
+                || run.taskStartCommit().stream()
+                        .anyMatch(startCommit -> !worktree.startCommit().equals(startCommit))) {
+            throw new CiAutofixConflictException("CI Autofix agent task does not match the run");
+        }
+        return task;
+    }
+
+    private static String legacyTaskStartCommit(CiAutofixRun run)
+    {
+        if (!run.attempts().isEmpty()
+                || run.currentTurnId().isPresent()
+                || run.currentRebaseId().isPresent()
+                || run.pushJournal().isPresent()
+                || run.rerunJournal().isPresent()
+                || run.finalFixupCheck().isPresent()) {
+            throw new CiAutofixConflictException("Legacy CI Autofix run progressed without its agent task");
+        }
+        return run.expectedRemoteHead();
+    }
+
+    private WorktreeSnapshot inspectWorktree(AgentTask task, CiAutofixRun run)
+    {
+        TaskWorktree worktree = requireTaskWorktree(task, run);
+        return worktreeService.inspect(worktree);
+    }
+
+    private WorkspaceRepositoryContext requireWorkspace(CiAutofixRun run)
+    {
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(run.scope().workspaceId());
+        TaskWorktree worktree = requireTaskWorktree(requireOpenTask(run), run);
+        if (!workspace.monitoredRepository().owner().equalsIgnoreCase(run.scope().pullRequest().owner())
+                || !workspace.monitoredRepository().repo().equalsIgnoreCase(run.scope().pullRequest().repo())
+                || !workspace.selectedRepository().owner().equalsIgnoreCase(worktree.physicalRepository().owner())
+                || !workspace.selectedRepository().repo().equalsIgnoreCase(worktree.physicalRepository().name())) {
+            throw new CiAutofixConflictException("Workspace repository routing no longer matches the CI Autofix run");
+        }
+        return workspace;
+    }
+
+    private static TaskWorktree requireTaskWorktree(AgentTask task, CiAutofixRun run)
+    {
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
+                new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
+        if (!worktree.workspaceId().equals(run.scope().workspaceId())
+                || !worktree.physicalRepository().equals(task.repository())
+                || !task.id().toString().equals(run.agentTaskId().orElseThrow())) {
+            throw new CiAutofixConflictException("CI Autofix task worktree does not match the run");
+        }
+        return worktree;
+    }
+
     private boolean matchesCurrentMessage(CiAutofixRun run, String idempotencyKey)
     {
         if (run.currentTurnId().isEmpty()) {
@@ -1154,8 +1390,8 @@ public class DefaultCiAutofixService
     private static void validateStartCommand(StartCiAutofixCommand command)
     {
         requireNonNull(command, "command is null");
-        checkArgument(!command.pullRequest().owner().isBlank() && !command.pullRequest().repo().isBlank(), "pullRequest repository is blank");
-        checkArgument(command.worktree().isAbsolute(), "worktree is not absolute");
+        checkArgument(!command.workspaceId().isBlank(), "workspaceId is blank");
+        checkArgument(command.pullRequestNumber() > 0, "pullRequestNumber must be positive");
         checkArgument(command.maxAttempts() > 0
                         && command.maxAttempts() <= CiAutofixRun.MAX_FIX_ATTEMPTS,
                 "maxAttempts must be between 1 and 3");
@@ -1164,6 +1400,13 @@ public class DefaultCiAutofixService
                         && command.allowExactLeasePush(),
                 "All CI Autofix consent flags must be true");
         validateText(command.idempotencyKey(), "idempotencyKey", 200);
+    }
+
+    private static void requireStartWorkspace(CiAutofixRun run, String workspaceId)
+    {
+        if (!run.scope().workspaceId().equals(workspaceId)) {
+            throw new CiAutofixConflictException("CI Autofix idempotency key belongs to another workspace");
+        }
     }
 
     private static void validateMessageCommand(SendCiAutofixMessageCommand command)
@@ -1185,26 +1428,12 @@ public class DefaultCiAutofixService
     }
 
     private static void validateStartWorkspace(
-            WorkspaceSnapshot workspace,
-            RepositoryIdentity repository,
-            CiHeadSnapshot snapshot)
+            WorkspaceRepositoryContext workspace,
+            PullRequestRef pullRequest)
     {
-        checkArgument(workspace.repository().toString().equalsIgnoreCase(repository.toString()), "Worktree repository does not match the pull request");
-        checkArgument(!workspace.dirty(), "Worktree must be clean before CI Autofix starts");
-        checkArgument(workspace.branch().filter(snapshot.headRef()::equals).isPresent(), "Worktree branch does not match the pull request head branch");
-        checkArgument(workspace.head().equals(snapshot.headSha()), "Worktree HEAD does not match the pull request head SHA");
-    }
-
-    private static void validateMessageWorkspace(
-            AgentTask task,
-            CiAutofixRun run,
-            WorkspaceSnapshot workspace)
-    {
-        if (!workspace.worktree().equals(task.worktree())
-                || !workspace.repository().toString().equalsIgnoreCase(task.repository().toString())
-                || workspace.branch().filter(run.scope().headRef()::equals).isEmpty()) {
-            throw new CiAutofixConflictException("CI Autofix worktree lease no longer matches the run");
-        }
+        checkArgument(workspace.monitoredRepository().owner().equalsIgnoreCase(pullRequest.owner())
+                        && workspace.monitoredRepository().repo().equalsIgnoreCase(pullRequest.repo()),
+                "Workspace repository does not match the pull request");
     }
 
     private static RepositoryIdentity repository(PullRequestRef pullRequest)
@@ -1214,19 +1443,13 @@ public class DefaultCiAutofixService
 
     private static String terminalSummary(String prefix, AgentTurn turn)
     {
-        return truncate(
-                prefix + turn.terminalReason().map(reason -> ": " + reason).orElse(""),
-                MAXIMUM_SUMMARY_CHARACTERS,
-                "…");
+        return summary(prefix, turn.terminalReason().orElse(""));
     }
 
     private static String failureSummary(String prefix, RuntimeException failure)
     {
         String detail = failure.getMessage();
-        if (detail == null || detail.isBlank()) {
-            detail = failure.getClass().getSimpleName();
-        }
-        return truncate(prefix + ": " + detail, MAXIMUM_SUMMARY_CHARACTERS, "…");
+        return summary(prefix, detail == null || detail.isBlank() ? failure.getClass().getSimpleName() : detail);
     }
 
     private static String failureSummary(RuntimeException failure)

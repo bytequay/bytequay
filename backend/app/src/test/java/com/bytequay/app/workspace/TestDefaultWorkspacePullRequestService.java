@@ -82,14 +82,14 @@ class TestDefaultWorkspacePullRequestService
         PullRequestResult repeated = fixture.service().createPullRequest(
                 new PullRequestCommand("workspace", fixture.executionId(), true));
 
-        verify(fixture.git()).pushBranch(fixture.workspace(), temporaryDirectory, WORK_BRANCH);
+        verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
                 "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body");
         verify(fixture.pullRequestCatalog(), times(2))
                 .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
         verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
-                command.pullRequest().fullName().equals("owner/project#12")
-                        && command.worktree().equals(temporaryDirectory)
+                command.workspaceId().equals("workspace")
+                        && command.pullRequestNumber() == 12
                         && command.laneId().toString().equals("lane")
                         && command.allowFailedJobReruns()
                         && command.allowHistoryRewrites()
@@ -108,7 +108,7 @@ class TestDefaultWorkspacePullRequestService
         PullRequestResult result = fixture.service().createPullRequest(
                 new PullRequestCommand("workspace", fixture.executionId(), true));
 
-        verify(fixture.git()).pushBranch(fixture.workspace(), temporaryDirectory, WORK_BRANCH);
+        verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests()).createPullRequest(
                 "token",
                 RepoRef.of("upstream", "project"),
@@ -175,7 +175,7 @@ class TestDefaultWorkspacePullRequestService
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("DELIVERY_CONFIRMATION_REQUIRED"));
 
-        verify(fixture.git(), times(1)).pushBranch(fixture.workspace(), temporaryDirectory, WORK_BRANCH);
+        verify(fixture.git(), times(1)).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests(), never()).createPullRequest(any(), any(), any(), any(), any(), any());
     }
 
@@ -224,7 +224,7 @@ class TestDefaultWorkspacePullRequestService
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         WorkspaceBranchPusher git = mock(WorkspaceBranchPusher.class);
-        when(git.pushBranch(workspace, temporaryDirectory, WORK_BRANCH))
+        when(git.pushBranch(workspace, WORK_BRANCH, PARENT_SHA))
                 .thenReturn(new Push("origin", WORK_BRANCH, SHA));
         PullRequestService pullRequestCatalog = mock(PullRequestService.class);
         CiAutofixService ciAutofix = mock(CiAutofixService.class);
@@ -262,6 +262,7 @@ class TestDefaultWorkspacePullRequestService
                         new CherryPickExecution.Workspace(
                                 Optional.of("workspace"),
                                 workspace.monitoredRepository(),
+                                Optional.empty(),
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 "main",

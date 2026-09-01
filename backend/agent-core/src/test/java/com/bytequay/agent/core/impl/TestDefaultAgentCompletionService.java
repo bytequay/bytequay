@@ -15,30 +15,34 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UsageBaseline;
-import com.bytequay.agent.core.WorkspaceLease;
-import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -58,6 +62,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -81,7 +86,7 @@ class TestDefaultAgentCompletionService
 
     private InMemoryAgentStores stores;
     private RecordingResources resources;
-    private RecordingWorkspace workspace;
+    private RecordingWorktreeService worktrees;
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
 
@@ -90,19 +95,10 @@ class TestDefaultAgentCompletionService
     {
         stores = new InMemoryAgentStores();
         resources = new RecordingResources();
-        workspace = new RecordingWorkspace();
+        worktrees = new RecordingWorktreeService();
         runtimeRegistry = new AgentRuntimeRegistry();
         taskId = TaskId.random();
-        stores.insert(AgentTask.created(
-                taskId,
-                Optional.empty(),
-                false,
-                "Completion test",
-                AgentLaneId.CODEX_CLI,
-                REPOSITORY,
-                WORKTREE,
-                AgentPermissionPolicy.AUTO,
-                NOW));
+        stores.insert(managedTask(taskId, "Completion test"));
     }
 
     @Test
@@ -118,29 +114,51 @@ class TestDefaultAgentCompletionService
 
         assertThat(first).isEqualTo(repeated);
         assertThat(first.summary().finalResponse()).isEqualTo("final response");
-        assertThat(first.summary().workspace()).isEqualTo(workspace.snapshot);
+        assertThat(first.summary().worktree()).contains(worktrees.inspected.getFirst());
         assertThat(first.summary().metrics()).isEqualTo(METRICS);
         assertThat(first.summary().notes()).contains("reviewed");
         assertThat(first.deleteAfter()).isEqualTo(NOW.plus(Duration.ofDays(7)));
-        assertThat(stored.version()).isEqualTo(1);
+        assertThat(stored.version()).isEqualTo(2);
+        assertThat(stored.worktreeMutationClaim()).isEmpty();
+        assertThat(stores.outboxEntries())
+                .filteredOn(entry -> entry.payload() instanceof AgentEventOutboxPayload.Inline inline
+                        && inline.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TASK_COMPLETED)
+                .hasSize(1);
         assertThat(session.closed).isTrue();
-        assertThat(workspace.releases).isEqualTo(2);
+        assertThat(worktrees.cleaned).isEmpty();
+
+        service.cleanupWorktree(taskId);
+        service.cleanupWorktree(taskId);
+        assertThat(worktrees.cleaned).hasSize(1);
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW);
+    }
+
+    @Test
+    void retriesWorktreeCleanupAfterTheTerminalCommit()
+    {
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        worktrees.failCleanup = true;
+        DefaultAgentCompletionService failedAttempt = service(Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> failedAttempt.cleanupWorktree(taskId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("worktree busy");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
+        assertThat(stores.find(taskId).orElseThrow().updatedAt()).isEqualTo(NOW.plusSeconds(1));
+
+        worktrees.failCleanup = false;
+        service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
+        assertThat(worktrees.cleaned).hasSize(2);
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
 
     @Test
     void completesAnOpenTaskThatNeverStartedATurn()
     {
         TaskId openTaskId = TaskId.random();
-        stores.insert(AgentTask.created(
-                openTaskId,
-                Optional.empty(),
-                false,
-                "Unused task",
-                AgentLaneId.CODEX_CLI,
-                REPOSITORY,
-                WORKTREE,
-                AgentPermissionPolicy.AUTO,
-                NOW));
+        stores.insert(managedTask(openTaskId, "Unused task"));
 
         TaskCompletion completion = service(Clock.fixed(NOW, ZoneOffset.UTC))
                 .complete(new CompleteAgentTaskCommand(openTaskId, Optional.of("cancelled before first turn")));
@@ -208,13 +226,83 @@ class TestDefaultAgentCompletionService
         assertThat(resources.deletions).isEqualTo(2);
     }
 
+    @Test
+    void retentionCleanupRetriesTheWorktreeBeforeDeletingRuntimeFiles()
+    {
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        DefaultAgentCompletionService dueService = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
+        worktrees.failCleanup = true;
+
+        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.RETRY_PENDING);
+        assertThat(resources.deletions).isZero();
+
+        worktrees.failCleanup = false;
+        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
+        assertThat(resources.deletions).isOne();
+    }
+
+    @Test
+    void drainsTerminalEventBeforeWorkflowWorktreeCleanup()
+    {
+        StaticTaskLog log = new StaticTaskLog(taskId);
+        log.failNextAppends(2);
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC), log);
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("task log unavailable");
+        assertThatThrownBy(() -> service.cleanupWorktree(taskId))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("task log unavailable");
+        assertThat(worktrees.cleaned).isEmpty();
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
+        assertThat(stores.listPending(taskId, 10)).hasSize(1);
+
+        service.cleanupWorktree(taskId);
+
+        assertThat(worktrees.cleaned).hasSize(1);
+        assertThat(stores.listPending(taskId, 10)).isEmpty();
+    }
+
+    @Test
+    void drainsTerminalEventBeforeRetentionDeletesResources()
+    {
+        StaticTaskLog log = new StaticTaskLog(taskId);
+        log.failNextAppends(2);
+        DefaultAgentCompletionService completion = service(Clock.fixed(NOW, ZoneOffset.UTC), log);
+        assertThatThrownBy(() -> completion.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("task log unavailable");
+        DefaultAgentCompletionService due = service(
+                Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC),
+                log);
+
+        assertThat(due.cleanup(taskId).state()).isEqualTo(CleanupState.RETRY_PENDING);
+        assertThat(worktrees.cleaned).isEmpty();
+        assertThat(resources.deletions).isZero();
+        assertThat(stores.listPending(taskId, 10)).hasSize(1);
+
+        assertThat(due.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
+        assertThat(worktrees.cleaned).hasSize(1);
+        assertThat(resources.deletions).isOne();
+        assertThat(stores.listPending(taskId, 10)).isEmpty();
+    }
+
     private DefaultAgentCompletionService service(Clock clock)
+    {
+        return service(clock, new StaticTaskLog(taskId));
+    }
+
+    private DefaultAgentCompletionService service(Clock clock, StaticTaskLog log)
     {
         return new DefaultAgentCompletionService(
                 stores,
                 stores,
-                new StaticTaskLog(taskId),
-                workspace,
+                stores,
+                stores,
+                new DefaultAgentEventService(log, stores, stores, clock),
+                log,
+                worktrees,
                 resources,
                 runtimeRegistry,
                 new FixedMetrics(),
@@ -224,19 +312,28 @@ class TestDefaultAgentCompletionService
     private static final class StaticTaskLog
             implements TaskLogStore
     {
-        private final List<AgentEventEnvelope> events;
+        private final List<AgentEventEnvelope> events = new ArrayList<>();
+        private int failingAppends;
 
         private StaticTaskLog(TaskId taskId)
         {
-            events = ImmutableList.of(
-                    event(taskId, 1, AgentEventPayload.MessagePhase.PARTIAL, "partial"),
-                    event(taskId, 2, AgentEventPayload.MessagePhase.FINAL, "final response"));
+            events.add(event(taskId, 1, AgentEventPayload.MessagePhase.PARTIAL, "partial"));
+            events.add(event(taskId, 2, AgentEventPayload.MessagePhase.FINAL, "final response"));
         }
 
         @Override
         public void append(AgentEventEnvelope envelope)
         {
-            throw new UnsupportedOperationException();
+            if (failingAppends > 0) {
+                failingAppends--;
+                throw new AgentStorageException("task log unavailable");
+            }
+            events.add(envelope);
+        }
+
+        private void failNextAppends(int count)
+        {
+            failingAppends = count;
         }
 
         @Override
@@ -297,39 +394,57 @@ class TestDefaultAgentCompletionService
         }
     }
 
-    private static final class RecordingWorkspace
-            implements AgentWorkspaceService
+    private static AgentTask managedTask(TaskId taskId, String title)
     {
-        private final WorkspaceSnapshot snapshot = new WorkspaceSnapshot(
-                WORKTREE,
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-a",
                 REPOSITORY,
-                Optional.of("main"),
-                "0123456789abcdef",
-                true);
-        private int releases;
+                WORKTREE.resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789012345678901234567890123456789");
+        return AgentTask.created(
+                taskId,
+                false,
+                title,
+                AgentLaneId.CODEX_CLI,
+                worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                NOW);
+    }
+
+    private static final class RecordingWorktreeService
+            implements WorktreeService
+    {
+        private final List<WorktreeSnapshot> inspected = new ArrayList<>();
+        private final List<TaskWorktree> cleaned = new ArrayList<>();
+        private boolean failCleanup;
 
         @Override
-        public WorkspaceLease acquire(TaskId taskId, Path requestedPath, RepositoryIdentity repository)
+        public TaskWorktree provision(ProvisionWorktreeCommand command)
         {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public WorkspaceLease restore(TaskId taskId, Path canonicalWorktree, RepositoryIdentity repository)
+        public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public WorkspaceSnapshot inspect(Path worktree)
-        {
+            WorktreeSnapshot snapshot = new WorktreeSnapshot(
+                    worktree,
+                    "1123456789012345678901234567890123456789",
+                    false,
+                    false);
+            inspected.add(snapshot);
             return snapshot;
         }
 
         @Override
-        public void release(TaskId taskId)
+        public void cleanup(TaskWorktree worktree)
         {
-            releases++;
+            cleaned.add(worktree);
+            if (failCleanup) {
+                throw new IllegalStateException("worktree busy");
+            }
         }
     }
 

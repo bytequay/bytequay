@@ -63,6 +63,14 @@ final class InMemoryCherryPickExecutionStore
     }
 
     @Override
+    public Optional<CherryPickExecution> findByAgentTaskId(String taskId)
+    {
+        return executions.values().stream()
+                .filter(execution -> execution.agentTaskId().filter(taskId::equals).isPresent())
+                .findFirst();
+    }
+
+    @Override
     public List<CherryPickExecution> listRecent(int limit)
     {
         return executions.values().stream()

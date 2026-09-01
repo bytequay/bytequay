@@ -25,6 +25,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,10 +38,13 @@ import static java.util.Objects.requireNonNull;
 @Component
 final class CiAutofixMonitorJob
 {
+    private static final Duration TERMINAL_RETRY_DELAY = Duration.ofMinutes(1);
+
     private final CiAutofixStore store;
     private final AgentTaskStore taskStore;
     private final CiAutofixService service;
     private final AgentServingGate servingGate;
+    private final Clock clock;
     private final int batchSize;
     private final MonitorLoop loop = new MonitorLoop(CiAutofixMonitorJob.class, "CI Autofix run");
 
@@ -47,12 +53,14 @@ final class CiAutofixMonitorJob
             AgentTaskStore taskStore,
             CiAutofixService service,
             AgentServingGate servingGate,
+            Clock clock,
             @Value("${bytequay.ci-autofix.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.service = requireNonNull(service, "service is null");
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
+        this.clock = requireNonNull(clock, "clock is null");
         checkArgument(batchSize > 0, "batchSize must be positive");
         this.batchSize = batchSize;
     }
@@ -68,6 +76,7 @@ final class CiAutofixMonitorJob
         loop.pass(() -> {
             loop.advanceEach(nonFinished(), service::advance);
             loop.advanceEach(finishedWithLiveTask(), service::advance);
+            loop.advanceEach(finishedWithPendingCleanup(), service::advance);
         });
     }
 
@@ -84,8 +93,21 @@ final class CiAutofixMonitorJob
      */
     private List<CiAutofixRunId> finishedWithLiveTask()
     {
-        return taskStore.listLive().stream()
+        return finishedRuns(taskStore.listLive().stream()
                 .filter(task -> task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX)
+                .filter(task -> !task.updatedAt().isAfter(retryBefore()))
+                .collect(toImmutableList()));
+    }
+
+    private List<CiAutofixRunId> finishedWithPendingCleanup()
+    {
+        return finishedRuns(taskStore.listPendingWorktreeCleanup(
+                AgentPermissionPolicy.CI_AUTOFIX, retryBefore()));
+    }
+
+    private List<CiAutofixRunId> finishedRuns(List<AgentTask> tasks)
+    {
+        return tasks.stream()
                 .map(AgentTask::id)
                 .map(taskId -> store.findByAgentTaskId(taskId.toString()))
                 .flatMap(Optional::stream)
@@ -93,5 +115,10 @@ final class CiAutofixMonitorJob
                 .map(CiAutofixRun::id)
                 .limit(batchSize)
                 .collect(toImmutableList());
+    }
+
+    private Instant retryBefore()
+    {
+        return Instant.now(clock).minus(TERMINAL_RETRY_DELAY);
     }
 }

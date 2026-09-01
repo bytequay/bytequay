@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentMetricsService;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.impl.AgentMaintenance;
@@ -29,6 +28,7 @@ import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -62,7 +62,6 @@ class TestAgentStartupRecovery
                 ImmutableList.of(),
                 ImmutableList.of(after),
                 ImmutableList.of());
-
         new AgentStartupRecovery(outboxStore, eventService, maintenance, servingGate)
                 .afterSingletonsInstantiated();
 
@@ -117,7 +116,8 @@ class TestAgentStartupRecovery
         return new AgentMaintenance(
                 taskStore,
                 turnStore,
-                mock(AgentWorkspaceService.class),
+                mock(AgentUnitOfWork.class),
+                mock(AgentEventOutboxStore.class),
                 mock(AgentApprovalService.class),
                 mock(AgentMetricsService.class),
                 mock(AgentCompletionService.class),

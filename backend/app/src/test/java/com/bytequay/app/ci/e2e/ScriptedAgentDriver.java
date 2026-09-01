@@ -38,7 +38,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -62,7 +61,7 @@ final class ScriptedAgentDriver
 {
     static final AgentLaneId LANE = new AgentLaneId("ci-e2e");
 
-    private final Map<Path, AgentScript> scripts = new HashMap<>();
+    private final Map<String, AgentScript> scripts = new HashMap<>();
     private final List<TurnCall> turns = new ArrayList<>();
     private final List<MemoryRead> memoryReads = new ArrayList<>();
     private final List<GitAction> gitActions = new ArrayList<>();
@@ -83,25 +82,24 @@ final class ScriptedAgentDriver
         cancellations.clear();
     }
 
-    synchronized void bind(PullRequestRef pullRequest, Path worktree)
+    synchronized void bind(PullRequestRef pullRequest)
     {
-        Path canonical = canonical(worktree);
-        scripts.put(canonical, new AgentScript(pullRequest, canonical, new ArrayDeque<>()));
+        requireNonNull(pullRequest, "pullRequest is null");
+        scripts.put(remoteUrl(pullRequest), new AgentScript(pullRequest, new ArrayDeque<>()));
     }
 
-    synchronized void enqueueBlocked(PullRequestRef pullRequest, Path worktree)
+    synchronized void enqueueBlocked(PullRequestRef pullRequest)
     {
-        AgentScript script = requireScript(pullRequest, worktree);
+        AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.blockedAction());
     }
 
     synchronized void enqueueCompleted(
             PullRequestRef pullRequest,
-            Path worktree,
             String untrustedFinalResponse,
             WorktreeAction action)
     {
-        AgentScript script = requireScript(pullRequest, worktree);
+        AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.completed(
                 untrustedFinalResponse,
                 action,
@@ -112,14 +110,13 @@ final class ScriptedAgentDriver
 
     synchronized void enqueueCompleted(
             PullRequestRef pullRequest,
-            Path worktree,
             String untrustedFinalResponse,
             WorktreeAction action,
             String actionName,
             Optional<String> memoryQuery,
             Optional<String> changedPath)
     {
-        AgentScript script = requireScript(pullRequest, worktree);
+        AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.completed(
                 untrustedFinalResponse,
                 action,
@@ -130,11 +127,10 @@ final class ScriptedAgentDriver
 
     synchronized void enqueueFailed(
             PullRequestRef pullRequest,
-            Path worktree,
             AgentTurnResult.State state,
             String reason)
     {
-        AgentScript script = requireScript(pullRequest, worktree);
+        AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.failed(state, reason));
     }
 
@@ -198,10 +194,10 @@ final class ScriptedAgentDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
-        Path canonical = canonical(context.worktree());
+        Path canonical = context.worktree().toAbsolutePath().normalize();
         AgentScript script;
         synchronized (this) {
-            script = scripts.get(canonical);
+            script = scripts.get(E2eGitRepository.git(canonical, "config", "--get", "remote.origin.url"));
         }
         checkState(script != null, "No agent script bound to worktree " + canonical);
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
@@ -211,13 +207,16 @@ final class ScriptedAgentDriver
         return new ScriptedSession(context, events, script, reference);
     }
 
-    private synchronized StartedAction takeAction(AgentScript script, AgentTurnCommand command)
+    private synchronized StartedAction takeAction(
+            AgentScript script,
+            Path worktree,
+            AgentTurnCommand command)
     {
-        checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName() + " at worktree " + script.worktree());
+        checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName());
         AgentAction action = script.actions().removeFirst();
         TurnCall call = new TurnCall(
                 script.pullRequest(),
-                script.worktree(),
+                worktree,
                 command.turnId(),
                 truncate(command.message(), 4096, "…"),
                 command.attachments());
@@ -240,23 +239,18 @@ final class ScriptedAgentDriver
         gitActions.add(action);
     }
 
-    private AgentScript requireScript(PullRequestRef pullRequest, Path worktree)
+    private AgentScript requireScript(PullRequestRef pullRequest)
     {
         requireNonNull(pullRequest, "pullRequest is null");
-        Path canonical = canonical(worktree);
-        AgentScript script = scripts.get(canonical);
-        checkState(script != null && script.pullRequest().equals(pullRequest), "No agent script bound for " + pullRequest.fullName() + " at worktree " + canonical);
+        AgentScript script = scripts.get(remoteUrl(pullRequest));
+        checkState(script != null && script.pullRequest().equals(pullRequest),
+                "No agent script bound for " + pullRequest.fullName());
         return script;
     }
 
-    private static Path canonical(Path path)
+    private static String remoteUrl(PullRequestRef pullRequest)
     {
-        try {
-            return path.toRealPath();
-        }
-        catch (IOException e) {
-            throw new IllegalStateException("Cannot resolve agent worktree " + path, e);
-        }
+        return "https://github.com/" + pullRequest.repoFullName() + ".git";
     }
 
     record TurnCall(
@@ -313,7 +307,7 @@ final class ScriptedAgentDriver
         @Override
         public RunningTurn start(AgentTurnCommand command)
         {
-            StartedAction started = takeAction(script, command);
+            StartedAction started = takeAction(script, context.worktree(), command);
             AgentAction action = started.action();
             TurnCall call = started.call();
             events.emit(new ProviderAgentEvent.Lifecycle(
@@ -329,7 +323,7 @@ final class ScriptedAgentDriver
             });
             action.action().run(context.worktree());
             if (!action.waitsForCancellation()) {
-                recordGitAction(new GitAction(script.pullRequest(), script.worktree(), action.actionName()));
+                recordGitAction(new GitAction(script.pullRequest(), context.worktree(), action.actionName()));
                 events.emit(new ProviderAgentEvent.Command(
                         Optional.of("command-" + command.turnId()),
                         Optional.empty(),
@@ -418,7 +412,7 @@ final class ScriptedAgentDriver
         }
     }
 
-    private record AgentScript(PullRequestRef pullRequest, Path worktree, ArrayDeque<AgentAction> actions) {}
+    private record AgentScript(PullRequestRef pullRequest, ArrayDeque<AgentAction> actions) {}
 
     private record AgentAction(
             Optional<String> untrustedFinalResponse,

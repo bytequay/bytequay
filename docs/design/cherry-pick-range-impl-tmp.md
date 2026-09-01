@@ -3,10 +3,10 @@
 Status: execution and progress UI complete; explicitly deferred work remains
 below.
 
-The checked boxes describe the current implementation. The approved
-managed-worktree migration replaces renderer/workflow path inputs and
-`CherryPickWorkspace` through the shared service; it is tracked in
-[Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) and does
+The checked boxes describe the current implementation. The managed-worktree
+migration replaced renderer/workflow path inputs and `CherryPickWorkspace`
+through the shared service on 2026-09-01; its evidence is tracked in
+[Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) and did
 not reopen the range semantics below.
 
 Canonical behavior is locked in
@@ -160,6 +160,10 @@ Goal: repeat no uncertain mutation after a crash.
 - [x] Simulate crashes after snapshot creation, fixup creation, and before pair
   finalization, then prove restart adopts the Git result without repeating the
   mutation.
+- [x] Persist the preassigned task ID and frozen repository/worktree facts
+  before task provisioning; prove restart creates the missing task, a repeated
+  start adopts a concurrent winner, and a changed repository selection is
+  rejected without provisioning elsewhere.
 
 Checkpoint gate:
 

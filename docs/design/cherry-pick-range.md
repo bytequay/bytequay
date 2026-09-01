@@ -1,9 +1,9 @@
 # Cherry-pick Range Design
 
-> **Status: locked range semantics; managed-worktree migration approved on
-> 2026-08-31 and pending.** Range ordering, conflict history, and accounting
-> remain unchanged. Worktree creation, inspection, and non-destructive cleanup
-> move to the shared
+> **Status: implemented and verified with the shared managed-worktree boundary
+> on 2026-09-01.** Range ordering, conflict history, and accounting remain
+> unchanged. Worktree creation, inspection, and non-destructive cleanup use the
+> shared
 > [Managed Worktree Service](worktree-service.md).
 
 This document defines the range preview, user confirmation, local execution,
@@ -20,10 +20,12 @@ feature; it does not restore the deleted generic development-flow system.
 4. Immediately before creating the worktree, the backend synchronizes the
    target again. If its SHA differs from the preview, start is rejected as
    stale and the user reviews a new preview.
-5. The backend creates the execution's agent task through `WorktreeService`,
-   which creates a generated work branch/worktree directly at the synchronized,
-   frozen target SHA. There is nothing to rebase before the first cherry-pick
-   because the generated branch has no unique commits.
+5. The backend preassigns the task ID and first persists the execution with its
+   frozen physical repository, target SHA, generated branch, and canonical
+   worktree path. One idempotent ensure operation then creates or adopts the
+   exact agent task through `WorktreeService`, which creates the worktree at the
+   synchronized target SHA. There is nothing to rebase before the first
+   cherry-pick because the generated branch has no unique commits.
 6. The backend applies one source commit at a time with
    `git cherry-pick -x <sourceSha>`.
 7. A clean commit is recorded immediately. A proven-empty commit is skipped.
@@ -161,11 +163,23 @@ The Git implementation performs the equivalent guarded `git worktree add -b`
 under the backend-owned workspace worktree root. The caller cannot choose the
 path or branch.
 
+The execution row is written before provisioning. Start, repeated start,
+monitor advance, and cancellation use the same ensure operation, so restart
+repairs the narrow insert-to-task gap without a new lifecycle state.
+Cancellation does not write `FINISHED` unless the exact preassigned task is
+present or can be safely created; a verification failure leaves the execution
+retryable. A create race rereads and validates the exact winning task. The
+persisted physical repository prevents a workspace selection change from
+routing recovery into another clone; legacy rows with neither an existing task
+nor that frozen fact are preserved and rejected.
+
 ## 6. Durable ownership and results
 
 `CherryPickExecutionService` is the only transition owner. It writes:
 
 - execution `RUNNING`, `PAUSED`, or `FINISHED`;
+- preassigned agent task ID, frozen physical repository, generated branch, and
+  canonical worktree path;
 - current step `APPLYING` or `RESOLVING`;
 - pause/finish reason; and
 - each item's result.
@@ -431,9 +445,14 @@ After the review is stored, completion records the generated branch as the
 local result and calls `WorktreeService.cleanup(taskWorktree)`. Delivery
 later pushes that recorded branch from the managed repository, so it does not
 require a checked-out worktree. Cleanup failure is retryable and does not
-rewrite the already verified range result. Cancellation has no destructive
-cleanup mode: the shared service refuses dirty or open Git state, uses
-non-force removal, and always retains the generated branch.
+rewrite the already verified range result. Successful removal records the
+task's `worktreeRemovedAt`; the monitor reselects a `FINISHED` execution whose
+terminal task lacks that fact, applies its batch limit after the workflow
+match, and retries completion/event delivery followed by cleanup after a
+one-minute backoff from the task's existing `updatedAt`. Pending task outbox
+events drain before worktree removal. Cancellation has no destructive cleanup
+mode: the shared service refuses dirty or open Git state, uses non-force
+removal, and always retains the generated branch.
 
 `WorkspaceBranchPusher` therefore accepts the workspace plus retained local
 branch/ref and verifies it through the managed repository. It no longer
@@ -594,8 +613,20 @@ Tests must prove:
     pause rather than guess;
 12. final accounting uses Git and the confirmed plan, never agent prose or
     `range-diff`; and
-13. no path writes to GitHub; and
-14. execution creation uses the shared managed-worktree service, successful
-    accounting removes the worktree while preserving the deliverable branch,
-    delivery pushes that branch without a checkout, and cancellation never
-    deletes dirty work or the generated branch.
+13. no path writes to GitHub;
+14. execution creation uses the shared managed-worktree service. Successful
+    completion terminalizes the task before persisting the execution result;
+    explicit cancellation first ensures the exact preassigned task, then
+    persists `FINISHED/CANCELLED` before terminalizing the task. Both paths
+    remove the clean worktree only after both records are
+    terminal while preserving the deliverable branch. Delivery pushes that
+    branch without a checkout, and cancellation never deletes dirty work or the
+    generated branch; and
+15. a crash after the cancellation write leaves an unambiguous
+    `FINISHED/CANCELLED` execution. The monitor retries its still-live task and
+    then cleanup, without inferring cancellation from task state or pending-item
+    count. A dirty or open-operation refusal is logged after the durable cancel
+    result, returned to the user as that successful cancellation, and preserves
+    the worktree. Failed completion or cleanup advances the task's existing
+    `updatedAt`; a one-minute cutoff prevents hot loops and lets another
+    candidate progress.

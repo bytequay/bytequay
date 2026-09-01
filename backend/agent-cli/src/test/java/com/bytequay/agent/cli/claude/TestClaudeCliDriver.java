@@ -49,6 +49,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -235,6 +236,32 @@ class TestClaudeCliDriver
             assertThat(turn.cancelled()).isTrue();
             assertThat(turn.inputClosed()).isTrue();
         });
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void interruptsTurnWhenFinalUsageCannotPersist()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        AtomicBoolean failUsage = new AtomicBoolean(true);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {
+            if (event instanceof ProviderAgentEvent.Usage && failUsage.compareAndSet(true, false)) {
+                throw new IllegalStateException("simulated usage persistence failure");
+            }
+            events.add(event);
+        });
+
+        AgentTurnResult result = await(session.start(command("usage-failure")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.terminalReason())
+                .contains("Unable to persist Claude terminal events: simulated usage persistence failure");
+        assertThat(events).noneMatch(ProviderAgentEvent.Usage.class::isInstance);
+        assertThat(events).anyMatch(ProviderAgentEvent.Error.class::isInstance);
         session.close();
         driver.close();
     }

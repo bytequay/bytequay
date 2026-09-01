@@ -34,6 +34,8 @@ public interface RunningTurn
 
     /**
      * Returns a stage completed exactly once with the observed terminal result.
+     * Provider and transport failures are represented by that result rather than
+     * exceptional stage completion.
      *
      * @return success, failure, cancellation, or interruption result
      */

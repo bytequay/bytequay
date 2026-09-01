@@ -68,6 +68,7 @@ public final class FileTaskLogStore
     private final int maxEventBytes;
     private final int maxBlobBytes;
     private final ObjectMapper objectMapper;
+    private final DirectorySync directorySync;
     private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, Long> lastSequences = new ConcurrentHashMap<>();
 
@@ -78,10 +79,16 @@ public final class FileTaskLogStore
 
     public FileTaskLogStore(AgentResourceService resourceService, int maxEventBytes, int maxBlobBytes)
     {
+        this(resourceService, maxEventBytes, maxBlobBytes, FileTaskLogStore::forceDirectory);
+    }
+
+    FileTaskLogStore(AgentResourceService resourceService, int maxEventBytes, int maxBlobBytes, DirectorySync directorySync)
+    {
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         checkArgument(maxEventBytes > 0 && maxBlobBytes > 0, "Log size limits must be positive");
         this.maxEventBytes = maxEventBytes;
         this.maxBlobBytes = maxBlobBytes;
+        this.directorySync = requireNonNull(directorySync, "directorySync is null");
         this.objectMapper = new ObjectMapper()
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
@@ -197,12 +204,15 @@ public final class FileTaskLogStore
             if (!blob.getParent().equals(blobsDirectory)) {
                 throw new AgentStorageException("Blob path escapes the task resource directory");
             }
-            try (FileChannel channel = FileChannel.open(blob, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-                while (bytes.hasRemaining()) {
-                    channel.write(bytes);
+            try {
+                try (FileChannel channel = FileChannel.open(blob, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                    while (bytes.hasRemaining()) {
+                        channel.write(bytes);
+                    }
+                    FileAgentResourceService.setOwnerFilePermissions(blob);
+                    channel.force(true);
                 }
-                channel.force(true);
-                FileAgentResourceService.setOwnerFilePermissions(blob);
+                directorySync.force(blobsDirectory);
                 return new BlobRef("blobs/" + contentId, mediaType, size);
             }
             catch (IOException e) {
@@ -215,6 +225,21 @@ public final class FileTaskLogStore
                 throw new AgentStorageException("Cannot write task blob", e);
             }
         }
+    }
+
+    private static void forceDirectory(Path directory)
+            throws IOException
+    {
+        try (FileChannel channel = FileChannel.open(directory, StandardOpenOption.READ, NOFOLLOW_LINKS)) {
+            channel.force(true);
+        }
+    }
+
+    @FunctionalInterface
+    interface DirectorySync
+    {
+        void force(Path directory)
+                throws IOException;
     }
 
     @Override

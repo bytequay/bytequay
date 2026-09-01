@@ -43,10 +43,11 @@ agent subsystem as future work.
 - One cherry-pick range owns one agent task. Its durable execution stores
   `agentTaskId` and the active `currentTurnId`, and every conflict-resolution
   attempt emits events correlated to those IDs.
-- The current `AgentWorkspaceService` only validates and leases a
-  caller-provided existing worktree, while cherry-pick creates its own through
-  a private helper and CI Autofix accepts a path. The approved follow-up
-  replaces those paths with one shared managed-worktree service.
+- The shared stateless `WorktreeService` now provisions and verifies every
+  repository-scoped agent task from a saved workspace and exact commit.
+  Interactive tasks, cherry-pick, and CI Autofix own fresh managed worktrees;
+  Branch Rebase borrows its caller's `TaskWorktree`, and public start routes no
+  longer accept repository or worktree paths.
 - Those logs currently stop at the backend boundary: the cherry-pick execution
   response omits both IDs, the Electron bridge has no task-event operation,
   and `ProgressView` renders a static resolving placeholder. Completed items
@@ -213,7 +214,7 @@ amount.
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
 | `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
 | `AgentTurnResult` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
-| `AgentTask` | Durable workspace, lifecycle state, lane, worktree, defaults, timestamps, totals, and summary |
+| `AgentTask` | Durable workspace, lifecycle state, lane, worktree, defaults, timestamps, totals, summary, and optional successful worktree-removal time |
 | `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
 
@@ -346,7 +347,15 @@ The implementation must enforce these invariants:
   dirty work or deletes the branch.
 - Runtime logs are retained until seven days after the task becomes terminal.
 - Cleanup failure leaves the worktree in place, is reported to the caller, and
-  never changes the terminal task state.
+  never changes the terminal task state. Successful physical removal records
+  `worktreeRemovedAt`; this is a completed-operation fact, not another
+  lifecycle state. A failed attempt advances the task's existing `updatedAt`
+  operation timestamp so policy monitors can back off without adding retry
+  state. Both workflow worktree cleanup and retention cleanup first drain every
+  committed task outbox event; a drain failure preserves all physical task
+  resources. Generic retention excludes managed `CI_AUTOFIX` and `CHERRY_PICK`
+  worktrees until their workflow monitor records successful removal, preserving
+  the workflow `FINISHED` barrier.
 - Missing cost is `unavailable`, never zero.
 - UI-only summaries, icons, expanded state, step counters, and live timer ticks
   are derived by the renderer and are never persisted as execution facts.
@@ -442,8 +451,8 @@ public interface AgentTaskService
      * {@code FAILED}, retains its transcript, and releases its
      * worktree-mutation claim in the terminal transaction. If the verified
      * worktree is clean, it may then call {@link WorktreeService#cleanup}. If it
-     * is dirty, the task records cleanup action required and leaves it in
-     * place; cleanup never silently discards it.
+     * is dirty, the unchanged terminal task projects cleanup action required
+     * and leaves it in place; cleanup never silently discards it.
      *
      * @param command task ID, expected version, and user-visible recovery reason
      * @return terminal failed task
@@ -916,8 +925,12 @@ public interface AgentApprovalService
 
 ### 3.7 AgentMetricsService
 
-`AgentMetricsService` centralizes provider-specific usage semantics so that
-repeated snapshots are not accidentally summed.
+`AgentMetricsService` centralizes provider-specific usage semantics. The turn
+service atomically commits each sample's metrics projection and usage outbox
+entry. A stable provider event ID becomes the durable outbox identity and gives
+exact replay deduplication. When a provider omits identity, ByteQuay still
+records and displays the callback, but cannot deduplicate a repeated delta
+callback across replay.
 
 ```java
 package com.bytequay.agent.core;
@@ -937,8 +950,8 @@ public interface AgentMetricsService
      * Applies one normalized provider usage sample.
      *
      * <p>The sample declares whether its counters are cumulative, delta, or
-     * final-for-invocation. Provider event IDs and monotonically increasing
-     * counters are used to discard duplicates.
+     * final-for-invocation. The caller deduplicates stable provider event IDs
+     * through the same outbox transaction before invoking this method.
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample
@@ -982,7 +995,7 @@ table. If the provider does not report an amount, the UI displays
 ### 3.8 AgentCompletionService
 
 `AgentCompletionService` closes a task, creates its durable final result, and
-performs retention-aware cleanup.
+separately performs idempotent worktree and retention cleanup.
 
 ```java
 package com.bytequay.agent.core;
@@ -1003,9 +1016,10 @@ public interface AgentCompletionService
      * task metrics, and an optional display-only final agent message. It
      * revalidates the task worktree, rejects dirty or open Git state, commits
      * the summary, {@code COMPLETED} state, deletion deadline, and release of
-     * the matching {@code COMPLETION} mutation claim in one transaction, then
-     * synchronously removes the verified worktree while retaining its generated
-     * branch.
+     * the matching {@code COMPLETION} mutation claim in one transaction. It does
+     * not remove the worktree. A direct interactive caller may request cleanup
+     * immediately; a workflow first persists its own terminal result, then calls
+     * {@link #cleanupWorktree(TaskId)}.
      * Agent message text is never interpreted and its absence or format cannot
      * prevent completion. The method does not delete retained runtime data.
      *
@@ -1020,12 +1034,20 @@ public interface AgentCompletionService
     TaskCompletion complete(CompleteAgentTaskCommand command);
 
     /**
-     * Deletes retained runtime resources for a terminal task.
+     * Idempotently removes a terminal task's verified clean worktree while
+     * retaining its generated branch. Pending task outbox events drain before
+     * physical removal; a drain failure preserves the worktree.
+     */
+    void cleanupWorktree(TaskId taskId);
+
+    /**
+     * Removes the terminal worktree and retained runtime resources.
      *
-     * <p>The operation is idempotent and is used both for the first cleanup
-     * after the seven-day deadline and for retries after a deletion failure.
-     * Cleanup failure records {@code RETRY_PENDING} without changing the
-     * task's terminal state or summary.
+     * <p>After the seven-day deadline this drains pending task outbox events,
+     * then retries worktree removal before deleting runtime data. Failure
+     * records {@code RETRY_PENDING} without changing the task's terminal state
+     * or summary. Workflow-policy managed worktrees remain ineligible until
+     * their owning workflow has completed worktree cleanup.
      *
      * @param taskId terminal task whose retention deadline has passed
      * @return the updated cleanup result
@@ -1202,6 +1224,8 @@ public interface RunningTurn
      * empty. This is the strongest per-turn quiescence fact in the running App
      * Server contract; it is not represented as OS-level ownership of each
      * internal App Server command.
+     * The stage completes normally; provider or transport failure is an
+     * interrupted or failed terminal result, never exceptional completion.
      * After transport loss, interruption is not reported as quiescent until
      * the shared provider process is stopped or the replacement server can
      * reconcile the same thread to the contract above.
@@ -1630,15 +1654,18 @@ task/turn/approval/delivery/queue facts and corresponding
 work is accepted.
 
 User message bytes and other large event bodies are written to a task-owned
-blob before the transaction. The outbox contains only bounded event metadata
-and a typed blob reference, so raw prompts and tool output are not copied into
-SQLite. If the transaction rolls back, the unreferenced blob remains confined
-to that task and is removed by normal task cleanup.
+blob before the transaction. The blob file and its containing directory are
+both flushed before the reference is returned. The outbox contains only bounded
+event metadata and a typed blob reference, so raw prompts and tool output are
+not copied into SQLite. If the transaction rolls back, the unreferenced blob
+remains confined to that task and is removed by normal task cleanup.
 
 ### 6.1 AgentTaskStore
 
 ```java
 package com.bytequay.agent.core.store;
+
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 
 import java.util.List;
 import java.util.Optional;
@@ -1722,6 +1749,16 @@ public interface AgentTaskStore
      * @return true when removal would orphan task-owned Git facts
      */
     boolean hasWorktreeReference(String workspaceId);
+
+    /**
+     * Lists terminal managed tasks whose successful worktree removal is not recorded.
+     *
+     * <p>A workflow monitor must match the task to its own durable terminal
+     * workflow row before requesting cleanup.
+     */
+    List<AgentTask> listPendingWorktreeCleanup(
+            AgentPermissionPolicy permissionPolicy,
+            Instant retryBefore);
 
     /**
      * Lists recently updated tasks.
@@ -2032,11 +2069,11 @@ coordinates the narrower interfaces shown in the last column.
 | 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
-| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the worktree-mutation claim, and insert terminal events. Only a quiescent success may atomically claim that mutation boundary and the FIFO head for the next turn |
+| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the worktree-mutation claim, and insert terminal events. The completed in-process handle remains as a retry token until terminal-event drain and pending-approval denial succeed; a read or later start retries those idempotent actions. Only a quiescent success may atomically claim that mutation boundary and the FIFO head for the next turn |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef` and creates one new `TurnId`; non-success leaves queued work paused |
-| 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentTaskService.markFailed(MarkAgentTaskFailedCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work records task cleanup action required and remains untouched |
-| 9. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; the direct Complete action abandons uncertain inputs, claims the worktree-mutation boundary for completion, closes the session, collects Git/turn/metric facts, commits the summary, `COMPLETED`, and release of the matching claim, then synchronously removes the reverified worktree without force and retains its generated branch |
-| 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
+| 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentTaskService.markFailed(MarkAgentTaskFailedCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work projects cleanup action required and remains untouched |
+| 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It then rejects an active turn, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, closes the session, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
+| 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Retries verified worktree removal before `AgentResourceService.delete(...)`, then records cleanup as `DELETED`; failure records `RETRY_PENDING` for the same operation |
 
 The base send path is shown end to end below. Calls below `AgentTaskService`,
 `AgentTurnService`, and `AgentCompletionService` are internal orchestration,
@@ -2178,7 +2215,8 @@ sequenceDiagram
     end
 
     User->>Desktop: Complete task
-    Desktop->>Web: POST /agent/tasks/{taskId}/complete
+    Desktop->>Web: POST /agent/tasks/{taskId}/complete?workspaceId=...
+    Web->>Web: getInteractive(workspaceId, taskId)
     Web->>Completion: complete(CompleteAgentTaskCommand)
     Completion->>TurnStore: findActive(taskId)
     Completion->>UoW: execute(claim COMPLETION + event)
@@ -2193,8 +2231,9 @@ sequenceDiagram
     UoW->>TaskStore: update(completedTaskWithSummaryDeleteAfterAndNoClaim)
     UoW->>Outbox: insert(taskCompletedEvent)
     Completion->>Events: drain(taskCompletedEventId)
-    Completion->>Worktree: cleanup(task.worktree)
     Completion-->>Web: TaskCompletion
+    Web->>Completion: cleanupWorktree(taskId)
+    Completion->>Worktree: cleanup(task.worktree)
     Web-->>Desktop: task closed; logs retained for seven days
     Desktop-->>User: Completed
 ```
@@ -2206,10 +2245,31 @@ mutation-plus-outbox rule. Provider calls, JSONL flushes,
 and SSE publication never run inside the SQLite transaction.
 
 After the seven-day deadline, the retention job calls
-`AgentCompletionService.cleanup(TaskId)`. Cleanup calls
-`AgentResourceService.delete(TaskId)` before `AgentTaskStore.update(...)`
-records `DELETED`. A deletion failure leaves the terminal task and summary
-unchanged, records `RETRY_PENDING`, and retries the same cleanup method later.
+`AgentCompletionService.cleanup(TaskId)`. Cleanup first drains every committed
+task outbox event, then retries verified worktree removal before
+`AgentResourceService.delete(TaskId)` and
+`AgentTaskStore.update(...)` records `DELETED`. A cleanup failure leaves the
+terminal task and summary unchanged, records `RETRY_PENDING`, and retries the
+same method later. Generic retention does not select a managed workflow-policy
+task until its policy monitor has recorded `worktreeRemovedAt`; interactive
+tasks and legacy tasks without managed worktree facts remain independently
+eligible.
+
+Workflow success paths preserve the crash barrier `task terminal -> workflow
+FINISHED -> worktree cleanup`. A workflow may persist cancellation intent
+before task quiescence, but it never cleans the worktree until the task is
+terminal. Physical removal records `worktreeRemovedAt` only after it succeeds.
+Each workflow monitor selects terminal tasks without that fact for its
+permission policy, matches them to its own durable `FINISHED` row, and
+only then applies its batch limit, so an absent or nonterminal workflow row at
+the head cannot starve a later finished workflow. It re-enters idempotent task
+completion when needed to drain a committed terminal event, followed by the
+idempotent cleanup. Failed completion or cleanup attempts
+advance the task's existing `updatedAt`; monitors require that timestamp to be
+at least one minute old before selecting it again, preventing an unsafe
+worktree from hot-looping or starving later candidates. Startup does not
+globally remove terminal task worktrees, because a workflow may have crashed
+before its own terminal write.
 
 The cancellation branch calls `AgentTurnService.cancel(TurnId)`,
 `RunningTurn.cancel()`, `AgentApprovalService.denyPending(TurnId)`, and
@@ -2812,13 +2872,18 @@ GET  /agent/tasks/{taskId}/queue
 DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
 POST /agent/tasks/{taskId}/queue/resume
 POST /agent/tasks/{taskId}/mark-failed
-POST /agent/tasks/{taskId}/complete
-POST /agent/tasks/{taskId}/cleanup
+POST /agent/tasks/{taskId}/complete?workspaceId=...
+POST /agent/tasks/{taskId}/cleanup?workspaceId=...
 GET  /agent/tasks/{taskId}/events?after=...&limit=...
 GET  /agent/tasks/{taskId}/stream?after=...
 GET  /agent/providers/status
 GET  /api/settings/models
 ```
+
+Both direct completion and direct cleanup are interactive workspace routes.
+They resolve `getInteractive(workspaceId, taskId)` before mutation; CI Autofix
+and cherry-pick close and clean their tasks only through their workflow
+services after the workflow's own terminal barrier is durable.
 
 `GET /api/settings/models` is the existing cached, cross-provider model
 catalog; the agent surface reuses it rather than creating another registry.
@@ -2877,8 +2942,9 @@ directly to App Server or localhost.
   provenance;
 - final summary, Git/test facts, a compact terminal child index (thread and
   parent IDs, label, final state, elapsed time, and result summary only),
-  cleanup state (including `ACTION_REQUIRED` for verified dirty terminal
-  work), and runtime deletion deadline.
+  successful worktree-removal time, runtime cleanup state, and runtime deletion
+  deadline. A dirty terminal worktree is a derived cleanup-action projection,
+  not another stored lifecycle state.
 
 `agent_turn` stores:
 
@@ -2969,14 +3035,24 @@ work is empty:
 3. Commit summary, totals, `COMPLETED`,
    `deleteAfter = completedAt + 7 days`, and release of the matching completion
    mutation claim in SQLite.
-4. Revalidate and synchronously remove the clean worktree without force while
-   retaining its generated result branch. If removal fails, preserve and report
-   the worktree without creating a cleanup lifecycle state.
-5. Keep `events.jsonl`, blobs, and provider scratch data readable until the
+4. For a workflow, persist its own `FINISHED` result. A direct interactive
+   completion already has its terminal task result.
+5. Explicitly revalidate and remove the clean worktree without force while
+   retaining its generated result branch, then record `worktreeRemovedAt`.
+   Pending task outbox events drain before this physical removal. If
+   removal or that fact's write fails, preserve and report the result without
+   creating a cleanup lifecycle state; the policy-scoped workflow monitor
+   re-enters the terminal workflow after a one-minute `updatedAt` backoff and
+   retries this idempotent operation.
+6. Keep `events.jsonl`, blobs, and provider scratch data readable until the
    deletion deadline.
-6. At or after the deadline, invoke `AgentCompletionService.cleanup()` and
-   mark cleanup `DELETED`. A failed deletion records `RETRY_PENDING` and is
-   retried.
+7. At or after the deadline, invoke `AgentCompletionService.cleanup()`, retry
+   only tasks eligible under the workflow barrier, drain their pending outbox,
+   retry worktree removal, delete runtime resources, and mark cleanup `DELETED`. A
+   failure records `RETRY_PENDING` and advances the existing task update time.
+   Retention maintenance waits one minute before selecting that attempt again
+   and orders eligible work by update time, so one persistent failure does not
+   hot-loop or starve another due task.
 
 Failed tasks use the same seven-day period, measured from their terminal
 timestamp.
@@ -3019,7 +3095,8 @@ requires a separate explicit user action and design decision.
   are terminal/stopped. If that cannot be reconciled, ByteQuay may stop the
   shared supervised provider process; root completion alone is not the
   quiescence barrier. Queue auto-start and all worktree-mutating actions remain
-  disabled until it passes.
+  disabled until it passes. Startup therefore never releases a `TURN` claim
+  merely because the matching durable turn row is terminal.
 - A startup `OPEN` task with a stale `COMPLETION` claim has no unrecorded Git
   write to resume. After provider quiescence, one unit of work records
   completion interruption and releases the claim; the task remains `OPEN` and

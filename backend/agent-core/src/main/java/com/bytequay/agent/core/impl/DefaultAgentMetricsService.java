@@ -35,13 +35,10 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentMetricsService
@@ -50,7 +47,6 @@ public final class DefaultAgentMetricsService
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
     private final Clock clock;
-    private final ConcurrentMap<TurnId, TurnUsageState> usageStates = new ConcurrentHashMap<>();
 
     public DefaultAgentMetricsService(AgentTaskStore taskStore, AgentTurnStore turnStore, Clock clock)
     {
@@ -64,16 +60,13 @@ public final class DefaultAgentMetricsService
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
-        AgentTask task = requireTask(taskId);
+        requireTask(taskId);
         AgentTurn turn = requireTurn(turnId);
         requireOwnership(taskId, turn);
         if (!turn.state().active()) {
             throw new AgentConflictException("Cannot begin metrics for terminal turn " + turnId);
         }
-        TurnUsageState state = usageStates.computeIfAbsent(
-                turnId,
-                ignored -> new TurnUsageState(new UsageBaseline(taskId, turnId, task.metrics(), Instant.now(clock))));
-        return state.baseline();
+        return new UsageBaseline(taskId, turnId, baselineTotals(taskId, turnId), Instant.now(clock));
     }
 
     @Override
@@ -82,30 +75,21 @@ public final class DefaultAgentMetricsService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
         requireNonNull(sample, "sample is null");
-        TurnUsageState state = usageStates.computeIfAbsent(turnId, ignored -> {
-            AgentTask task = requireTask(taskId);
-            return new TurnUsageState(new UsageBaseline(taskId, turnId, task.metrics(), Instant.now(clock)));
-        });
-        synchronized (state) {
-            AgentTurn turn = requireTurn(turnId);
-            requireOwnership(taskId, turn);
-            if (!turn.state().active()) {
-                throw new AgentConflictException("Cannot record usage for terminal turn " + turnId);
-            }
-            if (sample.providerEventId().stream().anyMatch(state.seenProviderEventIds()::contains)) {
-                persistTaskTotals(taskId);
-                return turn.metrics();
-            }
-
-            TurnMetrics updated = switch (sample.semantics()) {
-                case CUMULATIVE -> cumulativeMetrics(state.baseline().totals(), turn.metrics(), sample);
-                case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample);
-            };
-            AgentTurn stored = turnStore.update(turn.withMetrics(updated));
-            sample.providerEventId().ifPresent(state.seenProviderEventIds()::add);
-            persistTaskTotals(taskId);
-            return stored.metrics();
+        AgentTurn turn = requireTurn(turnId);
+        requireOwnership(taskId, turn);
+        if (!turn.state().active()) {
+            throw new AgentConflictException("Cannot record usage for terminal turn " + turnId);
         }
+        TurnMetrics updated = switch (sample.semantics()) {
+            case CUMULATIVE -> cumulativeMetrics(baselineTotals(taskId, turnId), turn.metrics(), sample);
+            case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample);
+        };
+        if (updated.equals(turn.metrics())) {
+            return updated;
+        }
+        AgentTurn stored = turnStore.update(turn.withMetrics(updated));
+        persistTaskTotals(taskId);
+        return stored.metrics();
     }
 
     @Override
@@ -116,35 +100,23 @@ public final class DefaultAgentMetricsService
         if (!terminalState.terminal()) {
             throw new AgentConflictException("Turn state is not terminal: " + terminalState);
         }
-        TurnUsageState state = usageStates.computeIfAbsent(turnId, ignored -> {
-            AgentTurn turn = requireTurn(turnId);
-            AgentTask task = requireTask(turn.taskId());
-            return new TurnUsageState(new UsageBaseline(
-                    turn.taskId(),
-                    turnId,
-                    task.metrics(),
-                    turn.startedAt().orElse(turn.createdAt())));
-        });
-        synchronized (state) {
-            AgentTurn turn = requireTurn(turnId);
-            Instant startedAt = turn.startedAt().orElse(state.baseline().capturedAt());
-            Duration elapsed = Duration.between(startedAt, Instant.now(clock));
-            if (elapsed.isNegative()) {
-                throw new AgentStorageException("Turn elapsed time is negative");
-            }
-            TurnMetrics current = turn.metrics();
-            TurnMetrics finished = new TurnMetrics(
-                    current.inputTokens(),
-                    current.cachedInputTokens(),
-                    current.outputTokens(),
-                    current.cost(),
-                    current.costProvenance(),
-                    elapsed);
-            AgentTurn stored = turnStore.update(turn.withMetrics(finished));
-            persistTaskTotals(turn.taskId());
-            usageStates.remove(turnId, state);
-            return stored.metrics();
+        AgentTurn turn = requireTurn(turnId);
+        Instant startedAt = turn.startedAt().orElse(turn.createdAt());
+        Duration elapsed = Duration.between(startedAt, Instant.now(clock));
+        if (elapsed.isNegative()) {
+            throw new AgentStorageException("Turn elapsed time is negative");
         }
+        TurnMetrics current = turn.metrics();
+        TurnMetrics finished = new TurnMetrics(
+                current.inputTokens(),
+                current.cachedInputTokens(),
+                current.outputTokens(),
+                current.cost(),
+                current.costProvenance(),
+                elapsed);
+        AgentTurn stored = turnStore.update(turn.withMetrics(finished));
+        persistTaskTotals(turn.taskId());
+        return stored.metrics();
     }
 
     @Override
@@ -160,6 +132,13 @@ public final class DefaultAgentMetricsService
         AgentTask task = requireTask(taskId);
         TaskMetrics totals = calculateTaskTotals(turnStore.list(taskId));
         taskStore.update(task.withMetrics(totals, Instant.now(clock)));
+    }
+
+    private TaskMetrics baselineTotals(TaskId taskId, TurnId turnId)
+    {
+        return calculateTaskTotals(turnStore.list(taskId).stream()
+                .filter(turn -> !turn.id().equals(turnId))
+                .collect(toImmutableList()));
     }
 
     private static TurnMetrics cumulativeMetrics(
@@ -305,13 +284,5 @@ public final class DefaultAgentMetricsService
     private static long subtractFloor(long value, long baseline)
     {
         return value < baseline ? 0 : value - baseline;
-    }
-
-    private record TurnUsageState(UsageBaseline baseline, Set<String> seenProviderEventIds)
-    {
-        private TurnUsageState(UsageBaseline baseline)
-        {
-            this(baseline, new HashSet<>());
-        }
     }
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -28,6 +29,7 @@ import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -43,7 +45,6 @@ import jakarta.persistence.Version;
 import lombok.Getter;
 import org.springframework.data.domain.Persistable;
 
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -80,14 +81,32 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private String baseRef;
 
+    /**
+     * Retains the former non-null column so Hibernate can open populated
+     * pre-workspace databases. New rows store the workspace ID here as a
+     * compatibility value; {@code workspaceId} carries the current meaning.
+     */
     @Column(nullable = false)
     private String worktree;
+
+    // Nullable only for rows written before CI Autofix used managed workspaces.
+    @Column
+    private String workspaceId;
+
+    // Nullable only for rows written before task provisioning became restart-safe.
+    private String physicalRepositoryOwner;
+
+    // Nullable only for rows written before task provisioning became restart-safe.
+    private String physicalRepositoryName;
 
     @Column(nullable = false)
     private String laneId;
 
     @Column(unique = true)
     private String agentTaskId;
+
+    // Nullable only for rows written before task provisioning became restart-safe.
+    private String taskStartCommit;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -220,10 +239,13 @@ public class CiAutofixRunEntity
         repositoryOwner = scope.pullRequest().owner();
         repositoryName = scope.pullRequest().repo();
         pullRequestNumber = scope.pullRequest().number();
+        workspaceId = scope.workspaceId();
+        worktree = scope.workspaceId();
+        physicalRepositoryOwner = scope.physicalRepository().map(RepoRef::owner).orElse(null);
+        physicalRepositoryName = scope.physicalRepository().map(RepoRef::repo).orElse(null);
         author = scope.author();
         headRef = scope.headRef();
         baseRef = scope.baseRef();
-        worktree = scope.worktree().toString();
         laneId = scope.laneId();
         agentTaskId = run.agentTaskId().orElse(null);
         status = run.status();
@@ -231,6 +253,7 @@ public class CiAutofixRunEntity
         pauseReason = run.pauseReason().orElse(null);
         finishReason = run.finishReason().orElse(null);
         summary = run.summary().orElse(null);
+        taskStartCommit = run.taskStartCommit().orElse(null);
         expectedRemoteHead = run.expectedRemoteHead();
         latestObservedBaseSha = run.latestObservedBaseSha();
         Authorization authorization = run.authorization();
@@ -254,14 +277,15 @@ public class CiAutofixRunEntity
         terminalAt = run.terminalAt().orElse(null);
     }
 
-    public CiAutofixRun toDomain(List<CiAutofixAttempt> attempts)
+    public CiAutofixRun toDomain(List<CiAutofixAttempt> attempts, String resolvedWorkspaceId)
     {
         Scope scope = new Scope(
                 PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber),
+                resolvedWorkspaceId,
+                physicalRepository(),
                 author,
                 headRef,
                 baseRef,
-                Path.of(worktree),
                 laneId);
         Authorization authorization = new Authorization(
                 allowFailedJobReruns,
@@ -279,6 +303,7 @@ public class CiAutofixRunEntity
                 Optional.ofNullable(pauseReason),
                 Optional.ofNullable(finishReason),
                 Optional.ofNullable(summary),
+                Optional.ofNullable(taskStartCommit),
                 expectedRemoteHead,
                 latestObservedBaseSha,
                 authorization,
@@ -295,6 +320,27 @@ public class CiAutofixRunEntity
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
+    }
+
+    public Optional<String> workspaceId()
+    {
+        return Optional.ofNullable(workspaceId);
+    }
+
+    public String legacyWorktree()
+    {
+        return worktree;
+    }
+
+    private Optional<RepoRef> physicalRepository()
+    {
+        if (physicalRepositoryOwner == null && physicalRepositoryName == null) {
+            return Optional.empty();
+        }
+        if (physicalRepositoryOwner == null || physicalRepositoryName == null) {
+            throw new AgentStorageException("Stored CI Autofix physical repository is incomplete: " + id);
+        }
+        return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
     }
 
     private void updateFinalCheck(Optional<FinalFixupCheck> check)

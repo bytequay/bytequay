@@ -23,7 +23,6 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.impl.AgentMaintenance;
@@ -36,7 +35,6 @@ import com.bytequay.agent.core.impl.DefaultAgentTaskService;
 import com.bytequay.agent.core.impl.DefaultAgentTurnService;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
-import com.bytequay.agent.core.impl.GitAgentWorkspaceService;
 import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -116,12 +114,6 @@ public class AgentConfiguration
     }
 
     @Bean
-    public AgentWorkspaceService agentWorkspaceService()
-    {
-        return new GitAgentWorkspaceService();
-    }
-
-    @Bean
     public TaskLogStore taskLogStore(AgentResourceService resourceService)
     {
         return new FileTaskLogStore(resourceService);
@@ -184,7 +176,6 @@ public class AgentConfiguration
     @Bean
     public AgentTaskService agentTaskService(
             AgentTaskStore taskStore,
-            AgentWorkspaceService workspaceService,
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
@@ -192,7 +183,6 @@ public class AgentConfiguration
     {
         return new DefaultAgentTaskService(
                 taskStore,
-                workspaceService,
                 worktreeService,
                 resourceService,
                 driverRegistry,
@@ -235,8 +225,11 @@ public class AgentConfiguration
     public AgentCompletionService agentCompletionService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            AgentEventService eventService,
             TaskLogStore logStore,
-            AgentWorkspaceService workspaceService,
+            WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
@@ -245,8 +238,11 @@ public class AgentConfiguration
         return new DefaultAgentCompletionService(
                 taskStore,
                 turnStore,
+                unitOfWork,
+                outboxStore,
+                eventService,
                 logStore,
-                workspaceService,
+                worktreeService,
                 resourceService,
                 runtimeRegistry,
                 metricsService,
@@ -257,7 +253,8 @@ public class AgentConfiguration
     public AgentMaintenance agentMaintenance(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
-            AgentWorkspaceService workspaceService,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
             AgentApprovalService approvalService,
             AgentMetricsService metricsService,
             AgentCompletionService completionService,
@@ -267,7 +264,8 @@ public class AgentConfiguration
         return new AgentMaintenance(
                 taskStore,
                 turnStore,
-                workspaceService,
+                unitOfWork,
+                outboxStore,
                 approvalService,
                 metricsService,
                 completionService,

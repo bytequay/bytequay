@@ -79,9 +79,8 @@ public final class ManagedWorktreeService
             requireExactCommit(repository, command.startCommit(), "start commit");
             prepareWorktreeParent(workspace);
 
-            Path requestedPath = paths.worktrees(command.workspaceId())
-                    .toRealPath()
-                    .resolve(command.taskId().toString());
+            Path requestedPath = paths.canonicalTaskWorktree(
+                    command.workspaceId(), command.taskId().toString());
             String branch = "bytequay/task/" + command.taskId();
             if (Files.exists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
                 if (Files.isSymbolicLink(requestedPath)
@@ -311,9 +310,8 @@ public final class ManagedWorktreeService
     private void verifyDerivedPath(TaskWorktree worktree)
     {
         try {
-            Path canonicalExpected = paths.worktrees(worktree.workspaceId())
-                    .toRealPath()
-                    .resolve(worktree.taskId().toString());
+            Path canonicalExpected = paths.canonicalTaskWorktree(
+                    worktree.workspaceId(), worktree.taskId().toString());
             if (!canonicalExpected.equals(worktree.canonicalWorktree())) {
                 throw invalid("Recorded task worktree path is not task-derived");
             }

@@ -15,6 +15,7 @@ package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 
 import java.time.Instant;
 import java.util.List;
@@ -90,12 +91,25 @@ public interface AgentTaskStore
     List<AgentTask> listLive();
 
     /**
+     * Lists terminal managed tasks whose verified worktree removal is not yet recorded.
+     *
+     * <p>Workflow monitors cross-check their own durable terminal result before
+     * requesting cleanup, so a task terminal commit alone never authorizes removal.
+     *
+     * @param permissionPolicy owning workflow policy
+     * @param retryBefore latest update time eligible for another attempt
+     * @return pending tasks in oldest-update-first retry order
+     */
+    List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore);
+
+    /**
      * Returns terminal tasks whose deletion deadline passed or whose previous
      * cleanup failed.
      *
      * @param now upper bound for retention deadlines
+     * @param retryBefore latest failed-attempt time eligible for another attempt
      * @param limit positive maximum row count
-     * @return cleanup candidates ordered by deletion deadline
+     * @return cleanup candidates ordered by their next eligible operation time
      */
-    List<AgentTask> listCleanupDue(Instant now, int limit);
+    List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit);
 }

@@ -276,9 +276,6 @@ public final class CodexCliDriver
         // App Server's shared default environment.
         CodexProtocol.TurnEnvironmentParams environment =
                 execServers.open(context.taskId(), context.worktree());
-        // One App Server serves every task, so inherited capabilities are shared rather than
-        // scoped. They are proven absent for this worktree before any thread exists.
-        isolation.verify(context.worktree());
         String method;
         Object params;
         if (existing.isPresent()) {
@@ -492,6 +489,9 @@ public final class CodexCliDriver
                 throw new AgentUnavailableException("Codex attachments are not enabled");
             }
 
+            // Re-checked before every turn, not once per session: a turn runs under workspace-write
+            // and could leave a hook or policy file behind that a later turn would inherit.
+            isolation.verify(context.worktree());
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     ImmutableList.of(new CodexProtocol.TextInput("text", command.message())),

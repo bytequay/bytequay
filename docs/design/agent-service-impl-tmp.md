@@ -949,7 +949,9 @@ Implementation:
   rule-source, and managed-requirements guards in the production runtime path.
   Do not claim a per-thread override disables exec-policy rules; v0.151 exposes
   none. Landed so far: the managed-requirements and lifecycle-hook guards run
-  before any thread exists and fail closed. The managed-requirements check reads
+  before every turn and fail closed. Once per session is not enough: a turn runs
+  under workspace-write and can leave a hook or policy file behind that a later
+  turn would inherit. The managed-requirements check reads
   the raw response on purpose, because the rule is about unknown sibling fields
   and a decoded record would ignore exactly the field that must fail it. Still
   open: skill origin, config-layer rule sources, the isolated subprocess

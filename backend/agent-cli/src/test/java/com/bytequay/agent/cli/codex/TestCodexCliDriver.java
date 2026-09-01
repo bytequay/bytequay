@@ -441,32 +441,54 @@ class TestCodexCliDriver
     }
 
     @Test
-    void refusesASessionWhenAnInheritedCapabilityCannotBeProvenAbsent()
+    void refusesATurnWhenAnInheritedCapabilityCannotBeProvenAbsent()
     {
         // Managed policy applies, so an exec rule could be inherited without ByteQuay seeing it.
-        assertThatThrownBy(() -> openWith(server -> server.reportManagedRequirements(
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
                 "{\"requirements\":{\"allowLoginShell\":true}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
         // An unknown sibling field means a policy dimension exists that this release cannot read.
-        assertThatThrownBy(() -> openWith(server -> server.reportManagedRequirements(
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
                 "{\"requirements\":null,\"futurePolicy\":{}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
 
-        // A lifecycle hook would run outside the task's execution environment.
-        assertThatThrownBy(() -> openWith(server -> server.reportHooks("[{\"name\":\"stop\"}]")))
+        // A lifecycle hook sits in the approval path that ByteQuay assumes it owns.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportHooks("[{\"name\":\"stop\"}]")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
 
-    /** Opens a session against a scripted App Server configured by {@code setup}. */
-    private void openWith(java.util.function.Consumer<ScriptedProcessSupervisor> setup)
+    @Test
+    void rechecksInheritedCapabilitiesBeforeEveryTurn()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn first = session.start(command("first"));
+        supervisor.server().completeTurn();
+        first.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        // A workspace-write turn can leave a hook behind, so a clean first turn proves nothing
+        // about the second.
+        supervisor.reportHooks("[{\"name\":\"stop\"}]");
+
+        assertThatThrownBy(() -> session.start(command("second")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("lifecycle hooks apply");
+    }
+
+    /** Opens a session and starts a turn against a scripted App Server configured by {@code setup}. */
+    private void startTurnWith(java.util.function.Consumer<ScriptedProcessSupervisor> setup)
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         setup.accept(supervisor);
-        driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        CodexCliDriver driver = driver(supervisor);
+        driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})
+                .start(command("probe"));
     }
 
     private CodexCliDriver driver(ProcessSupervisor supervisor)

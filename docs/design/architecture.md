@@ -110,10 +110,10 @@ The current SQLite package already contains a cohesive adapter:
 - SQLite- and Hibernate-specific transactions; and
 - credential-at-rest encryption used by the credential store.
 
-The current agent service stores task, turn, and metric facts in the same
-database; current pending approvals are process-local. The proposed rich task
-surface makes approvals durable and adds input-delivery, queued-input, and
-event-outbox facts defined by the service design. A task stores the immutable
+The current agent service stores task, turn, metric, durable approval, and
+event-outbox facts in the same database; only the live approval callback
+remains process-local. The proposed rich task surface adds the input-delivery
+and queued-input facts defined by the service design. A task stores the immutable
 ownership facts returned by `WorktreeService`; there is no separate worktree
 allocation table or lifecycle. Keeping the durable implementations together
 localizes Hibernate, Spring Data JPA, the SQLite driver, entity scanning,

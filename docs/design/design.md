@@ -194,9 +194,10 @@ both the no-child `--live` fixture and recursive `--live-children` fixture
 passed locally with that subscription-backed profile on 2026-08-31. The CP1
 technical recommendation is GO. CP0 and CP1 are complete: the experimental
 runtime, same-host trust, separate-worktree contract, development-only UI gate,
-and sanitized current HTTP/SSE baseline are recorded. CP2 has frozen the
+and sanitized current HTTP/SSE baseline are recorded. CP2 froze the
 workspace-scoped task/turn, typed readiness, schema-v2 event/source, approval,
-legacy-read, and frontend-fixture contracts; CP3 owns managed-worktree
-activation and crash-safe replay. This is not production-release approval. Environment
+legacy-read, and frontend-fixture contracts, and CP3 shipped managed-worktree
+activation and crash-safe replay; CP4 owns Codex task isolation and quiescent
+recovery. This is not production-release approval. Environment
 stripping does not create a same-user filesystem-read boundary around the
 persistent login profile.

@@ -122,6 +122,6 @@ summaries or seven-day retention cleanup.
 The fixture owns and removes its outer temporary application-data root, but it
 does not create or submit the agent worktree itself. It seeds a saved workspace
 after the temporary backend has created its schema and creates the task with
-`workspaceId`. Normal completion and shared cleanup remain separate CP3 work;
-the shell must not pretend that deleting its isolated outer fixture exercises
-that product path.
+`workspaceId`. Normal completion and shared worktree cleanup shipped in CP3
+and are covered by backend tests; the shell must not pretend that deleting its
+isolated outer fixture exercises that product path.

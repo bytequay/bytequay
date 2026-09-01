@@ -96,20 +96,21 @@ workflow/task ID but is not silently inserted into an interactive workspace
 list. A legacy event without source-thread/item metadata renders in a
 root-level legacy stream; ByteQuay does not invent child relationships.
 
-CP2 now freezes the provider-neutral part of that target: interactive task rows
+CP2 froze the provider-neutral part of that target: interactive task rows
 carry a workspace discriminator and defaults, accepted turns retain immutable
 requested settings and opaque attachment references, schema-v2 events carry
 stable event/source identity, accepted user messages and approval lifecycle are
-replay events, and legacy rows/logs remain readable. The workspace-safe public
-request and narrowed response records are intentionally not active routes yet.
-CP3 must first provide the managed worktree and crash-safe outbox; CP4 must
-apply each accepted settings snapshot to the App Server runtime. Pending
-approval records and their lifecycle events are now durable; only the live
+replay events, and legacy rows/logs remain readable. CP3 then activated the
+workspace-safe public request and narrowed response records, the managed
+worktree, and the crash-safe outbox. CP4 must still apply each accepted
+settings snapshot to the App Server runtime. Pending
+approval records and their lifecycle events are durable; only the live
 provider callback remains process-local. Startup closes all durable pending
-approvals, including rows owned by an already-terminal turn. Most other
-state/event writes have not moved to the crash-safe outbox. Accepted turns now
-commit their blob-backed user message through that outbox and drain it before
-provider delivery. Direct start does not duplicate the turn in a delivery
+approvals, including rows owned by an already-terminal turn. Every state-coupled
+transition now commits its outbox row in the same SQLite transaction and drains
+it before publication; display-only provider events still append directly.
+Accepted turns commit their blob-backed user message through that outbox and
+drain it before provider delivery. Direct start does not duplicate the turn in a delivery
 table: `startedAt` is persisted immediately before the provider call, and the
 provider reference confirms receipt. A failure before that marker is known
 unsent; a failure after it without a provider reference is uncertain and
@@ -2598,9 +2599,10 @@ profile; the separate CP1 child-capable proof passed, while production adoption
 belongs to CP4. The fixture's opt-in `--live-children` path selects the
 model-advertised V1/V2 profile, validates recursive history, and passed its
 subscription-backed local smoke run with the explicitly selected ChatGPT
-profile. CP0 and CP1 are complete: the approved static UI remains behind its
-development-only gate, and the current HTTP/SSE journey has a sanitized golden
-baseline. CP2 now owns the provider-neutral contract work.
+profile. CP0 through CP3 are complete: the approved static UI remains behind its
+development-only gate, the current HTTP/SSE journey has a sanitized golden
+baseline, and the provider-neutral contract, managed worktree, and crash-safe
+replay have shipped. CP4 now owns Codex task isolation and quiescent recovery.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for

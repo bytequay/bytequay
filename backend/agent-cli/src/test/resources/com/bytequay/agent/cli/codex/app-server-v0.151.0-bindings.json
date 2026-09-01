@@ -2035,6 +2035,153 @@
       ]
     },
     {
+      "javaType": "InitializeResponse",
+      "mode": "decode",
+      "sources": [
+        "all#InitializeResponse"
+      ],
+      "components": [
+        {
+          "javaName": "codexHome",
+          "wireName": "codexHome",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "SkillsListParams",
+      "mode": "encode",
+      "sources": [
+        "v2#SkillsListParams"
+      ],
+      "components": [
+        {
+          "javaName": "cwds",
+          "wireName": "cwds",
+          "required": false,
+          "nullable": false,
+          "sample": [
+            "value"
+          ]
+        },
+        {
+          "javaName": "forceReload",
+          "wireName": "forceReload",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        }
+      ]
+    },
+    {
+      "javaType": "SkillsListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#SkillsListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "SkillsListEntry",
+      "mode": "decode",
+      "sources": [
+        "v2#SkillsListEntry"
+      ],
+      "components": [
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "skills",
+          "wireName": "skills",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "errors",
+          "wireName": "errors",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "SkillMetadata",
+      "mode": "decode",
+      "sources": [
+        "v2#SkillMetadata"
+      ],
+      "components": [
+        {
+          "javaName": "name",
+          "wireName": "name",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "path",
+          "wireName": "path",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "scope",
+          "wireName": "scope",
+          "required": true,
+          "nullable": false,
+          "sample": "system"
+        },
+        {
+          "javaName": "pluginId",
+          "wireName": "pluginId",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ConfigReadParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ConfigReadParams"
+      ],
+      "components": [
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "includeLayers",
+          "wireName": "includeLayers",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        }
+      ]
+    },
+    {
       "javaType": "HooksListResponse",
       "mode": "decode",
       "sources": [

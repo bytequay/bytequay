@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -41,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
@@ -61,6 +63,7 @@ final class CodexAppServerClient
     private final Object writeLock = new Object();
     private final AtomicLong requestIds = new AtomicLong();
     private final AtomicBoolean disconnected = new AtomicBoolean();
+    private final AtomicReference<String> codexHome = new AtomicReference<>();
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
@@ -147,7 +150,12 @@ final class CodexAppServerClient
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
                         new CodexProtocol.InitializeCapabilities(true));
-                await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
+                CodexProtocol.JsonRpcEnvelope initialized =
+                        await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
+                codexHome.set(initialized.result()
+                        .map(result -> codec.decodeResult(result, CodexProtocol.InitializeResponse.class))
+                        .map(CodexProtocol.InitializeResponse::codexHome)
+                        .orElse(null));
                 sendNotification("initialized", new CodexProtocol.EmptyParams());
             }
             catch (RuntimeException failure) {
@@ -285,6 +293,16 @@ final class CodexAppServerClient
             return;
         }
         listener.onNotification(notification);
+    }
+
+    /**
+     * Returns the Codex home App Server reported at initialize.
+     *
+     * @return the home directory, or empty when App Server did not report one
+     */
+    Optional<String> codexHome()
+    {
+        return Optional.ofNullable(codexHome.get());
     }
 
     /** Thread references seen on notifications that no registered session owns. */

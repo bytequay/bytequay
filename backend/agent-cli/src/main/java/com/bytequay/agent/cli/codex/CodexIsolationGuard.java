@@ -17,9 +17,14 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Iterator;
+import java.util.Optional;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -31,8 +36,9 @@ import static java.util.Objects.requireNonNull;
  * them per task. Every check fails closed: an unexpected shape, a request failure, or anything that
  * cannot be inspected makes the lane unavailable rather than assumed safe.
  *
- * <p>This currently covers managed requirements and lifecycle hooks. Skill origin and config-layer
- * rule sources are proven by the compatibility gate but are not yet enforced here.
+ * <p>This covers managed requirements, lifecycle hooks, ambient exec-policy rule sources, and skill
+ * origin. The isolated subprocess environment and the child-capable launch profile are separate
+ * launch concerns and are not adopted here.
  */
 final class CodexIsolationGuard
 {
@@ -57,6 +63,118 @@ final class CodexIsolationGuard
         requireNonNull(cwd, "cwd is null");
         verifyNoManagedRequirements();
         verifyNoLifecycleHooks(cwd);
+        verifyNoAmbientExecPolicyRules(cwd);
+        verifySkillOrigin(cwd);
+    }
+
+    /**
+     * Rejects any config layer that could carry an inherited exec-policy allow rule.
+     *
+     * <p>v0.151 exposes no option to disable {@code .rules} and no effective-rule inventory, so the
+     * check is source-based: a project layer is rejected outright, and every policy-bearing system
+     * or user source has its {@code rules} folder scanned. Packaged defaults, MDM, enterprise and
+     * session-flag layers carry no folder to scan. An unrecognised layer type fails closed rather
+     * than being assumed harmless.
+     *
+     * <p>The response is read raw because the layer source is a wire union whose unknown variants
+     * must fail rather than decode to a default.
+     */
+    private void verifyNoAmbientExecPolicyRules(Path cwd)
+    {
+        JsonNode response;
+        try {
+            response = client.request(
+                    "config/read",
+                    new CodexProtocol.ConfigReadParams(cwd.toString(), true),
+                    JsonNode.class,
+                    REQUEST_TIMEOUT);
+        }
+        catch (RuntimeException failure) {
+            throw unavailable("config/read could not be verified: " + failure.getMessage());
+        }
+        JsonNode layers = response.path("layers");
+        if (!layers.isArray()) {
+            throw unavailable("config/read omitted the requested layer details");
+        }
+        for (JsonNode layer : layers) {
+            rulesFolder(layer.path("name")).ifPresent(CodexIsolationGuard::rejectRuleFiles);
+        }
+    }
+
+    /**
+     * Returns the folder whose {@code rules} directory decides this layer, if it has one.
+     *
+     * @param source config layer source
+     * @return folder to scan, or empty for a layer that cannot carry a rules folder
+     */
+    private static Optional<Path> rulesFolder(JsonNode source)
+    {
+        String type = source.path("type").asText("");
+        return switch (type) {
+            case "system", "user" -> Optional.of(Path.of(requireText(source, "file", type)).getParent());
+            case "project" -> throw unavailable("Codex loaded a project config layer for the task worktree");
+            case "packagedDefaults", "legacyManagedConfigTomlFromFile", "mdm",
+                    "enterpriseManaged", "sessionFlags", "legacyManagedConfigTomlFromMdm" -> Optional.empty();
+            default -> throw unavailable("Codex reported an unsupported config layer source: " + type);
+        };
+    }
+
+    private static void rejectRuleFiles(Path folder)
+    {
+        Path rules = folder.resolve("rules");
+        try (Stream<Path> entries = Files.list(rules)) {
+            if (entries.anyMatch(entry -> entry.getFileName().toString().endsWith(".rules"))) {
+                throw unavailable("Codex exec-policy rules are present beside " + folder);
+            }
+        }
+        catch (NoSuchFileException e) {
+            // No rules folder beside this config source is the expected, clean case.
+        }
+        catch (IOException e) {
+            throw unavailable("Unable to scan Codex exec-policy rules beside " + folder);
+        }
+    }
+
+    /**
+     * Requires every discovered skill to be a bundled system skill of the reported Codex home.
+     *
+     * <p>Discovery is forced rather than cached, because an earlier workspace-write turn could have
+     * added a skill that a cached listing would not show.
+     */
+    private void verifySkillOrigin(Path cwd)
+    {
+        CodexProtocol.SkillsListResponse response = client.request(
+                "skills/list",
+                new CodexProtocol.SkillsListParams(ImmutableList.of(cwd.toString()), true),
+                CodexProtocol.SkillsListResponse.class,
+                REQUEST_TIMEOUT);
+        CodexProtocol.SkillsListEntry entry = response.data().stream()
+                .filter(candidate -> candidate.cwd().equals(cwd.toString()))
+                .findFirst()
+                .orElseThrow(() -> unavailable("skills/list reported nothing for the task worktree"));
+        if (!entry.errors().isEmpty()) {
+            throw unavailable("Codex skill discovery failed for the task worktree");
+        }
+        Path systemRoot = client.codexHome()
+                .map(home -> Path.of(home).resolve("skills").resolve(".system"))
+                .orElseThrow(() -> unavailable("App Server reported no Codex home to anchor skill origin"));
+        for (CodexProtocol.SkillMetadata skill : entry.skills()) {
+            if (!skill.scope().equals("system") || skill.pluginId().isPresent()) {
+                throw unavailable("Codex skill " + skill.name() + " is not a bundled system skill");
+            }
+            if (!Path.of(skill.path()).normalize().startsWith(systemRoot.normalize())) {
+                throw unavailable("Codex skill " + skill.name() + " is outside the bundled system skill root");
+            }
+        }
+    }
+
+    private static String requireText(JsonNode source, String field, String type)
+    {
+        JsonNode value = source.path(field);
+        if (!value.isTextual()) {
+            throw unavailable("Codex " + type + " config layer lacks its " + field);
+        }
+        return value.asText();
     }
 
     /**

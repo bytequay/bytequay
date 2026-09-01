@@ -514,6 +514,61 @@ class TestCodexCliDriver
     }
 
     @Test
+    void refusesATurnWhenAnExecPolicyRuleSourceCouldApply()
+            throws Exception
+    {
+        Path codexHome = Files.createDirectories(worktree.resolve("codex-home"));
+        Files.createDirectories(codexHome.resolve("rules"));
+        Files.writeString(codexHome.resolve("rules").resolve("ambient.rules"), "allow /bin/sh\n");
+
+        // v0.151 exposes no rule inventory, so a rules file beside a loaded config source is the
+        // only signal that an inherited allow rule could apply.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
+                "[{\"name\":{\"type\":\"user\",\"file\":\"" + codexHome.resolve("config.toml")
+                        + "\"},\"version\":\"1\",\"config\":{}}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("exec-policy rules are present");
+
+        // A project layer is repository-controlled and is rejected outright.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
+                "[{\"name\":{\"type\":\"project\",\"dotCodexFolder\":\"/repo/.codex\"},"
+                        + "\"version\":\"1\",\"config\":{}}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("project config layer");
+
+        // A layer source this release does not understand cannot be assumed harmless.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
+                "[{\"name\":{\"type\":\"futureSource\"},\"version\":\"1\",\"config\":{}}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("unsupported config layer source");
+    }
+
+    @Test
+    void refusesATurnWhenASkillDidNotComeFromTheBundledSystemRoot()
+    {
+        // A repository-scoped skill is exactly what a workspace-write turn could have written.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
+                "[{\"name\":\"repo-skill\",\"path\":\"/codex-home/skills/.system/x\","
+                        + "\"scope\":\"repo\",\"description\":\"d\",\"enabled\":true}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("not a bundled system skill");
+
+        // A plugin-owned skill is an inherited capability even when it claims system scope.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
+                "[{\"name\":\"plugin-skill\",\"path\":\"/codex-home/skills/.system/x\","
+                        + "\"scope\":\"system\",\"pluginId\":\"p1\",\"description\":\"d\",\"enabled\":true}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("not a bundled system skill");
+
+        // System scope is not enough; it must actually live under the reported system-skill root.
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
+                "[{\"name\":\"stray\",\"path\":\"/elsewhere/skill\",\"scope\":\"system\","
+                        + "\"description\":\"d\",\"enabled\":true}]")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("outside the bundled system skill root");
+    }
+
+    @Test
     void rechecksInheritedCapabilitiesBeforeEveryTurn()
             throws Exception
     {
@@ -616,6 +671,18 @@ class TestCodexCliDriver
         private final List<ProcessOwner> execServerOwners = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
         private volatile String hooks = "[]";
+        private volatile String configLayers = "[]";
+        private volatile String skills = "[]";
+
+        private void reportConfigLayers(String layers)
+        {
+            configLayers = layers;
+        }
+
+        private void reportSkills(String discovered)
+        {
+            skills = discovered;
+        }
 
         private void reportManagedRequirements(String response)
         {
@@ -723,7 +790,14 @@ class TestCodexCliDriver
                 return new IdleProcess();
             }
             server = new AppServerProcess(
-                    objectMapper, output, failThreadStart, this::environmentCwd, () -> managedRequirements, () -> hooks);
+                    objectMapper,
+                    output,
+                    failThreadStart,
+                    this::environmentCwd,
+                    () -> managedRequirements,
+                    () -> hooks,
+                    () -> configLayers,
+                    () -> skills);
             return server;
         }
 
@@ -773,6 +847,8 @@ class TestCodexCliDriver
         private final List<String> threadEnvironmentIds = new CopyOnWriteArrayList<>();
         private final Supplier<String> managedRequirements;
         private final Supplier<String> hooks;
+        private final Supplier<String> configLayers;
+        private final Supplier<String> skills;
         private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final Supplier<String> environmentCwd;
@@ -787,7 +863,9 @@ class TestCodexCliDriver
                 boolean failThreadStart,
                 Supplier<String> environmentCwd,
                 Supplier<String> managedRequirements,
-                Supplier<String> hooks)
+                Supplier<String> hooks,
+                Supplier<String> configLayers,
+                Supplier<String> skills)
         {
             this.objectMapper = objectMapper;
             this.output = output;
@@ -795,6 +873,8 @@ class TestCodexCliDriver
             this.environmentCwd = environmentCwd;
             this.managedRequirements = managedRequirements;
             this.hooks = hooks;
+            this.configLayers = configLayers;
+            this.skills = skills;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -859,8 +939,12 @@ class TestCodexCliDriver
             String method = message.path("method").asText();
             long id = message.path("id").asLong();
             switch (method) {
-                case "initialize" -> respond(id, "{}");
+                case "initialize" -> respond(id, "{\"codexHome\":\"/codex-home\"}");
                 case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "config/read" -> respond(id, "{\"config\":{},\"origins\":{},\"layers\":" + configLayers.get() + "}");
+                case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
+                        + message.path("params").path("cwds").get(0).asText()
+                        + "\",\"skills\":" + skills.get() + ",\"errors\":[]}]}");
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");

@@ -954,7 +954,12 @@ Implementation:
   rule-source, and managed-requirements guards in the production runtime path.
   Do not claim a per-thread override disables exec-policy rules; v0.151 exposes
   none. Landed so far: the managed-requirements and lifecycle-hook guards run
-  before every turn and fail closed. Once per session is not enough: a turn runs
+  before every turn and fail closed. The exec-policy rule-source and skill-origin
+  guards run on the same pre-turn path, with forced skill discovery so a cached
+  listing cannot hide a skill an earlier turn wrote. Still open: the isolated
+  subprocess environment, and the child-capable launch profile. The launch
+  profile is deliberately last: it enables subagents, which would create exactly
+  the child threads the routing box below cannot yet route. Once per session is not enough: a turn runs
   under workspace-write and can leave a hook or policy file behind that a later
   turn would inherit. The managed-requirements check reads
   the raw response on purpose, because the rule is about unknown sibling fields

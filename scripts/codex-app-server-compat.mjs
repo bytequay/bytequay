@@ -360,6 +360,43 @@ const referenceRecordBindings = [
   ], [
     component("cwds", "cwds", ["value"]),
   ]),
+  recordBinding("InitializeResponse", "decode", [
+    schemaSource("all", "InitializeResponse"),
+  ], [
+    component("codexHome"),
+  ]),
+  recordBinding("SkillsListParams", "encode", [
+    schemaSource("v2", "SkillsListParams"),
+  ], [
+    component("cwds", "cwds", ["value"]),
+    component("forceReload"),
+  ]),
+  recordBinding("SkillsListResponse", "decode", [
+    schemaSource("v2", "SkillsListResponse"),
+  ], [
+    component("data"),
+  ]),
+  recordBinding("SkillsListEntry", "decode", [
+    schemaSource("v2", "SkillsListEntry"),
+  ], [
+    component("cwd"),
+    component("skills"),
+    component("errors"),
+  ]),
+  recordBinding("SkillMetadata", "decode", [
+    schemaSource("v2", "SkillMetadata"),
+  ], [
+    component("name"),
+    component("path"),
+    component("scope", "scope", "system"),
+    component("pluginId"),
+  ]),
+  recordBinding("ConfigReadParams", "encode", [
+    schemaSource("v2", "ConfigReadParams"),
+  ], [
+    component("cwd"),
+    component("includeLayers"),
+  ]),
   recordBinding("HooksListResponse", "decode", [
     schemaSource("v2", "HooksListResponse"),
   ], [

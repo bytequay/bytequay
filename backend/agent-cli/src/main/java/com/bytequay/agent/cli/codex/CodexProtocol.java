@@ -891,6 +891,15 @@ final class CodexProtocol
 
     record EmptyParams() {}
 
+    /** Initialize result; only the isolated home the skill-origin guard needs is modelled. */
+    record InitializeResponse(String codexHome)
+    {
+        InitializeResponse
+        {
+            checkIdentifier(codexHome, "codexHome");
+        }
+    }
+
     /** Selects the working directories a discovery request should report on. */
     record CwdsParams(List<String> cwds)
     {
@@ -898,6 +907,59 @@ final class CodexProtocol
         {
             cwds = ImmutableList.copyOf(cwds);
             checkArgument(!cwds.isEmpty(), "cwds is empty");
+        }
+    }
+
+    /** Forces a fresh scan so a skill added by an earlier turn cannot hide behind the cache. */
+    record SkillsListParams(List<String> cwds, boolean forceReload)
+    {
+        SkillsListParams
+        {
+            cwds = ImmutableList.copyOf(cwds);
+            checkArgument(!cwds.isEmpty(), "cwds is empty");
+        }
+    }
+
+    record SkillsListResponse(List<SkillsListEntry> data)
+    {
+        SkillsListResponse
+        {
+            data = ImmutableList.copyOf(data);
+        }
+    }
+
+    record SkillsListEntry(String cwd, List<SkillMetadata> skills, List<Object> errors)
+    {
+        SkillsListEntry
+        {
+            checkIdentifier(cwd, "cwd");
+            skills = ImmutableList.copyOf(skills);
+            errors = ImmutableList.copyOf(errors);
+        }
+    }
+
+    /**
+     * Origin of one discovered skill.
+     *
+     * <p>Only the fields that decide whether a skill is an inherited capability are modelled: its
+     * scope, its owning plugin, and where it was loaded from.
+     */
+    record SkillMetadata(String name, String path, String scope, Optional<String> pluginId)
+    {
+        SkillMetadata
+        {
+            checkIdentifier(name, "name");
+            checkIdentifier(path, "path");
+            checkIdentifier(scope, "scope");
+            requireNonNull(pluginId, "pluginId is null");
+        }
+    }
+
+    record ConfigReadParams(String cwd, boolean includeLayers)
+    {
+        ConfigReadParams
+        {
+            checkIdentifier(cwd, "cwd");
         }
     }
 

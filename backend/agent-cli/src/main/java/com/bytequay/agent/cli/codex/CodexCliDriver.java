@@ -145,7 +145,7 @@ public final class CodexCliDriver
                 supervisor,
                 processSpec(
                         new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-app-server"),
-                        ImmutableList.of(executable, "app-server", "--listen", "stdio://"),
+                        CodexLaunchProfile.arguments(executable),
                         APP_SERVER_RUNTIME,
                         MAX_APP_SERVER_STDOUT_BYTES,
                         MAX_APP_SERVER_STDERR_BYTES),

@@ -104,14 +104,32 @@ final class CodexMessageDispatcher
         }
     }
 
+    /**
+     * Releases a thread and every subagent thread adopted into it.
+     *
+     * <p>A session only knows its own root thread, so forgetting just that identifier would leave
+     * each adopted child registered for the lifetime of the backend.
+     */
     void unregister(String threadId, Listener listener)
     {
-        if (listeners.remove(threadId, listener)) {
-            // Drop the thread's bookkeeping too, or every task that ever ran would keep an entry.
-            chains.remove(threadId);
-            depths.remove(threadId);
-            resolving.remove(threadId);
+        if (!listeners.remove(threadId, listener)) {
+            return;
         }
+        forget(threadId);
+        listeners.entrySet().removeIf(entry -> {
+            if (entry.getValue() != listener) {
+                return false;
+            }
+            forget(entry.getKey());
+            return true;
+        });
+    }
+
+    private void forget(String threadId)
+    {
+        chains.remove(threadId);
+        depths.remove(threadId);
+        resolving.remove(threadId);
     }
 
     /**

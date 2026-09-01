@@ -949,23 +949,27 @@ Implementation:
   selected model was silently dropped for Codex. Approval policy and sandbox are
   still thread-level constants rather than per-turn values, which is accurate
   while the Codex lane advertises one permission policy.
-- [~] Adopt the CP1-proven isolated subprocess environment, pre-turn
+- [x] Adopt the CP1-proven isolated subprocess environment, pre-turn
   child-capable launch profile plus the skill-origin, hook, config-layer
   rule-source, and managed-requirements guards in the production runtime path.
   Do not claim a per-thread override disables exec-policy rules; v0.151 exposes
-  none. Landed so far: the managed-requirements and lifecycle-hook guards run
-  before every turn and fail closed. The exec-policy rule-source and skill-origin
-  guards run on the same pre-turn path, with forced skill discovery so a cached
-  listing cannot hide a skill an earlier turn wrote. Still open: the isolated
-  subprocess environment, and the child-capable launch profile. The launch
-  profile is deliberately last: it enables subagents, which would create exactly
-  the child threads the routing box below cannot yet route. Once per session is not enough: a turn runs
-  under workspace-write and can leave a hook or policy file behind that a later
-  turn would inherit. The managed-requirements check reads
-  the raw response on purpose, because the rule is about unknown sibling fields
-  and a decoded record would ignore exactly the field that must fail it. Still
-  open: skill origin, config-layer rule sources, the isolated subprocess
-  environment, and the child-capable launch profile.
+  none.
+
+  App Server previously launched with no arguments at all, so it matched none of
+  the verified profiles, not even the no-child baseline. It now launches with the
+  profile the compatibility gate exercises: every inheritable capability disabled
+  by name, the shell environment reduced to a fixed allowlist, host skill
+  discovery skipped, strict config, and web search off. Subagents are enabled at
+  multi-agent v1 depth two, since a depth of one allows a root child but not that
+  child's own child. Enabling them waited until child routing existed, because
+  before that a subagent's activity would have been discarded.
+
+  All four guards run before every turn and fail closed. Once per session is not
+  enough: a turn runs under workspace-write and can leave a hook, skill, or
+  policy file behind that a later turn would inherit, so skill discovery is
+  forced rather than cached. The managed-requirements check reads the raw
+  response on purpose, because its rule is about unknown sibling fields and a
+  decoded record would ignore exactly the field that must fail it.
 - [ ] Verify inherited capabilities remain disabled after start and resume.
   Force skill discovery and repeat the origin/error guard immediately before
   every `turn/start`, including the first turn after resume/restart.
@@ -990,9 +994,10 @@ Implementation:
   unowned and reported, because attributing it to a guess would hand one task's
   subagent activity to another. The parent walk is depth-bounded.
 
-  Not yet done: nothing creates child threads in production, because the
-  child-capable launch profile is still unadopted, so this path is proven by
-  tests rather than by a live subagent.
+  Proven live on 2026-09-02 against the running v0.151.0 CLI: a model asked to
+  use a subagent spawned one child thread that produced 42 notifications of its
+  own, and `thread/read` on that child reported its parent. Those 42 events are
+  exactly what the previous behaviour discarded.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and
   discovered descendants with `thread/read(includeTurns: true)`, reconcile all
   live/history command/tool/file/hook/terminal items, and page background

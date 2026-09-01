@@ -136,6 +136,26 @@ class TestCodexMessageDispatcher
     }
 
     @Test
+    void releasesAdoptedChildrenWhenTheirSessionGoesAway()
+            throws Exception
+    {
+        CountDownLatch delivered = new CountDownLatch(1);
+        CodexMessageDispatcher.Listener owner = listener(notification -> delivered.countDown());
+        dispatcher.register("root", owner);
+        parents.put("child", "root");
+        dispatcher.dispatch(notification("child", "turn-1"));
+        assertThat(delivered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        dispatcher.unregister("root", owner);
+
+        // A session forgets only its own thread, so an adopted child would otherwise stay
+        // registered for the lifetime of the backend.
+        parents.clear();
+        dispatcher.dispatch(notification("child", "turn-2"));
+        awaitCondition(() -> dispatcher.unroutableThreads().contains("child"));
+    }
+
+    @Test
     void leavesAThreadUnownedWhenItsAncestryReachesNoSession()
             throws Exception
     {

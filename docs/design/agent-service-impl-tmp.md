@@ -982,8 +982,17 @@ Implementation:
   any future ByteQuay tool call needs, since answering one means doing work
   before replying.
 
-  Child routing itself is still open: a child's parent is only discoverable
-  through `thread/read`, and that resolution job still has to be written.
+  Child routing now runs on that path. A notification for an unregistered thread
+  triggers exactly one ancestry resolution through `thread/read`, and the child
+  is adopted by the session owning its nearest registered ancestor; anything that
+  arrives meanwhile queues behind the resolution on the same chain, so nothing is
+  replayed out of order. A chain that reaches no live session leaves the thread
+  unowned and reported, because attributing it to a guess would hand one task's
+  subagent activity to another. The parent walk is depth-bounded.
+
+  Not yet done: nothing creates child threads in production, because the
+  child-capable launch profile is still unadopted, so this path is proven by
+  tests rather than by a live subagent.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and
   discovered descendants with `thread/read(includeTurns: true)`, reconcile all
   live/history command/tool/file/hook/terminal items, and page background

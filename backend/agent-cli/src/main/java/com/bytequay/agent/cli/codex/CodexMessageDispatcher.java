@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -52,13 +53,29 @@ final class CodexMessageDispatcher
     /** Bounds how far one thread's handling may fall behind the reader before events are shed. */
     private static final int MAX_PENDING_PER_THREAD = 512;
 
+    /** Bounds how far a subagent chain is walked before the origin is treated as unknowable. */
+    private static final int MAX_PARENT_DEPTH = 16;
+
+    private final ParentResolver parents;
     private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
+    private final Set<String> resolving = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, CompletableFuture<Void>> chains = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, AtomicInteger> depths = new ConcurrentHashMap<>();
     private final Set<String> unroutableThreads = ConcurrentHashMap.newKeySet();
     private final Set<String> degradedThreads = ConcurrentHashMap.newKeySet();
     private final ExecutorService handlers =
             Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("bytequay-codex-handler-", 0).factory());
+
+    /** Reads the parent of one Codex thread, so a subagent can be traced back to its task. */
+    interface ParentResolver
+    {
+        Optional<String> parentOf(String threadId);
+    }
+
+    CodexMessageDispatcher(ParentResolver parents)
+    {
+        this.parents = requireNonNull(parents, "parents is null");
+    }
 
     /** Sends the outcome of one server request back to App Server. */
     interface Replies
@@ -93,6 +110,7 @@ final class CodexMessageDispatcher
             // Drop the thread's bookkeeping too, or every task that ever ran would keep an entry.
             chains.remove(threadId);
             depths.remove(threadId);
+            resolving.remove(threadId);
         }
     }
 
@@ -106,13 +124,65 @@ final class CodexMessageDispatcher
     {
         String threadId = notification.threadId();
         Listener listener = listeners.get(threadId);
+        if (listener != null) {
+            submit(threadId, () -> listener.onNotification(notification));
+            return;
+        }
+        // An unregistered thread is a subagent whose parent is only discoverable by asking App
+        // Server. Exactly one resolution runs per thread; anything that arrives meanwhile queues
+        // behind it on the same chain, so nothing is replayed out of order or lost.
+        if (resolving.add(threadId)) {
+            submit(threadId, () -> {
+                adopt(threadId);
+                deliver(threadId, notification);
+            });
+            return;
+        }
+        submit(threadId, () -> deliver(threadId, notification));
+    }
+
+    /**
+     * Registers a child thread against the session that owns its nearest registered ancestor.
+     *
+     * <p>A chain that never reaches a registered ancestor is left unowned. Attributing it to a
+     * guess would deliver one task's subagent activity to another task.
+     */
+    private void adopt(String threadId)
+    {
+        String current = threadId;
+        for (int depth = 0; depth < MAX_PARENT_DEPTH; depth++) {
+            Optional<String> parent;
+            try {
+                parent = parents.parentOf(current);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Unable to resolve the parent of Codex thread {}", current, failure);
+                return;
+            }
+            if (parent.isEmpty()) {
+                return;
+            }
+            current = parent.orElseThrow();
+            Listener owner = listeners.get(current);
+            if (owner != null) {
+                listeners.putIfAbsent(threadId, owner);
+                log.debug("Codex child thread {} adopted by {}", threadId, current);
+                return;
+            }
+        }
+        log.warn("Codex thread {} exceeded the parent search depth", threadId);
+    }
+
+    private void deliver(String threadId, CodexProtocol.Notification notification)
+    {
+        Listener listener = listeners.get(threadId);
         if (listener == null) {
             if (unroutableThreads.add(threadId)) {
-                log.warn("Codex notification for unregistered thread {} was not routed", threadId);
+                log.warn("Codex notification for unowned thread {} was not routed", threadId);
             }
             return;
         }
-        submit(threadId, () -> listener.onNotification(notification));
+        listener.onNotification(notification);
     }
 
     /**

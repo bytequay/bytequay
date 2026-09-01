@@ -51,6 +51,7 @@ final class CodexAppServerClient
 {
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final Duration START_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration PARENT_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
@@ -66,7 +67,7 @@ final class CodexAppServerClient
     private final AtomicReference<String> codexHome = new AtomicReference<>();
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
-    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
+    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher(this::parentOf);
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
 
@@ -280,6 +281,25 @@ final class CodexAppServerClient
     private void receiveNotification(CodexProtocol.Notification notification)
     {
         dispatcher.dispatch(notification);
+    }
+
+    /**
+     * Reads the parent of one thread, for tracing a subagent back to the task that owns it.
+     *
+     * <p>Safe to call from a handler and never from the reader: it issues an ordinary request.
+     *
+     * @param threadId thread to look up
+     * @return its parent thread, or empty when it has none or cannot be read
+     */
+    private Optional<String> parentOf(String threadId)
+    {
+        return request(
+                "thread/read",
+                new CodexProtocol.ThreadReadParams(threadId, Optional.of(false)),
+                CodexProtocol.ThreadReadResponse.class,
+                PARENT_TIMEOUT)
+                .thread()
+                .parentThreadId();
     }
 
     /**

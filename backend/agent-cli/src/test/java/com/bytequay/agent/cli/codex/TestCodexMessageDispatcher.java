@@ -17,13 +17,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,7 +37,9 @@ class TestCodexMessageDispatcher
 {
     private static final CodexProtocolCodec CODEC = new CodexProtocolCodec(new ObjectMapper());
 
-    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
+    private final Map<String, String> parents = new ConcurrentHashMap<>();
+    private final CodexMessageDispatcher dispatcher =
+            new CodexMessageDispatcher(threadId -> Optional.ofNullable(parents.get(threadId)));
 
     @AfterEach
     void stopHandlers()
@@ -103,6 +110,43 @@ class TestCodexMessageDispatcher
         // so a handler may block or call back into App Server without stalling the reader.
         assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(handlerThread.get()).isNotSameAs(Thread.currentThread());
+    }
+
+    @Test
+    void deliversASubagentsMessagesToTheTaskThatOwnsItsAncestor()
+            throws Exception
+    {
+        List<String> delivered = new CopyOnWriteArrayList<>();
+        CountDownLatch done = new CountDownLatch(2);
+        dispatcher.register("root", listener(notification -> {
+            delivered.add(notification.turnId().orElse("none"));
+            done.countDown();
+        }));
+        parents.put("grandchild", "child");
+        parents.put("child", "root");
+
+        dispatcher.dispatch(notification("grandchild", "turn-1"));
+        dispatcher.dispatch(notification("grandchild", "turn-2"));
+
+        // A subagent two levels down still belongs to the task that owns its root, and its
+        // messages keep their order behind the one resolution.
+        assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(delivered).containsExactly("turn-1", "turn-2");
+        assertThat(dispatcher.unroutableThreads()).isEmpty();
+    }
+
+    @Test
+    void leavesAThreadUnownedWhenItsAncestryReachesNoSession()
+            throws Exception
+    {
+        dispatcher.register("root", listener(notification -> {}));
+        parents.put("stranger", "someone-elses-root");
+
+        dispatcher.dispatch(notification("stranger", "turn-1"));
+
+        // Guessing an owner would hand one task's activity to another.
+        awaitCondition(() -> !dispatcher.unroutableThreads().isEmpty());
+        assertThat(dispatcher.unroutableThreads()).containsExactly("stranger");
     }
 
     @Test
@@ -180,6 +224,18 @@ class TestCodexMessageDispatcher
         // rather than silent.
         assertThat(dispatcher.degradedThreads()).containsExactly("thread-1");
         released.countDown();
+    }
+
+    private static void awaitCondition(BooleanSupplier condition)
+            throws InterruptedException
+    {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssertionError("condition was not met before the deadline");
+            }
+            Thread.sleep(5);
+        }
     }
 
     private static CodexMessageDispatcher.Listener listener(Consumer<CodexProtocol.Notification> onNotification)

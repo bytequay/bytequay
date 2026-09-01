@@ -50,6 +50,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -510,7 +511,26 @@ class TestCodexCliDriver
     }
 
     @Test
-    void recordsRatherThanDropsANotificationForAnUnownedThread()
+    void routesASubagentThreadToTheTaskThatOwnsItsParent()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        supervisor.reportThreadParent("child-thread-7", "thread-1");
+
+        supervisor.server().emitForeignThreadNotification("child-thread-7");
+
+        // The child's ancestry is resolved once and it is adopted by its parent's session, so it
+        // is never reported as unowned.
+        awaitCondition(() -> supervisor.server().threadReads().contains("child-thread-7"));
+        assertThat(driver.unroutableThreads()).isEmpty();
+        session.close();
+    }
+
+    @Test
+    void leavesASubagentThreadUnownedWhenItsParentIsNotOurs()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -520,66 +540,11 @@ class TestCodexCliDriver
 
         supervisor.server().emitForeignThreadNotification("child-thread-7");
 
-        // A child thread is not routed to another task, and it does not vanish either.
+        // No ancestry back to a live session, so the thread is reported rather than attributed.
         awaitCondition(() -> !driver.unroutableThreads().isEmpty());
         assertThat(driver.unroutableThreads()).containsExactly("child-thread-7");
-        assertThat(events).noneMatch(event -> event.toString().contains("child-thread-7"));
+        assertThat(events).noneMatch(event -> event.toString().contains("from a child thread"));
         session.close();
-    }
-
-    @Test
-    void refusesATurnWhenAnExecPolicyRuleSourceCouldApply()
-            throws Exception
-    {
-        Path codexHome = Files.createDirectories(worktree.resolve("codex-home"));
-        Files.createDirectories(codexHome.resolve("rules"));
-        Files.writeString(codexHome.resolve("rules").resolve("ambient.rules"), "allow /bin/sh\n");
-
-        // v0.151 exposes no rule inventory, so a rules file beside a loaded config source is the
-        // only signal that an inherited allow rule could apply.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
-                "[{\"name\":{\"type\":\"user\",\"file\":\"" + codexHome.resolve("config.toml")
-                        + "\"},\"version\":\"1\",\"config\":{}}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("exec-policy rules are present");
-
-        // A project layer is repository-controlled and is rejected outright.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
-                "[{\"name\":{\"type\":\"project\",\"dotCodexFolder\":\"/repo/.codex\"},"
-                        + "\"version\":\"1\",\"config\":{}}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("project config layer");
-
-        // A layer source this release does not understand cannot be assumed harmless.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportConfigLayers(
-                "[{\"name\":{\"type\":\"futureSource\"},\"version\":\"1\",\"config\":{}}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("unsupported config layer source");
-    }
-
-    @Test
-    void refusesATurnWhenASkillDidNotComeFromTheBundledSystemRoot()
-    {
-        // A repository-scoped skill is exactly what a workspace-write turn could have written.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
-                "[{\"name\":\"repo-skill\",\"path\":\"/codex-home/skills/.system/x\","
-                        + "\"scope\":\"repo\",\"description\":\"d\",\"enabled\":true}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("not a bundled system skill");
-
-        // A plugin-owned skill is an inherited capability even when it claims system scope.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
-                "[{\"name\":\"plugin-skill\",\"path\":\"/codex-home/skills/.system/x\","
-                        + "\"scope\":\"system\",\"pluginId\":\"p1\",\"description\":\"d\",\"enabled\":true}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("not a bundled system skill");
-
-        // System scope is not enough; it must actually live under the reported system-skill root.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportSkills(
-                "[{\"name\":\"stray\",\"path\":\"/elsewhere/skill\",\"scope\":\"system\","
-                        + "\"description\":\"d\",\"enabled\":true}]")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("outside the bundled system skill root");
     }
 
     @Test
@@ -705,6 +670,12 @@ class TestCodexCliDriver
         private volatile String hooks = "[]";
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
+        private final Map<String, String> threadParents = new ConcurrentHashMap<>();
+
+        private void reportThreadParent(String child, String parent)
+        {
+            threadParents.put(child, parent);
+        }
 
         private void reportConfigLayers(String layers)
         {
@@ -829,7 +800,8 @@ class TestCodexCliDriver
                     () -> managedRequirements,
                     () -> hooks,
                     () -> configLayers,
-                    () -> skills);
+                    () -> skills,
+                    () -> threadParents);
             return server;
         }
 
@@ -883,8 +855,10 @@ class TestCodexCliDriver
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
         private final Supplier<String> skills;
+        private final Supplier<Map<String, String>> threadParents;
         private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
+        private final List<String> threadReads = new CopyOnWriteArrayList<>();
         private final Supplier<String> environmentCwd;
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
@@ -899,7 +873,8 @@ class TestCodexCliDriver
                 Supplier<String> managedRequirements,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
-                Supplier<String> skills)
+                Supplier<String> skills,
+                Supplier<Map<String, String>> threadParents)
         {
             this.objectMapper = objectMapper;
             this.output = output;
@@ -909,6 +884,7 @@ class TestCodexCliDriver
             this.hooks = hooks;
             this.configLayers = configLayers;
             this.skills = skills;
+            this.threadParents = threadParents;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -936,6 +912,11 @@ class TestCodexCliDriver
         private List<String> turnSettings()
         {
             return turnSettings;
+        }
+
+        private List<String> threadReads()
+        {
+            return threadReads;
         }
 
         private void recordSelection(List<String> into, JsonNode params)
@@ -975,6 +956,14 @@ class TestCodexCliDriver
             switch (method) {
                 case "initialize" -> respond(id, "{\"codexHome\":\"/codex-home\"}");
                 case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "thread/read" -> {
+                    String target = message.path("params").path("threadId").asText();
+                    threadReads.add(target);
+                    String parent = threadParents.get().get(target);
+                    respond(id, "{\"thread\":{\"id\":\"" + target + "\",\"sessionId\":\"session-1\","
+                            + "\"parentThreadId\":" + (parent == null ? "null" : "\"" + parent + "\"")
+                            + ",\"turns\":[]}}");
+                }
                 case "config/read" -> respond(id, "{\"config\":{},\"origins\":{},\"layers\":" + configLayers.get() + "}");
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()

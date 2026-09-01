@@ -248,6 +248,8 @@ extension point currently justified.
 7. Phase one uses only provider-native tools under the selected task sandbox
    and approval policy. ByteQuay does not expose product actions as
    model-callable tools; GitHub writes remain behind direct product actions.
+   The CodeGraph design may add only its two fixed,
+   optional structural-exploration tools after their compatibility gate.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 
@@ -383,8 +385,9 @@ gaps are implemented:
    interpreting raw provider payloads.
 10. Phase one stops at the stock App Server harness and task exec-server. It
     does not register ByteQuay actions as model-callable tools or add custom
-    tool routing. That integration receives a separate design after the base
-    protocol, event streaming, approvals, and recovery paths work end to end.
+    product-tool routing. The CodeGraph service is the only narrow
+    exception: two fixed, fail-open structural tools after the base protocol,
+    event streaming, approvals, and recovery paths work end to end.
 
 The detailed backend contract is in
 [Agent Service Design](agent-service.md); the proposed frontend behavior is in
@@ -411,7 +414,8 @@ The detailed backend contract is in
 - Stock provider tool workloads run through the selected sandbox and approval
   policy. App Server and Claude retain the provider traffic their control loops
   require; endpoint-level OS filtering is not claimed by this first design.
-  ByteQuay-specific model-callable tools are deferred. Directly owned App
+  ByteQuay product-action tools are deferred. The optional two-tool CodeGraph
+  boundary is specified separately and remains fail-open. Directly owned App
   Server, task exec-server, and Claude processes use durable launch
   intents/markers; normal per-turn quiescence uses typed item history and App
   Server's background-terminal APIs.

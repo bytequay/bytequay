@@ -23,6 +23,10 @@ target is not mistaken for an existing surface.
   stateless, synchronous separate-worktree boundary shared by interactive
   tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive
   cleanup that always retains the generated branch.
+- [CodeGraph Service](codegraph-service.md) specifies the optional,
+  fail-open structural exploration capability for managed agent worktrees:
+  lazy per-worktree indexes, incremental refresh, two task-bound tools, and
+  ByteQuay-managed instructions without repository-file changes.
 - [Codex App Server compatibility fixture](codex-app-server-compat.md) records
   the executable v0.151.0 schema and compatibility evidence, together with the
   completed CP1 technical isolation and opt-in local real-model smoke evidence.
@@ -77,7 +81,9 @@ repository builds.
   ByteQuay responsible for product state, cross-provider events, and UI.
 - Start with the App Server's native harness, tools, approvals, and event
   stream. ByteQuay-defined model tools and workflow actions require a separate
-  later design.
+  later design. The CodeGraph service is the narrow exception for two
+  fixed, optional structural-exploration tools; it is not a product-action or
+  general tool framework.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
 

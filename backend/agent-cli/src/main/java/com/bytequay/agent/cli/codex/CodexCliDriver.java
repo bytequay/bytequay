@@ -287,7 +287,10 @@ public final class CodexCliDriver
                     context.worktree().toString(),
                     "on-request",
                     "workspace-write",
-                    "ByteQuay");
+                    "ByteQuay",
+                    // Absent, not empty: an empty list would disable environment access instead of
+                    // selecting the default. A task environment is selected here once one exists.
+                    Optional.empty());
         }
 
         rememberAppServerVersion();

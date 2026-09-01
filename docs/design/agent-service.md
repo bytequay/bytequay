@@ -1573,7 +1573,11 @@ connection or recovery trigger.
 
 New `thread/start` and every `turn/start` select exactly one
 `TurnEnvironmentParams {environmentId, cwd, runtimeWorkspaceRoots}` for the
-task. `thread/start` also sends empty `selectedCapabilityRoots`; that field is
+task. That field is three-valued and the values are not interchangeable:
+omitting it selects App Server's default environment, an empty list disables
+environment access outright, and a non-empty list selects its first entry.
+ByteQuay therefore models it as absent-or-present rather than as a plain
+collection, and never sends an empty list to mean "no override". `thread/start` also sends empty `selectedCapabilityRoots`; that field is
 not sent by `turn/start` or `thread/resume`. A resumed thread restores its
 sticky environment selection, so the replacement exec-server is re-launched,
 re-added, and verified with `environment/info` before `thread/resume`; resume

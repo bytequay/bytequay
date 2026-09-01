@@ -341,6 +341,38 @@ const referenceRecordBindings = [
     component("approvalPolicy", "approvalPolicy", "on-request"),
     component("sandbox", "sandbox", "workspace-write"),
     component("serviceName"),
+    component("environments"),
+  ]),
+  recordBinding("TurnEnvironmentParams", "encode", [
+    schemaSource("v2", "TurnEnvironmentParams"),
+  ], [
+    component("environmentId"),
+    component("cwd"),
+    component("runtimeWorkspaceRoots"),
+  ]),
+  recordBinding("EnvironmentAddParams", "encode", [
+    schemaSource("v2", "EnvironmentAddParams"),
+  ], [
+    component("environmentId"),
+    component("execServerUrl"),
+    component("connectTimeoutMs"),
+  ]),
+  recordBinding("EnvironmentInfoParams", "encode", [
+    schemaSource("v2", "EnvironmentInfoParams"),
+  ], [
+    component("environmentId"),
+  ]),
+  recordBinding("EnvironmentInfoResponse", "decode", [
+    schemaSource("v2", "EnvironmentInfoResponse"),
+  ], [
+    component("shell"),
+    component("cwd"),
+  ]),
+  recordBinding("EnvironmentShellInfo", "decode", [
+    schemaSource("v2", "EnvironmentShellInfo"),
+  ], [
+    component("name"),
+    component("path"),
   ]),
   recordBinding("ThreadResumeParams", "encode", [
     schemaSource("v2", "ThreadResumeParams"),

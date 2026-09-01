@@ -186,6 +186,33 @@ class TestCodexProtocolReferenceBindings
         assertThat(encoded.has("includeTurns")).isFalse();
     }
 
+    @Test
+    void distinguishesAnOmittedThreadEnvironmentFromAnEmptyOne()
+            throws Exception
+    {
+        // The wire field is three-valued and the values are not interchangeable: omitted selects
+        // App Server's default environment, empty disables environment access outright, and
+        // non-empty selects the first entry. Encoding must preserve that distinction.
+        JsonNode omitted = objectMapper.readTree(codec.encode(threadStart(Optional.empty())));
+        JsonNode disabled = objectMapper.readTree(codec.encode(threadStart(Optional.of(ImmutableList.of()))));
+        JsonNode selected = objectMapper.readTree(codec.encode(threadStart(Optional.of(ImmutableList.of(
+                new CodexProtocol.TurnEnvironmentParams("env-1", "/w", ImmutableList.of("/w")))))));
+
+        assertThat(omitted.has("environments")).isFalse();
+        assertThat(disabled.path("environments").isArray()).isTrue();
+        assertThat(disabled.path("environments")).isEmpty();
+        assertThat(selected.path("environments")).hasSize(1);
+        assertThat(selected.path("environments").get(0).path("environmentId").asText()).isEqualTo("env-1");
+        assertThat(selected.path("environments").get(0).path("runtimeWorkspaceRoots")).hasSize(1);
+    }
+
+    private static CodexProtocol.ThreadStartParams threadStart(
+            Optional<java.util.List<CodexProtocol.TurnEnvironmentParams>> environments)
+    {
+        return new CodexProtocol.ThreadStartParams(
+                "/workspace", "on-request", "workspace-write", "ByteQuay", environments);
+    }
+
     private void verifyDecodeBinding(JsonNode binding, Class<?> type, RecordComponent[] actualComponents)
     {
         String description = description(binding);

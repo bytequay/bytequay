@@ -1958,6 +1958,138 @@
           "required": false,
           "nullable": true,
           "sample": "value"
+        },
+        {
+          "javaName": "environments",
+          "wireName": "environments",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "TurnEnvironmentParams",
+      "mode": "encode",
+      "sources": [
+        "v2#TurnEnvironmentParams"
+      ],
+      "components": [
+        {
+          "javaName": "environmentId",
+          "wireName": "environmentId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "runtimeWorkspaceRoots",
+          "wireName": "runtimeWorkspaceRoots",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "EnvironmentAddParams",
+      "mode": "encode",
+      "sources": [
+        "v2#EnvironmentAddParams"
+      ],
+      "components": [
+        {
+          "javaName": "environmentId",
+          "wireName": "environmentId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "execServerUrl",
+          "wireName": "execServerUrl",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "connectTimeoutMs",
+          "wireName": "connectTimeoutMs",
+          "required": false,
+          "nullable": true,
+          "sample": 0
+        }
+      ]
+    },
+    {
+      "javaType": "EnvironmentInfoParams",
+      "mode": "encode",
+      "sources": [
+        "v2#EnvironmentInfoParams"
+      ],
+      "components": [
+        {
+          "javaName": "environmentId",
+          "wireName": "environmentId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "EnvironmentInfoResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#EnvironmentInfoResponse"
+      ],
+      "components": [
+        {
+          "javaName": "shell",
+          "wireName": "shell",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "name": "value",
+            "path": "value"
+          }
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "EnvironmentShellInfo",
+      "mode": "decode",
+      "sources": [
+        "v2#EnvironmentShellInfo"
+      ],
+      "components": [
+        {
+          "javaName": "name",
+          "wireName": "name",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "path",
+          "wireName": "path",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
         }
       ]
     },

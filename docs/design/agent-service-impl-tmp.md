@@ -929,7 +929,11 @@ Implementation:
 - [x] Persist launch ownership and opaque owner for the shared App Server and
   each Claude turn. The task executor does not exist yet and is covered by the
   `TaskExecServerManager` box below.
-- [ ] Add `TaskExecServerManager` using only the contract proven in CP1.
+- [~] Add `TaskExecServerManager` using only the contract proven in CP1. The
+  contract is now frozen: the reference projection covers `EnvironmentAddParams`,
+  `EnvironmentInfoParams`, `EnvironmentInfoResponse`, `EnvironmentShellInfo`, and
+  `TurnEnvironmentParams` (63 records to 68), regenerated and verified against the
+  exact v0.151.0 schema. The manager itself is not written yet.
 - [ ] Launch one version-matched executor/environment per active Codex task.
 - [ ] Persist one unique environment ID per task, reuse it only for that task,
   and never assign it to another task. The v0.151.0 reference protocol has no

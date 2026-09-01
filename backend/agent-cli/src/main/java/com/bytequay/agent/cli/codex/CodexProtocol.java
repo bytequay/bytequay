@@ -882,7 +882,21 @@ final class CodexProtocol
 
     record EmptyResponse() {}
 
-    record ThreadStartParams(String cwd, String approvalPolicy, String sandbox, String serviceName)
+    /**
+     * Starts a thread, optionally pinning it to one task-owned execution environment.
+     *
+     * <p>{@code environments} is three-valued on the wire and the three values are not
+     * interchangeable: omitted selects App Server's default environment, an empty list disables
+     * environment access entirely, and a non-empty list selects its first entry. It is therefore
+     * modelled as an absent-or-present list rather than a plain collection.
+     */
+    record ThreadStartParams(
+            String cwd,
+            String approvalPolicy,
+            String sandbox,
+            String serviceName,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<List<TurnEnvironmentParams>> environments)
     {
         ThreadStartParams
         {
@@ -890,6 +904,59 @@ final class CodexProtocol
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(sandbox, "sandbox");
             checkIdentifier(serviceName, "serviceName");
+            environments = requireNonNull(environments, "environments is null").map(ImmutableList::copyOf);
+        }
+    }
+
+    /**
+     * Selects exactly one task-owned execution environment.
+     *
+     * <p>A non-empty list selects its first entry, so ByteQuay always sends exactly one. Sending
+     * none would silently fall back to App Server's default environment, which is never correct for
+     * a task-bound thread.
+     */
+    record TurnEnvironmentParams(String environmentId, String cwd, List<String> runtimeWorkspaceRoots)
+    {
+        TurnEnvironmentParams
+        {
+            checkIdentifier(environmentId, "environmentId");
+            checkIdentifier(cwd, "cwd");
+            runtimeWorkspaceRoots = ImmutableList.copyOf(runtimeWorkspaceRoots);
+        }
+    }
+
+    record EnvironmentAddParams(String environmentId, String execServerUrl, Long connectTimeoutMs)
+    {
+        EnvironmentAddParams
+        {
+            checkIdentifier(environmentId, "environmentId");
+            checkIdentifier(execServerUrl, "execServerUrl");
+        }
+    }
+
+    record EnvironmentInfoParams(String environmentId)
+    {
+        EnvironmentInfoParams
+        {
+            checkIdentifier(environmentId, "environmentId");
+        }
+    }
+
+    record EnvironmentInfoResponse(EnvironmentShellInfo shell, Optional<String> cwd)
+    {
+        EnvironmentInfoResponse
+        {
+            requireNonNull(shell, "shell is null");
+            requireNonNull(cwd, "cwd is null");
+        }
+    }
+
+    record EnvironmentShellInfo(String name, String path)
+    {
+        EnvironmentShellInfo
+        {
+            checkIdentifier(name, "name");
+            checkIdentifier(path, "path");
         }
     }
 

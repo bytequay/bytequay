@@ -462,6 +462,23 @@ class TestCodexCliDriver
     }
 
     @Test
+    void recordsRatherThanDropsANotificationForAnUnownedThread()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+
+        supervisor.server().emitForeignThreadNotification("child-thread-7");
+
+        // A child thread is not routed to another task, and it does not vanish either.
+        assertThat(driver.unroutableThreads()).containsExactly("child-thread-7");
+        assertThat(events).noneMatch(event -> event.toString().contains("child-thread-7"));
+        session.close();
+    }
+
+    @Test
     void rechecksInheritedCapabilitiesBeforeEveryTurn()
             throws Exception
     {
@@ -855,6 +872,13 @@ class TestCodexCliDriver
                     }
                 }
             }
+        }
+
+        private void emitForeignThreadNotification(String threadId)
+        {
+            emit("{\"method\":\"item/agentMessage/delta\",\"params\":{"
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"turn-x\","
+                    + "\"itemId\":\"message-9\",\"delta\":\"from a child thread\"}}");
         }
 
         private void completeTurn()

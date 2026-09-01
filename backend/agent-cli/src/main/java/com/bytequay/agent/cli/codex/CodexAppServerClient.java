@@ -23,12 +23,14 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -62,6 +64,7 @@ final class CodexAppServerClient
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
+    private final Set<String> unroutableThreads = ConcurrentHashMap.newKeySet();
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
 
@@ -263,12 +266,31 @@ final class CodexAppServerClient
         }
     }
 
+    /**
+     * Routes a notification to the session that owns its thread, and never guesses.
+     *
+     * <p>An unregistered thread is normally a child thread created by a subagent. Its parent is
+     * only discoverable through {@code thread/read}, which cannot be called from here: this runs on
+     * the single output-dispatch thread, so a blocking request would wait for a response that only
+     * this thread can read. Until child resolution is done off this thread, such a notification is
+     * recorded rather than dropped, so an unrouted child is visible instead of silent.
+     */
     private void receiveNotification(CodexProtocol.Notification notification)
     {
         Listener listener = listeners.get(notification.threadId());
-        if (listener != null) {
-            listener.onNotification(notification);
+        if (listener == null) {
+            if (unroutableThreads.add(notification.threadId())) {
+                log.warn("Codex notification for unregistered thread {} was not routed", notification.threadId());
+            }
+            return;
         }
+        listener.onNotification(notification);
+    }
+
+    /** Thread references seen on notifications that no registered session owns. */
+    Set<String> unroutableThreads()
+    {
+        return ImmutableSet.copyOf(unroutableThreads);
     }
 
     private void receiveResponse(CodexProtocol.JsonRpcEnvelope envelope)

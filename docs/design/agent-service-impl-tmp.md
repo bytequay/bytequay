@@ -959,8 +959,17 @@ Implementation:
 - [ ] Verify inherited capabilities remain disabled after start and resume.
   Force skill discovery and repeat the origin/error guard immediately before
   every `turn/start`, including the first turn after resume/restart.
-- [ ] Route root and child events/approvals by provider thread and turn identity
-  without cross-task fallback.
+- [~] Route root and child events/approvals by provider thread and turn identity
+  without cross-task fallback. Root routing is an exact thread lookup with no
+  fallback, and an approval for an unregistered thread is refused rather than
+  guessed. A notification for an unregistered thread is now recorded and
+  reported instead of silently discarded.
+  Child routing is still open, and it is not a small change: a child's parent is
+  only discoverable through `thread/read`, which cannot be called from the
+  notification path. Dispatch runs on the single output-reader thread, so a
+  blocking request there waits for a response that only that thread can read.
+  Child resolution has to happen off that thread, with the child's notifications
+  buffered until it is registered.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and
   discovered descendants with `thread/read(includeTurns: true)`, reconcile all
   live/history command/tool/file/hook/terminal items, and page background

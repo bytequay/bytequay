@@ -324,6 +324,12 @@ public final class CodexCliDriver
         return session;
     }
 
+    /** Thread references seen on notifications that no live session owns. */
+    Set<String> unroutableThreads()
+    {
+        return client.unroutableThreads();
+    }
+
     @Override
     public void close()
     {

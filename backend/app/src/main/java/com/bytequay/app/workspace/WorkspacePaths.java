@@ -74,7 +74,7 @@ public final class WorkspacePaths
         return workspace(workspaceId).resolve("repository").normalize();
     }
 
-    /** Returns the backend-owned parent for cherry-pick worktrees. */
+    /** Returns the backend-owned parent for task worktrees. */
     public Path worktrees(String workspaceId)
     {
         return workspace(workspaceId).resolve("worktrees").normalize();

@@ -123,6 +123,15 @@ public class SqliteAgentTaskStore
 
     @Override
     @Transactional(readOnly = true)
+    public boolean hasWorktreeReference(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        return repository.existsByWorkspaceIdAndGeneratedBranchIsNotNull(workspaceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AgentTask> listLive()
     {
         return repository.findByStateNotInOrderByCreatedAtAsc(TERMINAL_STATES).stream()

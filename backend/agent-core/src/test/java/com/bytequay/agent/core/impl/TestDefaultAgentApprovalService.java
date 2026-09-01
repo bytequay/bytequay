@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskId;
@@ -366,6 +367,12 @@ class TestDefaultAgentApprovalService
                     event.source(),
                     NOW,
                     event.payload());
+        }
+
+        @Override
+        public AgentEventEnvelope drain(EventId eventId)
+        {
+            throw new UnsupportedOperationException();
         }
 
         @Override

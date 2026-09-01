@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -34,8 +35,11 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -50,6 +54,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -64,6 +69,7 @@ public class DefaultWorkspaceRepositoryService
     private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
 
     private final WorkspaceStore store;
+    private final AgentTaskStore agentTasks;
     private final CherryPickExecutionStore executions;
     private final RemoteSourceStore remoteSources;
     private final RepositoryEnrichmentService enrichment;
@@ -81,6 +87,7 @@ public class DefaultWorkspaceRepositoryService
 
     public DefaultWorkspaceRepositoryService(
             WorkspaceStore store,
+            AgentTaskStore agentTasks,
             CherryPickExecutionStore executions,
             RemoteSourceStore remoteSources,
             RepositoryEnrichmentService enrichment,
@@ -95,6 +102,7 @@ public class DefaultWorkspaceRepositoryService
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
+        this.agentTasks = requireNonNull(agentTasks, "agentTasks is null");
         this.executions = requireNonNull(executions, "executions is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
@@ -304,16 +312,42 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public void unwatch(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
-        if (codeRefreshes.contains(workspace.id())) {
-            throw WorkspaceException.busy();
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            if (codeRefreshes.contains(workspace.id())
+                    || hasActiveExecution(workspace)
+                    || agentTasks.hasWorktreeReference(workspace.id())
+                    || hasManagedWorktrees(workspace.id())) {
+                throw WorkspaceException.busy();
+            }
+            store.delete(workspace.id());
+            remoteSources.deleteByWorkspace(workspace.id());
+            workspaceCredentials.delete(workspace.id());
         }
-        if (hasActiveExecution(workspace)) {
-            throw WorkspaceException.busy();
+        finally {
+            lock.unlock();
         }
-        store.delete(workspace.id());
-        remoteSources.deleteByWorkspace(workspace.id());
-        workspaceCredentials.delete(workspace.id());
+    }
+
+    private boolean hasManagedWorktrees(String workspaceId)
+    {
+        var worktrees = paths.worktrees(workspaceId);
+        if (Files.notExists(worktrees, LinkOption.NOFOLLOW_LINKS)) {
+            return false;
+        }
+        if (!Files.exists(worktrees, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(worktrees)
+                || !Files.isDirectory(worktrees, LinkOption.NOFOLLOW_LINKS)) {
+            return true;
+        }
+        try (var children = Files.list(worktrees)) {
+            return children.findAny().isPresent();
+        }
+        catch (IOException failure) {
+            return true;
+        }
     }
 
     private boolean hasActiveExecution(Workspace workspace)

@@ -14,6 +14,7 @@
 package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -39,6 +40,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -91,8 +93,9 @@ class TestCherryPickPreviewHttpApi
                 false,
                 "claude",
                 false);
+        AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CherryPickPreviewController(workspaces, previewService))
-                .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules()))
+                .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules(), servingGate))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

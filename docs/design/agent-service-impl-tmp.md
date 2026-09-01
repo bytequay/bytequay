@@ -661,16 +661,27 @@ Primary files:
 Purpose: implement the synchronous worktree boundary and make the event stream
 an authoritative reconstruction source rather than a best-effort activity log.
 
+**Progress (2026-09-01):** the first CP3 slice now persists immutable task
+worktree ownership, provides the one stateless synchronous managed-worktree
+implementation, and serializes repository worktree mutation against workspace
+removal. SQLite state and bounded event-outbox rows can share one transaction;
+outbox replay is idempotent across JSONL flush/mark crashes, repairs a partial
+tail, and publishes only after the event is flushed and marked. Startup keeps
+agent routes and mutation monitors behind one boolean gate while it drains the
+outbox, reconciles existing agent execution, and drains again. This is a
+foundation slice: task/turn/approval mutations have not all migrated to the
+unit of work, and the workspace-scoped public routes remain inactive.
+
 Implementation:
 
-- [ ] Add `AgentUnitOfWork` backed by one SQLite transaction.
-- [ ] Add `AgentEventOutboxStore` and its SQLite entity/store.
-- [ ] Make `TaskLogStore` find/append idempotently by `eventId`.
+- [x] Add `AgentUnitOfWork` backed by one SQLite transaction.
+- [x] Add `AgentEventOutboxStore` and its SQLite entity/store.
+- [x] Make `TaskLogStore` find/append idempotently by `eventId`.
 - [ ] Commit every state mutation and its bounded unsequenced event together.
 - [ ] Drain the committed outbox to JSONL before SSE publication or provider
   callback completion.
-- [ ] Drain pending outbox rows before agent endpoints become ready at startup.
-- [ ] Add an explicit agent-serving gate: either complete recovery before the
+- [x] Drain pending outbox rows before agent endpoints become ready at startup.
+- [x] Add an explicit agent-serving gate: either complete recovery before the
   web layer serves agent data or have every agent task/turn/event/approval read,
   mutation, and SSE endpoint reject until recovery is ready. Provider-status
   diagnostics may remain available. `ApplicationReadyEvent` alone is too late
@@ -686,15 +697,15 @@ Implementation:
   resolution/expiry before resuming the provider callback.
 - [ ] Deny pending approvals durably on timeout, cancellation, terminal turn,
   or provider loss.
-- [ ] Persist the immutable `TaskWorktree` ownership/path/branch/start-commit
+- [x] Persist the immutable `TaskWorktree` ownership/path/branch/start-commit
   facts with the owning task; do not add an allocation table or lifecycle.
-- [ ] Implement the one production `ManagedWorktreeService` in `app` with
+- [x] Implement the one production `ManagedWorktreeService` in `app` with
   `WorkspacePaths` and direct argv-based Git commands. Do not add a new module,
   temporary implementation, allocation store, or recovery scanner.
-- [ ] Make `inspect(worktree)` revalidate the exact managed repository, path,
+- [x] Make `inspect(worktree)` revalidate the exact managed repository, path,
   generated branch, and required HEAD before returning dirty/open-operation
   facts.
-- [ ] Make `cleanup(worktree)` revalidate those facts, refuse dirty or open Git
+- [x] Make `cleanup(worktree)` revalidate those facts, refuse dirty or open Git
   state, use non-forced removal, remove only the worktree, and always retain the
   generated branch.
 - [ ] Activate workspace-owned interactive task creation: probe readiness,
@@ -730,12 +741,12 @@ Implementation:
   generated branch from the task's `TaskWorktree` and Git facts from
   `WorktreeService.inspect(worktree)`, while exact-lease
   push continues to target the authorized remote PR branch.
-- [ ] Serialize worktree add/remove per managed repository while allowing
+- [x] Serialize worktree add/remove per managed repository while allowing
   distinct ready worktrees to run concurrently.
 - [ ] Add one task-local worktree mutation claim acquired by turn start, later
   queue claims, or completion. Recovery preserves and reconciles the existing
   claim; it does not invent a separate recovery-claim kind.
-- [ ] Serialize workspace unwatch against worktree provisioning so no
+- [x] Serialize workspace unwatch against worktree provisioning so no
   task worktree can be provisioned after removal begins; add service/controller
   race coverage rather than relying on a query-only busy check.
 - [ ] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
@@ -755,10 +766,10 @@ Exit gate:
 - [ ] Replay always contains the accepted user input before provider output.
 - [ ] Reconnect from the last sequence loses and duplicates no event.
 - [ ] A resolved/expired approval never reappears as pending after reload.
-- [ ] Two live tasks derive distinct canonical worktree paths and branches.
-- [ ] Provisioning tests prove success returns only a fully verified worktree;
+- [x] Two live tasks derive distinct canonical worktree paths and branches.
+- [x] Provisioning tests prove success returns only a fully verified worktree;
   a half-finished or mismatched orphan is preserved and reported.
-- [ ] Cleanup tests prove ownership mismatch, dirty state, or an open Git
+- [x] Cleanup tests prove ownership mismatch, dirty state, or an open Git
   operation fails without removal; clean cleanup uses no force, removes only
   the verified worktree, and retains the generated branch.
 - [ ] Completed cherry-pick delivery works from the retained branch after its

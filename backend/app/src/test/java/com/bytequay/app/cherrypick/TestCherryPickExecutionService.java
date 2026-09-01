@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -271,7 +272,7 @@ class TestCherryPickExecutionService
         String base = head(upstream);
         write(upstream, "file.txt", "content\n");
         commit(upstream, "Upstream change");
-        agent.beforeTaskCreate(() -> new CherryPickExecutionMonitorJob(store, service, 20).monitor());
+        agent.beforeTaskCreate(() -> new CherryPickExecutionMonitorJob(store, service, readyAgentServingGate(), 20).monitor());
 
         CherryPickExecution started = start(base, ImmutableList.of());
 

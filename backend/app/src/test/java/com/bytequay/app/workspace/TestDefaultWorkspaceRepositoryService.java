@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -25,7 +26,10 @@ import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -36,8 +40,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -139,6 +147,97 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
+    void unwatchPreservesWorkspaceWithManagedTaskWorktreeDirectory(@TempDir Path temporaryDirectory)
+            throws IOException
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspacePaths paths = new WorkspacePaths(temporaryDirectory.toString());
+        DefaultWorkspaceRepositoryService service = service(
+                store,
+                gitHub,
+                mock(WorkspaceProvisioningService.class),
+                paths);
+        Workspace workspace = watch(service, 100);
+        Path taskWorktree = paths.worktrees(workspace.id()).resolve("task-1");
+        Files.createDirectories(taskWorktree);
+
+        assertThatThrownBy(() -> service.unwatch(workspace.id()))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_BUSY"));
+        assertThat(store.findById(workspace.id())).contains(workspace);
+
+        Files.delete(taskWorktree);
+        service.unwatch(workspace.id());
+        assertThat(store.findById(workspace.id())).isEmpty();
+    }
+
+    @Test
+    void unwatchPreservesWorkspaceReferencedByPersistedTask(@TempDir Path temporaryDirectory)
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        AgentTaskStore agentTasks = mock(AgentTaskStore.class);
+        WorkspacePaths paths = new WorkspacePaths(temporaryDirectory.toString());
+        DefaultWorkspaceRepositoryService service = service(
+                store,
+                gitHub,
+                mock(WorkspaceProvisioningService.class),
+                paths,
+                agentTasks);
+        Workspace workspace = watch(service, 100);
+        when(agentTasks.hasWorktreeReference(workspace.id())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.unwatch(workspace.id()))
+                .isInstanceOfSatisfying(WorkspaceException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_BUSY"));
+        assertThat(store.findById(workspace.id())).contains(workspace);
+    }
+
+    @Test
+    void unwatchWaitsForWorkspaceMutationAndRechecksWorktrees(@TempDir Path temporaryDirectory)
+            throws Exception
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspacePaths paths = new WorkspacePaths(temporaryDirectory.toString());
+        DefaultWorkspaceRepositoryService service = service(
+                store,
+                gitHub,
+                mock(WorkspaceProvisioningService.class),
+                paths);
+        Workspace workspace = watch(service, 100);
+        CountDownLatch unwatchStarted = new CountDownLatch(1);
+        Lock mutation = WorkspaceOperationLocks.get(workspace.id());
+
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            mutation.lock();
+            var unwatch = executor.submit(() -> {
+                unwatchStarted.countDown();
+                service.unwatch(workspace.id());
+            });
+            try {
+                assertThat(unwatchStarted.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(unwatch.isDone()).isFalse();
+                Files.createDirectories(paths.worktrees(workspace.id()).resolve("task-1"));
+            }
+            finally {
+                mutation.unlock();
+            }
+
+            assertThatThrownBy(() -> unwatch.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(WorkspaceException.class)
+                    .satisfies(failure -> assertThat(((WorkspaceException) failure.getCause()).code())
+                            .isEqualTo("WORKSPACE_BUSY"));
+        }
+        assertThat(store.findById(workspace.id())).contains(workspace);
+    }
+
+    @Test
     void synchronizesMissingCodeBeforeReturningRepository()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
@@ -190,6 +289,7 @@ class TestDefaultWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,
+                mock(AgentTaskStore.class),
                 mock(CherryPickExecutionStore.class),
                 new InMemoryRemoteSourceStore(),
                 enrichment(),
@@ -231,6 +331,7 @@ class TestDefaultWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,
+                mock(AgentTaskStore.class),
                 mock(CherryPickExecutionStore.class),
                 new InMemoryRemoteSourceStore(),
                 enrichment(),
@@ -282,6 +383,7 @@ class TestDefaultWorkspaceRepositoryService
         });
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,
+                mock(AgentTaskStore.class),
                 executions,
                 new InMemoryRemoteSourceStore(),
                 enrichment(),
@@ -313,12 +415,36 @@ class TestDefaultWorkspaceRepositoryService
             GitHubAccountClient gitHub,
             WorkspaceProvisioningService provisioning)
     {
+        return service(
+                store,
+                gitHub,
+                provisioning,
+                new WorkspacePaths("/tmp/bytequay-workspaces"));
+    }
+
+    private static DefaultWorkspaceRepositoryService service(
+            WorkspaceStore store,
+            GitHubAccountClient gitHub,
+            WorkspaceProvisioningService provisioning,
+            WorkspacePaths paths)
+    {
+        return service(store, gitHub, provisioning, paths, mock(AgentTaskStore.class));
+    }
+
+    private static DefaultWorkspaceRepositoryService service(
+            WorkspaceStore store,
+            GitHubAccountClient gitHub,
+            WorkspaceProvisioningService provisioning,
+            WorkspacePaths paths,
+            AgentTaskStore agentTasks)
+    {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         CherryPickExecutionStore executions = mock(CherryPickExecutionStore.class);
         when(executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT)).thenReturn(ImmutableList.of());
         return new DefaultWorkspaceRepositoryService(
                 store,
+                agentTasks,
                 executions,
                 new InMemoryRemoteSourceStore(),
                 enrichment(),
@@ -326,7 +452,7 @@ class TestDefaultWorkspaceRepositoryService
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new WorkspacePaths("/tmp/bytequay-workspaces"),
+                paths,
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),

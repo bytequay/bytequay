@@ -14,13 +14,16 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.google.common.collect.ImmutableList;
@@ -35,10 +38,11 @@ import java.util.Optional;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class InMemoryAgentStores
-        implements AgentTaskStore, AgentTurnStore
+        implements AgentTaskStore, AgentTurnStore, AgentEventOutboxStore
 {
     private final Map<TaskId, AgentTask> tasks = new HashMap<>();
     private final Map<TurnId, AgentTurn> turns = new HashMap<>();
+    private final Map<EventId, AgentEventOutboxEntry> outbox = new HashMap<>();
 
     @Override
     public synchronized void insert(AgentTask task)
@@ -87,6 +91,14 @@ final class InMemoryAgentStores
                 .sorted(Comparator.comparing(AgentTask::updatedAt).reversed())
                 .limit(limit)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized boolean hasWorktreeReference(String workspaceId)
+    {
+        return tasks.values().stream()
+                .anyMatch(task -> task.taskWorktree().stream()
+                        .anyMatch(worktree -> worktree.workspaceId().equals(workspaceId)));
     }
 
     @Override
@@ -187,6 +199,54 @@ final class InMemoryAgentStores
                 .filter(turn -> turn.state().active())
                 .sorted(Comparator.comparing(AgentTurn::createdAt))
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized void insert(AgentEventOutboxEntry entry)
+    {
+        if (outbox.putIfAbsent(entry.eventId(), entry) != null) {
+            throw new AgentConflictException("Event already exists: " + entry.eventId());
+        }
+    }
+
+    @Override
+    public synchronized Optional<AgentEventOutboxEntry> find(EventId eventId)
+    {
+        return Optional.ofNullable(outbox.get(eventId));
+    }
+
+    @Override
+    public synchronized List<AgentEventOutboxEntry> listPending(int limit)
+    {
+        return outbox.values().stream()
+                .filter(entry -> entry.sequence().isEmpty())
+                .limit(limit)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized boolean hasPending(TaskId taskId)
+    {
+        return outbox.values().stream()
+                .anyMatch(entry -> entry.taskId().equals(taskId) && entry.sequence().isEmpty());
+    }
+
+    @Override
+    public synchronized void markAppended(EventId eventId, long sequence)
+    {
+        AgentEventOutboxEntry entry = find(eventId)
+                .orElseThrow(() -> new AgentConflictException("Event is absent: " + eventId));
+        if (entry.sequence().isPresent() && entry.sequence().orElseThrow() != sequence) {
+            throw new AgentConflictException("Event sequence changed: " + eventId);
+        }
+        outbox.put(eventId, new AgentEventOutboxEntry(
+                entry.eventId(),
+                entry.taskId(),
+                entry.turnId(),
+                entry.source(),
+                entry.payload(),
+                entry.occurredAt(),
+                Optional.of(sequence)));
     }
 
     synchronized List<AgentTask> tasks()

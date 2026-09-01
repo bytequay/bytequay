@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.scheduler.MonitorLoop;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
@@ -38,6 +39,7 @@ final class CherryPickExecutionMonitorJob
 {
     private final CherryPickExecutionStore store;
     private final CherryPickExecutionService service;
+    private final AgentServingGate servingGate;
     private final int batchSize;
     private final MonitorLoop loop =
             new MonitorLoop(CherryPickExecutionMonitorJob.class, "cherry-pick execution");
@@ -45,10 +47,12 @@ final class CherryPickExecutionMonitorJob
     CherryPickExecutionMonitorJob(
             CherryPickExecutionStore store,
             CherryPickExecutionService service,
+            AgentServingGate servingGate,
             @Value("${bytequay.cherry-pick.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.service = requireNonNull(service, "service is null");
+        this.servingGate = requireNonNull(servingGate, "servingGate is null");
         checkArgument(batchSize > 0, "batchSize must be positive");
         this.batchSize = batchSize;
     }
@@ -58,6 +62,9 @@ final class CherryPickExecutionMonitorJob
             fixedDelayString = "${bytequay.cherry-pick.monitor-interval:PT5S}")
     public void monitor()
     {
+        if (!servingGate.isReady()) {
+            return;
+        }
         loop.pass(() -> loop.advanceEach(running(), service::advance));
     }
 

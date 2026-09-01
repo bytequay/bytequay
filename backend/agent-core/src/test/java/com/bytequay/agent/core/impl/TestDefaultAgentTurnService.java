@@ -108,7 +108,11 @@ class TestDefaultAgentTurnService
                         AgentPermissionPolicy.AUTO),
                 Optional.empty(),
                 false));
-        events = new DefaultAgentEventService(new FileTaskLogStore(resources), stores, CLOCK);
+        events = new DefaultAgentEventService(
+                new FileTaskLogStore(resources),
+                stores,
+                stores,
+                CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
         service = service(driver, new AgentRuntimeRegistry());

@@ -22,6 +22,7 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.ProviderAgentEventAdapter;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -54,12 +55,13 @@ import java.util.concurrent.ConcurrentMap;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.Math.toIntExact;
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.util.Objects.requireNonNull;
 
 public final class FileTaskLogStore
         implements TaskLogStore
 {
-    private static final int DEFAULT_MAX_EVENT_BYTES = 2 * 1024 * 1024;
     private static final int DEFAULT_MAX_BLOB_BYTES = 10 * 1024 * 1024;
 
     private final AgentResourceService resourceService;
@@ -71,7 +73,7 @@ public final class FileTaskLogStore
 
     public FileTaskLogStore(AgentResourceService resourceService)
     {
-        this(resourceService, DEFAULT_MAX_EVENT_BYTES, DEFAULT_MAX_BLOB_BYTES);
+        this(resourceService, AgentEventEnvelope.MAX_SERIALIZED_BYTES, DEFAULT_MAX_BLOB_BYTES);
     }
 
     public FileTaskLogStore(AgentResourceService resourceService, int maxEventBytes, int maxBlobBytes)
@@ -137,11 +139,40 @@ public final class FileTaskLogStore
     }
 
     @Override
+    public Optional<Long> findSequence(TaskId taskId, EventId eventId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(eventId, "eventId is null");
+        synchronized (lock(taskId)) {
+            Path eventsFile = resourceService.require(taskId).eventsFile();
+            Optional<Long> sequence = Optional.empty();
+            long expectedSequence = 1;
+            try (InputStream input = new BufferedInputStream(Files.newInputStream(eventsFile))) {
+                byte[] line;
+                while ((line = readCompleteLine(input)) != null) {
+                    AgentEventEnvelope envelope = deserialize(line);
+                    validateSequence(taskId, envelope, expectedSequence++);
+                    if (envelope.eventId().equals(eventId)) {
+                        if (sequence.isPresent()) {
+                            throw new AgentStorageException("Task log event identity is duplicated");
+                        }
+                        sequence = Optional.of(envelope.sequence());
+                    }
+                }
+                return sequence;
+            }
+            catch (IOException e) {
+                throw new AgentStorageException("Cannot read task log", e);
+            }
+        }
+    }
+
+    @Override
     public long lastSequence(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (lock(taskId)) {
-            long sequence = readLastSequence(taskId);
+            long sequence = recoverTail(taskId);
             lastSequences.put(taskId, sequence);
             return sequence;
         }
@@ -182,6 +213,43 @@ public final class FileTaskLogStore
                     e.addSuppressed(suppressed);
                 }
                 throw new AgentStorageException("Cannot write task blob", e);
+            }
+        }
+    }
+
+    @Override
+    public ByteBuffer readBlob(TaskId taskId, BlobRef blobRef)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(blobRef, "blobRef is null");
+        if (blobRef.size() > maxBlobBytes) {
+            throw new AgentStorageException("Blob exceeds the configured size limit");
+        }
+
+        synchronized (lock(taskId)) {
+            TaskResources resources = resourceService.require(taskId);
+            Path blob = resources.runtimeDirectory().resolve(blobRef.relativePath()).normalize();
+            if (!resources.blobsDirectory().equals(blob.getParent()) || !Files.isRegularFile(blob, NOFOLLOW_LINKS)) {
+                throw new AgentStorageException("Task blob reference is missing or unsafe");
+            }
+            try (FileChannel channel = FileChannel.open(blob, StandardOpenOption.READ, NOFOLLOW_LINKS)) {
+                long size = channel.size();
+                if (size != blobRef.size() || size > maxBlobBytes) {
+                    throw new AgentStorageException("Task blob size does not match its reference");
+                }
+                ByteBuffer content = ByteBuffer.allocate(toIntExact(size));
+                while (content.hasRemaining()) {
+                    if (channel.read(content) < 0) {
+                        throw new AgentStorageException("Task blob size does not match its reference");
+                    }
+                }
+                if (channel.read(ByteBuffer.allocate(1)) >= 0) {
+                    throw new AgentStorageException("Task blob size does not match its reference");
+                }
+                return content.flip().asReadOnlyBuffer();
+            }
+            catch (IOException e) {
+                throw new AgentStorageException("Cannot read task blob", e);
             }
         }
     }
@@ -258,9 +326,7 @@ public final class FileTaskLogStore
             byte[] line;
             while ((line = readCompleteLine(input)) != null) {
                 AgentEventEnvelope envelope = deserialize(line);
-                if (!envelope.taskId().equals(taskId) || envelope.sequence() != expectedSequence) {
-                    throw new AgentStorageException("Task log sequence is corrupt");
-                }
+                validateSequence(taskId, envelope, expectedSequence);
                 expectedSequence++;
                 if (envelope.sequence() > afterSequence) {
                     result.add(envelope);
@@ -273,6 +339,13 @@ public final class FileTaskLogStore
         }
         catch (IOException e) {
             throw new AgentStorageException("Cannot read task log", e);
+        }
+    }
+
+    private static void validateSequence(TaskId taskId, AgentEventEnvelope envelope, long expectedSequence)
+    {
+        if (!envelope.taskId().equals(taskId) || envelope.sequence() != expectedSequence) {
+            throw new AgentStorageException("Task log sequence is corrupt");
         }
     }
 

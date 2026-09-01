@@ -24,6 +24,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
@@ -176,7 +177,39 @@ class TestSqliteAgentStores
         AgentTask restored = taskStore.find(task.id()).orElseThrow();
         assertThat(restored.workspaceId()).isEmpty();
         assertThat(restored.interactive()).isFalse();
+        assertThat(restored.taskWorktree()).isEmpty();
         assertThat(taskStore.listRecentInteractive("workspace-a", 10)).isEmpty();
+        assertThat(taskStore.hasWorktreeReference("workspace-a")).isFalse();
+    }
+
+    @Test
+    void roundTripsManagedTaskWorktreeFacts()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        TaskId taskId = TaskId.random();
+        RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-a",
+                repository,
+                Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789abcdef0123456789abcdef01234567");
+        AgentTask task = AgentTask.created(
+                taskId,
+                true,
+                "Managed agent task",
+                AgentLaneId.CODEX_CLI,
+                worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                now).ready(now);
+
+        taskStore.insert(task);
+        entityManager.clear();
+
+        assertThat(taskStore.find(taskId).orElseThrow().taskWorktree()).contains(worktree);
+        assertThat(taskStore.hasWorktreeReference("workspace-a")).isTrue();
+        assertThat(taskStore.hasWorktreeReference("workspace-b")).isFalse();
     }
 
     @Test

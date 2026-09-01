@@ -15,10 +15,12 @@ package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Persistence port for append-only task event history and external payloads.
@@ -36,6 +38,16 @@ public interface TaskLogStore
      * @throws com.bytequay.agent.core.AgentStorageException when append or flush fails
      */
     void append(AgentEventEnvelope envelope);
+
+    /**
+     * Finds an already appended event by its stable ByteQuay identity.
+     *
+     * @param taskId task whose log is inspected
+     * @param eventId event identity to find
+     * @return the existing task sequence when present
+     * @throws com.bytequay.agent.core.AgentStorageException on non-tail corruption
+     */
+    Optional<Long> findSequence(TaskId taskId, EventId eventId);
 
     /**
      * Reads a bounded page in ascending sequence order.
@@ -70,4 +82,14 @@ public interface TaskLogStore
      * @throws com.bytequay.agent.core.AgentStorageException when storage fails
      */
     BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType);
+
+    /**
+     * Reads a bounded payload owned by a task.
+     *
+     * @param taskId task that owns the payload
+     * @param blobRef task-relative payload reference
+     * @return read-only payload bytes positioned at the start
+     * @throws com.bytequay.agent.core.AgentStorageException when the reference is unsafe, missing, or exceeds its bound
+     */
+    ByteBuffer readBlob(TaskId taskId, BlobRef blobRef);
 }

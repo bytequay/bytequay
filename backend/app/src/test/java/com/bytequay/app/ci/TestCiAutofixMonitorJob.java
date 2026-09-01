@@ -19,6 +19,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
@@ -36,12 +37,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestCiAutofixMonitorJob
@@ -57,7 +60,7 @@ class TestCiAutofixMonitorJob
         when(store.listNonFinished(2)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
-        new CiAutofixMonitorJob(store, taskStore, service, 2).monitor();
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 2).monitor();
 
         verify(service).advance(first.id());
         verify(service).advance(second.id());
@@ -79,7 +82,7 @@ class TestCiAutofixMonitorJob
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return run;
         }).when(service).advance(run.id());
-        CiAutofixMonitorJob job = new CiAutofixMonitorJob(store, taskStore, service, 1);
+        CiAutofixMonitorJob job = new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 1);
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var firstPass = executor.submit(job::monitor);
@@ -120,9 +123,21 @@ class TestCiAutofixMonitorJob
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        new CiAutofixMonitorJob(store, taskStore, service, 1).monitor();
+        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), 1).monitor();
 
         verify(service).advance(finished.id());
+    }
+
+    @Test
+    void doesNotAdvanceWhileAgentRecoveryIsIncomplete()
+    {
+        CiAutofixStore store = mock(CiAutofixStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        CiAutofixService service = mock(CiAutofixService.class);
+
+        new CiAutofixMonitorJob(store, taskStore, service, new AgentServingGate(), 1).monitor();
+
+        verifyNoInteractions(store, taskStore, service);
     }
 
     private static CiAutofixRun run()

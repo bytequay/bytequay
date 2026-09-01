@@ -14,6 +14,7 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.AgentServingGate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -25,6 +26,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentRequestFilter
@@ -48,8 +50,40 @@ class TestAgentRequestFilter
 
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletRequest allowed = request(path, SESSION, null);
-        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules()).doFilter(allowed, new MockHttpServletResponse(), chain);
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), readyAgentServingGate())
+                .doFilter(allowed, new MockHttpServletResponse(), chain);
         assertThat(chain.getRequest()).isSameAs(allowed);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/agent/tasks",
+            "/agent/tasks/task-id/stream",
+            "/agent/approvals/approval-id",
+            "/api/ci-autofix/runs",
+            "/api/cherry-pick-ranges/previews"})
+    void rejectsAgentOperationsUntilStartupRecoveryCompletes(String path)
+            throws Exception
+    {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
+                .doFilter(request(path, SESSION, null), response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    void keepsAuthenticatedProviderStatusAvailableDuringRecovery()
+            throws Exception
+    {
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletRequest request = request("/agent/providers/status", SESSION, null);
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
+                .doFilter(request, new MockHttpServletResponse(), chain);
+
+        assertThat(chain.getRequest()).isSameAs(request);
     }
 
     @Test
@@ -58,7 +92,8 @@ class TestAgentRequestFilter
     {
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletRequest request = request("/api/pulls", null, "https://example.com");
-        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules()).doFilter(request, new MockHttpServletResponse(), chain);
+        new AgentRequestFilter(properties(SESSION), new ObjectMapper().findAndRegisterModules(), new AgentServingGate())
+                .doFilter(request, new MockHttpServletResponse(), chain);
         assertThat(chain.getRequest()).isSameAs(request);
     }
 
@@ -67,7 +102,8 @@ class TestAgentRequestFilter
     {
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
-        new AgentRequestFilter(properties(configuredToken), new ObjectMapper().findAndRegisterModules()).doFilter(request, response, chain);
+        new AgentRequestFilter(properties(configuredToken), new ObjectMapper().findAndRegisterModules(), readyAgentServingGate())
+                .doFilter(request, response, chain);
         assertThat(chain.getRequest()).isNull();
         return response;
     }

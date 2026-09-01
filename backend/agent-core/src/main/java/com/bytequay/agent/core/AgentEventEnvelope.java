@@ -30,6 +30,7 @@ public record AgentEventEnvelope(
         AgentEventPayload payload)
 {
     public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int MAX_SERIALIZED_BYTES = 2 * 1024 * 1024;
 
     public AgentEventEnvelope
     {

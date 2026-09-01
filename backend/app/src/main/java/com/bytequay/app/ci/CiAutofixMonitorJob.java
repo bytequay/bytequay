@@ -16,6 +16,7 @@ package com.bytequay.app.ci;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.scheduler.MonitorLoop;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -37,6 +38,7 @@ final class CiAutofixMonitorJob
     private final CiAutofixStore store;
     private final AgentTaskStore taskStore;
     private final CiAutofixService service;
+    private final AgentServingGate servingGate;
     private final int batchSize;
     private final MonitorLoop loop = new MonitorLoop(CiAutofixMonitorJob.class, "CI Autofix run");
 
@@ -44,11 +46,13 @@ final class CiAutofixMonitorJob
             CiAutofixStore store,
             AgentTaskStore taskStore,
             CiAutofixService service,
+            AgentServingGate servingGate,
             @Value("${bytequay.ci-autofix.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.service = requireNonNull(service, "service is null");
+        this.servingGate = requireNonNull(servingGate, "servingGate is null");
         checkArgument(batchSize > 0, "batchSize must be positive");
         this.batchSize = batchSize;
     }
@@ -58,6 +62,9 @@ final class CiAutofixMonitorJob
             fixedDelayString = "${bytequay.ci-autofix.monitor-interval:PT30S}")
     public void monitor()
     {
+        if (!servingGate.isReady()) {
+            return;
+        }
         loop.pass(() -> {
             loop.advanceEach(nonFinished(), service::advance);
             loop.advanceEach(finishedWithLiveTask(), service::advance);

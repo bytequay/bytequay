@@ -51,7 +51,7 @@ class ManagedWorkspaceGit
     private static final Logger log = LoggerFactory.getLogger(ManagedWorkspaceGit.class);
     private static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(30);
-    private static final String OWNERSHIP_FILE = ".bytequay-workspace";
+    static final String OWNERSHIP_FILE = ".bytequay-workspace";
 
     private final WorkspacePaths paths;
     private final GitCommandRunner git;
@@ -418,7 +418,7 @@ class ManagedWorkspaceGit
         workspace.upstreamCloneUrl().ifPresent(ManagedWorkspaceGit::cloneUri);
     }
 
-    private static String ownership(Workspace workspace)
+    static String ownership(Workspace workspace)
     {
         return workspace.id() + "\n" + workspace.selectedRepositoryId() + "\n";
     }

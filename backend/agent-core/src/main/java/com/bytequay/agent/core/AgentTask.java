@@ -35,6 +35,7 @@ public record AgentTask(
         AgentLaneId laneId,
         RepositoryIdentity repository,
         Path worktree,
+        Optional<TaskWorktree> taskWorktree,
         AgentTaskDefaults defaults,
         TaskState state,
         long version,
@@ -58,6 +59,7 @@ public record AgentTask(
         requireNonNull(laneId, "laneId is null");
         requireNonNull(repository, "repository is null");
         requireNonNull(worktree, "worktree is null");
+        requireNonNull(taskWorktree, "taskWorktree is null");
         requireNonNull(defaults, "defaults is null");
         requireNonNull(state, "state is null");
         requireNonNull(createdAt, "createdAt is null");
@@ -71,6 +73,16 @@ public record AgentTask(
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
+                "taskWorktree belongs to another task");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.physicalRepository().equals(repository)),
+                "taskWorktree belongs to another repository");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.canonicalWorktree().equals(worktree)),
+                "taskWorktree path does not match worktree");
+        checkArgument(taskWorktree.stream().allMatch(value -> workspaceId
+                        .map(value.workspaceId()::equals)
+                        .orElse(false)),
+                "taskWorktree belongs to another workspace");
         checkArgument(version >= 0, "version is negative");
         checkArgument(!updatedAt.isBefore(createdAt), "updatedAt is before createdAt");
         checkArgument(sessionReference.stream().allMatch(reference -> reference.laneId().equals(laneId)), "session reference belongs to another lane");
@@ -102,6 +114,41 @@ public record AgentTask(
                 laneId,
                 repository,
                 worktree,
+                Optional.empty(),
+                defaults,
+                TaskState.CREATED,
+                0,
+                now,
+                now,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                TaskMetrics.empty(),
+                Optional.empty(),
+                CleanupState.RETAINED,
+                Optional.empty(),
+                Optional.empty());
+    }
+
+    public static AgentTask created(
+            TaskId id,
+            boolean interactive,
+            String title,
+            AgentLaneId laneId,
+            TaskWorktree taskWorktree,
+            AgentTaskDefaults defaults,
+            Instant now)
+    {
+        requireNonNull(taskWorktree, "taskWorktree is null");
+        return new AgentTask(
+                id,
+                Optional.of(taskWorktree.workspaceId()),
+                interactive,
+                title,
+                laneId,
+                taskWorktree.physicalRepository(),
+                taskWorktree.canonicalWorktree(),
+                Optional.of(taskWorktree),
                 defaults,
                 TaskState.CREATED,
                 0,
@@ -245,6 +292,7 @@ public record AgentTask(
                 laneId,
                 repository,
                 worktree,
+                taskWorktree,
                 updatedDefaults,
                 state,
                 version,
@@ -298,6 +346,7 @@ public record AgentTask(
                 laneId,
                 repository,
                 worktree,
+                taskWorktree,
                 defaults,
                 updatedState,
                 updatedVersion,

@@ -16,6 +16,7 @@ package com.bytequay.app.rebase;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentWorkspaceService;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
 import com.bytequay.core.domain.RepoRef;
@@ -34,8 +35,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class TestBranchRebaseMonitorJob
 {
@@ -55,9 +58,20 @@ class TestBranchRebaseMonitorJob
                 git,
                 Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC));
 
-        new BranchRebaseMonitorJob(store, service, 20).monitor();
+        new BranchRebaseMonitorJob(store, service, readyAgentServingGate(), 20).monitor();
 
         assertThat(store.attempted()).containsExactly(first.id(), second.id());
+    }
+
+    @Test
+    void doesNotAdvanceWhileAgentRecoveryIsIncomplete()
+    {
+        BranchRebaseStore store = mock(BranchRebaseStore.class);
+        BranchRebaseService service = mock(BranchRebaseService.class);
+
+        new BranchRebaseMonitorJob(store, service, new AgentServingGate(), 20).monitor();
+
+        verifyNoInteractions(store, service);
     }
 
     private static BranchRebase rebase(String key)

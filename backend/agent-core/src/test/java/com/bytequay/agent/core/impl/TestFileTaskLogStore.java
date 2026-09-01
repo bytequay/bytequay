@@ -140,6 +140,17 @@ class TestFileTaskLogStore
     }
 
     @Test
+    void findsSequenceByStableEventId()
+    {
+        EventId target = EventId.random();
+        store.append(envelope(EventId.random(), 1, message("first")));
+        store.append(envelope(target, 2, message("second")));
+
+        assertThat(store.findSequence(taskId, target)).contains(2L);
+        assertThat(store.findSequence(taskId, EventId.random())).isEmpty();
+    }
+
+    @Test
     void ignoresOnlyAnUnterminatedFinalRecord()
             throws IOException
     {
@@ -202,6 +213,7 @@ class TestFileTaskLogStore
         Files.writeString(resources.require(taskId).eventsFile(), "{partial", StandardOpenOption.APPEND);
 
         FileTaskLogStore restarted = new FileTaskLogStore(resources, 4096, 8);
+        assertThat(restarted.lastSequence(taskId)).isEqualTo(1);
         AgentEventEnvelope second = envelope(2, message("second"));
         restarted.append(second);
 
@@ -326,9 +338,36 @@ class TestFileTaskLogStore
 
         assertThat(blob.size()).isEqualTo(3);
         assertThat(stored).hasBinaryContent(new byte[] {1, 2, 3});
+        assertThat(store.readBlob(taskId, blob)).isEqualTo(ByteBuffer.wrap(new byte[] {1, 2, 3}));
         assertThatThrownBy(() -> store.writeBlob(taskId, ByteBuffer.wrap(new byte[9]), "application/octet-stream"))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("size limit");
+    }
+
+    @Test
+    void rejectsUnsafeOrUnboundedBlobReads()
+            throws IOException
+    {
+        BlobRef blob = store.writeBlob(taskId, ByteBuffer.wrap(new byte[] {1, 2, 3}), "application/octet-stream");
+
+        assertThatThrownBy(() -> store.readBlob(taskId, new BlobRef(blob.relativePath(), blob.mediaType(), 2)))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("size does not match");
+        assertThatThrownBy(() -> store.readBlob(taskId, new BlobRef("events.jsonl", "application/json", 0)))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("missing or unsafe");
+
+        Path oversized = resources.require(taskId).blobsDirectory().resolve("oversized");
+        Files.write(oversized, new byte[9]);
+        assertThatThrownBy(() -> store.readBlob(taskId, new BlobRef("blobs/oversized", "application/octet-stream", 9)))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("size limit");
+
+        TaskId otherTask = TaskId.random();
+        resources.allocate(otherTask);
+        assertThatThrownBy(() -> store.readBlob(otherTask, blob))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("missing or unsafe");
     }
 
     private AgentEventEnvelope envelope(long sequence, AgentEventSource source, AgentEventPayload payload)
@@ -347,6 +386,19 @@ class TestFileTaskLogStore
     private AgentEventEnvelope envelope(long sequence, AgentEventPayload payload)
     {
         return envelope(sequence, root(), payload);
+    }
+
+    private AgentEventEnvelope envelope(EventId eventId, long sequence, AgentEventPayload payload)
+    {
+        return new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                eventId,
+                sequence,
+                taskId,
+                Optional.empty(),
+                root(),
+                Instant.parse("2026-08-16T00:00:01Z").plusSeconds(sequence),
+                payload);
     }
 
     private static AgentEventPayload message(String text)

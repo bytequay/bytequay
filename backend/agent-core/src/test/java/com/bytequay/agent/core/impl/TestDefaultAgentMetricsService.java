@@ -244,6 +244,14 @@ class TestDefaultAgentMetricsService
         }
 
         @Override
+        public boolean hasWorktreeReference(String workspaceId)
+        {
+            return tasks.values().stream()
+                    .anyMatch(task -> task.taskWorktree().stream()
+                            .anyMatch(worktree -> worktree.workspaceId().equals(workspaceId)));
+        }
+
+        @Override
         public List<AgentTask> listLive()
         {
             return ImmutableList.copyOf(tasks.values());

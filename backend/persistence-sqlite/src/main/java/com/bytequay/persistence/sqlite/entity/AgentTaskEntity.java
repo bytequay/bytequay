@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.CleanupState;
@@ -20,6 +21,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -73,6 +75,10 @@ public class AgentTaskEntity
 
     @Column(nullable = false)
     private String worktree;
+
+    private String generatedBranch;
+
+    private String startCommit;
 
     private String defaultModel;
 
@@ -162,6 +168,8 @@ public class AgentTaskEntity
         repositoryOwner = task.repository().owner();
         repositoryName = task.repository().name();
         worktree = task.worktree().toString();
+        generatedBranch = task.taskWorktree().map(TaskWorktree::generatedBranch).orElse(null);
+        startCommit = task.taskWorktree().map(TaskWorktree::startCommit).orElse(null);
         defaultModel = task.defaults().model().orElse(null);
         defaultEffort = task.defaults().effort().orElse(null);
         permissionPolicy = task.permissionPolicy();
@@ -200,6 +208,7 @@ public class AgentTaskEntity
                 new AgentLaneId(laneId),
                 new RepositoryIdentity(repositoryOwner, repositoryName),
                 Path.of(worktree),
+                taskWorktree(),
                 new AgentTaskDefaults(
                         Optional.ofNullable(defaultModel),
                         Optional.ofNullable(defaultEffort),
@@ -222,6 +231,23 @@ public class AgentTaskEntity
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure));
+    }
+
+    private Optional<TaskWorktree> taskWorktree()
+    {
+        if (generatedBranch == null && startCommit == null) {
+            return Optional.empty();
+        }
+        if (workspaceId == null || generatedBranch == null || startCommit == null) {
+            throw new AgentStorageException("Stored task worktree facts are incomplete: " + id);
+        }
+        return Optional.of(new TaskWorktree(
+                TaskId.valueOf(id),
+                workspaceId,
+                new RepositoryIdentity(repositoryOwner, repositoryName),
+                Path.of(worktree),
+                generatedBranch,
+                startCommit));
     }
 
     @Override

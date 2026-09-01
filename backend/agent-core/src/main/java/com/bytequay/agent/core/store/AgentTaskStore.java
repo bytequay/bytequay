@@ -75,6 +75,14 @@ public interface AgentTaskStore
     List<AgentTask> listRecentInteractive(String workspaceId, int limit);
 
     /**
+     * Reports whether a persisted task still owns managed worktree facts for a workspace.
+     *
+     * @param workspaceId workspace considered for removal
+     * @return true when removing the workspace would orphan a task worktree or retained branch
+     */
+    boolean hasWorktreeReference(String workspaceId);
+
+    /**
      * Returns every non-terminal task for startup lease reconstruction.
      *
      * @return live tasks in stable creation order

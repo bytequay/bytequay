@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.scheduler.MonitorLoop;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
@@ -33,16 +34,19 @@ final class BranchRebaseMonitorJob
 {
     private final BranchRebaseStore store;
     private final BranchRebaseService service;
+    private final AgentServingGate servingGate;
     private final int batchSize;
     private final MonitorLoop loop = new MonitorLoop(BranchRebaseMonitorJob.class, "branch rebase");
 
     BranchRebaseMonitorJob(
             BranchRebaseStore store,
             BranchRebaseService service,
+            AgentServingGate servingGate,
             @Value("${bytequay.rebase.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.service = requireNonNull(service, "service is null");
+        this.servingGate = requireNonNull(servingGate, "servingGate is null");
         checkArgument(batchSize > 0, "batchSize must be positive");
         this.batchSize = batchSize;
     }
@@ -52,6 +56,9 @@ final class BranchRebaseMonitorJob
             fixedDelayString = "${bytequay.rebase.monitor-interval:PT5S}")
     public void monitor()
     {
+        if (!servingGate.isReady()) {
+            return;
+        }
         loop.pass(() -> loop.advanceEach(running(), service::advance));
     }
 

@@ -15,6 +15,7 @@ package com.bytequay.app.web.ci;
 
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.SendCiAutofixMessageCommand;
 import com.bytequay.app.ci.StartCiAutofixCommand;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -88,8 +90,9 @@ class TestCiAutofixHttpApi
                 false,
                 "claude",
                 false);
+        AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CiAutofixController(service, metrics))
-                .addFilters(new AgentRequestFilter(properties, objectMapper))
+                .addFilters(new AgentRequestFilter(properties, objectMapper, servingGate))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

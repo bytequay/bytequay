@@ -38,6 +38,18 @@ public interface AgentEventService
     AgentEventEnvelope append(UnsequencedAgentEvent event);
 
     /**
+     * Drains one committed state-coupled event to the task log and subscribers.
+     *
+     * <p>The operation is idempotent by event ID. The event is published only
+     * after its outbox row records the durably appended task sequence.
+     *
+     * @param eventId committed outbox event to drain
+     * @return the existing or newly appended event envelope
+     * @throws AgentStorageException when the event cannot be durably delivered
+     */
+    AgentEventEnvelope drain(EventId eventId);
+
+    /**
      * Reads a bounded event page in ascending sequence order.
      *
      * @param taskId task whose history is requested

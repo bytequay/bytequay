@@ -31,22 +31,26 @@ public final class AgentMaintenanceJob
     private static final int CLEANUP_BATCH_SIZE = 100;
 
     private final AgentMaintenance maintenance;
+    private final AgentServingGate servingGate;
 
-    public AgentMaintenanceJob(AgentMaintenance maintenance)
+    public AgentMaintenanceJob(AgentMaintenance maintenance, AgentServingGate servingGate)
     {
         this.maintenance = requireNonNull(maintenance, "maintenance is null");
+        this.servingGate = requireNonNull(servingGate, "servingGate is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
-    public void recover()
+    public void cleanupAfterStartup()
     {
-        maintenance.recover();
         cleanupDue();
     }
 
     @Scheduled(fixedDelayString = "${bytequay.agent.cleanup-interval:PT1H}")
     public void cleanupDue()
     {
+        if (!servingGate.isReady()) {
+            return;
+        }
         maintenance.cleanupDue(CLEANUP_BATCH_SIZE).stream()
                 .filter(result -> result.state() == CleanupState.RETRY_PENDING)
                 .forEach(result -> log.warn(

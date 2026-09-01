@@ -351,6 +351,8 @@ public sealed interface AgentEventPayload
         SESSION_OPENED,
         TURN_STARTED,
         TURN_COMPLETED,
+        TASK_COMPLETED,
+        TASK_FAILED,
         RETRYING,
         RATE_LIMITED,
         INTERRUPTED

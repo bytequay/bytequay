@@ -14,6 +14,7 @@
 package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.cherrypick.CherryPickExecutionService;
 import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -47,6 +48,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -95,8 +97,9 @@ class TestCherryPickExecutionHttpApi
         service = mock(CherryPickExecutionService.class);
         AgentProperties properties = new AgentProperties(
                 Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), SESSION, "codex", false, "claude", false);
+        AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CherryPickExecutionController(workspaces, paths, service))
-                .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules()))
+                .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules(), servingGate))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

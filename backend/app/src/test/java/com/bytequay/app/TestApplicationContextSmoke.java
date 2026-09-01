@@ -13,10 +13,14 @@
  */
 package com.bytequay.app;
 
+import com.bytequay.app.agent.AgentServingGate;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Boots the entire Spring application context — every controller, every
@@ -26,9 +30,8 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
  * (missing constructor args, broken Qualifiers, or beans that fail their
  * own validation in @PostConstruct).
  *
- * <p>Intentionally has no body: the {@link Test} method exists only to
- * trigger the {@code SpringBootTest} context load. If the context fails
- * to start, JUnit fails this test with the underlying cause.
+ * <p>The test also verifies that startup recovery opened the agent-serving
+ * gate before the context became ready.
  */
 @SpringBootTest
 @TestExecutionListeners(
@@ -36,9 +39,12 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestApplicationContextSmoke
 {
+    @Autowired
+    private AgentServingGate agentServingGate;
+
     @Test
     void contextLoads()
     {
-        // The body is intentionally empty — see the class javadoc.
+        assertThat(agentServingGate.isReady()).isTrue();
     }
 }

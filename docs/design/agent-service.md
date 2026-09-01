@@ -1681,6 +1681,15 @@ public interface AgentTaskStore
     AgentTask guardQueueInsert(TaskId taskId, long expectedVersion);
 
     /**
+     * Reports whether a persisted task still owns managed worktree facts for
+     * a workspace, including a retained generated branch after cleanup.
+     *
+     * @param workspaceId workspace considered for removal
+     * @return true when removal would orphan task-owned Git facts
+     */
+    boolean hasWorktreeReference(String workspaceId);
+
+    /**
      * Lists recently updated tasks.
      *
      * @param workspaceId owning workspace

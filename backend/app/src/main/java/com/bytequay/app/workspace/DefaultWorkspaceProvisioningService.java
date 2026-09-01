@@ -19,7 +19,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -42,7 +41,6 @@ public final class DefaultWorkspaceProvisioningService
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
     private final Clock clock;
-    private final Striped<Lock> locks = Striped.lock(64);
 
     public DefaultWorkspaceProvisioningService(
             WorkspaceStore store,
@@ -61,7 +59,7 @@ public final class DefaultWorkspaceProvisioningService
     @Override
     public WorkspaceProvisioningResult provision(String workspaceId)
     {
-        Lock lock = locks.get(requireNonNull(workspaceId, "workspaceId is null"));
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
         lock.lock();
         try {
             Workspace workspace = requireWorkspace(workspaceId);
@@ -93,7 +91,7 @@ public final class DefaultWorkspaceProvisioningService
     @Override
     public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
     {
-        Lock lock = locks.get(requireNonNull(workspaceId, "workspaceId is null"));
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
         lock.lock();
         try {
             Workspace workspace = requireWorkspace(workspaceId);

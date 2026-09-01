@@ -101,6 +101,7 @@ final class ScriptedCherryPickAgent
                 command.laneId(),
                 command.repository(),
                 command.worktree(),
+                Optional.empty(),
                 command.defaults(),
                 com.bytequay.agent.core.TaskState.READY,
                 0,

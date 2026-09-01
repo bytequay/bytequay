@@ -37,6 +37,7 @@ import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
 import com.bytequay.agent.core.impl.GitAgentWorkspaceService;
 import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -139,10 +140,11 @@ public class AgentConfiguration
     @Bean
     public AgentEventService agentEventService(
             TaskLogStore logStore,
+            AgentEventOutboxStore outboxStore,
             AgentTaskStore taskStore,
             Clock agentClock)
     {
-        return new DefaultAgentEventService(logStore, taskStore, agentClock);
+        return new DefaultAgentEventService(logStore, outboxStore, taskStore, agentClock);
     }
 
     @Bean

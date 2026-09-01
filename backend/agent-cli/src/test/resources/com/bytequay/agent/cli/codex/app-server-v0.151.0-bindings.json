@@ -2274,6 +2274,20 @@
           "required": false,
           "nullable": true,
           "sample": []
+        },
+        {
+          "javaName": "model",
+          "wireName": "model",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "effort",
+          "wireName": "effort",
+          "required": false,
+          "nullable": true,
+          "sample": "minimal"
         }
       ]
     },

@@ -23,6 +23,7 @@ import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -462,6 +463,40 @@ class TestCodexCliDriver
     }
 
     @Test
+    void appliesEachTurnsOwnSettingsSnapshotToTurnStart()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+
+        RunningTurn first = session.start(new AgentTurnCommand(
+                "turn-a",
+                "first",
+                ImmutableList.<AgentAttachment>of(),
+                Duration.ofMinutes(5),
+                Optional.of("gpt-5-codex"),
+                Optional.of("high")));
+        supervisor.server().completeTurn();
+        first.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        RunningTurn second = session.start(new AgentTurnCommand(
+                "turn-b",
+                "second",
+                ImmutableList.<AgentAttachment>of(),
+                Duration.ofMinutes(5),
+                Optional.of("gpt-5"),
+                Optional.of("minimal")));
+        supervisor.server().completeTurn();
+        second.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        // Each turn carries the snapshot taken when it was accepted; a later default cannot
+        // rewrite an earlier turn.
+        assertThat(supervisor.server().turnSettings())
+                .containsExactly("gpt-5-codex/high", "gpt-5/minimal");
+    }
+
+    @Test
     void recordsRatherThanDropsANotificationForAnUnownedThread()
             throws Exception
     {
@@ -739,6 +774,7 @@ class TestCodexCliDriver
         private final Supplier<String> managedRequirements;
         private final Supplier<String> hooks;
         private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
+        private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final Supplier<String> environmentCwd;
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
@@ -781,6 +817,11 @@ class TestCodexCliDriver
         private List<String> turnEnvironmentIds()
         {
             return turnEnvironmentIds;
+        }
+
+        private List<String> turnSettings()
+        {
+            return turnSettings;
         }
 
         private void recordSelection(List<String> into, JsonNode params)
@@ -848,6 +889,8 @@ class TestCodexCliDriver
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
                     recordSelection(turnEnvironmentIds, message.path("params"));
+                    turnSettings.add(message.path("params").path("model").asText("none")
+                            + "/" + message.path("params").path("effort").asText("none"));
                     activeTurn = "turn-" + turns.incrementAndGet();
                     respond(id, "{\"turn\":{\"id\":\"" + activeTurn
                             + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");

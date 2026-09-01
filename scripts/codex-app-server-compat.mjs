@@ -412,6 +412,8 @@ const referenceRecordBindings = [
     component("threadId"),
     component("input", "input", [{ type: "text", text: "value" }]),
     component("environments"),
+    component("model"),
+    component("effort", "effort", "minimal"),
   ]),
   recordBinding("ThreadParams", "encode", [
     schemaSource("v2", "ThreadUnsubscribeParams"),

@@ -164,7 +164,9 @@ public final class DefaultAgentTurnService
                         accepted.id().toString(),
                         command.message(),
                         command.attachments(),
-                        acceptance.settings().maximumRuntime()));
+                        acceptance.settings().maximumRuntime(),
+                        acceptance.settings().model(),
+                        acceptance.settings().effort()));
                 failedRunningTurn = runningTurn;
                 started = registerRunningTurn(accepted, runningTurn);
             }

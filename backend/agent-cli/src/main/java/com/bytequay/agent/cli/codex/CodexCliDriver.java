@@ -501,7 +501,11 @@ public final class CodexCliDriver
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     ImmutableList.of(new CodexProtocol.TextInput("text", command.message())),
-                    Optional.of(ImmutableList.of(environment)));
+                    Optional.of(ImmutableList.of(environment)),
+                    // The turn carries the settings that were snapshotted when it was accepted, so
+                    // a default changed after acceptance cannot rewrite the turn that is starting.
+                    command.model().or(context::model),
+                    command.effort().or(context::effort));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {

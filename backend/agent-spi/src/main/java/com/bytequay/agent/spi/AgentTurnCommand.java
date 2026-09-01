@@ -17,8 +17,10 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -26,8 +28,16 @@ public record AgentTurnCommand(
         String turnId,
         String message,
         List<AgentAttachment> attachments,
-        Duration maximumRuntime)
+        Duration maximumRuntime,
+        Optional<String> model,
+        Optional<String> effort)
 {
+    /** Uses the session defaults, for callers that keep no per-turn settings of their own. */
+    public AgentTurnCommand(String turnId, String message, List<AgentAttachment> attachments, Duration maximumRuntime)
+    {
+        this(turnId, message, attachments, maximumRuntime, Optional.empty(), Optional.empty());
+    }
+
     public AgentTurnCommand
     {
         checkNotBlank(turnId, "turnId");
@@ -35,6 +45,8 @@ public record AgentTurnCommand(
         requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         requireNonNull(maximumRuntime, "maximumRuntime is null");
+        checkOptionalText(model, "model");
+        checkOptionalText(effort, "effort");
         checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime must be positive");
     }
 }

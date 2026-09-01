@@ -942,8 +942,13 @@ Implementation:
   reassignment impossible by construction and needs no row to keep in step.
 - [x] Re-register and verify a replacement environment before thread resume.
 - [x] Select exactly that task's environment for thread and turn start.
-- [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
-  snapshot, and the reviewed Auto approval behavior.
+- [~] Apply canonical worktree roots, workspace-write sandbox, model/effort
+  snapshot, and the reviewed Auto approval behavior. Worktree roots, sandbox and
+  the model/effort snapshot are applied; the snapshot now reaches the provider
+  because `AgentTurnCommand` carries it, which it previously did not, so a
+  selected model was silently dropped for Codex. Approval policy and sandbox are
+  still thread-level constants rather than per-turn values, which is accurate
+  while the Codex lane advertises one permission policy.
 - [~] Adopt the CP1-proven isolated subprocess environment, pre-turn
   child-capable launch profile plus the skill-origin, hook, config-layer
   rule-source, and managed-requirements guards in the production runtime path.
@@ -998,9 +1003,11 @@ Exit gate:
   sandbox fixture.
 - [ ] A second turn resumes the same root only after its task environment is
   verified.
-- [ ] A two-turn driver test changes model/effort/permission defaults between
+- [~] A two-turn driver test changes model/effort defaults between
   turns and proves each App Server `turn/start` receives exactly the immutable
-  CP2 snapshot stored for that turn, including sandbox and runtime policy.
+  CP2 snapshot stored for that turn. Permission and sandbox are not varied,
+  because the Codex lane advertises a single permission policy and both are sent
+  once at thread start.
 - [ ] Root completion while an item/child/background terminal runs keeps Send
   and Complete blocked.
 - [ ] A missed live child, a child-created grandchild, and live/history overlap

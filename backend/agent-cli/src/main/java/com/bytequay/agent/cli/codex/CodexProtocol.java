@@ -1089,7 +1089,11 @@ final class CodexProtocol
             String threadId,
             List<TextInput> input,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
-            Optional<List<TurnEnvironmentParams>> environments)
+            Optional<List<TurnEnvironmentParams>> environments,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<String> model,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<String> effort)
     {
         TurnStartParams
         {
@@ -1097,6 +1101,8 @@ final class CodexProtocol
             input = ImmutableList.copyOf(requireNonNull(input, "input is null"));
             checkArgument(!input.isEmpty(), "input is empty");
             environments = requireNonNull(environments, "environments is null").map(ImmutableList::copyOf);
+            requireNonNull(model, "model is null");
+            requireNonNull(effort, "effort is null");
         }
     }
 

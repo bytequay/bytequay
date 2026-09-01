@@ -609,8 +609,8 @@ public final class ClaudeCliDriver
                     argv(
                             session.registration,
                             session.context.permissionPolicy(),
-                            session.context.model(),
-                            session.context.effort(),
+                            command.model().or(session.context::model),
+                            command.effort().or(session.context::effort),
                             session.context.textOnly(),
                             session.reference.providerValue(),
                             resume,

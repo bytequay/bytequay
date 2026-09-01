@@ -600,6 +600,16 @@ class TestDefaultAgentEventService
         }
 
         @Override
+        public List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit)
+        {
+            return entries.values().stream()
+                    .filter(entry -> entry.taskId().equals(taskId))
+                    .filter(entry -> entry.sequence().isEmpty())
+                    .limit(limit)
+                    .collect(toImmutableList());
+        }
+
+        @Override
         public boolean hasPending(TaskId taskId)
         {
             if (failNextPendingCheck) {

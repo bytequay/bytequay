@@ -26,28 +26,37 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 final class InMemoryAgentStores
-        implements AgentTaskStore, AgentTurnStore, AgentEventOutboxStore
+        implements AgentTaskStore, AgentTurnStore, AgentEventOutboxStore, AgentUnitOfWork
 {
     private final Map<TaskId, AgentTask> tasks = new HashMap<>();
     private final Map<TurnId, AgentTurn> turns = new HashMap<>();
-    private final Map<EventId, AgentEventOutboxEntry> outbox = new HashMap<>();
+    private final Map<EventId, AgentEventOutboxEntry> outbox = new LinkedHashMap<>();
     private RuntimeException taskInsertFailure;
     private boolean persistBeforeTaskInsertFailure;
     private int taskFindCalls;
     private int failingTaskFindCall = -1;
     private RuntimeException taskFindFailure;
+
+    @Override
+    public <T> T execute(Work<T> work)
+    {
+        return requireNonNull(work, "work is null").run();
+    }
 
     @Override
     public synchronized void insert(AgentTask task)
@@ -240,6 +249,16 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public synchronized List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit)
+    {
+        return outbox.values().stream()
+                .filter(entry -> entry.taskId().equals(taskId))
+                .filter(entry -> entry.sequence().isEmpty())
+                .limit(limit)
+                .collect(toImmutableList());
+    }
+
+    @Override
     public synchronized boolean hasPending(TaskId taskId)
     {
         return outbox.values().stream()
@@ -267,6 +286,11 @@ final class InMemoryAgentStores
     synchronized List<AgentTask> tasks()
     {
         return ImmutableList.copyOf(tasks.values());
+    }
+
+    synchronized List<AgentEventOutboxEntry> outboxEntries()
+    {
+        return ImmutableList.copyOf(outbox.values());
     }
 
     synchronized void failTaskInsert(RuntimeException failure, boolean persistBeforeFailure)

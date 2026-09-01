@@ -27,5 +27,7 @@ public interface AgentEventOutboxJpaRepository
 
     List<AgentEventOutboxEntity> findByEventSequenceIsNullOrderByIdAsc(Pageable pageable);
 
+    List<AgentEventOutboxEntity> findByTaskIdAndEventSequenceIsNullOrderByIdAsc(String taskId, Pageable pageable);
+
     boolean existsByTaskIdAndEventSequenceIsNull(String taskId);
 }

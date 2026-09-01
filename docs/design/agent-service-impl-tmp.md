@@ -672,7 +672,10 @@ tail, and publishes only after the event is flushed and marked. Startup keeps
 agent routes and mutation monitors behind one boolean gate while it drains the
 outbox, reconciles existing agent execution, and drains again. This is a
 foundation slice: task/turn/approval mutations have not all migrated to the
-unit of work. Interactive creation now resolves the selected repository's
+unit of work. Turn acceptance now writes the bounded user message to a
+task-owned blob, commits the accepted turn and blob-backed outbox row in one
+unit of work, and drains that event before opening or calling the provider.
+Interactive creation now resolves the selected repository's
 exact `refs/remotes/origin/<default-branch>^{commit}`, provisions a managed
 task worktree, and publishes only workspace-scoped, path-free task responses.
 Task creation probes provider readiness and validates the requested model and
@@ -692,9 +695,10 @@ Implementation:
   mutation, and SSE endpoint reject until recovery is ready. Provider-status
   diagnostics may remain available. `ApplicationReadyEvent` alone is too late
   because the HTTP server is already listening.
-- [ ] Write bounded user-message bytes to a task-owned blob before the SQLite
-  transaction, then persist only bounded metadata and its blob reference in
-  the outbox before attempting `turn/start` or later `turn/steer` delivery.
+- [x] For `turn/start`, write bounded user-message bytes to a task-owned blob
+  before the SQLite transaction, then persist only bounded metadata and its
+  blob reference with the accepted turn before attempting provider delivery.
+  CP10 applies the same rule to `turn/steer`.
 - [ ] Add input-delivery states `ACCEPTED`, `SENDING`, `DELIVERED`, `FAILED`,
   and `UNKNOWN`; never automatically resend an unknown delivery.
 - [ ] Persist each delivery's ID, start/steer kind, task/turn, idempotency key,
@@ -770,7 +774,7 @@ Exit gate:
 
 - [ ] Crash tests around state commit, JSONL flush, and outbox mark yield one
   `eventId` and one sequence with no missing state event.
-- [ ] Replay always contains the accepted user input before provider output.
+- [x] Replay always contains the accepted user input before provider output.
 - [ ] Reconnect from the last sequence loses and duplicates no event.
 - [ ] A resolved/expired approval never reappears as pending after reload.
 - [x] Two live tasks derive distinct canonical worktree paths and branches.

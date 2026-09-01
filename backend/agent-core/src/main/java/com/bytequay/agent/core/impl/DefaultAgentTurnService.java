@@ -16,6 +16,8 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventOutboxEntry;
+import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
@@ -30,6 +32,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -39,8 +42,11 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -55,9 +61,11 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.RunningTurn;
 
+import java.nio.ByteBuffer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
@@ -65,13 +73,19 @@ import java.util.concurrent.CompletionStage;
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 public final class DefaultAgentTurnService
         implements AgentTurnService
 {
+    private static final int OUTBOX_BATCH_SIZE = 100;
+
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final AgentUnitOfWork unitOfWork;
+    private final AgentEventOutboxStore outboxStore;
+    private final TaskLogStore logStore;
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
     private final AgentEventService eventService;
@@ -84,6 +98,9 @@ public final class DefaultAgentTurnService
     public DefaultAgentTurnService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            TaskLogStore logStore,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             AgentEventService eventService,
@@ -95,6 +112,9 @@ public final class DefaultAgentTurnService
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
+        this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
+        this.logStore = requireNonNull(logStore, "logStore is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -111,6 +131,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(command, "command is null");
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
+            drainPendingEvents(command.taskId());
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
                     command.taskId(),
                     command.idempotencyKey());
@@ -131,6 +152,7 @@ public final class DefaultAgentTurnService
             }
 
             TurnId turnId = TurnId.random();
+            Instant acceptedAt = Instant.now(clock);
             AgentTurnSettings settings = new AgentTurnSettings(
                     task.defaults().model(),
                     task.defaults().effort(),
@@ -148,18 +170,29 @@ public final class DefaultAgentTurnService
                     task.id(),
                     command.idempotencyKey(),
                     settings,
-                    Instant.now(clock));
-            turnStore.insert(accepted);
-            try {
-                eventService.append(new UnsequencedAgentEvent(
-                        EventId.random(),
-                        task.id(),
+                    acceptedAt);
+            BlobRef messageBlob = logStore.writeBlob(
+                    task.id(),
+                    ByteBuffer.wrap(command.message().getBytes(UTF_8)),
+                    "text/plain; charset=utf-8");
+            EventId messageEventId = EventId.random();
+            unitOfWork.execute(() -> {
+                turnStore.insert(accepted);
+                outboxStore.insert(new AgentEventOutboxEntry(
+                        messageEventId,
+                        accepted.taskId(),
                         Optional.of(accepted.id()),
                         root(),
-                        new AgentEventPayload.UserMessage(
-                                command.message(),
+                        new AgentEventOutboxPayload.UserMessageBlob(
+                                messageBlob,
                                 settings.attachments(),
-                                AgentEventPayload.DeliveryKind.TURN)));
+                                AgentEventPayload.DeliveryKind.TURN),
+                        acceptedAt,
+                        Optional.empty()));
+                return null;
+            });
+            try {
+                eventService.drain(messageEventId);
                 AgentSession session = session(task);
                 task = requireTask(task.id());
                 if (task.state() == TaskState.READY) {
@@ -196,6 +229,17 @@ public final class DefaultAgentTurnService
                 failStart(accepted.id(), failure);
                 throw failure;
             }
+        }
+    }
+
+    private void drainPendingEvents(TaskId taskId)
+    {
+        while (true) {
+            List<AgentEventOutboxEntry> pending = outboxStore.listPending(taskId, OUTBOX_BATCH_SIZE);
+            if (pending.isEmpty()) {
+                return;
+            }
+            pending.forEach(entry -> eventService.drain(entry.eventId()));
         }
     }
 

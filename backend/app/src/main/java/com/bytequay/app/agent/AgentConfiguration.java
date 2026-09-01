@@ -41,6 +41,7 @@ import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -188,6 +189,9 @@ public class AgentConfiguration
     public AgentTurnService agentTurnService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            TaskLogStore logStore,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             AgentEventService eventService,
@@ -200,6 +204,9 @@ public class AgentConfiguration
         return new DefaultAgentTurnService(
                 taskStore,
                 turnStore,
+                unitOfWork,
+                outboxStore,
+                logStore,
                 resourceService,
                 driverRegistry,
                 eventService,

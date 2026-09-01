@@ -28,6 +28,8 @@ public interface AgentEventOutboxStore
 
     List<AgentEventOutboxEntry> listPending(int limit);
 
+    List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit);
+
     boolean hasPending(TaskId taskId);
 
     void markAppended(EventId eventId, long sequence);

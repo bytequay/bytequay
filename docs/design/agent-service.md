@@ -103,8 +103,10 @@ replay events, and legacy rows/logs remain readable. The workspace-safe public
 request and narrowed response records are intentionally not active routes yet.
 CP3 must first provide the managed worktree and crash-safe outbox; CP4 must
 apply each accepted settings snapshot to the App Server runtime. Pending
-approvals are still process-local, state/event writes have no crash-safe
-outbox, Codex image inputs, steering, and durable queueing are absent, and
+approvals are still process-local and most state/event writes have not moved
+to the crash-safe outbox. Accepted turns now commit their blob-backed user
+message through that outbox and drain it before provider delivery. Codex image
+inputs, steering, and durable queueing are absent, and
 Electron has no agent REST/SSE bridge. These are implementation prerequisites,
 not optional renderer polish.
 

@@ -20,9 +20,12 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -30,6 +33,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -48,6 +52,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -74,6 +79,9 @@ class TestSqliteAgentEventOutboxStore
 
     @Autowired
     private AgentTaskStore tasks;
+
+    @Autowired
+    private AgentTurnStore turns;
 
     @Autowired
     private AgentEventOutboxJpaRepository repository;
@@ -169,6 +177,58 @@ class TestSqliteAgentEventOutboxStore
     }
 
     @Test
+    void rollsBackAcceptedTurnAndItsUserMessageTogether()
+    {
+        TaskId taskId = TaskId.random();
+        AgentTask task = AgentTask.created(
+                taskId,
+                Optional.empty(),
+                false,
+                "Transactional turn task",
+                AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-transactional-turn"),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                NOW).ready(NOW);
+        tasks.insert(task);
+        TurnId turnId = TurnId.random();
+        AgentTurn turn = AgentTurn.accepted(
+                turnId,
+                taskId,
+                "request-1",
+                new AgentTurnSettings(
+                        Optional.empty(),
+                        Optional.empty(),
+                        AgentPermissionPolicy.AUTO,
+                        AgentSandboxPolicy.WORKSPACE_WRITE,
+                        Duration.ofMinutes(5),
+                        ImmutableList.of()),
+                NOW);
+        AgentEventOutboxEntry event = new AgentEventOutboxEntry(
+                EventId.random(),
+                taskId,
+                Optional.of(turnId),
+                AgentEventSource.root(),
+                new AgentEventOutboxPayload.UserMessageBlob(
+                        new BlobRef("blobs/message.txt", "text/plain", 7),
+                        ImmutableList.of(),
+                        AgentEventPayload.DeliveryKind.TURN),
+                NOW,
+                Optional.empty());
+
+        assertThatThrownBy(() -> unitOfWork.execute(() -> {
+            turns.insert(turn);
+            store.insert(event);
+            throw new IllegalStateException("failed");
+        }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("failed");
+
+        assertThat(turns.find(turnId)).isEmpty();
+        assertThat(store.find(event.eventId())).isEmpty();
+    }
+
+    @Test
     void listsPendingEntriesInInsertionOrder()
     {
         AgentEventOutboxEntry first = inlineEntry(EventId.random());
@@ -181,6 +241,9 @@ class TestSqliteAgentEventOutboxStore
         assertThat(store.listPending(2))
                 .extracting(AgentEventOutboxEntry::eventId)
                 .containsExactly(first.eventId(), second.eventId());
+        assertThat(store.listPending(second.taskId(), 2))
+                .extracting(AgentEventOutboxEntry::eventId)
+                .containsExactly(second.eventId());
     }
 
     @Test

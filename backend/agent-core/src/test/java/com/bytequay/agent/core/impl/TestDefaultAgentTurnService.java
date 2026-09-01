@@ -15,8 +15,12 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -25,6 +29,7 @@ import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
@@ -34,6 +39,7 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
@@ -64,6 +70,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
@@ -82,6 +89,7 @@ class TestDefaultAgentTurnService
 
     private InMemoryAgentStores stores;
     private FileAgentResourceService resources;
+    private FileTaskLogStore logs;
     private DefaultAgentEventService events;
     private DefaultAgentMetricsService metrics;
     private RecordingApprovalService approvals;
@@ -115,11 +123,8 @@ class TestDefaultAgentTurnService
                         AgentPermissionPolicy.AUTO),
                 Optional.empty(),
                 false));
-        events = new DefaultAgentEventService(
-                new FileTaskLogStore(resources),
-                stores,
-                stores,
-                CLOCK);
+        logs = new FileTaskLogStore(resources);
+        events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
         service = service(driver, new AgentRuntimeRegistry());
@@ -181,16 +186,68 @@ class TestDefaultAgentTurnService
     @Test
     void persistsUserMessageBeforeStartingProvider()
     {
-        driver.beforeStart(() -> assertThat(events.readAfter(task.id(), 0, 100))
-                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
-                .singleElement()
-                .satisfies(event -> assertThat(((AgentEventPayload.UserMessage) event.payload()).text())
-                        .isEqualTo("first")));
+        driver.beforeStart(() -> {
+            assertThat(events.readAfter(task.id(), 0, 100))
+                    .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                    .singleElement()
+                    .satisfies(event -> assertThat(((AgentEventPayload.UserMessage) event.payload()).text()).isEqualTo("first"));
+            assertThat(stores.outboxEntries())
+                    .singleElement()
+                    .satisfies(entry -> {
+                        assertThat(entry.sequence()).contains(1L);
+                        assertThat(entry.payload()).isInstanceOf(AgentEventOutboxPayload.UserMessageBlob.class);
+                    });
+        });
 
         AgentTurn turn = service.start(command("first", "key-1"));
 
         driver.complete("done");
         assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
+    }
+
+    @Test
+    void doesNotStartProviderWhenUserMessageCannotDrain()
+    {
+        service = service(driver, new AgentRuntimeRegistry(), new FailOnceDrainEventService(events));
+
+        assertThatThrownBy(() -> service.start(command("first", "key-1")))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked event log");
+
+        assertThat(driver.openedReferences()).isEmpty();
+        assertThat(stores.list(task.id()))
+                .singleElement()
+                .satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+        assertThat(stores.outboxEntries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.sequence()).isEmpty());
+    }
+
+    @Test
+    void drainsPendingUserMessageBeforeReturningIdempotentTurnOrStartingAnother()
+    {
+        service = service(driver, new AgentRuntimeRegistry(), new FailOnceDrainEventService(events));
+
+        assertThatThrownBy(() -> service.start(command("first", "key-1")))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked event log");
+
+        AgentTurn repeated = service.start(command("ignored", "key-1"));
+
+        assertThat(repeated.state()).isEqualTo(TurnState.FAILED);
+        assertThat(driver.openedReferences()).isEmpty();
+        assertThat(stores.outboxEntries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.sequence()).contains(1L));
+
+        AgentTurn next = service.start(command("second", "key-2"));
+        driver.complete("done");
+
+        assertThat(service.get(next.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("first", "second");
     }
 
     @Test
@@ -394,12 +451,23 @@ class TestDefaultAgentTurnService
             DeterministicAgentDriver configuredDriver,
             AgentRuntimeRegistry runtimeRegistry)
     {
+        return service(configuredDriver, runtimeRegistry, events);
+    }
+
+    private DefaultAgentTurnService service(
+            DeterministicAgentDriver configuredDriver,
+            AgentRuntimeRegistry runtimeRegistry,
+            AgentEventService configuredEvents)
+    {
         return new DefaultAgentTurnService(
                 stores,
                 stores,
+                stores,
+                stores,
+                logs,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(configuredDriver)),
-                events,
+                configuredEvents,
                 metrics,
                 approvals,
                 runtimeRegistry,
@@ -457,6 +525,46 @@ class TestDefaultAgentTurnService
         public void denyPending(TurnId turnId)
         {
             deniedTurns.add(turnId);
+        }
+    }
+
+    private static final class FailOnceDrainEventService
+            implements AgentEventService
+    {
+        private final AgentEventService delegate;
+        private boolean fail = true;
+
+        private FailOnceDrainEventService(AgentEventService delegate)
+        {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public AgentEventEnvelope append(UnsequencedAgentEvent event)
+        {
+            return delegate.append(event);
+        }
+
+        @Override
+        public AgentEventEnvelope drain(EventId eventId)
+        {
+            if (fail) {
+                fail = false;
+                throw new AgentStorageException("blocked event log");
+            }
+            return delegate.drain(eventId);
+        }
+
+        @Override
+        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
+        {
+            return delegate.readAfter(taskId, afterSequence, limit);
+        }
+
+        @Override
+        public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
+        {
+            return delegate.subscribe(taskId, afterSequence);
         }
     }
 

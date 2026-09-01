@@ -15,18 +15,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --provider)
             shift
-            if [[ $# -eq 0 || ("$1" != codex && "$1" != claude) ]]; then
-                echo "--provider requires codex or claude" >&2
+            if [[ $# -eq 0 || "$1" != codex ]]; then
+                echo "--provider currently requires codex" >&2
                 exit 2
             fi
             provider="$1"
             ;;
         --help)
-            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]"
+            echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]"
             exit 0
             ;;
         *)
-            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
+            echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]" >&2
             exit 2
             ;;
     esac
@@ -35,7 +35,7 @@ done
 
 if [[ "$interactive" != true ]]; then
     echo "The deterministic shell mode was removed; pass --interactive with a real provider." >&2
-    echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
+    echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]" >&2
     exit 2
 fi
 
@@ -49,6 +49,12 @@ backend_pid=""
 event_stream_pid=""
 event_stream_open=false
 interactive_started=false
+database="$temporary_directory/e2e.db"
+workspace_id=agent-e2e
+workspace_repository_id=1
+workspace_root="$temporary_directory/workspaces"
+workspace_directory="$workspace_root/$workspace_id"
+workspace_repository="$workspace_directory/repository"
 
 cleanup()
 {
@@ -220,7 +226,7 @@ interactive_session()
     done
 }
 
-for command in curl git java jq mvn "$provider"; do
+for command in curl git java jq mvn sqlite3 "$provider"; do
     command -v "$command" >/dev/null || {
         echo "Missing required command: $command" >&2
         exit 1
@@ -233,33 +239,28 @@ if [[ "$minimal_worktree" == false ]]; then
     }
 fi
 codex_executable=codex
-claude_executable=claude
 codex_enabled=false
-claude_enabled=false
 if [[ "$provider" == codex ]]; then
     codex_executable="$(command -v codex)"
     codex_enabled=true
 fi
-if [[ "$provider" == claude ]]; then
-    claude_executable="$(command -v claude)"
-    claude_enabled=true
-fi
 
-worktree="$temporary_directory/worktree"
+mkdir -p "$workspace_repository"
 if [[ "$minimal_worktree" == false ]]; then
-    mkdir "$worktree"
     git -C "$repository_root" ls-files -co --exclude-standard \
-        | rsync -a --files-from=- "$repository_root/" "$worktree/"
+        | rsync -a --files-from=- "$repository_root/" "$workspace_repository/"
 else
-    mkdir "$worktree"
-    printf 'agent e2e\n' > "$worktree/README.md"
+    printf 'agent e2e\n' > "$workspace_repository/README.md"
 fi
-git -C "$worktree" init -q -b main
-git -C "$worktree" config user.name "ByteQuay E2E"
-git -C "$worktree" config user.email "e2e@bytequay.local"
-git -C "$worktree" add .
-git -C "$worktree" commit -q -m "Initial commit"
-git -C "$worktree" remote add origin https://github.com/bytequay/agent-e2e.git
+printf '%s\n%s\n' "$workspace_id" "$workspace_repository_id" \
+    > "$workspace_directory/.bytequay-workspace"
+git -C "$workspace_repository" init -q -b main
+git -C "$workspace_repository" config user.name "ByteQuay E2E"
+git -C "$workspace_repository" config user.email "e2e@bytequay.local"
+git -C "$workspace_repository" add .
+git -C "$workspace_repository" commit -q -m "Initial commit"
+git -C "$workspace_repository" remote add origin https://github.com/bytequay/agent-e2e.git
+git -C "$workspace_repository" update-ref refs/remotes/origin/main HEAD
 
 MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
     mvn -q -f "$backend_root/pom.xml" -pl app -am -DskipTests package
@@ -267,7 +268,7 @@ MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
 java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-backend.jar" \
     --server.port="$port" \
     --server.shutdown=immediate \
-    --spring.datasource.url="jdbc:sqlite:$temporary_directory/e2e.db?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \
+    --spring.datasource.url="jdbc:sqlite:$database?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \
     --spring.jpa.hibernate.ddl-auto=create \
     --spring.datasource.hikari.maximum-pool-size=1 \
     --spring.datasource.hikari.minimum-idle=1 \
@@ -275,10 +276,10 @@ java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-
     --bytequay.scheduling.enabled=false \
     --bytequay.agent.desktop-session-token="$session_token" \
     --bytequay.agent.runtime-root="$temporary_directory/runtime" \
+    --bytequay.workspace.root="$workspace_root" \
     --bytequay.agent.codex-enabled="$codex_enabled" \
     --bytequay.agent.codex-executable="$codex_executable" \
-    --bytequay.agent.claude-enabled="$claude_enabled" \
-    --bytequay.agent.claude-executable="$claude_executable" \
+    --bytequay.agent.claude-enabled=false \
     > "$temporary_directory/process.log" 2>&1 &
 backend_pid=$!
 
@@ -303,12 +304,90 @@ curl -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
     exit 1
 }
 
+sqlite3 -cmd '.timeout 30000' "$database" \
+    "INSERT INTO watched_repo_workspaces (
+        display_order,
+        created_at,
+        last_code_sync_at,
+        last_metadata_sync_at,
+        monitored_repository_id,
+        selected_repository_id,
+        updated_at,
+        upstream_repository_id,
+        default_branch,
+        id,
+        local_repository_path,
+        monitored_owner,
+        monitored_repo,
+        name,
+        origin_clone_url,
+        selected_owner,
+        selected_repo,
+        topology,
+        upstream_clone_url,
+        upstream_default_branch,
+        upstream_owner,
+        upstream_repo)
+    VALUES (
+        0,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP,
+        $workspace_repository_id,
+        $workspace_repository_id,
+        CURRENT_TIMESTAMP,
+        NULL,
+        'main',
+        '$workspace_id',
+        '$workspace_repository',
+        'bytequay',
+        'agent-e2e',
+        'Agent shell E2E',
+        'https://github.com/bytequay/agent-e2e.git',
+        'bytequay',
+        'agent-e2e',
+        'DIRECT',
+        NULL,
+        NULL,
+        NULL,
+        NULL);"
+
+model="${BYTEQUAY_AGENT_E2E_MODEL:-}"
+effort="${BYTEQUAY_AGENT_E2E_EFFORT:-}"
+if [[ -z "$model" ]]; then
+    for _ in {1..120}; do
+        model_settings="$(curl -fsS --connect-timeout 2 --max-time 30 \
+            "$base_url/api/settings/models")"
+        model="$(printf '%s\n' "$model_settings" | jq -r \
+            '.providers[] | select(.id == "codex") | .selectedModel // empty')"
+        if [[ -n "$model" ]]; then
+            if [[ -z "$effort" ]]; then
+                effort="$(printf '%s\n' "$model_settings" | jq -r \
+                    '.providers[] | select(.id == "codex") | .selectedEffort // empty')"
+            fi
+            break
+        fi
+        sleep 0.5
+    done
+fi
+if [[ -z "$model" ]]; then
+    echo "Codex did not expose a model; inspect $temporary_directory/process.log" >&2
+    exit 1
+fi
+
 task_request="$(jq -n \
     --arg laneId "$provider" \
-    --arg worktree "$worktree" \
-    --arg repository bytequay/agent-e2e \
+    --arg workspaceId "$workspace_id" \
     --arg title "Agent shell E2E" \
-    '{laneId: $laneId, worktree: $worktree, repository: $repository, title: $title}')"
+    --arg model "$model" \
+    --arg effort "$effort" \
+    '{
+        workspaceId: $workspaceId,
+        laneId: $laneId,
+        title: $title,
+        defaults: ({model: $model, permissionPolicy: "AUTO"}
+            + if $effort == "" then {} else {effort: $effort} end)
+    }')"
 task_id="$(curl -fsS --connect-timeout 2 --max-time 30 \
     -H "X-ByteQuay-Session: $session_token" \
     -H 'Content-Type: application/json' \

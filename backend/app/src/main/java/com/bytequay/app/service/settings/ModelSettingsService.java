@@ -179,16 +179,14 @@ public class ModelSettingsService
 
     public void select(String configId, String model, Optional<String> effort)
     {
-        requireNonNull(effort, "effort is null");
-        Catalog catalog = requireCatalog(configId);
-        ModelOption option = catalog.model(requireNonNull(model, "model is null"))
-                .orElseThrow(() -> new IllegalArgumentException("unknown model for " + configId + ": " + model));
-        effort.ifPresent(value -> {
-            if (!option.efforts().contains(value)) {
-                throw new IllegalArgumentException("unknown effort for " + configId + ": " + value);
-            }
-        });
+        requireSelection(configId, model, effort);
         writeJson(SELECTION_PREFIX + configId, new Selection(model, effort.orElse(null)));
+    }
+
+    /** Validates a provider model selection without changing saved settings. */
+    public void validateSelection(String configId, String model, Optional<String> effort)
+    {
+        requireSelection(configId, model, effort);
     }
 
     public void setMain(String configId)
@@ -260,15 +258,8 @@ public class ModelSettingsService
             Optional<String> effort)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        requireNonNull(effort, "effort is null");
+        ModelOption option = requireSelection(configId, model, effort);
         Catalog catalog = requireCatalog(configId);
-        ModelOption option = catalog.model(requireNonNull(model, "model is null"))
-                .orElseThrow(() -> new IllegalArgumentException("unknown model for " + configId + ": " + model));
-        effort.ifPresent(value -> {
-            if (!option.efforts().contains(value)) {
-                throw new IllegalArgumentException("unknown effort for " + configId + ": " + value);
-            }
-        });
         writeJson(
                 WORKSPACE_AGENT_MODEL_PREFIX + workspaceId,
                 new StoredOverride(configId, model, effort.orElse(null)));
@@ -343,6 +334,20 @@ public class ModelSettingsService
     {
         return catalog(configId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown model configuration: " + configId));
+    }
+
+    private ModelOption requireSelection(String configId, String model, Optional<String> effort)
+    {
+        requireNonNull(effort, "effort is null");
+        ModelOption option = requireCatalog(configId)
+                .model(requireNonNull(model, "model is null"))
+                .orElseThrow(() -> new IllegalArgumentException("unknown model for " + configId + ": " + model));
+        effort.ifPresent(value -> {
+            if (!option.efforts().contains(value)) {
+                throw new IllegalArgumentException("unknown effort for " + configId + ": " + value);
+            }
+        });
+        return option;
     }
 
     private Optional<Catalog> catalog(String configId)

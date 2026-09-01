@@ -43,6 +43,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -124,6 +125,10 @@ public final class DefaultAgentTurnService
             turnStore.findActive(task.id()).ifPresent(active -> {
                 throw new AgentConflictException("Task already has an active turn: " + active.id());
             });
+            AgentProviderStatus status = driverRegistry.require(task.laneId()).probe();
+            if (!status.available()) {
+                throw new AgentUnavailableException(status.diagnostic());
+            }
 
             TurnId turnId = TurnId.random();
             AgentTurnSettings settings = new AgentTurnSettings(

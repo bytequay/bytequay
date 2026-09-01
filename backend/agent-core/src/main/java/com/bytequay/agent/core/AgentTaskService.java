@@ -25,6 +25,18 @@ import java.util.List;
 public interface AgentTaskService
 {
     /**
+     * Creates an interactive task in a ByteQuay-managed workspace worktree.
+     *
+     * <p>Provider readiness is checked before provisioning. The task becomes
+     * visible only after the exact generated worktree has been verified and
+     * task resources have been allocated.
+     *
+     * @param command trusted workspace, exact commit, lane, and task defaults
+     * @return newly persisted ready task
+     */
+    AgentTask createInteractive(CreateInteractiveAgentTaskCommand command);
+
+    /**
      * Creates a durable task for one clean, validated worktree and provider lane.
      *
      * <p>Creation verifies provider readiness before acquiring the lease or

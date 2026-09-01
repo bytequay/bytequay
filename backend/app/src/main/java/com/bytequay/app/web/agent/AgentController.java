@@ -17,15 +17,14 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
-import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -33,6 +32,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -50,7 +50,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -68,6 +67,7 @@ public class AgentController
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentTaskService taskService;
+    private final InteractiveAgentTaskCreator taskCreator;
     private final AgentTurnService turnService;
     private final AgentEventService eventService;
     private final AgentApprovalService approvalService;
@@ -77,6 +77,7 @@ public class AgentController
 
     public AgentController(
             AgentTaskService taskService,
+            InteractiveAgentTaskCreator taskCreator,
             AgentTurnService turnService,
             AgentEventService eventService,
             AgentApprovalService approvalService,
@@ -85,6 +86,7 @@ public class AgentController
             RecentTouchRecorder recent)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
@@ -94,38 +96,42 @@ public class AgentController
     }
 
     @PostMapping("/tasks")
-    public ResponseEntity<AgentHttpModels.TaskResponse> createTask(@RequestBody CreateTaskRequest request)
+    public ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(
+            @RequestBody InteractiveAgentHttpContract.CreateTaskRequest request)
     {
-        requireNotBlank(request.laneId(), "laneId must not be blank");
-        requireNotBlank(request.worktree(), "worktree must not be blank");
-        requireNotBlank(request.repository(), "repository must not be blank");
-        requireNotBlank(request.title(), "title must not be blank");
-        return ResponseEntity.status(HttpStatus.CREATED).body(AgentHttpModels.task(taskService.create(
-                new CreateAgentTaskCommand(
-                        new AgentLaneId(request.laneId()),
-                        Path.of(request.worktree()),
-                        RepositoryIdentity.valueOf(request.repository()),
-                        request.title(),
-                        AgentPermissionPolicy.AUTO))));
+        AgentTaskDefaults defaults = new AgentTaskDefaults(
+                request.defaults().model(),
+                request.defaults().effort(),
+                AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()));
+        AgentTask task = taskCreator.create(
+                request.workspaceId(),
+                request.title(),
+                new AgentLaneId(request.laneId()),
+                defaults);
+        return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.task(task));
     }
 
     @GetMapping("/tasks/{taskId}")
-    public AgentHttpModels.TaskResponse getTask(@PathVariable String taskId)
+    public InteractiveAgentHttpContract.TaskResponse getTask(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
     {
-        return AgentHttpModels.task(taskService.get(TaskId.valueOf(taskId)));
+        return InteractiveAgentHttpContract.task(
+                taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
     }
 
     @GetMapping("/tasks")
-    public List<AgentHttpModels.TaskResponse> listTasks(
+    public List<InteractiveAgentHttpContract.TaskResponse> listTasks(
+            @RequestParam String workspaceId,
             @RequestParam(defaultValue = "100") int limit)
     {
-        return taskService.list(limit).stream()
-                .map(AgentHttpModels::task)
+        return taskService.list(workspaceId, limit).stream()
+                .map(InteractiveAgentHttpContract::task)
                 .collect(toImmutableList());
     }
 
     @PostMapping("/tasks/{taskId}/turns")
-    public ResponseEntity<AgentHttpModels.TurnResponse> startTurn(
+    public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> startTurn(
             @PathVariable String taskId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody StartTurnRequest request)
@@ -141,7 +147,7 @@ public class AgentController
                 ImmutableList.of(),
                 idempotencyKey));
         recordPrompt(taskId, request.message());
-        return ResponseEntity.accepted().body(AgentHttpModels.turn(turn));
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
     }
 
     /** Files the user's prompt in Recent. Never on the path that decides the response. */
@@ -157,15 +163,15 @@ public class AgentController
     }
 
     @GetMapping("/turns/{turnId}")
-    public AgentHttpModels.TurnResponse getTurn(@PathVariable String turnId)
+    public InteractiveAgentHttpContract.TurnResponse getTurn(@PathVariable String turnId)
     {
-        return AgentHttpModels.turn(turnService.get(TurnId.valueOf(turnId)));
+        return InteractiveAgentHttpContract.turn(turnService.get(TurnId.valueOf(turnId)));
     }
 
     @PostMapping("/turns/{turnId}/cancel")
-    public AgentHttpModels.TurnResponse cancelTurn(@PathVariable String turnId)
+    public InteractiveAgentHttpContract.TurnResponse cancelTurn(@PathVariable String turnId)
     {
-        return AgentHttpModels.turn(turnService.cancel(TurnId.valueOf(turnId)));
+        return InteractiveAgentHttpContract.turn(turnService.cancel(TurnId.valueOf(turnId)));
     }
 
     @GetMapping("/tasks/{taskId}/events")
@@ -225,8 +231,6 @@ public class AgentController
                 .map(AgentHttpModels::providerStatus)
                 .collect(toImmutableList());
     }
-
-    public record CreateTaskRequest(String laneId, String worktree, String repository, String title) {}
 
     public record StartTurnRequest(String message, List<Object> attachments) {}
 

@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.impl.DefaultAgentApprovalService;
@@ -169,6 +170,7 @@ public class AgentConfiguration
     public AgentTaskService agentTaskService(
             AgentTaskStore taskStore,
             AgentWorkspaceService workspaceService,
+            WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             Clock agentClock)
@@ -176,6 +178,7 @@ public class AgentConfiguration
         return new DefaultAgentTaskService(
                 taskStore,
                 workspaceService,
+                worktreeService,
                 resourceService,
                 driverRegistry,
                 agentClock);

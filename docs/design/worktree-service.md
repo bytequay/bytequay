@@ -1,7 +1,7 @@
 # Managed Worktree Service
 
-> **Status: approved design; core contract added, production implementation
-> pending.** This document records the separate-worktree decision for every
+> **Status: implemented for interactive creation; workflow migration in
+> progress.** This document records the separate-worktree decision for every
 > agent-backed workflow. It replaces flow-specific worktree creation and the
 > former existing-checkout lease model.
 
@@ -201,9 +201,10 @@ but never the internal path.
 
 ### Interactive agent task
 
-The application resolves the workspace's selected starting commit, generates
-the task ID, provisions its worktree, and stores the returned facts with the
-task. All turns reuse it. Complete is allowed only after provider execution is
+The application resolves the workspace's selected
+`refs/remotes/origin/<default-branch>^{commit}`, generates the task ID,
+provisions its worktree, and stores the returned facts with the task. All turns
+reuse it. Complete is allowed only after provider execution is
 quiescent and `inspect(...)` reports a clean worktree with no open Git
 operation. Cleanup removes the worktree and retains the generated branch.
 

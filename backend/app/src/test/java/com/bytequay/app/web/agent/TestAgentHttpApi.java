@@ -14,7 +14,13 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -24,7 +30,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -47,10 +52,14 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -61,7 +70,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "server.shutdown=immediate",
                 "bytequay.agent.desktop-session-token=test-session",
-                "bytequay.agent.runtime-root=${java.io.tmpdir}/bytequay-agent-http-${random.uuid}"
+                "bytequay.agent.runtime-root=${java.io.tmpdir}/bytequay-agent-http-${random.uuid}",
+                "bytequay.workspace.root=${java.io.tmpdir}/bytequay-agent-workspace-${random.uuid}"
         })
 class TestAgentHttpApi
 {
@@ -71,12 +81,14 @@ class TestAgentHttpApi
         @Bean
         AgentDriver deterministicAgentDriver()
         {
-            return new DeterministicAgentDriver();
+            return new DeterministicAgentDriver(AgentLaneId.CODEX_CLI);
         }
     }
 
     private static final String SESSION_TOKEN = "test-session";
     private static final String REPOSITORY = "bytequay/agent-e2e";
+    private static final String ORIGIN = "https://github.com/" + REPOSITORY + ".git";
+    private static final AtomicLong NEXT_REPOSITORY_ID = new AtomicLong(10_000);
     private static final String BASELINE_FIXTURE = "/com/bytequay/app/web/agent/agent-http-baseline.json";
     private static final Set<String> TIMESTAMP_FIELDS = ImmutableSet.of(
             "createdAt",
@@ -89,9 +101,6 @@ class TestAgentHttpApi
             "completedAt",
             "deleteAfter");
 
-    @TempDir
-    private Path temporaryDirectory;
-
     @LocalServerPort
     private int port;
 
@@ -101,21 +110,60 @@ class TestAgentHttpApi
     @Autowired
     private ObjectMapper objectMapper;
 
-    private Path worktree;
+    @Autowired
+    private WorkspacePaths workspacePaths;
+
+    @Autowired
+    private WorkspaceStore workspaces;
+
+    @Autowired
+    private ModelSettingsService models;
+
+    private String workspaceId;
 
     @BeforeEach
     void setUp()
             throws IOException, InterruptedException
     {
-        worktree = temporaryDirectory.resolve("worktree");
-        run("git", "init", "-b", "main", worktree.toString());
-        run("git", "-C", worktree.toString(), "config", "user.name", "ByteQuay Test");
-        run("git", "-C", worktree.toString(), "config", "user.email", "test@bytequay.local");
-        Files.writeString(worktree.resolve("README.md"), "agent e2e\n");
-        run("git", "-C", worktree.toString(), "add", "README.md");
-        run("git", "-C", worktree.toString(), "commit", "-m", "Initial commit");
-        run("git", "-C", worktree.toString(), "remote", "add", "origin",
-                "https://github.com/" + REPOSITORY + ".git");
+        models.refreshCatalogs();
+        workspaceId = "agent-http-" + UUID.randomUUID();
+        long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
+        Path repository = workspacePaths.repository(workspaceId);
+        Files.createDirectories(repository);
+        Files.writeString(
+                workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"),
+                workspaceId + "\n" + repositoryId + "\n");
+        run("git", "init", "-b", "main", repository.toString());
+        run("git", "-C", repository.toString(), "config", "user.name", "ByteQuay Test");
+        run("git", "-C", repository.toString(), "config", "user.email", "test@bytequay.local");
+        Files.writeString(repository.resolve("README.md"), "agent e2e\n");
+        run("git", "-C", repository.toString(), "add", "README.md");
+        run("git", "-C", repository.toString(), "commit", "-m", "Initial commit");
+        run("git", "-C", repository.toString(), "remote", "add", "origin", ORIGIN);
+        run("git", "-C", repository.toString(), "update-ref", "refs/remotes/origin/main", "HEAD");
+
+        Instant now = Instant.now();
+        RepoRef selected = RepoRef.of("bytequay", "agent-e2e");
+        workspaces.createOrGet(new Workspace(
+                workspaceId,
+                "Agent HTTP test",
+                repositoryId,
+                selected,
+                Optional.empty(),
+                Optional.empty(),
+                repositoryId,
+                selected,
+                Workspace.Topology.DIRECT,
+                "main",
+                ORIGIN,
+                Optional.empty(),
+                Optional.empty(),
+                repository.toString(),
+                Optional.of(now),
+                Optional.of(now),
+                0,
+                now,
+                now));
     }
 
     @Test
@@ -137,37 +185,51 @@ class TestAgentHttpApi
         ResponseEntity<JsonNode> status = get("/agent/providers/status");
         assertThat(status.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(status.getBody()).isNotNull();
-        assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("deterministic");
+        assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("codex");
         assertThat(status.getBody().get(0).get("readiness").asText()).isEqualTo("READY");
         assertThat(status.getBody().get(0).has("health")).isFalse();
     }
 
     @Test
-    void validatesRequestsAndMapsUnavailableLanes()
+    void rejectsInvalidAndNonCodexTaskRequests()
             throws Exception
     {
         ResponseEntity<JsonNode> invalid = post(
                 "/agent/tasks",
                 ImmutableMap.of(
-                        "laneId", "",
-                        "worktree", worktree.toString(),
-                        "repository", REPOSITORY,
+                        "workspaceId", "",
+                        "laneId", "codex",
                         "title", "Invalid"),
                 null);
         assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
-        ResponseEntity<JsonNode> unavailable = post(
+        ResponseEntity<JsonNode> unsupported = post(
                 "/agent/tasks",
                 createTaskBody("missing-lane"),
                 null);
-        assertThat(unavailable.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(unsupported.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<JsonNode> unknownModel = post(
+                "/agent/tasks",
+                ImmutableMap.of(
+                        "workspaceId", workspaceId,
+                        "laneId", "codex",
+                        "title", "Unknown model",
+                        "defaults", ImmutableMap.of(
+                                "model", "unknown-model",
+                                "effort", "high",
+                                "permissionPolicy", "AUTO")),
+                null);
+        assertThat(unknownModel.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
+        assertThat(workspacePaths.worktrees(workspaceId)).doesNotExist();
     }
 
     @Test
     void rejectsRendererSuppliedAttachmentPaths()
             throws Exception
     {
-        ResponseEntity<JsonNode> createResponse = post("/agent/tasks", createTaskBody("deterministic"), null);
+        ResponseEntity<JsonNode> createResponse = post("/agent/tasks", createTaskBody("codex"), null);
         String taskId = createResponse.getBody().required("id").asText();
 
         ResponseEntity<JsonNode> response = post(
@@ -187,12 +249,21 @@ class TestAgentHttpApi
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {
-        Map<String, String> createRequest = createTaskBody("deterministic");
+        Map<String, Object> createRequest = createTaskBody("codex");
         ResponseEntity<JsonNode> createResponse = post("/agent/tasks", createRequest, null);
         assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode createdTask = createResponse.getBody();
         assertThat(createdTask).isNotNull();
         String taskId = createdTask.get("id").asText();
+        assertThat(createdTask.get("workspaceId").asText()).isEqualTo(workspaceId);
+        assertThat(createdTask.has("worktree")).isFalse();
+        assertThat(createdTask.has("repository")).isFalse();
+        assertThat(createdTask.has("sessionReference")).isFalse();
+
+        JsonNode listed = get("/agent/tasks?workspaceId=" + workspaceId + "&limit=10").getBody();
+        assertThat(listed).hasSize(1);
+        assertThat(get("/agent/tasks/" + taskId + "?workspaceId=another-workspace").getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
 
         JsonNode first = startTurn(taskId, "first", "request-1");
         JsonNode repeated = startTurn(taskId, "ignored", "request-1");
@@ -241,7 +312,7 @@ class TestAgentHttpApi
                 .isEqualTo("deterministic: second");
         assertThat(completion.getBody().get("summary").get("notes").asText())
                 .isEqualTo("ready for review");
-        JsonNode finalTask = get("/agent/tasks/" + taskId).getBody();
+        JsonNode finalTask = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
         assertThat(finalTask.get("state").asText()).isEqualTo("COMPLETED");
 
         ObjectNode transcript = objectMapper.createObjectNode();
@@ -262,8 +333,7 @@ class TestAgentHttpApi
                 transcript,
                 taskId,
                 first.get("id").asText(),
-                second.get("id").asText(),
-                finalTask.path("sessionReference").path("providerValue").asText());
+                second.get("id").asText());
         try (InputStream fixture = getClass().getResourceAsStream(BASELINE_FIXTURE)) {
             assertThat(fixture).as("baseline fixture %s", BASELINE_FIXTURE).isNotNull();
             assertThat(sanitizedTranscript).isEqualTo(objectMapper.readTree(fixture));
@@ -294,22 +364,13 @@ class TestAgentHttpApi
             JsonNode transcript,
             String taskId,
             String firstTurnId,
-            String secondTurnId,
-            String providerSession)
-            throws IOException
+            String secondTurnId)
     {
-        String requestedWorktree = worktree.toString();
-        String canonicalWorktree = worktree.toRealPath().toString();
-        ImmutableMap.Builder<String, String> replacements = ImmutableMap.<String, String>builder();
-        if (!canonicalWorktree.equals(requestedWorktree)) {
-            replacements.put(canonicalWorktree, "<worktree>");
-        }
-        Map<String, String> values = replacements
-                .put(requestedWorktree, "<worktree>")
+        Map<String, String> values = ImmutableMap.<String, String>builder()
+                .put(workspaceId, "<workspace-id>")
                 .put(taskId, "<task-id>")
                 .put(firstTurnId, "<turn-1>")
                 .put(secondTurnId, "<turn-2>")
-                .put(providerSession, "<provider-session>")
                 .buildOrThrow();
         JsonNode sanitized = transcript.deepCopy();
         sanitizeNode(sanitized, values);
@@ -330,7 +391,7 @@ class TestAgentHttpApi
         object.fieldNames().forEachRemaining(fields::add);
         for (String field : fields) {
             JsonNode value = object.get(field);
-            if (field.equals("head") && value.isTextual()) {
+            if ((field.equals("head") || field.equals("resultHead")) && value.isTextual()) {
                 object.put(field, "<head>");
                 continue;
             }
@@ -358,13 +419,16 @@ class TestAgentHttpApi
         }
     }
 
-    private Map<String, String> createTaskBody(String laneId)
+    private Map<String, Object> createTaskBody(String laneId)
     {
         return ImmutableMap.of(
+                "workspaceId", workspaceId,
                 "laneId", laneId,
-                "worktree", worktree.toString(),
-                "repository", REPOSITORY,
-                "title", "Agent HTTP test");
+                "title", "Agent HTTP test",
+                "defaults", ImmutableMap.of(
+                        "model", "test-model",
+                        "effort", "high",
+                        "permissionPolicy", "AUTO"));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

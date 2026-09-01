@@ -16,14 +16,9 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
-import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.TaskCompletion;
-import com.bytequay.agent.core.TaskMetrics;
-import com.bytequay.agent.core.TaskSummary;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
 
@@ -34,50 +29,6 @@ import java.util.Optional;
 final class AgentHttpModels
 {
     private AgentHttpModels() {}
-
-    static TaskResponse task(AgentTask task)
-    {
-        return new TaskResponse(
-                task.id().toString(),
-                task.title(),
-                task.laneId().toString(),
-                task.repository().toString(),
-                task.worktree().toString(),
-                task.permissionPolicy().name(),
-                task.state().name(),
-                task.version(),
-                task.createdAt(),
-                task.updatedAt(),
-                task.terminalAt(),
-                task.terminalReason(),
-                task.sessionReference().map(reference -> new SessionResponse(
-                        reference.laneId().toString(),
-                        reference.contractVersion(),
-                        reference.providerValue())),
-                task.metrics(),
-                task.summary(),
-                task.cleanupState().name(),
-                task.deleteAfter(),
-                task.cleanupFailure());
-    }
-
-    static TurnResponse turn(AgentTurn turn)
-    {
-        return new TurnResponse(
-                turn.id().toString(),
-                turn.taskId().toString(),
-                turn.idempotencyKey(),
-                turn.state().name(),
-                turn.version(),
-                turn.createdAt(),
-                turn.startedAt(),
-                turn.endedAt(),
-                turn.cancellationRequestedAt(),
-                turn.providerTurnReference().map(Object::toString),
-                turn.model(),
-                turn.terminalReason(),
-                turn.metrics());
-    }
 
     static EventResponse event(AgentEventEnvelope envelope)
     {
@@ -117,7 +68,7 @@ final class AgentHttpModels
     {
         return new CompletionResponse(
                 completion.taskId().toString(),
-                completion.summary(),
+                InteractiveAgentHttpContract.summary(completion.summary()),
                 completion.completedAt(),
                 completion.deleteAfter());
     }
@@ -130,43 +81,6 @@ final class AgentHttpModels
                 result.deletedAt(),
                 result.failure());
     }
-
-    record TaskResponse(
-            String id,
-            String title,
-            String laneId,
-            String repository,
-            String worktree,
-            String permissionPolicy,
-            String state,
-            long version,
-            Instant createdAt,
-            Instant updatedAt,
-            Optional<Instant> terminalAt,
-            Optional<String> terminalReason,
-            Optional<SessionResponse> sessionReference,
-            TaskMetrics metrics,
-            Optional<TaskSummary> summary,
-            String cleanupState,
-            Optional<Instant> deleteAfter,
-            Optional<String> cleanupFailure) {}
-
-    record SessionResponse(String laneId, int contractVersion, String providerValue) {}
-
-    record TurnResponse(
-            String id,
-            String taskId,
-            String idempotencyKey,
-            String state,
-            long version,
-            Instant createdAt,
-            Optional<Instant> startedAt,
-            Optional<Instant> endedAt,
-            Optional<Instant> cancellationRequestedAt,
-            Optional<String> providerTurnReference,
-            Optional<String> model,
-            Optional<String> terminalReason,
-            TurnMetrics metrics) {}
 
     record EventResponse(
             int schemaVersion,
@@ -195,7 +109,7 @@ final class AgentHttpModels
 
     record CompletionResponse(
             String taskId,
-            TaskSummary summary,
+            InteractiveAgentHttpContract.TaskSummaryResponse summary,
             Instant completedAt,
             Instant deleteAfter) {}
 

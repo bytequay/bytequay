@@ -1,35 +1,30 @@
 # Agent Shell End-to-End Test
 
-> **Current behavior:** the script still submits a temporary caller-created
-> worktree. CP3 in
-> [Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) converts
-> it to create a temporary managed workspace and submit only its workspace ID;
-> the backend then provisions and cleans the task worktree through the shared
-> [Managed Worktree Service](worktree-service.md).
+> **Current behavior:** the script creates an isolated managed-workspace
+> fixture and submits only its workspace ID. The backend resolves the selected
+> repository and provisions the task worktree through the shared
+> [Managed Worktree Service](worktree-service.md). Interactive creation is
+> currently Codex-only; Claude returns when its parity contract is enabled.
 
-The agent shell exercises the complete backend path with either the Codex or
-Claude CLI provider. The shell sends task, turn, approval, event, and status
+The agent shell exercises the complete Codex backend path. The shell sends
+task, turn, approval, event, and status
 requests only to the temporary Spring Boot backend. The backend owns the
 provider process and converts its output into provider-neutral agent events.
 
 ## Run the shell
 
-Run from the repository root. The selected provider CLI must already be
-installed and authenticated. The script also requires `curl`, `git`, `java`,
-`jq`, Maven, and `rsync` for the default full-worktree mode.
+Run from the repository root. Codex must already be installed and
+authenticated. The script also requires `curl`, `git`, `java`, `jq`, Maven,
+`sqlite3`, and `rsync` for the default full-worktree mode.
 
 ```bash
-# Codex is the default provider
 ./scripts/agent-e2e.sh --interactive
-
-# Use Claude Code
-./scripts/agent-e2e.sh --interactive --provider claude
 ```
 
 By default, the script copies the current checkout into a temporary Git
-repository so the agent can inspect the ByteQuay code. Use a minimal temporary
-repository when testing conversation and transport behavior without the
-project files:
+repository under an isolated ByteQuay workspace. The backend creates a second,
+task-owned worktree from that managed repository. Use a minimal repository when
+testing conversation and transport behavior without the project files:
 
 ```bash
 ./scripts/agent-e2e.sh --interactive --provider codex --minimal-worktree
@@ -54,15 +49,20 @@ SSE, idempotency, completion, and cleanup coverage lives in
 sequenceDiagram
     actor User
     participant Shell as "agent-e2e.sh"
+    participant Workspace as "Managed workspace fixture"
     participant API as "Spring backend"
     participant Turn as "DefaultAgentTurnService"
-    participant Driver as "Codex/Claude driver"
-    participant CLI as "Codex/Claude CLI"
+    participant Driver as "Codex driver"
+    participant CLI as "Codex CLI"
     participant Events as "AgentEventService"
     participant Log as "FileTaskLogStore"
 
+    Shell->>Workspace: Create selected repository
     Shell->>API: Start temporary backend
-    Shell->>API: POST /agent/tasks
+    Shell->>Workspace: Seed workspace row after schema creation
+    Shell->>API: POST /agent/tasks with workspaceId
+    API->>Workspace: Resolve origin/default branch
+    Workspace-->>API: Provision task-owned worktree
     API-->>Shell: taskId
     Shell->>API: GET /tasks/{taskId}/stream
     API-->>Shell: Persistent SSE connection
@@ -111,7 +111,7 @@ sequenceDiagram
     Shell->>API: Send SIGTERM to backend
     API->>Driver: Close provider driver
     Driver->>CLI: Cancel and close provider process
-    Shell->>Shell: Delete temporary worktree, database, runtime, and logs
+    Shell->>Shell: Delete isolated workspace, database, runtime, and logs
 ```
 
 Exiting the test shell does not call
@@ -119,10 +119,9 @@ Exiting the test shell does not call
 environment immediately, so shell shutdown does not exercise completion
 summaries or seven-day retention cleanup.
 
-After the managed-worktree migration, the fixture still owns and removes its
-outer temporary application-data root, but it no longer creates or submits the
-agent worktree itself. It provisions a saved workspace through backend APIs,
-creates the task with `workspaceId`, verifies the generated branch from safe
-task facts, and requests normal completion when the branch is clean so the
-shared cleanup path is exercised. A dirty completion conflict is printed and
-must never be converted into an implicit forced delete.
+The fixture owns and removes its outer temporary application-data root, but it
+does not create or submit the agent worktree itself. It seeds a saved workspace
+after the temporary backend has created its schema and creates the task with
+`workspaceId`. Normal completion and shared cleanup remain separate CP3 work;
+the shell must not pretend that deleting its isolated outer fixture exercises
+that product path.

@@ -24,10 +24,13 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -36,12 +39,22 @@ import java.util.concurrent.CompletionStage;
 public final class DeterministicAgentDriver
         implements AgentDriver
 {
-    private static final AgentLaneId LANE_ID = new AgentLaneId("deterministic");
+    private final AgentLaneId laneId;
+
+    public DeterministicAgentDriver()
+    {
+        this(new AgentLaneId("deterministic"));
+    }
+
+    public DeterministicAgentDriver(AgentLaneId laneId)
+    {
+        this.laneId = laneId;
+    }
 
     @Override
     public AgentLaneId id()
     {
-        return LANE_ID;
+        return laneId;
     }
 
     @Override
@@ -54,7 +67,7 @@ public final class DeterministicAgentDriver
     public AgentProviderStatus probe()
     {
         return new AgentProviderStatus(
-                LANE_ID,
+                laneId,
                 AgentProviderStatus.Readiness.READY,
                 Optional.of("development"),
                 "ready",
@@ -62,10 +75,22 @@ public final class DeterministicAgentDriver
     }
 
     @Override
+    public List<ProviderModel> models()
+    {
+        return ImmutableList.of(new ProviderModel(
+                "test-model",
+                "Test model",
+                "",
+                ImmutableList.of("high"),
+                Optional.of("high"),
+                true));
+    }
+
+    @Override
     public AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
-                LANE_ID,
+                laneId,
                 1,
                 "deterministic-" + UUID.randomUUID()));
         return new DeterministicSession(reference, events);

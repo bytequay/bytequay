@@ -20,13 +20,19 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
+import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 
@@ -41,6 +47,7 @@ public final class DefaultAgentTaskService
 {
     private final AgentTaskStore taskStore;
     private final AgentWorkspaceService workspaceService;
+    private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
     private final Clock clock;
@@ -48,30 +55,58 @@ public final class DefaultAgentTaskService
     public DefaultAgentTaskService(
             AgentTaskStore taskStore,
             AgentWorkspaceService workspaceService,
+            WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
+    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
+    {
+        requireNonNull(command, "command is null");
+        requireReady(command.laneId(), command.defaults().permissionPolicy());
+        if (taskStore.find(command.taskId()).isPresent()) {
+            throw new AgentConflictException("Task already exists: " + command.taskId());
+        }
+
+        TaskWorktree worktree = worktreeService.provision(new ProvisionWorktreeCommand(
+                command.taskId(),
+                command.workspaceId(),
+                command.physicalRepository(),
+                command.startCommit()));
+        try {
+            resourceService.allocate(command.taskId());
+            Instant now = Instant.now(clock);
+            AgentTask task = AgentTask.created(
+                    command.taskId(),
+                    true,
+                    command.title(),
+                    command.laneId(),
+                    worktree,
+                    command.defaults(),
+                    now).ready(now);
+            taskStore.insert(task);
+            return task;
+        }
+        catch (RuntimeException failure) {
+            rollbackManagedCreation(command.taskId(), worktree, failure);
+            throw failure;
+        }
+    }
+
+    @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
-        AgentDriver driver = driverRegistry.require(command.laneId());
-        if (!driver.capabilities().permissionPolicies().contains(command.permissionPolicy())) {
-            throw new AgentUnavailableException(
-                    "Agent lane " + command.laneId() + " cannot enforce " + command.permissionPolicy());
-        }
-        AgentProviderStatus status = driver.probe();
-        if (!status.available()) {
-            throw new AgentUnavailableException(status.diagnostic());
-        }
+        requireReady(command.laneId(), command.permissionPolicy());
         TaskId taskId = TaskId.random();
         WorkspaceLease lease = workspaceService.acquire(
                 taskId,
@@ -157,6 +192,38 @@ public final class DefaultAgentTaskService
     {
         if (workspaceId == null || workspaceId.isBlank()) {
             throw new InvalidAgentRequestException("workspaceId must not be blank");
+        }
+    }
+
+    private void requireReady(AgentLaneId laneId, AgentPermissionPolicy permissionPolicy)
+    {
+        AgentDriver driver = driverRegistry.require(laneId);
+        if (!driver.capabilities().permissionPolicies().contains(permissionPolicy)) {
+            throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + permissionPolicy);
+        }
+        AgentProviderStatus status = driver.probe();
+        if (!status.available()) {
+            throw new AgentUnavailableException(status.diagnostic());
+        }
+    }
+
+    private void rollbackManagedCreation(TaskId taskId, TaskWorktree worktree, RuntimeException failure)
+    {
+        try {
+            if (taskStore.find(taskId).isPresent()) {
+                return;
+            }
+        }
+        catch (RuntimeException ownershipFailure) {
+            failure.addSuppressed(ownershipFailure);
+            return;
+        }
+        rollbackResources(taskId, failure);
+        try {
+            worktreeService.cleanup(worktree);
+        }
+        catch (RuntimeException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
         }
     }
 

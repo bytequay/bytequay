@@ -24,6 +24,7 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -87,6 +88,12 @@ final class ScriptedCherryPickAgent
     {
         beforeTaskCreate = action;
         return this;
+    }
+
+    @Override
+    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
+    {
+        throw new UnsupportedOperationException("interactive creation is not used by cherry-pick tests");
     }
 
     @Override

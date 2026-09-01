@@ -43,10 +43,21 @@ final class InMemoryAgentStores
     private final Map<TaskId, AgentTask> tasks = new HashMap<>();
     private final Map<TurnId, AgentTurn> turns = new HashMap<>();
     private final Map<EventId, AgentEventOutboxEntry> outbox = new HashMap<>();
+    private RuntimeException taskInsertFailure;
+    private boolean persistBeforeTaskInsertFailure;
+    private int taskFindCalls;
+    private int failingTaskFindCall = -1;
+    private RuntimeException taskFindFailure;
 
     @Override
     public synchronized void insert(AgentTask task)
     {
+        if (taskInsertFailure != null) {
+            if (persistBeforeTaskInsertFailure) {
+                tasks.putIfAbsent(task.id(), task);
+            }
+            throw taskInsertFailure;
+        }
         if (tasks.putIfAbsent(task.id(), task) != null) {
             throw new AgentConflictException("Task already exists: " + task.id());
         }
@@ -55,6 +66,10 @@ final class InMemoryAgentStores
     @Override
     public synchronized Optional<AgentTask> find(TaskId taskId)
     {
+        taskFindCalls++;
+        if (taskFindCalls == failingTaskFindCall) {
+            throw taskFindFailure;
+        }
         return Optional.ofNullable(tasks.get(taskId));
     }
 
@@ -252,5 +267,17 @@ final class InMemoryAgentStores
     synchronized List<AgentTask> tasks()
     {
         return ImmutableList.copyOf(tasks.values());
+    }
+
+    synchronized void failTaskInsert(RuntimeException failure, boolean persistBeforeFailure)
+    {
+        taskInsertFailure = failure;
+        persistBeforeTaskInsertFailure = persistBeforeFailure;
+    }
+
+    synchronized void failTaskFind(int call, RuntimeException failure)
+    {
+        failingTaskFindCall = call;
+        taskFindFailure = failure;
     }
 }

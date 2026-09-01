@@ -25,19 +25,25 @@ import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -94,6 +100,7 @@ class TestDefaultAgentTurnService
         taskService = new DefaultAgentTaskService(
                 stores,
                 new FixedWorkspaceService(worktree),
+                new UnusedWorktreeService(),
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 CLOCK);
@@ -116,6 +123,28 @@ class TestDefaultAgentTurnService
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
         service = service(driver, new AgentRuntimeRegistry());
+    }
+
+    private static final class UnusedWorktreeService
+            implements WorktreeService
+    {
+        @Override
+        public TaskWorktree provision(ProvisionWorktreeCommand command)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public WorktreeSnapshot inspect(TaskWorktree worktree)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void cleanup(TaskWorktree worktree)
+        {
+            throw new UnsupportedOperationException();
+        }
     }
 
     @Test
@@ -162,6 +191,31 @@ class TestDefaultAgentTurnService
 
         driver.complete("done");
         assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
+    }
+
+    @Test
+    void rejectsUnavailableProviderBeforePersistingTurnOrUserMessage()
+    {
+        driver.unavailable();
+
+        assertThatThrownBy(() -> service.start(command("first", "key-1")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("unavailable");
+
+        assertThat(stores.list(task.id())).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100)).isEmpty();
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.READY);
+        assertThat(driver.openedReferences()).isEmpty();
+    }
+
+    @Test
+    void returnsIdempotentTurnWithoutRequiringProviderAgain()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        driver.complete("done");
+        driver.unavailable();
+
+        assertThat(service.start(command("ignored", "key-1"))).isEqualTo(service.get(first.id()));
     }
 
     @Test

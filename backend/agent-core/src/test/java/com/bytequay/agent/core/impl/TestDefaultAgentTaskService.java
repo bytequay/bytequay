@@ -21,14 +21,19 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentWorkspaceService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -61,6 +66,7 @@ class TestDefaultAgentTaskService
 
     private InMemoryAgentStores stores;
     private RecordingWorkspaceService workspace;
+    private RecordingWorktreeService managedWorktrees;
     private RecordingResourceService resources;
     private DeterministicAgentDriver driver;
     private DefaultAgentTaskService service;
@@ -70,14 +76,117 @@ class TestDefaultAgentTaskService
     {
         stores = new InMemoryAgentStores();
         workspace = new RecordingWorkspaceService(temporaryDirectory.resolve("worktree").toAbsolutePath());
+        managedWorktrees = new RecordingWorktreeService(
+                temporaryDirectory.resolve("managed").toAbsolutePath());
         resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
         driver = new DeterministicAgentDriver();
         service = new DefaultAgentTaskService(
                 stores,
                 workspace,
+                managedWorktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void createsInteractiveTaskWithPersistedManagedWorktreeFacts()
+    {
+        TaskId taskId = TaskId.random();
+
+        AgentTask task = service.createInteractive(interactiveCommand(taskId));
+
+        assertThat(task.state()).isEqualTo(TaskState.READY);
+        assertThat(task.id()).isEqualTo(taskId);
+        assertThat(task.workspaceId()).contains(WORKSPACE_ID);
+        assertThat(task.interactive()).isTrue();
+        assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
+        assertThat(resources.allocated).containsExactly(taskId);
+        assertThat(managedWorktrees.cleaned).isEmpty();
+    }
+
+    @Test
+    void checksReadinessBeforeProvisioningManagedWorktree()
+    {
+        driver.unavailable();
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
+                .isInstanceOf(AgentUnavailableException.class);
+
+        assertThat(managedWorktrees.provisioned).isEmpty();
+        assertThat(resources.allocated).isEmpty();
+        assertThat(stores.tasks()).isEmpty();
+    }
+
+    @Test
+    void removesFreshManagedWorktreeAfterResourceFailure()
+    {
+        resources.failAllocation = true;
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
+                .isInstanceOf(AgentStorageException.class);
+
+        assertThat(managedWorktrees.provisioned).hasSize(1);
+        assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
+        assertThat(stores.tasks()).isEmpty();
+    }
+
+    @Test
+    void leavesProvisioningConflictForInspection()
+    {
+        managedWorktrees.provisionFailure = new AgentConflictException("conflicting worktree");
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(TaskId.random())))
+                .isSameAs(managedWorktrees.provisionFailure);
+
+        assertThat(managedWorktrees.cleaned).isEmpty();
+        assertThat(resources.allocated).isEmpty();
+    }
+
+    @Test
+    void removesFreshResourcesAndWorktreeAfterInsertFailure()
+    {
+        TaskId taskId = TaskId.random();
+        stores.failTaskInsert(new AgentStorageException("insert failed"), false);
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(taskId)))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("insert failed");
+
+        assertThat(resources.deleted).containsExactly(taskId);
+        assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
+    }
+
+    @Test
+    void preservesResourcesWhenFailedInsertMayHavePersistedOwnership()
+    {
+        TaskId taskId = TaskId.random();
+        stores.failTaskInsert(new AgentStorageException("insert result unknown"), true);
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(taskId)))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("unknown");
+
+        assertThat(resources.deleted).isEmpty();
+        assertThat(managedWorktrees.cleaned).isEmpty();
+        assertThat(stores.tasks()).hasSize(1);
+    }
+
+    @Test
+    void preservesResourcesWhenOwnershipCannotBeReadAfterInsertFailure()
+    {
+        TaskId taskId = TaskId.random();
+        stores.failTaskInsert(new AgentStorageException("insert failed"), false);
+        stores.failTaskFind(2, new AgentStorageException("read failed"));
+
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(taskId)))
+                .isInstanceOf(AgentStorageException.class)
+                .satisfies(failure -> assertThat(failure.getSuppressed())
+                        .extracting(Throwable::getMessage)
+                        .containsExactly("read failed"));
+
+        assertThat(resources.deleted).isEmpty();
+        assertThat(managedWorktrees.cleaned).isEmpty();
     }
 
     @Test
@@ -217,6 +326,61 @@ class TestDefaultAgentTaskService
                 permissionPolicy,
                 Optional.of(WORKSPACE_ID),
                 true);
+    }
+
+    private CreateInteractiveAgentTaskCommand interactiveCommand(TaskId taskId)
+    {
+        return new CreateInteractiveAgentTaskCommand(
+                taskId,
+                WORKSPACE_ID,
+                DeterministicAgentDriver.LANE_ID,
+                REPOSITORY,
+                "0123456789012345678901234567890123456789",
+                "Interactive task",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO));
+    }
+
+    private static final class RecordingWorktreeService
+            implements WorktreeService
+    {
+        private final Path worktreeRoot;
+        private final List<TaskWorktree> provisioned = new ArrayList<>();
+        private final List<TaskWorktree> cleaned = new ArrayList<>();
+        private RuntimeException provisionFailure;
+
+        private RecordingWorktreeService(Path worktreeRoot)
+        {
+            this.worktreeRoot = worktreeRoot;
+        }
+
+        @Override
+        public TaskWorktree provision(ProvisionWorktreeCommand command)
+        {
+            if (provisionFailure != null) {
+                throw provisionFailure;
+            }
+            TaskWorktree worktree = new TaskWorktree(
+                    command.taskId(),
+                    command.workspaceId(),
+                    command.physicalRepository(),
+                    worktreeRoot.resolve(command.taskId().toString()),
+                    "bytequay/task/" + command.taskId(),
+                    command.startCommit());
+            provisioned.add(worktree);
+            return worktree;
+        }
+
+        @Override
+        public WorktreeSnapshot inspect(TaskWorktree worktree)
+        {
+            return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false);
+        }
+
+        @Override
+        public void cleanup(TaskWorktree worktree)
+        {
+            cleaned.add(worktree);
+        }
     }
 
     private static final class RecordingWorkspaceService

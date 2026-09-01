@@ -1,24 +1,30 @@
 {
   "createRequest": {
-    "laneId": "deterministic",
-    "worktree": "<worktree>",
-    "repository": "bytequay/agent-e2e",
-    "title": "Agent HTTP test"
+    "workspaceId": "<workspace-id>",
+    "laneId": "codex",
+    "title": "Agent HTTP test",
+    "defaults": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    }
   },
   "createResponse": {
     "id": "<task-id>",
+    "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
-    "laneId": "deterministic",
-    "repository": "bytequay/agent-e2e",
-    "worktree": "<worktree>",
-    "permissionPolicy": "AUTO",
+    "laneId": "codex",
+    "defaults": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    },
     "state": "READY",
     "version": 0,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": null,
     "terminalReason": null,
-    "sessionReference": null,
     "metrics": {
       "inputTokens": 0,
       "cachedInputTokens": 0,
@@ -41,15 +47,20 @@
       "acceptedResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-1",
         "state": "RUNNING",
         "version": 1,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": null,
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-1>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -63,15 +74,20 @@
       "terminalResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-1",
         "state": "COMPLETED",
         "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-1>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -91,15 +107,20 @@
       "acceptedResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-1",
         "state": "COMPLETED",
         "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-1>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -113,15 +134,20 @@
       "terminalResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-1",
         "state": "COMPLETED",
         "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-1>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -141,15 +167,20 @@
       "acceptedResponse": {
         "id": "<turn-2>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-2",
         "state": "RUNNING",
         "version": 1,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": null,
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-2>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -163,15 +194,20 @@
       "terminalResponse": {
         "id": "<turn-2>",
         "taskId": "<task-id>",
-        "idempotencyKey": "request-2",
         "state": "COMPLETED",
         "version": 3,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
         "cancellationRequestedAt": null,
-        "providerTurnReference": "deterministic-<turn-2>",
-        "model": null,
+        "settings": {
+          "model": "test-model",
+          "effort": "high",
+          "permissionPolicy": "AUTO",
+          "sandboxPolicy": "WORKSPACE_WRITE",
+          "maximumRuntimeMillis": 1800000,
+          "attachments": []
+        },
         "terminalReason": null,
         "metrics": {
           "inputTokens": 0,
@@ -356,16 +392,8 @@
     "taskId": "<task-id>",
     "summary": {
       "finalResponse": "deterministic: second",
-      "workspace": {
-        "worktree": "file://<worktree>/",
-        "repository": {
-          "owner": "bytequay",
-          "name": "agent-e2e"
-        },
-        "branch": "main",
-        "head": "<head>",
-        "dirty": false
-      },
+      "resultBranch": "bytequay/task/<task-id>",
+      "resultHead": "<head>",
       "tests": [],
       "metrics": {
         "inputTokens": 0,
@@ -383,22 +411,20 @@
   },
   "finalTask": {
     "id": "<task-id>",
+    "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
-    "laneId": "deterministic",
-    "repository": "bytequay/agent-e2e",
-    "worktree": "<worktree>",
-    "permissionPolicy": "AUTO",
+    "laneId": "codex",
+    "defaults": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    },
     "state": "COMPLETED",
     "version": 5,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": "<timestamp>",
     "terminalReason": null,
-    "sessionReference": {
-      "laneId": "deterministic",
-      "contractVersion": 1,
-      "providerValue": "<provider-session>"
-    },
     "metrics": {
       "inputTokens": 0,
       "cachedInputTokens": 0,
@@ -409,16 +435,8 @@
     },
     "summary": {
       "finalResponse": "deterministic: second",
-      "workspace": {
-        "worktree": "file://<worktree>/",
-        "repository": {
-          "owner": "bytequay",
-          "name": "agent-e2e"
-        },
-        "branch": "main",
-        "head": "<head>",
-        "dirty": false
-      },
+      "resultBranch": "bytequay/task/<task-id>",
+      "resultHead": "<head>",
       "tests": [],
       "metrics": {
         "inputTokens": 0,

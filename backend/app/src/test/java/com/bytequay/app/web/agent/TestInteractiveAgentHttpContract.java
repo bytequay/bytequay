@@ -13,11 +13,25 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnMetrics;
+import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,7 +39,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestInteractiveAgentHttpContract
 {
-    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module());
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new Jdk8Module())
+            .registerModule(new JavaTimeModule());
+
+    @TempDir
+    private Path temporaryDirectory;
 
     @Test
     void createRequestCannotCarryRendererSelectedPathsOrAttachments()
@@ -36,7 +55,7 @@ class TestInteractiveAgentHttpContract
                 "Review the pull request",
                 "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(
-                        "gpt-5.6-codex",
+                        Optional.of("gpt-5.6-codex"),
                         Optional.of("high"),
                         "AUTO")));
 
@@ -117,10 +136,75 @@ class TestInteractiveAgentHttpContract
                 "Task",
                 "claude",
                 new InteractiveAgentHttpContract.TaskDefaults(
-                        "claude-opus-4-1",
+                        Optional.of("claude-opus-4-1"),
                         Optional.empty(),
                         "AUTO")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Codex");
+    }
+
+    @Test
+    void rejectsMissingModelAndInternalPermissionPolicies()
+    {
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                "workspace-1",
+                "Task",
+                "codex",
+                new InteractiveAgentHttpContract.TaskDefaults(
+                        Optional.empty(),
+                        Optional.empty(),
+                        "AUTO")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("model");
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                "workspace-1",
+                "Task",
+                "codex",
+                new InteractiveAgentHttpContract.TaskDefaults(
+                        Optional.of("gpt-5.6-codex"),
+                        Optional.empty(),
+                        "CI_AUTOFIX")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("AUTO");
+    }
+
+    @Test
+    void mapsLegacyMissingModelAndTurnSettingsWithoutLeakingHandles()
+    {
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        TaskId taskId = TaskId.random();
+        AgentTask task = AgentTask.created(
+                taskId,
+                Optional.of("workspace-1"),
+                true,
+                "Legacy task",
+                AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "repository"),
+                temporaryDirectory.toAbsolutePath(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                now).ready(now);
+        AgentTurn turn = new AgentTurn(
+                TurnId.random(),
+                taskId,
+                "private-idempotency-key",
+                TurnState.ACCEPTED,
+                0,
+                now,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                TurnMetrics.empty());
+
+        JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task));
+        JsonNode turnJson = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
+
+        assertThat(taskJson.path("defaults").get("model").isNull()).isTrue();
+        assertThat(taskJson.toString()).doesNotContain("worktree", "repository", "sessionReference");
+        assertThat(turnJson.get("settings").isNull()).isTrue();
+        assertThat(turnJson.toString()).doesNotContain("private-idempotency-key", "providerTurnReference");
     }
 }

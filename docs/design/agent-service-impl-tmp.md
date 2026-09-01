@@ -71,8 +71,9 @@ Already implemented and to be reused:
 - [x] Task JSONL, monotonic task sequence, replay, and SSE publication.
 - [x] Cancel, approval resolution, completion, retention, and provider-status
   HTTP endpoints.
-- [x] `scripts/agent-e2e.sh --interactive` as a real Codex/Claude backend
-  reference client.
+- [x] `scripts/agent-e2e.sh --interactive` as a real Codex backend reference
+  client; the separate Claude driver remains covered below its CP11 public
+  activation gate.
 - [x] Existing automated regression floors for task/turn services, JSONL,
   replay/SSE, provider mapping, SQLite stores, HTTP security, and completion.
 
@@ -217,8 +218,9 @@ Implementation and decisions:
   regression test.
 - [x] Remove the stale non-interactive branch from `agent-e2e.sh` and its docs,
   rather than restoring a test-only deterministic driver to production.
-- [x] Keep `--interactive --provider codex|claude` as the manual real-provider
-  reference path.
+- [x] Keep `--interactive --provider codex|claude` through the CP0 reference
+  baseline. CP3's workspace-owned public route intentionally narrows the shell
+  to Codex until CP11 activates the reviewed Claude request contract.
 
 Exit gate:
 
@@ -670,7 +672,11 @@ tail, and publishes only after the event is flushed and marked. Startup keeps
 agent routes and mutation monitors behind one boolean gate while it drains the
 outbox, reconciles existing agent execution, and drains again. This is a
 foundation slice: task/turn/approval mutations have not all migrated to the
-unit of work, and the workspace-scoped public routes remain inactive.
+unit of work. Interactive creation now resolves the selected repository's
+exact `refs/remotes/origin/<default-branch>^{commit}`, provisions a managed
+task worktree, and publishes only workspace-scoped, path-free task responses.
+Task creation probes provider readiness and validates the requested model and
+effort against the existing cached catalog before resolving the workspace.
 
 Implementation:
 
@@ -708,16 +714,17 @@ Implementation:
 - [x] Make `cleanup(worktree)` revalidate those facts, refuse dirty or open Git
   state, use non-forced removal, remove only the worktree, and always retain the
   generated branch.
-- [ ] Activate workspace-owned interactive task creation: probe readiness,
-  resolve the exact start commit, provision and verify the worktree, allocate
-  task resources, then publish the task as `READY`. If provisioning reports a
-  half-finished or mismatched orphan, preserve it and return an actionable
-  diagnostic; do not adopt or delete it automatically.
-- [ ] Activate workspace-scoped task list/read routes with the frozen narrowed
+- [x] Activate workspace-owned interactive task creation: probe readiness,
+  validate the catalogued model and effort, resolve the exact start commit,
+  provision and verify the worktree, allocate task resources, then publish the
+  task as `READY`. If provisioning reports a half-finished or mismatched orphan,
+  preserve it and return an actionable diagnostic; do not adopt or delete it
+  automatically.
+- [x] Activate workspace-scoped task list/read routes with the frozen narrowed
   CP2 response records. Reject a route/task workspace mismatch and remove the
   old renderer path/repository plus provider-session/turn-reference fields
   from the public route in the same change.
-- [ ] Re-probe readiness before every accepted turn; a failed probe creates no
+- [x] Re-probe readiness before every accepted turn; a failed probe creates no
   turn or delivery and leaves the ready worktree unchanged.
 - [ ] Replace `AgentWorkspaceService` and cherry-pick's private
   `CherryPickWorkspace` creation/removal with the shared service.
@@ -749,7 +756,7 @@ Implementation:
 - [x] Serialize workspace unwatch against worktree provisioning so no
   task worktree can be provisioned after removal begins; add service/controller
   race coverage rather than relying on a query-only busy check.
-- [ ] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
+- [x] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
   workspace fixture before activating the new public request.
 - [ ] Keep provider delivery/process uncertainty in the existing typed
   `RECOVERING` task state. A worktree ownership mismatch is instead an
@@ -779,7 +786,7 @@ Exit gate:
 - [ ] Startup serves no agent mutation endpoint before event-outbox and owned
   provider-process recovery finishes, and no task/event read or SSE stream
   exposes partially recovered task state. There is no worktree startup scan.
-- [ ] HTTP tests prove workspace-scoped list/read, route/task mismatch rejection,
+- [x] HTTP tests prove workspace-scoped list/read, route/task mismatch rejection,
   path-free creation, and narrowed task/turn responses after activation.
 - [ ] Backend verification plus shared workflow regression suites pass.
 

@@ -23,8 +23,12 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GlobalExceptionHandler;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -53,6 +57,12 @@ class TestAgentHttpErrors
         driverRegistry = mock(AgentDriverRegistry.class);
         AgentController controller = new AgentController(
                 taskService,
+                new InteractiveAgentTaskCreator(
+                        taskService,
+                        driverRegistry,
+                        mock(ModelSettingsService.class),
+                        mock(WorkspaceRepositoryService.class),
+                        mock(GitCommandRunner.class)),
                 turnService,
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
@@ -69,9 +79,13 @@ class TestAgentHttpErrors
             throws Exception
     {
         String taskId = TaskId.random().toString();
-        when(taskService.get(any())).thenThrow(new AgentTaskNotFoundException(TaskId.valueOf(taskId)));
-        mvc.perform(get("/agent/tasks/{taskId}", taskId))
+        when(taskService.getInteractive(any(), any()))
+                .thenThrow(new AgentTaskNotFoundException(TaskId.valueOf(taskId)));
+        mvc.perform(get("/agent/tasks/{taskId}", taskId)
+                        .queryParam("workspaceId", "workspace-1"))
                 .andExpect(status().isNotFound());
+        mvc.perform(get("/agent/tasks/{taskId}", taskId))
+                .andExpect(status().isBadRequest());
 
         when(turnService.start(any())).thenThrow(new AgentConflictException("active turn"));
         mvc.perform(post("/agent/tasks/{taskId}/turns", taskId)

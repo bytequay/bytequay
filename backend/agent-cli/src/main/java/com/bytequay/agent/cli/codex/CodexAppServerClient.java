@@ -23,7 +23,6 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -144,7 +143,7 @@ final class CodexAppServerClient
             try {
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
-                        ImmutableMap.of());
+                        new CodexProtocol.InitializeCapabilities(true));
                 await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
                 sendNotification("initialized", new CodexProtocol.EmptyParams());
             }

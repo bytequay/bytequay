@@ -334,7 +334,12 @@ const referenceRecordBindings = [
       title: "value",
       version: "value",
     }),
-    component("capabilities"),
+    component("capabilities", "capabilities", { experimentalApi: false }),
+  ]),
+  recordBinding("InitializeCapabilities", "encode", [
+    schemaSource("v2", "InitializeCapabilities"),
+  ], [
+    component("experimentalApi"),
   ]),
   recordBinding("ThreadStartParams", "encode", [schemaSource("v2", "ThreadStartParams")], [
     component("cwd"),
@@ -388,6 +393,7 @@ const referenceRecordBindings = [
   recordBinding("TurnStartParams", "encode", [schemaSource("v2", "TurnStartParams")], [
     component("threadId"),
     component("input", "input", [{ type: "text", text: "value" }]),
+    component("environments"),
   ]),
   recordBinding("ThreadParams", "encode", [
     schemaSource("v2", "ThreadUnsubscribeParams"),

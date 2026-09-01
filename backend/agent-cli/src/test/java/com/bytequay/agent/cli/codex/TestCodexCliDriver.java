@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -56,6 +58,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -386,6 +389,57 @@ class TestCodexCliDriver
         driver.close();
     }
 
+    @Test
+    void bindsEachTaskToItsOwnVerifiedExecutionEnvironment()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        Path second = Files.createDirectories(worktree.resolve("second-task"));
+
+        AgentSession first = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        first.start(command("first"));
+        AgentSession other = driver.open(
+                context("task-2", second, Optional.empty(), (request, timeout) -> new CompletableFuture<>()),
+                event -> {});
+
+        // One executor process per task, each rooted in its own worktree.
+        assertThat(supervisor.execServerCwds())
+                .containsExactly(worktree.toRealPath(), second.toRealPath());
+        assertThat(supervisor.execServerOwners())
+                .extracting(ProcessOwner::kind)
+                .containsOnly(ProcessOwner.Kind.TASK_EXEC_SERVER);
+        assertThat(supervisor.execServerOwners())
+                .extracting(ProcessOwner::id)
+                .containsExactly("bytequay-task-task-1", "bytequay-task-task-2")
+                .doesNotHaveDuplicates();
+
+        // Every registration names its own executor, and both thread and turn select it.
+        assertThat(supervisor.server().environmentAdds())
+                .extracting(node -> node.path("environmentId").asText())
+                .contains("bytequay-task-task-1", "bytequay-task-task-2");
+        // Each thread pins its own environment, and the one turn that ran selected the same one.
+        assertThat(supervisor.server().threadEnvironmentIds())
+                .containsExactly("bytequay-task-task-1", "bytequay-task-task-2");
+        assertThat(supervisor.server().turnEnvironmentIds()).containsExactly("bytequay-task-task-1");
+
+        other.close();
+        first.close();
+    }
+
+    @Test
+    void refusesASessionWhoseEnvironmentResolvesAnotherDirectory()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportForeignEnvironmentCwd();
+        CodexCliDriver driver = driver(supervisor);
+
+        // A verified handshake is the only thing standing between a task and another task's files.
+        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("different working directory");
+    }
+
     private CodexCliDriver driver(ProcessSupervisor supervisor)
     {
         return new CodexCliDriver(
@@ -422,11 +476,20 @@ class TestCodexCliDriver
             Optional<AgentSessionRef> reference,
             AgentApprovalHandler approvals)
     {
+        return context("task-1", worktree, reference, approvals);
+    }
+
+    private static AgentSessionContext context(
+            String taskId,
+            Path taskWorktree,
+            Optional<AgentSessionRef> reference,
+            AgentApprovalHandler approvals)
+    {
         return new AgentSessionContext(
-                "task-1",
-                worktree,
-                worktree,
-                worktree.resolve("provider"),
+                taskId,
+                taskWorktree,
+                taskWorktree,
+                taskWorktree.resolve("provider"),
                 AgentPermissionPolicy.AUTO,
                 reference,
                 approvals);
@@ -446,6 +509,8 @@ class TestCodexCliDriver
         private boolean loggedIn = true;
         private boolean executableMissing;
         private AppServerProcess server;
+        private final List<Path> execServerCwds = new CopyOnWriteArrayList<>();
+        private final List<ProcessOwner> execServerOwners = new CopyOnWriteArrayList<>();
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
         {
@@ -505,6 +570,21 @@ class TestCodexCliDriver
             }
         }
 
+        private boolean foreignEnvironmentCwd;
+
+        private void reportForeignEnvironmentCwd()
+        {
+            foreignEnvironmentCwd = true;
+        }
+
+        private String environmentCwd()
+        {
+            if (foreignEnvironmentCwd) {
+                return "file:///tmp";
+            }
+            return execServerCwds.isEmpty() ? "file:///unset" : execServerCwds.getLast().toUri().toString();
+        }
+
         private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (executableMissing) {
@@ -520,13 +600,30 @@ class TestCodexCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
                 return loggedIn ? ImmediateProcess.success() : ImmediateProcess.failure();
             }
-            server = new AppServerProcess(objectMapper, output, failThreadStart);
+            if (spec.argv().contains("exec-server")) {
+                // The real executor announces its loopback listener on stdout and then stays up.
+                execServerCwds.add(spec.workingDirectory());
+                execServerOwners.add(spec.owner());
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("ws://127.0.0.1:45671\n"));
+                return new IdleProcess();
+            }
+            server = new AppServerProcess(objectMapper, output, failThreadStart, this::environmentCwd);
             return server;
         }
 
         private AppServerProcess server()
         {
             return server;
+        }
+
+        private List<Path> execServerCwds()
+        {
+            return execServerCwds;
+        }
+
+        private List<ProcessOwner> execServerOwners()
+        {
+            return execServerOwners;
         }
 
         private void versionOutput(String versionOutput)
@@ -553,18 +650,55 @@ class TestCodexCliDriver
         private final boolean failThreadStart;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final AtomicInteger turns = new AtomicInteger();
+        private final AtomicInteger threads = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
+        private final List<JsonNode> environmentAdds = new CopyOnWriteArrayList<>();
+        private final List<String> threadEnvironmentIds = new CopyOnWriteArrayList<>();
+        private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
+        private final Supplier<String> environmentCwd;
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
         private volatile CompletableFuture<Void> interruptCompletionGate = CompletableFuture.completedFuture(null);
         private volatile String activeTurn;
 
-        private AppServerProcess(ObjectMapper objectMapper, ProcessOutputSink output, boolean failThreadStart)
+        private AppServerProcess(
+                ObjectMapper objectMapper,
+                ProcessOutputSink output,
+                boolean failThreadStart,
+                Supplier<String> environmentCwd)
         {
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
+            this.environmentCwd = environmentCwd;
+        }
+
+        /** Real App Server hands out a distinct thread per start; the fixture must too. */
+        private String nextThreadId()
+        {
+            int index = threads.incrementAndGet();
+            return index == 1 ? "thread-1" : "thread-" + index;
+        }
+
+        private List<JsonNode> environmentAdds()
+        {
+            return environmentAdds;
+        }
+
+        private List<String> threadEnvironmentIds()
+        {
+            return threadEnvironmentIds;
+        }
+
+        private List<String> turnEnvironmentIds()
+        {
+            return turnEnvironmentIds;
+        }
+
+        private void recordSelection(List<String> into, JsonNode params)
+        {
+            params.path("environments").forEach(entry -> into.add(entry.path("environmentId").asText()));
         }
 
         @Override
@@ -598,14 +732,21 @@ class TestCodexCliDriver
             long id = message.path("id").asLong();
             switch (method) {
                 case "initialize" -> respond(id, "{}");
+                case "environment/add" -> {
+                    environmentAdds.add(message.path("params").deepCopy());
+                    respond(id, "{}");
+                }
+                case "environment/info" -> respond(id, "{\"shell\":{\"name\":\"zsh\",\"path\":\"/bin/zsh\"},"
+                        + "\"cwd\":\"" + environmentCwd.get() + "\"}");
                 case "initialized" -> {}
                 case "thread/start" -> {
+                    recordSelection(threadEnvironmentIds, message.path("params"));
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
                     if (failThreadStart) {
                         emit("{\"id\":" + id + ",\"error\":{\"code\":-32602,\"message\":\"unsupported protocol\"}}");
                     }
                     else {
-                        respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                        respond(id, "{\"thread\":{\"id\":\"" + nextThreadId() + "\"}}");
                     }
                 }
                 case "thread/resume" -> {
@@ -615,6 +756,7 @@ class TestCodexCliDriver
                 }
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
+                    recordSelection(turnEnvironmentIds, message.path("params"));
                     activeTurn = "turn-" + turns.incrementAndGet();
                     respond(id, "{\"turn\":{\"id\":\"" + activeTurn
                             + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");
@@ -740,6 +882,58 @@ class TestCodexCliDriver
         public void cancel()
         {
             exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
+        }
+
+        @Override
+        public void close()
+        {
+            cancel();
+        }
+    }
+
+    /** Stands in for the exec-server: announces its listener, then stays up until closed. */
+    private static final class IdleProcess
+            implements ManagedProcess
+    {
+        private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
+
+        @Override
+        public String launchId()
+        {
+            return "scripted";
+        }
+
+        @Override
+        public long pid()
+        {
+            return 4343;
+        }
+
+        @Override
+        public CompletionStage<Void> write(ByteBuffer bytes)
+        {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public void closeInput() {}
+
+        @Override
+        public CompletionStage<ProcessExit> exit()
+        {
+            return exit;
+        }
+
+        @Override
+        public void cancel()
+        {
+            exit.complete(new ProcessExit(
+                    0,
+                    ProcessExit.Reason.CANCELLED,
+                    ProcessExit.TreeTermination.VERIFIED_STOPPED,
+                    Duration.ZERO,
+                    false,
+                    false));
         }
 
         @Override

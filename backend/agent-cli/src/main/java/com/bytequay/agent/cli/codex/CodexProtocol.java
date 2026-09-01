@@ -869,13 +869,24 @@ final class CodexProtocol
         }
     }
 
-    record InitializeParams(ClientInfo clientInfo, Map<String, Object> capabilities)
+    record InitializeParams(ClientInfo clientInfo, InitializeCapabilities capabilities)
     {
         InitializeParams
         {
             requireNonNull(clientInfo, "clientInfo is null");
-            capabilities = ImmutableMap.copyOf(requireNonNull(capabilities, "capabilities is null"));
+            requireNonNull(capabilities, "capabilities is null");
         }
+    }
+
+    /**
+     * Client capabilities declared at initialize.
+     *
+     * <p>App Server refuses every environment method with {@code -32600} unless
+     * {@code experimentalApi} is declared here, so a task-owned execution environment is
+     * unreachable without it.
+     */
+    record InitializeCapabilities(boolean experimentalApi)
+    {
     }
 
     record EmptyParams() {}
@@ -1032,13 +1043,25 @@ final class CodexProtocol
         }
     }
 
-    record TurnStartParams(String threadId, List<TextInput> input)
+    /**
+     * Starts a turn, selecting the task environment for this turn and the ones after it.
+     *
+     * <p>{@code environments} carries the same three-valued rule as {@link ThreadStartParams}:
+     * omitted keeps the thread's sticky selection, empty disables environment access for the turn,
+     * and non-empty selects its first entry.
+     */
+    record TurnStartParams(
+            String threadId,
+            List<TextInput> input,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<List<TurnEnvironmentParams>> environments)
     {
         TurnStartParams
         {
             checkIdentifier(threadId, "threadId");
             input = ImmutableList.copyOf(requireNonNull(input, "input is null"));
             checkArgument(!input.isEmpty(), "input is empty");
+            environments = requireNonNull(environments, "environments is null").map(ImmutableList::copyOf);
         }
     }
 

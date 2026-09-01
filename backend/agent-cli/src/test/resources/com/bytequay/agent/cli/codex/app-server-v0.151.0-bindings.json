@@ -1920,7 +1920,25 @@
           "wireName": "capabilities",
           "required": false,
           "nullable": true,
-          "sample": {}
+          "sample": {
+            "experimentalApi": false
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "InitializeCapabilities",
+      "mode": "encode",
+      "sources": [
+        "v2#InitializeCapabilities"
+      ],
+      "components": [
+        {
+          "javaName": "experimentalApi",
+          "wireName": "experimentalApi",
+          "required": false,
+          "nullable": false,
+          "sample": false
         }
       ]
     },
@@ -2178,6 +2196,13 @@
               "text": "value"
             }
           ]
+        },
+        {
+          "javaName": "environments",
+          "wireName": "environments",
+          "required": false,
+          "nullable": true,
+          "sample": []
         }
       ]
     },

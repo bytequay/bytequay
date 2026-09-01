@@ -121,6 +121,7 @@ public final class CodexCliDriver
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final CodexAppServerClient client;
+    private final TaskExecServerManager execServers;
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
@@ -149,6 +150,7 @@ public final class CodexCliDriver
                         MAX_APP_SERVER_STDERR_BYTES),
                 objectMapper,
                 redactor);
+        this.execServers = new TaskExecServerManager(supervisor, client, executable, this.environment, redactor);
     }
 
     @Override
@@ -267,6 +269,11 @@ public final class CodexCliDriver
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
         Optional<AgentSessionRef> existing = context.sessionReference();
+        // The environment is registered and verified before any thread exists, including on resume:
+        // the previous executor died with its backend, and a task must never silently fall back to
+        // App Server's shared default environment.
+        CodexProtocol.TurnEnvironmentParams environment =
+                execServers.open(context.taskId(), context.worktree());
         String method;
         Object params;
         if (existing.isPresent()) {
@@ -288,9 +295,9 @@ public final class CodexCliDriver
                     "on-request",
                     "workspace-write",
                     "ByteQuay",
-                    // Absent, not empty: an empty list would disable environment access instead of
-                    // selecting the default. A task environment is selected here once one exists.
-                    Optional.empty());
+                    // Exactly one entry: a non-empty list selects its first environment, while an
+                    // empty one would disable environment access outright.
+                    Optional.of(ImmutableList.of(environment)));
         }
 
         rememberAppServerVersion();
@@ -309,7 +316,8 @@ public final class CodexCliDriver
         CodexSession session = new CodexSession(
                 new AgentSessionRef(LANE_ID, CONTRACT_VERSION, threadId),
                 context,
-                events);
+                events,
+                environment);
         client.register(threadId, session);
         return session;
     }
@@ -317,6 +325,7 @@ public final class CodexCliDriver
     @Override
     public void close()
     {
+        execServers.close();
         client.close();
     }
 
@@ -440,6 +449,7 @@ public final class CodexCliDriver
         private final AgentSessionRef reference;
         private final AgentSessionContext context;
         private final AgentEventSink events;
+        private final CodexProtocol.TurnEnvironmentParams environment;
         private final CodexEventMapper eventMapper;
         private CodexRunningTurn running;
         private boolean closed;
@@ -447,11 +457,13 @@ public final class CodexCliDriver
         private CodexSession(
                 AgentSessionRef reference,
                 AgentSessionContext context,
-                AgentEventSink events)
+                AgentEventSink events,
+                CodexProtocol.TurnEnvironmentParams environment)
         {
             this.reference = requireNonNull(reference, "reference is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
+            this.environment = requireNonNull(environment, "environment is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
         }
 
@@ -477,7 +489,8 @@ public final class CodexCliDriver
 
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
-                    ImmutableList.of(new CodexProtocol.TextInput("text", command.message())));
+                    ImmutableList.of(new CodexProtocol.TextInput("text", command.message())),
+                    Optional.of(ImmutableList.of(environment)));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {
@@ -667,6 +680,7 @@ public final class CodexCliDriver
             if (running != null) {
                 running.cancel();
             }
+            execServers.close(context.taskId());
             try {
                 client.request(
                         "thread/unsubscribe",

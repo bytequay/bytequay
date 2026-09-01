@@ -908,8 +908,8 @@ Primary files:
 Purpose: turn the CP1 compatibility proof into the production Codex execution
 path and prevent one task or old process from mutating another task's worktree.
 
-**Status (2026-09-01): launch protocol landed; Codex isolation and quiescence
-open.** The gated launch protocol, the durable ownership row, and fail-closed
+**Status (2026-09-02): launch protocol and task execution isolation landed;
+quiescence open.** The gated launch protocol, the durable ownership row, and fail-closed
 process recovery are implemented and wired. The owning row was deliberately
 narrowed to one fact after review; see
 [Agent Service Design](agent-service.md) section 5.1. Everything below the
@@ -929,17 +929,19 @@ Implementation:
 - [x] Persist launch ownership and opaque owner for the shared App Server and
   each Claude turn. The task executor does not exist yet and is covered by the
   `TaskExecServerManager` box below.
-- [~] Add `TaskExecServerManager` using only the contract proven in CP1. The
-  contract is now frozen: the reference projection covers `EnvironmentAddParams`,
-  `EnvironmentInfoParams`, `EnvironmentInfoResponse`, `EnvironmentShellInfo`, and
-  `TurnEnvironmentParams` (63 records to 68), regenerated and verified against the
-  exact v0.151.0 schema. The manager itself is not written yet.
-- [ ] Launch one version-matched executor/environment per active Codex task.
-- [ ] Persist one unique environment ID per task, reuse it only for that task,
+- [x] Add `TaskExecServerManager` using only the contract proven in CP1. The
+  reference projection now covers `EnvironmentAddParams`, `EnvironmentInfoParams`,
+  `EnvironmentInfoResponse`, `EnvironmentShellInfo`, `TurnEnvironmentParams`, and
+  `InitializeCapabilities` (63 records to 69), regenerated and verified against
+  the exact v0.151.0 schema.
+- [x] Launch one version-matched executor/environment per active Codex task.
+- [x] Persist one unique environment ID per task, reuse it only for that task,
   and never assign it to another task. The v0.151.0 reference protocol has no
-  unregister operation, so correctness must not depend on one.
-- [ ] Re-register and verify a replacement environment before thread resume.
-- [ ] Select exactly that task's environment for thread and turn start.
+  unregister operation, so correctness must not depend on one. The identifier is
+  derived from the immutable owning task ID rather than stored, which makes
+  reassignment impossible by construction and needs no row to keep in step.
+- [x] Re-register and verify a replacement environment before thread resume.
+- [x] Select exactly that task's environment for thread and turn start.
 - [ ] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior.
 - [ ] Adopt the CP1-proven isolated subprocess environment, pre-turn
@@ -1001,6 +1003,16 @@ Exit gate:
   directly owned process proof and App Server item/background-terminal
   registries, reject the Codex lane for release rather than merely leaving one
   `OPEN` task blocked with the recovery-required projection.
+
+Runtime facts proven against the real v0.151.0 CLI while implementing this,
+which the generated schema alone does not state:
+
+- Every environment method fails with `-32600` unless the client declares the
+  `experimentalApi` capability at initialize.
+- `environment/info` reports `cwd` as a canonicalized `file://` URI, so it must
+  be compared as a real path rather than as text.
+- The executor announces its loopback listener as one `ws://127.0.0.1:<port>`
+  line on stdout.
 
 Known gaps in the landed part:
 

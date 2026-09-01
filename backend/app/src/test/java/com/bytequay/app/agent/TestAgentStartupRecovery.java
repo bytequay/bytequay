@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
@@ -41,6 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -62,14 +66,19 @@ class TestAgentStartupRecovery
                 ImmutableList.of(),
                 ImmutableList.of(after),
                 ImmutableList.of());
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, servingGate)
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
+
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate)
                 .afterSingletonsInstantiated();
 
-        InOrder order = inOrder(eventService, turnStore, taskStore);
+        InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
         order.verify(eventService).drain(before.eventId());
         order.verify(turnStore).listRecoverable();
         order.verify(taskStore).listLive();
         order.verify(eventService).drain(after.eventId());
+        order.verify(supervisor).recoverOwnedProcesses();
+        order.verify(supervisor).acknowledge("stale-launch");
         assertThat(servingGate.isReady()).isTrue();
     }
 
@@ -86,11 +95,13 @@ class TestAgentStartupRecovery
         when(outboxStore.listPending(100)).thenReturn(ImmutableList.of(event));
         doThrow(new IllegalStateException("broken log")).when(eventService).drain(event.eventId());
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, servingGate)
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
-        verifyNoInteractions(turnStore, taskStore);
+        verifyNoInteractions(turnStore, taskStore, supervisor);
     }
 
     @Test
@@ -104,11 +115,57 @@ class TestAgentStartupRecovery
         when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
         when(turnStore.listRecoverable()).thenThrow(new IllegalStateException("broken recovery"));
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), servingGate)
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
-        verifyNoInteractions(eventService, taskStore);
+        verifyNoInteractions(eventService, taskStore, supervisor);
+    }
+
+    @Test
+    void keepsTheGateClosedWhenAnOwnedProcessCannotBeVerifiedStopped()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses())
+                .thenReturn(ImmutableList.of(stopped("clean"), unverifiable("blocked")));
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate)
+                .afterSingletonsInstantiated();
+
+        // An old process may still be writing to a worktree, so no agent operation may be served.
+        assertThat(servingGate.isReady()).isFalse();
+        verify(supervisor).acknowledge("clean");
+        verify(supervisor, never()).acknowledge("blocked");
+    }
+
+    private static OwnedProcessRecovery stopped(String launchId)
+    {
+        return new OwnedProcessRecovery(
+                launchId,
+                Optional.empty(),
+                Optional.empty(),
+                OwnedProcessRecovery.Outcome.VERIFIED_STOPPED,
+                "stopped");
+    }
+
+    private static OwnedProcessRecovery unverifiable(String launchId)
+    {
+        return new OwnedProcessRecovery(
+                launchId,
+                Optional.empty(),
+                Optional.empty(),
+                OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                "unverifiable");
     }
 
     private static AgentMaintenance maintenance(AgentTaskStore taskStore, AgentTurnStore turnStore)

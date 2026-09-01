@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -33,17 +35,20 @@ public final class AgentStartupRecovery
     private final AgentEventOutboxStore outboxStore;
     private final AgentEventService eventService;
     private final AgentMaintenance maintenance;
+    private final ProcessSupervisor supervisor;
     private final AgentServingGate servingGate;
 
     public AgentStartupRecovery(
             AgentEventOutboxStore outboxStore,
             AgentEventService eventService,
             AgentMaintenance maintenance,
+            ProcessSupervisor supervisor,
             AgentServingGate servingGate)
     {
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
         this.maintenance = requireNonNull(maintenance, "maintenance is null");
+        this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
     }
 
@@ -54,11 +59,42 @@ public final class AgentStartupRecovery
             drainPendingEvents();
             maintenance.recover();
             drainPendingEvents();
+            if (!recoverOwnedProcesses()) {
+                log.error("Agent operations remain unavailable: an owned provider process could not be "
+                        + "verified stopped, so a worktree may still have a live writer");
+                return;
+            }
             servingGate.open();
         }
         catch (RuntimeException failure) {
             log.error("Agent startup recovery failed; agent operations remain unavailable", failure);
         }
+    }
+
+    /**
+     * Stops provider process trees left by an earlier backend instance.
+     *
+     * <p>Until a durable owner row links a launch to one task claim, an unverifiable tree blocks
+     * every agent operation rather than one task. Its launch marker is retained for inspection and
+     * is never acknowledged, so the block survives a restart until the process is resolved.
+     *
+     * @return true when every recovered launch is proven unlaunched or verified stopped
+     */
+    private boolean recoverOwnedProcesses()
+    {
+        boolean quiescent = true;
+        for (OwnedProcessRecovery recovery : supervisor.recoverOwnedProcesses()) {
+            if (recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE) {
+                log.error("Owned provider process {} owned by {} is unverifiable: {}",
+                        recovery.launchId(), recovery.owner().orElse(null), recovery.detail());
+                quiescent = false;
+                continue;
+            }
+            log.info("Owned provider process {} recovered as {}: {}",
+                    recovery.launchId(), recovery.outcome(), recovery.detail());
+            supervisor.acknowledge(recovery.launchId());
+        }
+        return quiescent;
     }
 
     private void drainPendingEvents()

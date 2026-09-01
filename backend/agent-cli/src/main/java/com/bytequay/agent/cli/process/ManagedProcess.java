@@ -21,9 +21,16 @@ public interface ManagedProcess
         extends AutoCloseable
 {
     /**
-     * Returns the operating-system process ID.
+     * Returns the opaque launch identifier used for durable acknowledgement.
      *
-     * @return child process ID
+     * @return agent-cli-local launch identifier
+     */
+    String launchId();
+
+    /**
+     * Returns the operating-system process ID of the payload, which also leads its process group.
+     *
+     * @return payload process ID
      */
     long pid();
 
@@ -39,7 +46,12 @@ public interface ManagedProcess
     void closeInput();
 
     /**
-     * Returns the terminal process result after output has been drained.
+     * Returns the terminal process result after output has been drained and the owned process tree
+     * has been verified.
+     *
+     * <p>Root exit alone is never sufficient: the result distinguishes
+     * {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE} so a caller can keep a worktree-mutation
+     * claim held when a group member survives.
      *
      * @return stage completed exactly once with the terminal result
      */

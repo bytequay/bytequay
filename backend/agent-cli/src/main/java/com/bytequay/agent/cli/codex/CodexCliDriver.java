@@ -15,10 +15,10 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -124,13 +124,9 @@ public final class CodexCliDriver
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
-    public CodexCliDriver(String executable, ObjectMapper objectMapper)
+    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor)
     {
-        this(
-                executable,
-                objectMapper,
-                new DefaultProcessSupervisor(),
-                inheritedEnvironment());
+        this(executable, objectMapper, supervisor, inheritedEnvironment());
     }
 
     CodexCliDriver(
@@ -146,6 +142,7 @@ public final class CodexCliDriver
         this.client = new CodexAppServerClient(
                 supervisor,
                 processSpec(
+                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-app-server"),
                         ImmutableList.of(executable, "app-server", "--listen", "stdio://"),
                         APP_SERVER_RUNTIME,
                         MAX_APP_SERVER_STDOUT_BYTES,
@@ -372,16 +369,18 @@ public final class CodexCliDriver
             throws InterruptedException
     {
         StringBuilder output = new StringBuilder();
-        ManagedProcess process = supervisor.start(
+        ManagedProcess process = supervisor.prepare(
                 processSpec(
+                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
                         ImmutableList.copyOf(command),
                         maximumRuntime,
                         MAX_PROBE_OUTPUT_BYTES,
-                        MAX_PROBE_OUTPUT_BYTES),
-                (stream, bytes) -> append(output, bytes));
+                        MAX_PROBE_OUTPUT_BYTES))
+                .start((stream, bytes) -> append(output, bytes));
         try {
             ProcessExit result = process.exit().toCompletableFuture()
                     .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
+            supervisor.acknowledge(process.launchId());
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
                 return new CommandResult(-1, "Codex CLI command timed out");
             }
@@ -394,12 +393,14 @@ public final class CodexCliDriver
     }
 
     private ProcessSpec processSpec(
+            ProcessOwner owner,
             List<String> argv,
             Duration maximumRuntime,
             int maximumStdoutBytes,
             int maximumStderrBytes)
     {
         return new ProcessSpec(
+                owner,
                 argv,
                 Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                 environment,

@@ -14,6 +14,8 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -463,7 +465,47 @@ class TestCodexCliDriver
         }
 
         @Override
-        public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
+        public PreparedProcess prepare(ProcessSpec spec)
+        {
+            return new ScriptedLaunch(spec);
+        }
+
+        @Override
+        public List<OwnedProcessRecovery> recoverOwnedProcesses()
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
+        public void acknowledge(String launchId) {}
+
+        private final class ScriptedLaunch
+                implements PreparedProcess
+        {
+            private final ProcessSpec spec;
+
+            private ScriptedLaunch(ProcessSpec spec)
+            {
+                this.spec = spec;
+            }
+
+            @Override
+            public String launchId()
+            {
+                return "scripted";
+            }
+
+            @Override
+            public void abandon() {}
+
+            @Override
+            public ManagedProcess start(ProcessOutputSink output)
+            {
+                return ScriptedProcessSupervisor.this.start(spec, output);
+            }
+        }
+
+        private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (executableMissing) {
                 throw new AgentUnavailableException("Unable to start process: /fake/codex", new IOException("missing"));
@@ -523,6 +565,12 @@ class TestCodexCliDriver
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
+        }
+
+        @Override
+        public String launchId()
+        {
+            return "scripted";
         }
 
         @Override
@@ -625,7 +673,7 @@ class TestCodexCliDriver
 
         private void disconnect()
         {
-            exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, Duration.ZERO, false, false));
+            exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
         }
 
         private int resumeCount()
@@ -691,7 +739,7 @@ class TestCodexCliDriver
         @Override
         public void cancel()
         {
-            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, Duration.ZERO, false, false));
+            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
         }
 
         @Override
@@ -707,13 +755,19 @@ class TestCodexCliDriver
         private static ImmediateProcess success()
         {
             return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(0, ProcessExit.Reason.EXITED, Duration.ZERO, false, false)));
+                    new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false)));
         }
 
         private static ImmediateProcess failure()
         {
             return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(1, ProcessExit.Reason.EXITED, Duration.ZERO, false, false)));
+                    new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false)));
+        }
+
+        @Override
+        public String launchId()
+        {
+            return "scripted";
         }
 
         @Override

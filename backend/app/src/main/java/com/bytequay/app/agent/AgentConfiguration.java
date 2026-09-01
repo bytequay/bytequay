@@ -16,6 +16,8 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
+import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
@@ -63,11 +65,20 @@ import java.util.concurrent.ScheduledExecutorService;
 @EnableConfigurationProperties(AgentProperties.class)
 public class AgentConfiguration
 {
+    @Bean
+    public ProcessSupervisor processSupervisor(AgentProperties properties)
+    {
+        return new DefaultProcessSupervisor(properties.runtimeRoot().resolve("_processes"));
+    }
+
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(name = "bytequay.agent.codex-enabled", havingValue = "true")
-    public CodexCliDriver codexCliDriver(AgentProperties properties, ObjectMapper objectMapper)
+    public CodexCliDriver codexCliDriver(
+            AgentProperties properties,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor)
     {
-        return new CodexCliDriver(properties.codexExecutable(), objectMapper);
+        return new CodexCliDriver(properties.codexExecutable(), objectMapper, supervisor);
     }
 
     @Bean
@@ -90,9 +101,10 @@ public class AgentConfiguration
     public ClaudeCliDriver claudeCliDriver(
             AgentProperties properties,
             ObjectMapper objectMapper,
-            ClaudePermissionBroker permissions)
+            ClaudePermissionBroker permissions,
+            ProcessSupervisor supervisor)
     {
-        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions);
+        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor);
     }
 
     @Bean

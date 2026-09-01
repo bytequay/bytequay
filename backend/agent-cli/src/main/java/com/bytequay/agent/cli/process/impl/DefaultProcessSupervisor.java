@@ -13,22 +13,38 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
+import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -41,38 +57,480 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Default JDK process implementation used by the Codex and Claude CLI lanes. */
+/**
+ * Default JDK process implementation used by the Codex and Claude CLI lanes.
+ *
+ * <p>Every payload is spawned behind a gated launcher so a crash between the durable launch intent
+ * and the operating-system process can never leave an unrecorded writer running. The launcher makes
+ * the payload its own process-group leader, which is the containment primitive used to prove that a
+ * whole tree stopped after the root exited or after a backend restart.
+ */
 public final class DefaultProcessSupervisor
         implements ProcessSupervisor
 {
+    private static final Logger log = LoggerFactory.getLogger(DefaultProcessSupervisor.class);
+
+    /** Gated launcher script; see {@code launcher.sh} for what it does and why. */
+    private static final String LAUNCHER_SCRIPT = readLauncherScript();
+    private static final String LAUNCHER_SHELL = "/bin/sh";
+    /** Exit status the launcher script uses when the gate closed and the payload never ran. */
+    private static final int GATE_CLOSED_EXIT_CODE = 70;
+    private static final Duration IDENTITY_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration LAUNCHER_EXIT_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
+
+    private final LaunchMarkerStore store;
+    private final String backendId = UUID.randomUUID().toString();
+
+    public DefaultProcessSupervisor(Path launchDirectory)
+    {
+        this.store = new LaunchMarkerStore(launchDirectory);
+    }
+
     @Override
-    public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
+    public PreparedProcess prepare(ProcessSpec spec)
     {
         requireNonNull(spec, "spec is null");
-        requireNonNull(output, "output is null");
-        ProcessBuilder builder = new ProcessBuilder(spec.argv())
-                .directory(spec.workingDirectory().toFile())
-                .redirectErrorStream(false);
-        builder.environment().clear();
-        builder.environment().putAll(spec.environment());
-        try {
-            return new DefaultManagedProcess(builder.start(), spec, output);
+        String executable = resolveExecutable(spec);
+        LaunchMarker marker = LaunchMarker.prepared(
+                UUID.randomUUID().toString(),
+                backendId,
+                spec.owner(),
+                executable,
+                argvDigest(spec.argv()));
+        store.write(marker);
+        return new GatedLaunch(spec, executable, marker);
+    }
+
+    @Override
+    public List<OwnedProcessRecovery> recoverOwnedProcesses()
+    {
+        return store.list().stream()
+                .map(this::recover)
+                .filter(Optional::isPresent)
+                .map(Optional::orElseThrow)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public void acknowledge(String launchId)
+    {
+        requireNonNull(launchId, "launchId is null");
+        store.delete(launchId);
+    }
+
+    private Optional<OwnedProcessRecovery> recover(String launchId)
+    {
+        Optional<LaunchMarker> found = store.read(launchId);
+        if (found.isEmpty()) {
+            return Optional.of(new OwnedProcessRecovery(
+                    launchId,
+                    Optional.empty(),
+                    Optional.empty(),
+                    OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Launch marker is missing or undecodable"));
         }
-        catch (IOException e) {
-            throw new AgentUnavailableException("Unable to start process: " + spec.argv().getFirst(), e);
+        LaunchMarker marker = found.orElseThrow();
+        if (marker.backendId().equals(backendId)) {
+            return Optional.empty();
+        }
+        return Optional.of(reconcile(marker));
+    }
+
+    private OwnedProcessRecovery reconcile(LaunchMarker marker)
+    {
+        String launchId = marker.launchId();
+        boolean released = store.gateReleased(launchId);
+        LaunchPhase phase = marker.phase();
+        if (phase == LaunchPhase.TERMINAL) {
+            return result(marker, marker.treeTermination()
+                            .map(termination -> termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
+                                    ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
+                                    : OwnedProcessRecovery.Outcome.UNVERIFIABLE)
+                            .orElse(OwnedProcessRecovery.Outcome.UNVERIFIABLE),
+                    "Replayed a durable terminal receipt");
+        }
+        if (phase == LaunchPhase.PREPARED && !released) {
+            // The gate file is the only way a launcher can reach the payload, and it was never
+            // written. Cancelling the gate also stops a launcher that spawned before the crash but
+            // never recorded its identity.
+            store.writeGate(launchId, LaunchMarkerStore.CANCEL);
+            return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gate was never released");
+        }
+        if (phase == LaunchPhase.GATED && !released) {
+            return closeGate(marker);
+        }
+        return stopRecordedTree(marker);
+    }
+
+    private OwnedProcessRecovery closeGate(LaunchMarker marker)
+    {
+        Optional<ProcessIdentity> identity = marker.identity();
+        if (identity.isEmpty()) {
+            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Gated marker has no usable identity");
+        }
+        store.writeGate(marker.launchId(), LaunchMarkerStore.CANCEL);
+        ProcessIdentity gated = identity.orElseThrow();
+        switch (gated.liveness()) {
+            case GONE -> {
+                return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gated launcher already exited");
+            }
+            case UNKNOWN -> {
+                return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                        "Gated launcher exists but its start token cannot be read");
+            }
+            case MATCHES -> ProcessHandle.of(gated.pid()).ifPresent(ProcessHandle::destroy);
+        }
+        if (awaitDead(gated, LAUNCHER_EXIT_TIMEOUT)) {
+            return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gated launcher was stopped");
+        }
+        return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Gated launcher did not stop");
+    }
+
+    private OwnedProcessRecovery stopRecordedTree(LaunchMarker marker)
+    {
+        Optional<ProcessIdentity> identity = marker.identity();
+        Optional<Long> group = marker.processGroup();
+        if (identity.isEmpty() || group.isEmpty()) {
+            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Released marker has no process receipt");
+        }
+        ProcessIdentity leader = identity.orElseThrow();
+        Optional<ProcessHandle> live = ProcessHandle.of(leader.pid());
+        if (live.isPresent()) {
+            switch (leader.liveness()) {
+                case UNKNOWN -> {
+                    return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                            "Recorded PID exists but its start token cannot be read");
+                }
+                case GONE -> {
+                    // The recorded group leader exited and its identifier was reused, which a POSIX
+                    // system only allows once the whole group is empty.
+                    return result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "Recorded process tree already exited");
+                }
+                case MATCHES -> {
+                    if (!matchesRecordedExecutable(marker, live.orElseThrow().info())) {
+                        return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded PID runs an unrecognized executable");
+                    }
+                }
+            }
+        }
+        return result(marker, terminateGroup(group.orElseThrow(), Duration.ofSeconds(1))
+                        == ProcessExit.TreeTermination.VERIFIED_STOPPED
+                        ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
+                        : OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                "Reconciled the recorded process group");
+    }
+
+    private static boolean matchesRecordedExecutable(LaunchMarker marker, ProcessHandle.Info info)
+    {
+        if (info.command().filter(marker.executable()::equals).isPresent()) {
+            return true;
+        }
+        // An interpreted provider CLI reports its interpreter as the command, so the resolved
+        // executable path is only visible in the full command line.
+        if (info.commandLine().filter(line -> line.contains(marker.executable())).isPresent()) {
+            return true;
+        }
+        // Until the gate is released the recorded PID is still the gated launcher shell.
+        return info.command()
+                .filter(observed -> marker.launcherCommand().filter(observed::equals).isPresent())
+                .isPresent();
+    }
+
+    private static OwnedProcessRecovery result(LaunchMarker marker, OwnedProcessRecovery.Outcome outcome, String detail)
+    {
+        return new OwnedProcessRecovery(
+                marker.launchId(),
+                Optional.of(marker.owner()),
+                Optional.of(marker.phase()),
+                outcome,
+                detail);
+    }
+
+    /**
+     * Terminates every live member of one process group and reports whether the group emptied.
+     *
+     * <p>A group identifier is never reused while the group still has a member, so an empty scan is
+     * a proof rather than an inference. A scan that cannot be read is unverifiable.
+     */
+    private static ProcessExit.TreeTermination terminateGroup(long processGroup, Duration grace)
+    {
+        Optional<List<Long>> initial = ProcessGroups.members(processGroup);
+        if (initial.isEmpty()) {
+            return ProcessExit.TreeTermination.UNVERIFIABLE;
+        }
+        initial.orElseThrow().forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroy));
+        if (!awaitGroupEmpty(processGroup, grace)) {
+            // A member spawned during the grace period is still owned work, so the forced pass
+            // uses current membership rather than the first snapshot.
+            ProcessGroups.members(processGroup)
+                    .ifPresent(current -> current.forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly)));
+        }
+        return awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)
+                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
+                : ProcessExit.TreeTermination.UNVERIFIABLE;
+    }
+
+    private static boolean awaitGroupEmpty(long processGroup, Duration timeout)
+    {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (true) {
+            Optional<List<Long>> members = ProcessGroups.members(processGroup);
+            if (members.isEmpty()) {
+                return false;
+            }
+            if (members.orElseThrow().isEmpty()) {
+                return true;
+            }
+            if (System.nanoTime() >= deadline || !sleep(50)) {
+                return false;
+            }
         }
     }
 
-    private static final class DefaultManagedProcess
+    /** Waits for a recorded identity to be observably gone; an uninspectable process is never dead. */
+    private static boolean awaitDead(ProcessIdentity identity, Duration timeout)
+    {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (identity.liveness() != ProcessIdentity.Liveness.GONE) {
+            if (System.nanoTime() >= deadline || !sleep(20)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean sleep(long millis)
+    {
+        try {
+            Thread.sleep(millis);
+            return true;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private static String readLauncherScript()
+    {
+        try (InputStream script = DefaultProcessSupervisor.class.getResourceAsStream("launcher.sh")) {
+            requireNonNull(script, "launcher.sh is missing from the agent-cli resources");
+            return new String(script.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Unable to read the process launcher script", e);
+        }
+    }
+
+    private static String resolveExecutable(ProcessSpec spec)
+    {
+        String command = spec.argv().getFirst();
+        Optional<Path> resolved = command.contains("/")
+                ? Optional.of(Path.of(command))
+                : searchPath(command, spec.environment().get("PATH"));
+        return resolved
+                .map(path -> path.toAbsolutePath().normalize())
+                .filter(Files::isExecutable)
+                .filter(Files::isRegularFile)
+                .map(Path::toString)
+                .orElseThrow(() -> new AgentUnavailableException(
+                        "Unable to start process: " + command,
+                        new NoSuchFileException(command)));
+    }
+
+    private static Optional<Path> searchPath(String command, String path)
+    {
+        if (path == null) {
+            return Optional.empty();
+        }
+        return Arrays.stream(path.split(":"))
+                .filter(entry -> !entry.isBlank())
+                .map(entry -> Path.of(entry).resolve(command))
+                .filter(Files::isExecutable)
+                .findFirst();
+    }
+
+    private static String argvDigest(List<String> argv)
+    {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(String.join("\n", argv).getBytes(StandardCharsets.UTF_8)));
+        }
+        catch (NoSuchAlgorithmException e) {
+            throw new AgentUnavailableException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private static Optional<Long> readIdentity(Path identity)
+    {
+        try {
+            return Optional.of(Long.parseLong(Files.readString(identity, StandardCharsets.UTF_8).trim()));
+        }
+        catch (IOException | NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    private final class GatedLaunch
+            implements PreparedProcess
+    {
+        private final ProcessSpec spec;
+        private final String executable;
+        private final LaunchMarker prepared;
+        private final AtomicBoolean used = new AtomicBoolean();
+
+        private GatedLaunch(ProcessSpec spec, String executable, LaunchMarker prepared)
+        {
+            this.spec = spec;
+            this.executable = executable;
+            this.prepared = prepared;
+        }
+
+        @Override
+        public String launchId()
+        {
+            return prepared.launchId();
+        }
+
+        @Override
+        public ManagedProcess start(ProcessOutputSink output)
+        {
+            requireNonNull(output, "output is null");
+            checkState(used.compareAndSet(false, true), "Prepared launch was already used");
+            Process launcher = spawnLauncher();
+            LaunchMarker recorded = prepared;
+            boolean released = false;
+            try {
+                ProcessIdentity identity = awaitIdentity(launcher);
+                ProcessHandle.Info info = ProcessHandle.of(identity.pid())
+                        .orElseThrow(() -> new AgentUnavailableException("Gated launcher exited before it could be recorded"))
+                        .info();
+                long group = ProcessGroups.groupOf(identity.pid())
+                        .orElseThrow(() -> new AgentUnavailableException("Unable to read the launcher process group"));
+                checkState(group == identity.pid(), "Gated launcher is not its own process-group leader");
+                recorded = prepared.gated(identity, info.command().orElse(LAUNCHER_SHELL), group);
+                store.write(recorded);
+                recorded = recorded.withPhase(LaunchPhase.RELEASE_PENDING);
+                store.write(recorded);
+                released = true;
+                store.writeGate(launchId(), LaunchMarkerStore.RELEASE);
+                recorded = recorded.withPhase(LaunchPhase.RUNNING);
+                store.write(recorded);
+                return new DefaultManagedProcess(recorded, launcher, identity.pid(), group, spec, output);
+            }
+            catch (RuntimeException failure) {
+                abort(launcher, recorded, released);
+                throw failure instanceof AgentUnavailableException unavailable
+                        ? unavailable
+                        : new AgentUnavailableException("Unable to start process: " + executable, failure);
+            }
+        }
+
+        @Override
+        public void abandon()
+        {
+            if (used.compareAndSet(false, true)) {
+                store.delete(launchId());
+            }
+        }
+
+        private void abort(Process launcher, LaunchMarker recorded, boolean released)
+        {
+            if (released) {
+                // The gate may already have executed the payload, so the launch keeps a durable
+                // terminal receipt instead of being deleted as known unsent.
+                ProcessExit.TreeTermination termination = recorded.processGroup()
+                        .map(group -> terminateGroup(group, spec.cancellationGrace()))
+                        .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
+                launcher.destroyForcibly();
+                store.write(recorded.terminal(
+                        new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
+                return;
+            }
+            store.writeGate(launchId(), LaunchMarkerStore.CANCEL);
+            try {
+                if (!launcher.waitFor(LAUNCHER_EXIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+                    launcher.destroyForcibly();
+                }
+                else if (launcher.exitValue() != GATE_CLOSED_EXIT_CODE) {
+                    log.warn("Cancelled launcher {} exited with {} instead of the gate-closed status",
+                            launchId(), launcher.exitValue());
+                }
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                launcher.destroyForcibly();
+            }
+            store.delete(launchId());
+        }
+
+        private Process spawnLauncher()
+        {
+            ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
+                    .add(
+                            LAUNCHER_SHELL,
+                            "-c",
+                            LAUNCHER_SCRIPT,
+                            "bytequay-launch",
+                            store.gateFile(launchId()).toString(),
+                            store.identityFile(launchId()).toString(),
+                            Long.toString(ProcessHandle.current().pid()),
+                            executable);
+            spec.argv().stream().skip(1).forEach(argv::add);
+            ProcessBuilder builder = new ProcessBuilder(argv.build())
+                    .directory(spec.workingDirectory().toFile())
+                    .redirectErrorStream(false);
+            builder.environment().clear();
+            builder.environment().putAll(spec.environment());
+            try {
+                return builder.start();
+            }
+            catch (IOException e) {
+                store.delete(launchId());
+                throw new AgentUnavailableException("Unable to start process: " + executable, e);
+            }
+        }
+
+        private ProcessIdentity awaitIdentity(Process launcher)
+        {
+            Path identity = store.identityFile(launchId());
+            long deadline = System.nanoTime() + IDENTITY_TIMEOUT.toNanos();
+            while (true) {
+                Optional<Long> reported = readIdentity(identity);
+                if (reported.isPresent()) {
+                    long pid = reported.orElseThrow();
+                    Instant startToken = ProcessHandle.of(pid)
+                            .flatMap(handle -> handle.info().startInstant())
+                            .orElseThrow(() -> new AgentUnavailableException(
+                                    "Gated launcher exited before its start token could be read"));
+                    return new ProcessIdentity(pid, startToken);
+                }
+                if (!launcher.isAlive()) {
+                    throw new AgentUnavailableException(
+                            "Gated launcher exited with code " + launcher.exitValue() + " before reporting its identity");
+                }
+                if (System.nanoTime() >= deadline || !sleep(5)) {
+                    throw new AgentUnavailableException("Gated launcher did not report its identity");
+                }
+            }
+        }
+    }
+
+    private final class DefaultManagedProcess
             implements ManagedProcess
     {
         private static final int BUFFER_BYTES = 8 * 1024;
         private static final int OUTPUT_QUEUE_CAPACITY = 256;
 
-        private final Process process;
+        private final LaunchMarker marker;
+        private final Process launcher;
+        private final long payloadPid;
+        private final long processGroup;
         private final ProcessSpec spec;
         private final ProcessOutputSink output;
         private final Instant startedAt = Instant.now();
@@ -91,28 +549,41 @@ public final class DefaultProcessSupervisor
         private final AtomicBoolean stdoutTruncationReported = new AtomicBoolean();
         private final AtomicBoolean stderrTruncationReported = new AtomicBoolean();
         private final AtomicBoolean inputClosed = new AtomicBoolean();
+        private final AtomicBoolean terminating = new AtomicBoolean();
+        private final AtomicBoolean verifiedStopped = new AtomicBoolean();
         private final AtomicReference<ProcessExit.Reason> reason =
                 new AtomicReference<>(ProcessExit.Reason.EXITED);
         private final Thread outputDispatcher;
 
-        private DefaultManagedProcess(Process process, ProcessSpec spec, ProcessOutputSink output)
+        private DefaultManagedProcess(
+                LaunchMarker marker,
+                Process launcher,
+                long payloadPid,
+                long processGroup,
+                ProcessSpec spec,
+                ProcessOutputSink output)
         {
-            this.process = requireNonNull(process, "process is null");
-            this.spec = requireNonNull(spec, "spec is null");
-            this.output = requireNonNull(output, "output is null");
+            this.marker = marker;
+            this.launcher = launcher;
+            this.payloadPid = payloadPid;
+            this.processGroup = processGroup;
+            this.spec = spec;
+            this.output = output;
             this.inputExecutor = Executors.newSingleThreadExecutor(
-                    Thread.ofVirtual().name("bytequay-process-stdin-" + process.pid()).factory());
+                    Thread.ofVirtual().name("bytequay-process-stdin-" + payloadPid).factory());
             this.outputDispatcher = Thread.ofVirtual()
-                    .name("bytequay-process-output-" + process.pid())
+                    .name("bytequay-process-output-" + payloadPid)
                     .start(this::dispatchOutput);
-            Thread.ofVirtual().name("bytequay-process-stdout-" + process.pid()).start(() ->
-                    drain(process.getInputStream(), ProcessStream.STDOUT, stdoutDone));
-            Thread.ofVirtual().name("bytequay-process-stderr-" + process.pid()).start(() ->
-                    drain(process.getErrorStream(), ProcessStream.STDERR, stderrDone));
-            process.onExit().whenComplete((ignored, failure) -> finish());
+            Thread.ofVirtual().name("bytequay-process-stdout-" + payloadPid).start(() ->
+                    drain(launcher.getInputStream(), ProcessStream.STDOUT, stdoutDone));
+            Thread.ofVirtual().name("bytequay-process-stderr-" + payloadPid).start(() ->
+                    drain(launcher.getErrorStream(), ProcessStream.STDERR, stderrDone));
+            launcher.onExit().whenComplete((ignored, failure) -> finish());
             CompletableFuture.delayedExecutor(spec.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
                     .execute(() -> {
-                        if (process.isAlive()
+                        // The launcher can exit while a payload descendant keeps running, so the
+                        // runtime bound follows the owned process group rather than the root.
+                        if (!groupEmpty()
                                 && reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.TIMED_OUT)) {
                             terminate();
                         }
@@ -120,9 +591,15 @@ public final class DefaultProcessSupervisor
         }
 
         @Override
+        public String launchId()
+        {
+            return marker.launchId();
+        }
+
+        @Override
         public long pid()
         {
-            return process.pid();
+            return payloadPid;
         }
 
         @Override
@@ -133,11 +610,11 @@ public final class DefaultProcessSupervisor
             bytes.duplicate().get(copy);
             return CompletableFuture.runAsync(() -> {
                 synchronized (inputLock) {
-                    if (inputClosed.get() || !process.isAlive()) {
+                    if (inputClosed.get() || !launcher.isAlive()) {
                         throw new AgentUnavailableException("Process input is closed");
                     }
                     try {
-                        OutputStream input = process.getOutputStream();
+                        OutputStream input = launcher.getOutputStream();
                         input.write(copy);
                         input.flush();
                     }
@@ -156,7 +633,7 @@ public final class DefaultProcessSupervisor
             }
             synchronized (inputLock) {
                 try {
-                    process.getOutputStream().close();
+                    launcher.getOutputStream().close();
                 }
                 catch (IOException ignored) {
                     // Closing an already-exited process is complete for the caller.
@@ -173,12 +650,13 @@ public final class DefaultProcessSupervisor
         @Override
         public void cancel()
         {
-            if (exit.isDone() || !process.isAlive()) {
+            // Root exit is not quiescence: a caller may still need to stop group members that
+            // outlived the launcher, so cancellation stays available after the root is reaped.
+            if (verifiedStopped.get()) {
                 return;
             }
-            if (reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.CANCELLED)) {
-                terminate();
-            }
+            reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.CANCELLED);
+            terminate();
         }
 
         @Override
@@ -272,70 +750,75 @@ public final class DefaultProcessSupervisor
                 }
                 closeInput();
                 inputExecutor.shutdownNow();
-                exit.complete(new ProcessExit(
-                        process.exitValue(),
+                exit.complete(record(new ProcessExit(
+                        launcher.exitValue(),
                         reason.get(),
+                        verifyTreeStopped(),
                         Duration.between(startedAt, Instant.now()),
                         stdoutTruncated.get(),
-                        stderrTruncated.get()));
+                        stderrTruncated.get())));
             });
         }
 
+        /**
+         * Fsyncs the terminal receipt so an owner that crashes before acknowledging replays it.
+         *
+         * <p>A receipt that cannot be written must not hide the observed result from the caller.
+         */
+        private ProcessExit record(ProcessExit result)
+        {
+            try {
+                store.write(marker.terminal(result));
+            }
+            catch (RuntimeException ignored) {
+                // The in-process result still stands; recovery treats a missing marker as
+                // unverifiable, which is the conservative outcome.
+            }
+            return result;
+        }
+
+        private ProcessExit.TreeTermination verifyTreeStopped()
+        {
+            if (!awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)) {
+                return ProcessExit.TreeTermination.UNVERIFIABLE;
+            }
+            verifiedStopped.set(true);
+            return ProcessExit.TreeTermination.VERIFIED_STOPPED;
+        }
+
+        private boolean groupEmpty()
+        {
+            return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent();
+        }
+
+        /** Requests idempotent tree termination without blocking the caller for the grace period. */
         private void terminate()
         {
             closeInput();
-            List<ProcessHandle> tree = processTree();
-            tree.forEach(handle -> destroy(handle, false));
-            CompletableFuture.delayedExecutor(spec.cancellationGrace().toMillis(), TimeUnit.MILLISECONDS)
-                    .execute(() -> {
-                        tree.stream()
-                                .filter(ProcessHandle::isAlive)
-                                .forEach(handle -> destroy(handle, true));
-                        closeOutputStreams();
-                    });
+            if (!terminating.compareAndSet(false, true)) {
+                return;
+            }
+            Thread.ofVirtual().name("bytequay-process-stop-" + payloadPid).start(() -> {
+                terminateGroup(processGroup, spec.cancellationGrace());
+                launcher.descendants().forEach(ProcessHandle::destroyForcibly);
+                launcher.destroyForcibly();
+                closeOutputStreams();
+            });
         }
 
         private void closeOutputStreams()
         {
             try {
-                process.getInputStream().close();
+                launcher.getInputStream().close();
             }
             catch (IOException ignored) {
                 // The process already closed stdout.
             }
             try {
-                process.getErrorStream().close();
+                launcher.getErrorStream().close();
             }
             catch (IOException ignored) {
                 // The process already closed stderr.
-            }
-        }
-
-        private List<ProcessHandle> processTree()
-        {
-            try {
-                return ImmutableList.<ProcessHandle>builder()
-                        .addAll(process.descendants().collect(toImmutableList()))
-                        .add(process.toHandle())
-                        .build();
-            }
-            catch (RuntimeException ignored) {
-                return ImmutableList.of(process.toHandle());
-            }
-        }
-
-        private static void destroy(ProcessHandle handle, boolean forcibly)
-        {
-            try {
-                if (forcibly) {
-                    handle.destroyForcibly();
-                }
-                else {
-                    handle.destroy();
-                }
-            }
-            catch (RuntimeException ignored) {
-                // The process already exited or the host denied process inspection.
             }
         }
 

@@ -24,8 +24,9 @@ import java.util.Map;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Complete argv, environment, directory, and runtime bounds for one child process. */
+/** Complete owner, argv, environment, directory, and runtime bounds for one child process. */
 public record ProcessSpec(
+        ProcessOwner owner,
         List<String> argv,
         Path workingDirectory,
         Map<String, String> environment,
@@ -36,6 +37,7 @@ public record ProcessSpec(
 {
     public ProcessSpec
     {
+        requireNonNull(owner, "owner is null");
         requireNonNull(argv, "argv is null");
         argv = ImmutableList.copyOf(argv);
         checkArgument(!argv.isEmpty(), "argv is empty");

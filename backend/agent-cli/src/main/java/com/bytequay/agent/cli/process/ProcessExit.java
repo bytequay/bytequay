@@ -18,10 +18,11 @@ import java.time.Duration;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Terminal child-process status and output-bound metadata. */
+/** Terminal child-process status, process-tree proof, and output-bound metadata. */
 public record ProcessExit(
         int exitCode,
         Reason reason,
+        TreeTermination treeTermination,
         Duration duration,
         boolean stdoutTruncated,
         boolean stderrTruncated)
@@ -29,6 +30,7 @@ public record ProcessExit(
     public ProcessExit
     {
         requireNonNull(reason, "reason is null");
+        requireNonNull(treeTermination, "treeTermination is null");
         requireNonNull(duration, "duration is null");
         checkArgument(!duration.isNegative(), "duration is negative");
     }
@@ -39,5 +41,12 @@ public record ProcessExit(
         EXITED,
         CANCELLED,
         TIMED_OUT
+    }
+
+    /** Whether every member of the owned process group was observed gone. */
+    public enum TreeTermination
+    {
+        VERIFIED_STOPPED,
+        UNVERIFIABLE
     }
 }

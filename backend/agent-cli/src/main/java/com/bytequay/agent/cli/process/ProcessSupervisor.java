@@ -15,16 +15,40 @@ package com.bytequay.agent.cli.process;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
 
-/** Starts bounded argv-based child processes for CLI-backed agent drivers. */
+import java.util.List;
+
+/** Starts and reconciles bounded argv-based child processes for CLI-backed agent drivers. */
 public interface ProcessSupervisor
 {
     /**
-     * Starts a process without a shell and drains stdout and stderr independently.
+     * Creates and fsyncs a launch marker without starting a process.
      *
-     * @param spec validated argv, environment, directory, and limits
-     * @param output bounded output consumer
-     * @return managed process handle
-     * @throws AgentUnavailableException when the process cannot be started
+     * <p>The caller persists the returned launch ID and its {@code PREPARED} launch intent in its
+     * own unit of work before invoking {@link PreparedProcess#start}. This closes the gap between
+     * durable state and an operating-system process.
+     *
+     * @param spec owner, executable, arguments, environment allowlist, directory, and limits
+     * @return durable prepared launch; no payload process exists yet
+     * @throws AgentUnavailableException when the executable or marker cannot be prepared
      */
-    ManagedProcess start(ProcessSpec spec, ProcessOutputSink output);
+    PreparedProcess prepare(ProcessSpec spec);
+
+    /**
+     * Terminates provider processes owned by an earlier backend instance.
+     *
+     * <p>The supervisor reads owner-only launch markers and signals a PID only when its executable
+     * and operating-system process-start token still match. It waits for the complete process tree
+     * to exit and returns an unverifiable result rather than risking an unrelated process.
+     *
+     * @return one terminal or unverifiable result per foreign launch marker
+     */
+    List<OwnedProcessRecovery> recoverOwnedProcesses();
+
+    /**
+     * Deletes a terminal launch marker and its receipt only after the owning state transition has
+     * committed durably.
+     *
+     * @param launchId agent-cli-local opaque launch identifier
+     */
+    void acknowledge(String launchId);
 }

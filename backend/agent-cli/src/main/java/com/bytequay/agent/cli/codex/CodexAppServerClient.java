@@ -125,7 +125,7 @@ final class CodexAppServerClient
             if (process != null) {
                 throw new AgentUnavailableException("Codex App Server disconnected");
             }
-            process = supervisor.start(processSpec, new ProcessOutputSink()
+            process = supervisor.prepare(processSpec).start(new ProcessOutputSink()
             {
                 @Override
                 public void onOutput(ProcessStream stream, ByteBuffer bytes)
@@ -240,6 +240,12 @@ final class CodexAppServerClient
         String message = failure == null
                 ? "Codex App Server exited with code " + result.exitCode()
                 : "Codex App Server process failed: " + failureMessage(failure);
+        if (result != null && result.treeTermination() == ProcessExit.TreeTermination.UNVERIFIABLE) {
+            // Root exit does not prove the tool tree stopped; say so rather than reporting an
+            // ordinary disconnect a caller could treat as quiescence.
+            message += "; its owned process tree could not be verified stopped";
+            log.error("Codex App Server process tree is unverifiable after exit");
+        }
         disconnect(new AgentUnavailableException(message, failure));
     }
 

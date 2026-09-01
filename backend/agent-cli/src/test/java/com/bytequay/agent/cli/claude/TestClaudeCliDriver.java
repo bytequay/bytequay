@@ -14,6 +14,8 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
 import com.bytequay.agent.cli.process.ProcessSpec;
@@ -266,6 +268,22 @@ class TestClaudeCliDriver
         driver.close();
     }
 
+    @Test
+    void refusesToCompleteATurnWhoseProcessTreeIsUnverifiable()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("unverifiable")));
+
+        // A clean provider result is not quiescence: the group may still be writing to the worktree.
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.terminalReason()).contains("Claude process tree could not be verified stopped");
+        assertThat(result.finalResponse()).isEmpty();
+    }
+
     private ClaudeCliDriver driver(ProcessSupervisor supervisor)
     {
         ClaudePermissionBroker permissions = new ClaudePermissionBroker(
@@ -364,7 +382,47 @@ class TestClaudeCliDriver
         private boolean failNextPromptClose;
 
         @Override
-        public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
+        public PreparedProcess prepare(ProcessSpec spec)
+        {
+            return new ScriptedLaunch(spec);
+        }
+
+        @Override
+        public List<OwnedProcessRecovery> recoverOwnedProcesses()
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
+        public void acknowledge(String launchId) {}
+
+        private final class ScriptedLaunch
+                implements PreparedProcess
+        {
+            private final ProcessSpec spec;
+
+            private ScriptedLaunch(ProcessSpec spec)
+            {
+                this.spec = spec;
+            }
+
+            @Override
+            public String launchId()
+            {
+                return "scripted";
+            }
+
+            @Override
+            public void abandon() {}
+
+            @Override
+            public ManagedProcess start(ProcessOutputSink output)
+            {
+                return ScriptedProcessSupervisor.this.start(spec, output);
+            }
+        }
+
+        private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (spec.argv().contains("--version")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
@@ -452,6 +510,12 @@ class TestClaudeCliDriver
         }
 
         @Override
+        public String launchId()
+        {
+            return "scripted";
+        }
+
+        @Override
         public long pid()
         {
             return 4242;
@@ -479,7 +543,7 @@ class TestClaudeCliDriver
             }
             if (prompt.equals("fail\n")) {
                 emit(ProcessStream.STDERR, "known-secret diagnostic\n");
-                exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, Duration.ofMillis(5), false, false));
+                exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(5), false, false));
                 return;
             }
             String sessionId = sessionId();
@@ -517,7 +581,15 @@ class TestClaudeCliDriver
                                     .formatted(sessionId)
                             + "\"uuid\":\"trailing-1\"}\n");
             emit(ProcessStream.STDERR, "known-secret warning\n");
-            exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, Duration.ofMillis(10), false, false));
+            exit.complete(new ProcessExit(
+                    0,
+                    ProcessExit.Reason.EXITED,
+                    prompt.equals("unverifiable\n")
+                            ? ProcessExit.TreeTermination.UNVERIFIABLE
+                            : ProcessExit.TreeTermination.VERIFIED_STOPPED,
+                    Duration.ofMillis(10),
+                    false,
+                    false));
         }
 
         private String sessionId()
@@ -544,7 +616,7 @@ class TestClaudeCliDriver
         public void cancel()
         {
             cancelled = true;
-            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, Duration.ofMillis(5), false, false));
+            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(5), false, false));
         }
 
         @Override
@@ -555,11 +627,17 @@ class TestClaudeCliDriver
             implements ManagedProcess
     {
         private final CompletableFuture<ProcessExit> exit = CompletableFuture.completedFuture(
-                new ProcessExit(0, ProcessExit.Reason.EXITED, Duration.ZERO, false, false));
+                new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
 
         private static ImmediateProcess success()
         {
             return new ImmediateProcess();
+        }
+
+        @Override
+        public String launchId()
+        {
+            return "scripted";
         }
 
         @Override

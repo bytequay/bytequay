@@ -16,12 +16,12 @@ package com.bytequay.agent.cli.claude;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
-import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -137,14 +137,10 @@ public final class ClaudeCliDriver
     public ClaudeCliDriver(
             String executable,
             ObjectMapper objectMapper,
-            ClaudePermissionBroker permissions)
+            ClaudePermissionBroker permissions,
+            ProcessSupervisor supervisor)
     {
-        this(
-                executable,
-                objectMapper,
-                permissions,
-                new DefaultProcessSupervisor(),
-                inheritedEnvironment());
+        this(executable, objectMapper, permissions, supervisor, inheritedEnvironment());
     }
 
     ClaudeCliDriver(
@@ -407,17 +403,19 @@ public final class ClaudeCliDriver
             throws InterruptedException
     {
         StringBuilder output = new StringBuilder();
-        ManagedProcess process = supervisor.start(
+        ManagedProcess process = supervisor.prepare(
                 processSpec(
+                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
                         ImmutableList.copyOf(command),
                         Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                         maximumRuntime,
                         MAX_PROBE_OUTPUT_BYTES,
-                        MAX_PROBE_OUTPUT_BYTES),
-                (stream, bytes) -> append(output, bytes));
+                        MAX_PROBE_OUTPUT_BYTES))
+                .start((stream, bytes) -> append(output, bytes));
         try {
             ProcessExit result = process.exit().toCompletableFuture()
                     .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
+            supervisor.acknowledge(process.launchId());
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
                 return new CommandResult(-1, "Claude CLI command timed out");
             }
@@ -430,6 +428,7 @@ public final class ClaudeCliDriver
     }
 
     private ProcessSpec processSpec(
+            ProcessOwner owner,
             List<String> argv,
             Path workingDirectory,
             Duration maximumRuntime,
@@ -437,6 +436,7 @@ public final class ClaudeCliDriver
             int maximumStderrBytes)
     {
         return new ProcessSpec(
+                owner,
                 argv,
                 workingDirectory,
                 environment,
@@ -605,6 +605,7 @@ public final class ClaudeCliDriver
             this.reference = new ProviderTurnRef(command.turnId());
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
+                    new ProcessOwner(ProcessOwner.Kind.CLAUDE_TURN, command.turnId()),
                     argv(
                             session.registration,
                             session.context.permissionPolicy(),
@@ -618,7 +619,7 @@ public final class ClaudeCliDriver
                     command.maximumRuntime(),
                     MAX_STDOUT_BYTES,
                     MAX_STDERR_BYTES);
-            ManagedProcess started = supervisor.start(spec, this);
+            ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;
             if (cancelled.get()) {
                 started.cancel();
@@ -747,6 +748,15 @@ public final class ClaudeCliDriver
             }
             if (failure != null) {
                 interruptionReason = "Claude process failed: " + failureMessage(failure);
+            }
+            // Root exit does not prove the tool tree stopped. A turn that would otherwise read as a
+            // clean success must not be reported as terminal while a group member may still be
+            // writing to the task worktree.
+            else if (interruptionReason == null
+                    && exit != null
+                    && exit.reason() == ProcessExit.Reason.EXITED
+                    && exit.treeTermination() == ProcessExit.TreeTermination.UNVERIFIABLE) {
+                interruptionReason = "Claude process tree could not be verified stopped";
             }
 
             AgentTurnResult turnResult;

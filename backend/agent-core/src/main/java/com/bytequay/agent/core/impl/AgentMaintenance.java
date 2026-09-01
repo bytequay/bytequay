@@ -74,6 +74,9 @@ public final class AgentMaintenance
         turnStore.listRecoverable().forEach(turn -> {
             synchronized (runtimeRegistry.taskLock(turn.taskId())) {
                 turnStore.find(turn.id()).filter(current -> current.state().active()).ifPresent(current -> {
+                    if (current.startedAt().isPresent()) {
+                        return;
+                    }
                     TurnMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
                     turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
                             TurnState.INTERRUPTED,
@@ -94,6 +97,9 @@ public final class AgentMaintenance
                     workspaceService.restore(current.id(), current.worktree(), current.repository());
                 }
                 catch (RuntimeException failure) {
+                    if (turnStore.findActive(current.id()).isPresent()) {
+                        return;
+                    }
                     Instant failedAt = Instant.now(clock);
                     String message = failure.getMessage() == null || failure.getMessage().isBlank()
                             ? failure.getClass().getSimpleName()

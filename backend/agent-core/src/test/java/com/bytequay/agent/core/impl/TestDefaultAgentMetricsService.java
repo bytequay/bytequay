@@ -85,7 +85,8 @@ class TestDefaultAgentMetricsService
     {
         TurnMetrics previousMetrics = metrics(100, 10, 20, "2.00");
         AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", turnSettings(), NOW)
-                .running(new ProviderTurnRef("previous"), Optional.empty(), NOW)
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("previous"), Optional.empty())
                 .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
         turnStore.insert(previous);
         taskStore.put(task.withMetrics(
@@ -134,7 +135,8 @@ class TestDefaultAgentMetricsService
     void finalizesElapsedTimeAndPersistsTaskTotals()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW)
-                .running(new ProviderTurnRef("provider-turn"), Optional.empty(), NOW);
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
         turnStore.insert(turn);
         service.beginTurn(task.id(), turn.id());
         clock.advance(Duration.ofSeconds(5));

@@ -96,7 +96,7 @@ class TestDefaultAgentTaskService
 
         AgentTask task = service.createInteractive(interactiveCommand(taskId));
 
-        assertThat(task.state()).isEqualTo(TaskState.READY);
+        assertThat(task.state()).isEqualTo(TaskState.OPEN);
         assertThat(task.id()).isEqualTo(taskId);
         assertThat(task.workspaceId()).contains(WORKSPACE_ID);
         assertThat(task.interactive()).isTrue();
@@ -194,7 +194,7 @@ class TestDefaultAgentTaskService
     {
         AgentTask task = service.create(command());
 
-        assertThat(task.state()).isEqualTo(TaskState.READY);
+        assertThat(task.state()).isEqualTo(TaskState.OPEN);
         assertThat(task.workspaceId()).contains(WORKSPACE_ID);
         assertThat(task.interactive()).isTrue();
         assertThat(task.worktree()).isEqualTo(workspace.worktree);

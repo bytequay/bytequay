@@ -182,7 +182,7 @@ class TestInteractiveAgentHttpContract
                 new RepositoryIdentity("bytequay", "repository"),
                 temporaryDirectory.toAbsolutePath(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                now).ready(now);
+                now);
         AgentTurn turn = new AgentTurn(
                 TurnId.random(),
                 taskId,

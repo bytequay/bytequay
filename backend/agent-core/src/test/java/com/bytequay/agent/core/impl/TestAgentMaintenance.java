@@ -36,6 +36,7 @@ import com.bytequay.agent.core.WorkspaceLease;
 import com.bytequay.agent.core.WorkspaceSnapshot;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -115,6 +116,79 @@ class TestAgentMaintenance
     }
 
     @Test
+    void interruptsKnownUnsentTurnAndKeepsUncertainTurnActive()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId unsentTaskId = TaskId.random();
+        TaskId uncertainTaskId = TaskId.random();
+        stores.insert(activeTask(unsentTaskId));
+        stores.insert(activeTask(uncertainTaskId));
+        AgentTurn unsentTurn = AgentTurn.accepted(
+                TurnId.random(), unsentTaskId, "unsent", turnSettings(), NOW);
+        AgentTurn uncertainTurn = AgentTurn.accepted(
+                        TurnId.random(), uncertainTaskId, "uncertain", turnSettings(), NOW.plusSeconds(1))
+                .markDeliveryStarted(NOW.plusSeconds(2));
+        stores.insert(unsentTurn);
+        stores.insert(uncertainTurn);
+        RecordingWorkspace workspace = new RecordingWorkspace();
+        Clock clock = Clock.fixed(NOW.plusSeconds(10), ZoneOffset.UTC);
+
+        maintenance(stores, workspace, new RecordingApprovals(), new RecordingCompletion(), clock).recover();
+
+        assertThat(stores.find(unsentTurn.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.find(uncertainTurn.id()).orElseThrow().state()).isEqualTo(TurnState.ACCEPTED);
+        assertThat(stores.find(unsentTaskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.find(uncertainTaskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.findActive(uncertainTaskId)).contains(uncertainTurn);
+        assertThat(workspace.restored).containsExactlyInAnyOrder(unsentTaskId, uncertainTaskId);
+    }
+
+    @Test
+    void keepsAStartedProviderTurnActiveAfterRestart()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        stores.insert(activeTask(taskId));
+        AgentTurn accepted = AgentTurn.accepted(
+                TurnId.random(), taskId, "delivered", turnSettings(), NOW);
+        AgentTurn running = accepted.markDeliveryStarted(NOW.plusSeconds(1)).running(
+                new ProviderTurnRef("provider-turn"),
+                Optional.empty());
+        stores.insert(running);
+        RecordingWorkspace workspace = new RecordingWorkspace();
+        Clock clock = Clock.fixed(NOW.plusSeconds(10), ZoneOffset.UTC);
+
+        maintenance(stores, workspace, new RecordingApprovals(), new RecordingCompletion(), clock).recover();
+
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.RUNNING);
+        assertThat(stores.findActive(taskId)).contains(running);
+        assertThat(workspace.restored).containsExactly(taskId);
+    }
+
+    @Test
+    void keepsTaskOpenWhenLeaseRestoreFailsWhileTurnMayStillRun()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        stores.insert(activeTask(taskId));
+        AgentTurn running = AgentTurn.accepted(
+                        TurnId.random(), taskId, "delivered", turnSettings(), NOW)
+                .markDeliveryStarted(NOW.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        stores.insert(running);
+        RecordingWorkspace workspace = new RecordingWorkspace();
+        workspace.failRestore = true;
+        Clock clock = Clock.fixed(NOW.plusSeconds(10), ZoneOffset.UTC);
+
+        maintenance(stores, workspace, new RecordingApprovals(), new RecordingCompletion(), clock).recover();
+
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.findActive(taskId)).contains(running);
+        assertThat(workspace.released).isEmpty();
+    }
+
+    @Test
     void submitsDueAndRetryPendingTasksForCleanup()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
@@ -159,23 +233,22 @@ class TestAgentMaintenance
     private static AgentTask activeTask(TaskId taskId)
     {
         return AgentTask.created(
-                        taskId,
-                        Optional.empty(),
-                        false,
-                        "Recovery test",
-                        AgentLaneId.CODEX_CLI,
-                        REPOSITORY,
-                        WORKTREE.resolve(taskId.toString()),
-                        AgentPermissionPolicy.AUTO,
-                        NOW)
-                .ready(NOW)
-                .activate(NOW);
+                taskId,
+                Optional.empty(),
+                false,
+                "Recovery test",
+                AgentLaneId.CODEX_CLI,
+                REPOSITORY,
+                WORKTREE.resolve(taskId.toString()),
+                AgentPermissionPolicy.AUTO,
+                NOW);
     }
 
     private static final class RecordingWorkspace
             implements AgentWorkspaceService
     {
         private final List<TaskId> restored = new ArrayList<>();
+        private final List<TaskId> released = new ArrayList<>();
         private boolean failRestore;
 
         @Override
@@ -201,7 +274,10 @@ class TestAgentMaintenance
         }
 
         @Override
-        public void release(TaskId taskId) {}
+        public void release(TaskId taskId)
+        {
+            released.add(taskId);
+        }
     }
 
     private static final class RecordingApprovals

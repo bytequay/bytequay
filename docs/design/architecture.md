@@ -367,7 +367,10 @@ gaps are implemented:
    after a successful terminal turn. The turn claim is released only after
    recursive child discovery, all observed execution-capable items are
    terminal, and App Server reports no background terminal for the root or
-   children.
+   children. Durable task lifecycle is only `OPEN -> COMPLETED | FAILED`;
+   running, idle, closing, and recovery required are derived from turn state,
+   mutation-claim ownership, and provider quiescence. A provider terminal,
+   failed, cancelled, or interrupted status alone never proves tools stopped.
 7. `persistence-sqlite` stores task, turn, input-delivery, queue, approval,
    owned-process, and metric facts, including the task's immutable worktree
    ownership values; detailed history and bounded attachment/output blobs

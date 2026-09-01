@@ -225,10 +225,18 @@ class TestDefaultAgentTurnService
                         assertThat(entry.sequence()).contains(1L);
                         assertThat(entry.payload()).isInstanceOf(AgentEventOutboxPayload.UserMessageBlob.class);
                     });
+            assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
+                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED);
+                assertThat(turn.startedAt()).isPresent();
+                assertThat(turn.providerTurnReference()).isEmpty();
+            });
         });
 
         AgentTurn turn = service.start(command("first", "key-1"));
 
+        assertThat(turn.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(turn.startedAt()).isPresent();
+        assertThat(turn.providerTurnReference()).isPresent();
         driver.complete("done");
         assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
     }
@@ -249,6 +257,8 @@ class TestDefaultAgentTurnService
         assertThat(stores.outboxEntries())
                 .singleElement()
                 .satisfies(entry -> assertThat(entry.sequence()).isEmpty());
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
+                assertThat(turn.startedAt()).isEmpty());
     }
 
     @Test
@@ -289,7 +299,7 @@ class TestDefaultAgentTurnService
 
         assertThat(stores.list(task.id())).isEmpty();
         assertThat(events.readAfter(task.id(), 0, 100)).isEmpty();
-        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.READY);
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
         assertThat(driver.openedReferences()).isEmpty();
     }
 
@@ -301,6 +311,7 @@ class TestDefaultAgentTurnService
         driver.unavailable();
 
         assertThat(service.start(command("ignored", "key-1"))).isEqualTo(service.get(first.id()));
+        assertThat(driver.commands()).hasSize(1);
     }
 
     @Test
@@ -382,7 +393,7 @@ class TestDefaultAgentTurnService
                 .hasMessageContaining("start failed");
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
     }
 
     @Test
@@ -433,7 +444,7 @@ class TestDefaultAgentTurnService
                 .hasMessage("start failed after approval");
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
         assertThat(stores.find(approvalId).orElseThrow().pending()).isTrue();
 
         durableApprovals(new AgentRuntimeRegistry()).denyAllPending();
@@ -509,7 +520,7 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void recordsFailedStartAsTerminalTurn()
+    void keepsUncertainStartActiveAndBlocksAnotherSend()
     {
         driver.failNextStart();
 
@@ -517,10 +528,40 @@ class TestDefaultAgentTurnService
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("start failed");
         assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
-            assertThat(turn.state()).isEqualTo(TurnState.FAILED);
-            assertThat(turn.terminalReason()).contains("deterministic start failed");
+            assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED);
+            assertThat(turn.startedAt()).isPresent();
+            assertThat(turn.providerTurnReference()).isEmpty();
+            assertThat(turn.terminalReason()).isEmpty();
         });
-        assertThat(stores.findActive(task.id())).isEmpty();
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.findActive(task.id())).isPresent();
+        assertThatThrownBy(() -> service.start(command("do not resend", "key-2")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("active turn");
+    }
+
+    @Test
+    void cancelsProviderWhenRunningTurnCannotPersist()
+    {
+        boolean[] cancelled = {false};
+        driver.beforeCancel(() -> cancelled[0] = true);
+        stores.failTurnUpdate(TurnState.RUNNING, new AgentStorageException("blocked turn store"));
+
+        assertThatThrownBy(() -> service.start(command("fail", "key-1")))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked turn store");
+
+        assertThat(cancelled[0]).isTrue();
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
+            assertThat(turn.state()).isEqualTo(TurnState.CANCELLED);
+            assertThat(turn.startedAt()).isPresent();
+            assertThat(turn.providerTurnReference()).isEmpty();
+        });
+
+        AgentTurn repeated = service.start(command("do not resend", "key-1"));
+        assertThat(repeated.id()).isEqualTo(stores.list(task.id()).getFirst().id());
+        assertThat(driver.commands()).hasSize(1);
     }
 
     @Test
@@ -546,7 +587,9 @@ class TestDefaultAgentTurnService
                 .isSameAs(failure);
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.findActive(task.id())).isPresent();
     }
 
     @Test

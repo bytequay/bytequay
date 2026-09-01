@@ -94,17 +94,15 @@ class TestDefaultAgentCompletionService
         runtimeRegistry = new AgentRuntimeRegistry();
         taskId = TaskId.random();
         stores.insert(AgentTask.created(
-                        taskId,
-                        Optional.empty(),
-                        false,
-                        "Completion test",
-                        AgentLaneId.CODEX_CLI,
-                        REPOSITORY,
-                        WORKTREE,
-                        AgentPermissionPolicy.AUTO,
-                        NOW)
-                .ready(NOW)
-                .activate(NOW));
+                taskId,
+                Optional.empty(),
+                false,
+                "Completion test",
+                AgentLaneId.CODEX_CLI,
+                REPOSITORY,
+                WORKTREE,
+                AgentPermissionPolicy.AUTO,
+                NOW));
     }
 
     @Test
@@ -130,25 +128,24 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
-    void completesAReadyTaskThatNeverStartedATurn()
+    void completesAnOpenTaskThatNeverStartedATurn()
     {
-        TaskId readyTaskId = TaskId.random();
+        TaskId openTaskId = TaskId.random();
         stores.insert(AgentTask.created(
-                        readyTaskId,
-                        Optional.empty(),
-                        false,
-                        "Unused task",
-                        AgentLaneId.CODEX_CLI,
-                        REPOSITORY,
-                        WORKTREE,
-                        AgentPermissionPolicy.AUTO,
-                        NOW)
-                .ready(NOW));
+                openTaskId,
+                Optional.empty(),
+                false,
+                "Unused task",
+                AgentLaneId.CODEX_CLI,
+                REPOSITORY,
+                WORKTREE,
+                AgentPermissionPolicy.AUTO,
+                NOW));
 
         TaskCompletion completion = service(Clock.fixed(NOW, ZoneOffset.UTC))
-                .complete(new CompleteAgentTaskCommand(readyTaskId, Optional.of("cancelled before first turn")));
+                .complete(new CompleteAgentTaskCommand(openTaskId, Optional.of("cancelled before first turn")));
 
-        assertThat(stores.find(readyTaskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(stores.find(openTaskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(completion.summary().notes()).contains("cancelled before first turn");
     }
 

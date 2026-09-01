@@ -32,12 +32,9 @@ class TestAgentTaskLifecycle
     private static final Path WORKTREE = Path.of("/tmp/bytequay-worktree");
 
     @Test
-    void taskFollowsTheCreateToCompleteLifecycle()
+    void openTaskCanComplete()
     {
-        AgentTask task = newTask()
-                .ready(CREATED_AT.plusSeconds(1))
-                .activate(CREATED_AT.plusSeconds(2))
-                .beginCompletion(CREATED_AT.plusSeconds(3));
+        AgentTask task = newTask();
         Instant completedAt = CREATED_AT.plusSeconds(4);
         TaskSummary summary = summary();
 
@@ -52,27 +49,23 @@ class TestAgentTaskLifecycle
     }
 
     @Test
-    void taskCannotSkipLifecycleStates()
+    void openTaskCanFail()
     {
-        AgentTask created = newTask();
+        AgentTask task = newTask();
+        Instant failedAt = CREATED_AT.plusSeconds(1);
 
-        assertThatThrownBy(() -> created.activate(CREATED_AT.plusSeconds(1)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("READY");
-        assertThatThrownBy(() -> created.fail(
-                "creation failed",
-                CREATED_AT.plusSeconds(1),
-                CREATED_AT.plus(7, ChronoUnit.DAYS)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("ready");
+        AgentTask failed = task.fail("provider unavailable", failedAt, failedAt.plus(7, ChronoUnit.DAYS));
+
+        assertThat(failed.state()).isEqualTo(TaskState.FAILED);
+        assertThat(failed.terminalReason()).contains("provider unavailable");
     }
 
     @Test
     void taskUpdateTimeCannotMoveBackwards()
     {
-        AgentTask ready = newTask().ready(CREATED_AT.plusSeconds(2));
+        AgentTask open = newTask().withMetrics(TaskMetrics.empty(), CREATED_AT.plusSeconds(2));
 
-        assertThatThrownBy(() -> ready.activate(CREATED_AT.plusSeconds(1)))
+        assertThatThrownBy(() -> open.withMetrics(TaskMetrics.empty(), CREATED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("before");
     }
@@ -109,11 +102,7 @@ class TestAgentTaskLifecycle
     void terminalTaskCleanupPreservesTerminalState()
     {
         Instant completedAt = CREATED_AT.plusSeconds(4);
-        AgentTask completed = newTask()
-                .ready(CREATED_AT.plusSeconds(1))
-                .activate(CREATED_AT.plusSeconds(2))
-                .beginCompletion(CREATED_AT.plusSeconds(3))
-                .complete(summary(), completedAt, completedAt.plus(7, ChronoUnit.DAYS));
+        AgentTask completed = newTask().complete(summary(), completedAt, completedAt.plus(7, ChronoUnit.DAYS));
 
         AgentTask due = completed.withCleanupState(
                 CleanupState.DELETE_DUE,

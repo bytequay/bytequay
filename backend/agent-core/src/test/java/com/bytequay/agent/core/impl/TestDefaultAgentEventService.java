@@ -424,7 +424,7 @@ class TestDefaultAgentEventService
 
     private AgentTask failedTask()
     {
-        return task.ready(NOW.plusSeconds(1)).fail(
+        return task.fail(
                 "failed",
                 NOW.plusSeconds(2),
                 NOW.plusSeconds(3));

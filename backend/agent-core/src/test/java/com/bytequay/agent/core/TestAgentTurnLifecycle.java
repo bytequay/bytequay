@@ -40,10 +40,9 @@ class TestAgentTurnLifecycle
     void turnRunsAndCompletesOnce()
     {
         AgentTurn accepted = newTurn();
-        AgentTurn running = accepted.running(
+        AgentTurn running = accepted.markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
                 new ProviderTurnRef("provider-turn-1"),
-                Optional.of("model-1"),
-                ACCEPTED_AT.plusSeconds(1));
+                Optional.of("model-1"));
         AgentTurn completed = running.finish(
                 TurnState.COMPLETED,
                 TurnMetrics.empty(),
@@ -67,12 +66,21 @@ class TestAgentTurnLifecycle
     @Test
     void rejectsAProviderModelThatDiffersFromTheAcceptedSnapshot()
     {
-        assertThatThrownBy(() -> newTurn().running(
+        assertThatThrownBy(() -> newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
                 new ProviderTurnRef("provider-turn-1"),
-                Optional.of("another-model"),
-                ACCEPTED_AT.plusSeconds(1)))
+                Optional.of("another-model")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void providerCannotRunBeforeDeliveryStartIsDurable()
+    {
+        assertThatThrownBy(() -> newTurn().running(
+                new ProviderTurnRef("provider-turn-1"),
+                Optional.empty()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("delivery has not started");
     }
 
     @Test
@@ -101,10 +109,9 @@ class TestAgentTurnLifecycle
     @Test
     void cancellationRequestIsIdempotentUntilTheProviderExits()
     {
-        AgentTurn running = newTurn().running(
+        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
                 new ProviderTurnRef("provider-turn-1"),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(1));
+                Optional.empty());
         AgentTurn requested = running.requestCancellation(ACCEPTED_AT.plusSeconds(2));
 
         assertThat(requested.state()).isEqualTo(TurnState.RUNNING);
@@ -121,10 +128,9 @@ class TestAgentTurnLifecycle
     @Test
     void nonCompletedTerminalTurnRequiresAReason()
     {
-        AgentTurn running = newTurn().running(
+        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
                 new ProviderTurnRef("provider-turn-1"),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(1));
+                Optional.empty());
 
         assertThatThrownBy(() -> running.finish(
                 TurnState.FAILED,

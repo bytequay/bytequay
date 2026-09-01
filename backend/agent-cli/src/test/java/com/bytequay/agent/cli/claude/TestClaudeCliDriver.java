@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
@@ -51,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestClaudeCliDriver
 {
@@ -195,6 +197,48 @@ class TestClaudeCliDriver
         unparseableDriver.close();
     }
 
+    @Test
+    void rejectsTurnWhenPromptWriteFails()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.failNextPromptWrite();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
+
+        assertThatThrownBy(() -> session.start(command("write-failure")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("Unable to write Claude prompt")
+                .hasRootCauseMessage("simulated prompt write failure");
+
+        assertThat(supervisor.turns()).singleElement().satisfies(turn -> {
+            assertThat(turn.cancelled()).isTrue();
+            assertThat(turn.inputClosed()).isFalse();
+        });
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void rejectsTurnWhenPromptInputCannotClose()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.failNextPromptClose();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
+
+        assertThatThrownBy(() -> session.start(command("close-failure")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("Unable to close Claude prompt input")
+                .hasRootCauseMessage("simulated prompt close failure");
+
+        assertThat(supervisor.turns()).singleElement().satisfies(turn -> {
+            assertThat(turn.cancelled()).isTrue();
+            assertThat(turn.inputClosed()).isTrue();
+        });
+        session.close();
+        driver.close();
+    }
+
     private ClaudeCliDriver driver(ProcessSupervisor supervisor)
     {
         ClaudePermissionBroker permissions = new ClaudePermissionBroker(
@@ -289,6 +333,8 @@ class TestClaudeCliDriver
     {
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
         private String versionOutput = "2.1.233 (Claude Code)";
+        private boolean failNextPromptWrite;
+        private boolean failNextPromptClose;
 
         @Override
         public ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
@@ -306,7 +352,9 @@ class TestClaudeCliDriver
                         """));
                 return ImmediateProcess.success();
             }
-            ScriptedTurn turn = new ScriptedTurn(spec, output);
+            ScriptedTurn turn = new ScriptedTurn(spec, output, failNextPromptWrite, failNextPromptClose);
+            failNextPromptWrite = false;
+            failNextPromptClose = false;
             turns.add(turn);
             return turn;
         }
@@ -320,6 +368,16 @@ class TestClaudeCliDriver
         {
             versionOutput = output;
         }
+
+        private void failNextPromptWrite()
+        {
+            failNextPromptWrite = true;
+        }
+
+        private void failNextPromptClose()
+        {
+            failNextPromptClose = true;
+        }
     }
 
     private static final class ScriptedTurn
@@ -328,12 +386,22 @@ class TestClaudeCliDriver
         private final ProcessSpec spec;
         private final ProcessOutputSink output;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
+        private final boolean failPromptWrite;
+        private final boolean failPromptClose;
         private String prompt = "";
+        private boolean cancelled;
+        private boolean inputClosed;
 
-        private ScriptedTurn(ProcessSpec spec, ProcessOutputSink output)
+        private ScriptedTurn(
+                ProcessSpec spec,
+                ProcessOutputSink output,
+                boolean failPromptWrite,
+                boolean failPromptClose)
         {
             this.spec = spec;
             this.output = output;
+            this.failPromptWrite = failPromptWrite;
+            this.failPromptClose = failPromptClose;
         }
 
         private ProcessSpec spec()
@@ -346,6 +414,16 @@ class TestClaudeCliDriver
             return prompt;
         }
 
+        private boolean cancelled()
+        {
+            return cancelled;
+        }
+
+        private boolean inputClosed()
+        {
+            return inputClosed;
+        }
+
         @Override
         public long pid()
         {
@@ -355,6 +433,9 @@ class TestClaudeCliDriver
         @Override
         public CompletionStage<Void> write(ByteBuffer bytes)
         {
+            if (failPromptWrite) {
+                return CompletableFuture.failedFuture(new IllegalStateException("simulated prompt write failure"));
+            }
             prompt += StandardCharsets.UTF_8.decode(bytes).toString();
             return CompletableFuture.completedFuture(null);
         }
@@ -362,6 +443,10 @@ class TestClaudeCliDriver
         @Override
         public void closeInput()
         {
+            inputClosed = true;
+            if (failPromptClose) {
+                throw new IllegalStateException("simulated prompt close failure");
+            }
             if (prompt.equals("cancel\n")) {
                 return;
             }
@@ -431,6 +516,7 @@ class TestClaudeCliDriver
         @Override
         public void cancel()
         {
+            cancelled = true;
             exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, Duration.ofMillis(5), false, false));
         }
 

@@ -32,7 +32,7 @@ public interface AgentTaskService
      * task resources have been allocated.
      *
      * @param command trusted workspace, exact commit, lane, and task defaults
-     * @return newly persisted ready task
+     * @return newly persisted open task
      */
     AgentTask createInteractive(CreateInteractiveAgentTaskCommand command);
 
@@ -40,12 +40,12 @@ public interface AgentTaskService
      * Creates a durable task for one clean, validated worktree and provider lane.
      *
      * <p>Creation verifies provider readiness before acquiring the lease or
-     * allocating task resources, then persists a {@link TaskState#READY} task
+     * allocating task resources, then persists a {@link TaskState#OPEN} task
      * without starting a turn. Failure after lease acquisition must delete newly
      * allocated resources and release the lease.
      *
      * @param command lane, worktree, repository, title, task defaults, and optional workspace ownership
-     * @return newly persisted ready task
+     * @return newly persisted open task
      * @throws InvalidAgentRequestException when the command or worktree is invalid
      * @throws AgentConflictException when the worktree already has a live task
      */

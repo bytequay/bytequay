@@ -110,7 +110,7 @@ final class ScriptedCherryPickAgent
                 command.worktree(),
                 Optional.empty(),
                 command.defaults(),
-                com.bytequay.agent.core.TaskState.READY,
+                com.bytequay.agent.core.TaskState.OPEN,
                 0,
                 NOW,
                 NOW,

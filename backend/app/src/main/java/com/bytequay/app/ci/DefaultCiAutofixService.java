@@ -281,7 +281,7 @@ public class DefaultCiAutofixService
                 || !snapshot.headSha().equals(run.expectedRemoteHead())) {
             throw new CiAutofixConflictException("Pull request head changed outside this CI Autofix run");
         }
-        AgentTask task = requireReadyTask(run);
+        AgentTask task = requireOpenTask(run);
         workspaceService.restore(task.id(), task.worktree(), task.repository());
 
         if (run.currentRebaseId().isPresent()) {
@@ -397,7 +397,7 @@ public class DefaultCiAutofixService
             basePrepared = run.latestObservedBaseSha().equals(snapshot.baseSha());
         }
         if (!basePrepared && needsBranchRebase(run, snapshot)) {
-            RebaseGate gate = ensureBranchRebase(run, requireReadyTask(run), snapshot, now);
+            RebaseGate gate = ensureBranchRebase(run, requireOpenTask(run), snapshot, now);
             if (!gate.ready()) {
                 return gate.run();
             }
@@ -407,13 +407,13 @@ public class DefaultCiAutofixService
             run = store.update(run.observeBase(snapshot.headSha(), snapshot.baseSha(), now));
         }
         if (refreshPreparedAttempt) {
-            return refreshPreparedAttempt(run, requireReadyTask(run), now);
+            return refreshPreparedAttempt(run, requireOpenTask(run), now);
         }
         if (run.attempts().isEmpty()) {
             if (snapshot.actionableFailures().isEmpty()) {
                 return snapshot.green() ? finishGreenOrCheckFixups(run, now) : run;
             }
-            return prepareFixAttempt(run, requireReadyTask(run), snapshot);
+            return prepareFixAttempt(run, requireOpenTask(run), snapshot);
         }
 
         CiAutofixAttempt attempt = run.attempts().getLast();
@@ -421,7 +421,7 @@ public class DefaultCiAutofixService
             if (snapshot.actionableFailures().isEmpty()) {
                 return snapshot.green() ? observeCi(run, attempt, CiResult.PASSED, snapshot, now) : run;
             }
-            return startAttemptTurn(run, requireReadyTask(run), snapshot);
+            return startAttemptTurn(run, requireOpenTask(run), snapshot);
         }
         if (attempt.pushedSha().isEmpty()) {
             if (attempt.gitResult().isPresent()) {
@@ -722,7 +722,7 @@ public class DefaultCiAutofixService
         }
         return snapshot.actionableFailures().isEmpty()
                 ? run
-                : prepareFixAttempt(run, requireReadyTask(run), snapshot);
+                : prepareFixAttempt(run, requireOpenTask(run), snapshot);
     }
 
     private CiAutofixRun finishGreenOrCheckFixups(CiAutofixRun run, Instant now)
@@ -1061,9 +1061,7 @@ public class DefaultCiAutofixService
     private CiAutofixRun startAttemptTurn(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot)
     {
         CiAutofixAttempt attempt = run.attempts().getLast();
-        if (task.state() == TaskState.ACTIVE) {
-            workspaceService.restore(task.id(), task.worktree(), task.repository());
-        }
+        workspaceService.restore(task.id(), task.worktree(), task.repository());
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 task.id(),
                 promptBuilder.build(snapshot, attempt),
@@ -1126,13 +1124,13 @@ public class DefaultCiAutofixService
         return run.updateAttempt(attempt.withAgentNote(note.orElseThrow(), now), now);
     }
 
-    private AgentTask requireReadyTask(CiAutofixRun run)
+    private AgentTask requireOpenTask(CiAutofixRun run)
     {
         AgentTask task = taskService.get(TaskId.valueOf(run.agentTaskId().orElseThrow()));
-        if ((task.state() != TaskState.READY && task.state() != TaskState.ACTIVE)
+        if (task.state() != TaskState.OPEN
                 || task.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX
                 || !task.id().toString().equals(run.agentTaskId().orElseThrow())) {
-            throw new CiAutofixConflictException("CI Autofix agent task is not ready for another turn");
+            throw new CiAutofixConflictException("CI Autofix agent task is not open for another turn");
         }
         return task;
     }

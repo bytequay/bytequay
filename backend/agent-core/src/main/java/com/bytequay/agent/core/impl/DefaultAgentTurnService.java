@@ -59,6 +59,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 
 import java.nio.ByteBuffer;
@@ -132,7 +133,7 @@ public final class DefaultAgentTurnService
         requireNonNull(command, "command is null");
         StartedTurn started = null;
         RunningTurn failedRunningTurn = null;
-        TurnId failedTurnId = null;
+        AgentTurn failedTurn = null;
         RuntimeException startFailure = null;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPendingEvents(command.taskId());
@@ -144,7 +145,7 @@ public final class DefaultAgentTurnService
             }
 
             AgentTask task = requireTask(command.taskId());
-            if (task.state() != TaskState.READY && task.state() != TaskState.ACTIVE) {
+            if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot start a turn in state " + task.state());
             }
             turnStore.findActive(task.id()).ifPresent(active -> {
@@ -198,41 +199,33 @@ public final class DefaultAgentTurnService
             try {
                 eventService.drain(messageEventId);
                 AgentSession session = session(task);
-                task = requireTask(task.id());
-                if (task.state() == TaskState.READY) {
-                    taskStore.update(task.activate(Instant.now(clock)));
-                }
                 metricsService.beginTurn(task.id(), accepted.id());
+                turnStore.update(requireTurn(accepted.id()).markDeliveryStarted(Instant.now(clock)));
                 RunningTurn runningTurn = session.start(new AgentTurnCommand(
                         accepted.id().toString(),
                         command.message(),
                         command.attachments(),
                         settings.maximumRuntime()));
-                try {
-                    AgentTurn current = requireTurn(accepted.id());
-                    AgentTurn running = turnStore.update(current.running(
-                            runningTurn.reference(),
-                            Optional.empty(),
-                            Instant.now(clock)));
-                    runtimeRegistry.registerRunning(running.id(), runningTurn);
-                    started = new StartedTurn(running, runningTurn);
-                }
-                catch (RuntimeException failure) {
-                    failedRunningTurn = runningTurn;
-                    throw failure;
-                }
+                failedRunningTurn = runningTurn;
+                ProviderTurnRef providerTurnReference = runningTurn.reference();
+                AgentTurn running = turnStore.update(requireTurn(accepted.id()).running(
+                        providerTurnReference,
+                        Optional.empty()));
+                runtimeRegistry.registerRunning(running.id(), runningTurn);
+                started = new StartedTurn(running, runningTurn);
             }
             catch (RuntimeException failure) {
-                recordFailedStart(accepted.id(), failure);
-                failedTurnId = accepted.id();
+                recordFailedStart(accepted, failure);
+                failedTurn = accepted;
                 startFailure = failure;
             }
         }
         if (startFailure != null) {
             if (failedRunningTurn != null) {
+                observeCompletion(requireNonNull(failedTurn, "failed turn is null"), failedRunningTurn);
                 cancelAndSuppressFailure(failedRunningTurn, startFailure);
             }
-            denyPendingAndSuppressFailure(failedTurnId, startFailure);
+            denyPendingAndSuppressFailure(requireNonNull(failedTurn, "failed turn is null").id(), startFailure);
             throw startFailure;
         }
 
@@ -243,7 +236,7 @@ public final class DefaultAgentTurnService
         catch (RuntimeException failure) {
             synchronized (runtimeRegistry.taskLock(command.taskId())) {
                 runtimeRegistry.removeRunning(completedStart.turn().id(), completedStart.runningTurn());
-                recordFailedStart(completedStart.turn().id(), failure);
+                recordFailedStart(completedStart.turn(), failure);
             }
             cancelAndSuppressFailure(completedStart.runningTurn(), failure);
             denyPendingAndSuppressFailure(completedStart.turn().id(), failure);
@@ -389,10 +382,13 @@ public final class DefaultAgentTurnService
             if (turn.state().terminal()) {
                 return;
             }
-            TurnState terminalState = failure == null ? terminalState(result.state()) : TurnState.INTERRUPTED;
+            if (failure != null) {
+                return;
+            }
+            TurnState terminalState = terminalState(result.state());
             Optional<String> reason = terminalState == TurnState.COMPLETED
                     ? Optional.empty()
-                    : Optional.of(failure == null ? result.terminalReason().orElseThrow() : failureMessage(failure));
+                    : Optional.of(result.terminalReason().orElseThrow());
             TurnMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
             AgentTurn latest = requireTurn(turn.id());
             turnStore.update(latest.finish(terminalState, finalMetrics, reason, Instant.now(clock)));
@@ -402,17 +398,22 @@ public final class DefaultAgentTurnService
         approvalService.denyPending(observedTurn.id());
     }
 
-    private void recordFailedStart(TurnId turnId, RuntimeException failure)
+    private void recordFailedStart(AgentTurn acceptedTurn, RuntimeException failure)
     {
         try {
-            TurnMetrics finalMetrics = metricsService.finishTurn(turnId, TurnState.FAILED);
-            AgentTurn turn = requireTurn(turnId);
+            Instant now = Instant.now(clock);
+            AgentTurn turn = requireTurn(acceptedTurn.id());
+            if (turn.startedAt().isPresent()) {
+                return;
+            }
+            TurnMetrics finalMetrics = metricsService.finishTurn(acceptedTurn.id(), TurnState.FAILED);
+            turn = requireTurn(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 turnStore.update(turn.finish(
                         TurnState.FAILED,
                         finalMetrics,
                         Optional.of(failureMessage(failure)),
-                        Instant.now(clock)));
+                        now));
             }
         }
         catch (RuntimeException cleanupFailure) {

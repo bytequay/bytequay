@@ -625,15 +625,32 @@ public final class ClaudeCliDriver
             }
             started.exit().whenComplete(this::processExited);
             byte[] prompt = prompt(command.message(), attachments).getBytes(StandardCharsets.UTF_8);
-            started.write(ByteBuffer.wrap(prompt)).whenComplete((ignored, failure) -> {
-                if (failure != null) {
-                    interruptionReason = "Unable to write Claude prompt: " + failureMessage(failure);
-                    started.cancel();
+            try {
+                started.write(ByteBuffer.wrap(prompt)).toCompletableFuture().join();
+            }
+            catch (RuntimeException failure) {
+                failPromptDelivery(started, "Unable to write Claude prompt", failure);
+            }
+            try {
+                started.closeInput();
+            }
+            catch (RuntimeException failure) {
+                failPromptDelivery(started, "Unable to close Claude prompt input", failure);
+            }
+        }
+
+        private void failPromptDelivery(ManagedProcess process, String message, RuntimeException failure)
+        {
+            interruptionReason = message + ": " + failureMessage(failure);
+            try {
+                process.cancel();
+            }
+            catch (RuntimeException cancellationFailure) {
+                if (failure != cancellationFailure) {
+                    failure.addSuppressed(cancellationFailure);
                 }
-                else {
-                    started.closeInput();
-                }
-            });
+            }
+            throw new AgentUnavailableException(interruptionReason, failure);
         }
 
         @Override

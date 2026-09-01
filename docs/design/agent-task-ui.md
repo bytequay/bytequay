@@ -61,9 +61,9 @@ not weaken the remaining compatibility, isolation, and release gates.
 - This is separate from App Server's experimental `--code-mode-host`, which
   selects one Code Mode runtime for the whole App Server process. The first
   release leaves that process-wide option unset.
-- The Spring sidecar owns task state, replayable events, approvals, queued
-  inputs, and attachments. The renderer is a projection of that state, not an
-  owner of provider execution.
+- The Spring sidecar owns task lifecycle, turn/claim facts, replayable events,
+  approvals, queued inputs, and attachments. The renderer derives runtime
+  status from those facts; it does not own provider execution.
 - Electron main owns the authenticated REST and SSE connection. Provider
   credentials, backend session secrets, arbitrary filesystem paths, and raw
   provider messages never enter the renderer.
@@ -90,8 +90,9 @@ not weaken the remaining compatibility, isolation, and release gates.
   reload, SSE reconnect, or backend restart.
 - Allow multiple ByteQuay tasks to run through the one Codex App Server while
   preserving task, root-thread, child-thread, turn, and item identity.
-- Display task and turn state, selected provider/model, elapsed time, token
-  usage when available, and terminal errors.
+- Display task lifecycle, derived runtime status, turn state, selected
+  provider/model, elapsed time, token usage when available, and terminal
+  errors.
 - After completion, display the retained generated branch name and HEAD as the
   local result without exposing the backend worktree path.
 
@@ -204,7 +205,8 @@ thread-scoped background-terminal list to empty for the root and every child.
 An unfinished low-level item remains visibly active even if the root answer has
 arrived. A missed notification, history-read error, newly discovered
 grandchild, unterminated item/process, or provider version that cannot prove
-this closure keeps the task recovering. Task close
+this closure keeps the `OPEN` task blocked and projects recovery required.
+Task close
 unsubscribes the root and every known subscribed child only after that barrier.
 
 For Codex, collaboration items provide the child relationship as the child is
@@ -226,7 +228,8 @@ provider turn still matches the requested turn ID.
 **Run next** creates a durable FIFO queued input containing text, attachment
 references, and the settings selected for that input. The backend starts the
 head automatically only after the root/descendant execution tree completes
-successfully, passes quiescence, and the task returns to `READY`. After failure,
+successfully, passes quiescence, and releases the `TURN` claim so the `OPEN`
+task projects idle. After failure,
 cancellation, interruption, or an
 approval/authentication problem, queued inputs remain visible but paused until
 the user explicitly resumes execution. The first release supports adding and
@@ -262,7 +265,7 @@ effort, and permission mode; the workspace is already fixed by the route. The
 HTTP request contains `workspaceId`, not a worktree path. `app` resolves and
 validates that workspace's managed repository and exact starting commit, then
 the shared service provisions a separate generated task worktree before
-`agent-core` reports the task ready.
+`agent-core` persists the task as `OPEN`.
 
 The dialog checks the same typed provider readiness returned by Workspace
 Settings before enabling **Create**. Authentication-required, missing,
@@ -333,8 +336,8 @@ worktree-mutation claim. It records Git facts, removes a verified clean worktree
 retains its generated branch as the local result. If the worktree is dirty or a
 Git operation remains open, Complete shows an actionable conflict rather than
 discarding files. The completed screen shows the retained branch and HEAD; it
-does not merge or push them automatically. The detail screen must not leave a READY task permanently
-holding that worktree without a visible close action.
+does not merge or push them automatically. The detail screen must not leave an
+`OPEN` task permanently holding that worktree without a visible close action.
 
 ## 3. System shape
 
@@ -351,7 +354,7 @@ flowchart LR
         CORE["agent-core<br/>tasks · turns · approvals · queue<br/>worktree contract · mutation claim · events"]
         WORKTREE_SERVICE["app<br/>managed worktree operations"]
         SPI["agent-spi<br/>capabilities and normalized events"]
-        STORE["SQLite task state/outbox<br/>+ task JSONL/blobs"]
+        STORE["SQLite task lifecycle/claims/outbox<br/>+ task JSONL/blobs"]
         WORKTREE["Generated task worktree<br/>clean result branch"]
         WEB <--> CORE
         CORE -->|"WorktreeService port"| WORKTREE_SERVICE
@@ -436,7 +439,7 @@ DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
 POST   /agent/tasks/{taskId}/queue/resume
 POST   /agent/tasks/{taskId}/attachments
 GET    /agent/tasks/{taskId}/attachments/{attachmentId}
-POST   /agent/tasks/{taskId}/fail-recovery
+POST   /agent/tasks/{taskId}/mark-failed
 ```
 
 Task creation accepts a workspace ID, title, lane, and defaults; it never
@@ -535,9 +538,9 @@ complete.
   Workspace Settings state, and a successful readiness refresh enables Create.
 - Renderer reload and SSE reconnect preserve a live run and neither lose nor
   duplicate completed items. After backend restart, the same transcript is
-  restored, the lost active turn is visibly `INTERRUPTED`/`RECOVERING`, and
-  retry stays disabled until the entire owned process tree is verified stopped;
-  root-process exit alone is insufficient.
+  restored, the lost active turn is visibly `INTERRUPTED` with recovery
+  required, and retry stays disabled until the entire owned process tree is
+  verified stopped; root-process exit alone is insufficient.
 - The chosen model, effort, and permission are the settings actually used and
   recorded for each turn.
 - Unsupported image input is disabled; supported images are task-owned,

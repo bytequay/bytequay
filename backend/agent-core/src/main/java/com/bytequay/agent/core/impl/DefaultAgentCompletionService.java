@@ -85,7 +85,7 @@ public final class DefaultAgentCompletionService
                 workspaceService.release(task.id());
                 return completion(task);
             }
-            if (task.state() != TaskState.READY && task.state() != TaskState.ACTIVE) {
+            if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
             turnStore.findActive(task.id()).ifPresent(turn -> {
@@ -105,8 +105,7 @@ public final class DefaultAgentCompletionService
                     ImmutableList.of(),
                     command.notes());
             Instant deleteAfter = completedAt.plus(RETENTION_PERIOD);
-            AgentTask completed = taskStore.update(task.beginCompletion(completedAt)
-                    .complete(summary, completedAt, deleteAfter));
+            AgentTask completed = taskStore.update(task.complete(summary, completedAt, deleteAfter));
             workspaceService.release(task.id());
             return completion(completed);
         }

@@ -56,7 +56,9 @@ public record AgentTurn(
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(metrics, "metrics is null");
         checkArgument(version >= 0, "version is negative");
-        checkArgument(state != TurnState.RUNNING || (startedAt.isPresent() && providerTurnReference.isPresent()), "a running turn requires start time and provider reference");
+        checkArgument(providerTurnReference.isEmpty() || startedAt.isPresent(), "a provider reference requires delivery start time");
+        checkArgument(state != TurnState.RUNNING || providerTurnReference.isPresent(), "a running turn requires a provider reference");
+        checkArgument(state != TurnState.ACCEPTED || providerTurnReference.isEmpty(), "an accepted turn cannot have a provider reference");
         checkArgument(state.active() != endedAt.isPresent(), "endedAt and turn state disagree");
         checkArgument((state != TurnState.COMPLETED && state.terminal()) == terminalReason.isPresent(), "terminalReason and turn state disagree");
         checkArgument(startedAt.isEmpty() || !startedAt.orElseThrow().isBefore(createdAt), "startedAt is before createdAt");
@@ -90,11 +92,12 @@ public record AgentTurn(
                 TurnMetrics.empty());
     }
 
-    public AgentTurn running(ProviderTurnRef reference, Optional<String> providerModel, Instant now)
+    public AgentTurn running(ProviderTurnRef reference, Optional<String> providerModel)
     {
         requireState(TurnState.ACCEPTED);
         requireNonNull(reference, "reference is null");
         checkOptionalText(providerModel, "providerModel");
+        checkState(startedAt.isPresent(), "provider delivery has not started");
         checkState(settings.isPresent(), "accepted turn has no settings snapshot");
         checkArgument(
                 providerModel.isEmpty() || settings.orElseThrow().model().equals(providerModel),
@@ -102,13 +105,23 @@ public record AgentTurn(
         return copy(
                 TurnState.RUNNING,
                 version,
-                Optional.of(now),
+                startedAt,
                 Optional.empty(),
                 cancellationRequestedAt,
                 Optional.of(reference),
                 providerModel,
                 Optional.empty(),
                 metrics);
+    }
+
+    public AgentTurn markDeliveryStarted(Instant now)
+    {
+        requireState(TurnState.ACCEPTED);
+        requireNonNull(now, "now is null");
+        checkState(startedAt.isEmpty(), "provider delivery already started");
+        checkArgument(!now.isBefore(createdAt), "delivery start is before turn acceptance");
+        return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt,
+                providerTurnReference, model, terminalReason, metrics);
     }
 
     public AgentTurn requestCancellation(Instant now)

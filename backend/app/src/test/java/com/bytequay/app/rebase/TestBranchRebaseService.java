@@ -112,7 +112,7 @@ class TestBranchRebaseService
                 REPOSITORY_ID,
                 repository,
                 AgentPermissionPolicy.CI_AUTOFIX,
-                NOW).ready(NOW);
+                NOW);
         when(tasks.get(taskId)).thenReturn(task);
         when(workspaces.inspect(repository)).thenAnswer(ignored -> workspaceSnapshot());
         service = new BranchRebaseService(
@@ -664,7 +664,8 @@ class TestBranchRebaseService
             }
             current = TurnId.random();
             AgentTurn turn = AgentTurn.accepted(current, command.taskId(), command.idempotencyKey(), turnSettings(), NOW)
-                    .running(new ProviderTurnRef("provider-" + current), Optional.empty(), NOW);
+                    .markDeliveryStarted(NOW)
+                    .running(new ProviderTurnRef("provider-" + current), Optional.empty());
             turns.put(current, turn);
             if (failAfterStarting) {
                 failAfterStarting = false;

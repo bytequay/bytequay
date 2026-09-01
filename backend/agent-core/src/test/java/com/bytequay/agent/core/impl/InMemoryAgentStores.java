@@ -27,6 +27,7 @@ import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -60,6 +61,8 @@ final class InMemoryAgentStores
     private RuntimeException approvalFindFailure;
     private RuntimeException approvalFindAfterResolveFailure;
     private RuntimeException approvalResolveFailure;
+    private TurnState failingTurnUpdateState;
+    private RuntimeException turnUpdateFailure;
 
     @Override
     public <T> T execute(Work<T> work)
@@ -199,6 +202,12 @@ final class InMemoryAgentStores
     @Override
     public synchronized AgentTurn update(AgentTurn turn)
     {
+        if (turn.state() == failingTurnUpdateState) {
+            RuntimeException failure = turnUpdateFailure;
+            failingTurnUpdateState = null;
+            turnUpdateFailure = null;
+            throw failure;
+        }
         AgentTurn current = turns.get(turn.id());
         if (current == null) {
             throw new AgentTurnNotFoundException(turn.id());
@@ -390,6 +399,12 @@ final class InMemoryAgentStores
     synchronized void failApprovalResolve(RuntimeException failure)
     {
         approvalResolveFailure = failure;
+    }
+
+    synchronized void failTurnUpdate(TurnState state, RuntimeException failure)
+    {
+        failingTurnUpdateState = state;
+        turnUpdateFailure = failure;
     }
 
     synchronized void clearApprovalFindFailure()

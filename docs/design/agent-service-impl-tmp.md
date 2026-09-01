@@ -86,7 +86,8 @@ Missing for the reviewed rich-task design:
   that reference protocol and still works with the latest installed CLI.
 - [ ] A task-owned Codex executor/environment and fail-closed isolation.
 - [ ] Canonical event IDs plus root/child/turn/item source identities.
-- [ ] Persisted user input and delivery state.
+- [ ] Persisted steer/queue input delivery; direct turn start already reuses
+  the durable turn row instead of adding a parallel delivery state machine.
 - [ ] Atomic SQLite state plus event-outbox persistence.
 - [ ] Immutable task-worktree ownership facts, mutation claims, approvals, and
   provider recovery facts.
@@ -133,7 +134,7 @@ These are scope rules, not claims that current code already enforces them:
 | Role | Owns |
 | --- | --- |
 | Runtime owner | App Server protocol and reference fixtures, Codex/Claude adapters, process supervision, task executor/environment, routing, and quiescence |
-| Service/storage owner | Task/turn/event/approval contracts, managed-worktree boundary, SQLite task state, outbox, provider recovery, and HTTP/SSE DTOs |
+| Service/storage owner | Task/turn/event/approval contracts, managed-worktree boundary, SQLite task lifecycle, outbox, provider recovery, and HTTP/SSE DTOs |
 | Desktop owner | Electron REST/SSE client, preload API, React reducer, routes, task UI, accessibility, and plain CSS |
 | Product/release owner | Experimental dependency decision, same-host trust decision, capability policy, and release gate |
 
@@ -561,7 +562,7 @@ Implementation:
   identities in their own workflow records.
 - [x] Freeze the creation order: readiness first, then exact-commit resolution,
   verified worktree provisioning, task resources, and finally task publication
-  as `READY`.
+  as `OPEN`.
 - [x] List interactive tasks by `workspaceId` and reject a route/task workspace
   mismatch.
 - [x] Keep legacy/internal workflow tasks readable without silently listing
@@ -689,6 +690,21 @@ memory. Reload recovery queries SQLite, and explicit decisions are serialized
 with turn cancellation while JSONL drain and provider continuation stay
 outside that task lock. Startup closes every durable pending approval before
 recovering active turns, including a terminal turn whose prior denial failed.
+Turn start reuses the durable `AgentTurn` instead of adding a second delivery
+entity, ID, repository, store, and lifecycle. The accepted turn's `startedAt`
+is persisted immediately before the single provider call. No `startedAt`
+means the input is known unsent; a provider reference on a `RUNNING` turn
+confirms receipt; and an interrupted turn with `startedAt` but no provider
+reference is uncertain. An uncertain send retains the blocking turn and its
+mutation claim while the task remains `OPEN`; the UI derives recovery required
+and disables Send and Complete. Startup derives the same facts from the active
+turn and never resends it. This is a fail-closed ownership barrier, not a task
+state machine: `DefaultAgentTurnService` owns the live entry,
+`AgentMaintenance` reconstructs it after restart, and CP3 has no automatic
+retry. CP4's quiescence proof will own the only live exit; the guarded
+mark-failed action will own the terminal exit. Services remain stateless.
+CP10 must add only the minimum independent record required for steering or
+queued input, because those inputs are not one-to-one with a turn.
 
 Implementation:
 
@@ -708,10 +724,13 @@ Implementation:
   before the SQLite transaction, then persist only bounded metadata and its
   blob reference with the accepted turn before attempting provider delivery.
   CP10 applies the same rule to `turn/steer`.
-- [ ] Add input-delivery states `ACCEPTED`, `SENDING`, `DELIVERED`, `FAILED`,
-  and `UNKNOWN`; never automatically resend an unknown delivery.
-- [ ] Persist each delivery's ID, start/steer kind, task/turn, idempotency key,
-  timestamps, and redacted terminal reason.
+- [x] For direct `turn/start`, derive known-unsent, sending, delivered, and
+  unknown as projections of the existing turn state, `startedAt`, and provider
+  reference; do not persist a second enum or automatically resend an uncertain
+  turn.
+- [ ] When CP10 implements steering or queueing, add only their independently
+  required delivery fact; do not reintroduce a parallel delivery row for a
+  direct start.
 - [x] Persist approval requests before publishing cards and persist
   resolution/expiry before resuming the provider callback.
 - [x] Deny pending approvals durably on timeout, cancellation, terminal turn,
@@ -730,7 +749,7 @@ Implementation:
 - [x] Activate workspace-owned interactive task creation: probe readiness,
   validate the catalogued model and effort, resolve the exact start commit,
   provision and verify the worktree, allocate task resources, then publish the
-  task as `READY`. If provisioning reports a half-finished or mismatched orphan,
+  task as `OPEN`. If provisioning reports a half-finished or mismatched orphan,
   preserve it and return an actionable diagnostic; do not adopt or delete it
   automatically.
 - [x] Activate workspace-scoped task list/read routes with the frozen narrowed
@@ -762,7 +781,7 @@ Implementation:
   `WorktreeService.inspect(worktree)`, while exact-lease
   push continues to target the authorized remote PR branch.
 - [x] Serialize worktree add/remove per managed repository while allowing
-  distinct ready worktrees to run concurrently.
+  distinct verified worktrees to run concurrently.
 - [ ] Add one task-local worktree mutation claim acquired by turn start, later
   queue claims, or completion. Recovery preserves and reconciles the existing
   claim; it does not invent a separate recovery-claim kind.
@@ -771,10 +790,10 @@ Implementation:
   race coverage rather than relying on a query-only busy check.
 - [x] Convert `scripts/agent-e2e.sh` from raw worktree submission to a managed
   workspace fixture before activating the new public request.
-- [ ] Keep provider delivery/process uncertainty in the existing typed
-  `RECOVERING` task state. A worktree ownership mismatch is instead an
-  operation error: preserve the path and report it without creating another
-  worktree state.
+- [ ] Keep provider delivery/process uncertainty in the active turn and its
+  retained `TURN` claim while the task stays `OPEN`. A worktree ownership
+  mismatch is an operation error: preserve the path and report it without
+  creating another task or worktree state.
 - [ ] Keep a dirty terminal worktree in place with task cleanup
   `ACTION_REQUIRED`; cleanup must reject it without removing or modifying it.
 - [ ] Keep provider, Git, JSONL, and SSE calls outside SQLite transactions.
@@ -798,7 +817,8 @@ Exit gate:
 - [ ] Concurrent Send and Complete yield exactly one mutation claim.
 - [ ] Startup serves no agent mutation endpoint before event-outbox and owned
   provider-process recovery finishes, and no task/event read or SSE stream
-  exposes partially recovered task state. There is no worktree startup scan.
+  exposes partially reconciled execution facts. There is no worktree startup
+  scan.
 - [x] HTTP tests prove workspace-scoped list/read, route/task mismatch rejection,
   path-free creation, and narrowed task/turn responses after activation.
 - [ ] Backend verification plus shared workflow regression suites pass.
@@ -873,15 +893,15 @@ Implementation:
   quiescence.
 - [ ] Retain the mutation claim and task worktree while a child, item, background
   terminal, unknown delivery, or owned process is active or unverifiable.
-- [ ] Add a guarded fail-recovery operation that never edits or cleans the
+- [ ] Add a guarded mark-failed operation that never edits or cleans the
   worktree.
 - [ ] Before enabling a model, prove full recursive child discovery/routing and
   quiescence. Changing ByteQuay capability metadata does not prevent invisible
   descendants; otherwise mark the model/lane unavailable. CP9 adds inspection,
   not this safety behavior.
 - [ ] After a successful stable terminal reconciliation, atomically finalize
-  the turn, release its `TURN` claim, and transition the task from `ACTIVE` to
-  `READY`.
+  the turn and release its `TURN` claim. The task remains `OPEN` and its
+  derived projection becomes idle.
 
 Exit gate:
 
@@ -901,19 +921,19 @@ Exit gate:
 - [ ] Cancellation lists/cleans background terminals and reaches the same
   quiescence barrier.
 - [ ] Backend restart either proves the old owned process tree stopped or leaves
-  the task visibly recovering with its mutation claim held.
+  the `OPEN` task visibly recovery-required with its mutation claim held.
 - [ ] Missing/corrupt process receipts fail closed.
 - [ ] If a compatibility fixture can leave a writer outside both ByteQuay's
   directly owned process proof and App Server item/background-terminal
   registries, reject the Codex lane for release rather than merely leaving one
-  task recovering.
+  `OPEN` task blocked with the recovery-required projection.
 
 Primary files:
 
 - `backend/agent-cli/.../process/...`
 - `backend/agent-cli/.../codex/...`
 - new task-executor manager and fixtures in `agent-cli`
-- recovery state and launch stores in `agent-core`/`persistence-sqlite`
+- provider launch and claim stores in `agent-core`/`persistence-sqlite`
 
 ## [ ] CP5 — Add the authenticated Electron task bridge
 
@@ -1065,7 +1085,7 @@ Implementation:
   instead of maintaining two status paths.
 - [ ] Add typed Electron/preload operations to refresh provider readiness,
   update task defaults, read effective turn settings, cancel active execution,
-  call `POST /agent/tasks/{taskId}/fail-recovery`, and invoke the confirmed
+  call `POST /agent/tasks/{taskId}/mark-failed`, and invoke the confirmed
   shared-server stop operation.
 - [ ] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
@@ -1088,7 +1108,7 @@ Implementation:
   may still be active; it does not release the claim or clean the task worktree.
 - [ ] After every provider-visible item/background terminal is terminal and all
   directly owned processes are verified stopped, expose **Mark task failed**.
-  It calls `POST /agent/tasks/{taskId}/fail-recovery`, marks the whole task
+  It calls `POST /agent/tasks/{taskId}/mark-failed`, marks the whole task
   `FAILED`, releases the claim, retains history, and requests safe worktree
   cleanup. Dirty work remains until it is committed or explicitly discarded.
   The backend rejects the action before that barrier.
@@ -1126,8 +1146,9 @@ End-to-end acceptance:
   typed activity, and final answer.
 - [ ] Reload mid-turn; no item is lost or duplicated and the run continues.
 - [ ] Restart the backend mid-turn; the restored turn is visibly
-  `INTERRUPTED`/`RECOVERING` or reconciled terminal, never implicitly resumed or
-  resent, and ownership remains held until the barrier passes.
+  `INTERRUPTED` with recovery required, or reconciled terminal and idle; it is
+  never implicitly resumed or resent, and ownership remains held until the
+  barrier passes.
 - [ ] Resolve an approval, reload, and verify it stays resolved.
 - [ ] Send a second message and verify the same root thread is resumed.
 - [ ] Cancel a running turn and reach the quiescence/recovery outcome.

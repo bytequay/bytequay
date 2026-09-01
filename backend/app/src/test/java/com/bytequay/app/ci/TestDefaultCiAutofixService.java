@@ -132,7 +132,7 @@ class TestDefaultCiAutofixService
     private Path worktree;
     private TaskId taskId;
     private TurnId turnId;
-    private AgentTask readyTask;
+    private AgentTask openTask;
     private AgentTurn runningTurn;
     private CiHeadSnapshot snapshot;
     private TaskResources resources;
@@ -157,7 +157,7 @@ class TestDefaultCiAutofixService
         worktree = Files.createDirectory(temporaryDirectory.resolve("worktree")).toRealPath();
         taskId = TaskId.random();
         turnId = TurnId.random();
-        readyTask = AgentTask.created(
+        openTask = AgentTask.created(
                 taskId,
                 Optional.empty(),
                 false,
@@ -166,7 +166,7 @@ class TestDefaultCiAutofixService
                 REPOSITORY,
                 worktree,
                 AgentPermissionPolicy.CI_AUTOFIX,
-                NOW).ready(NOW);
+                NOW);
         runningTurn = runningTurn(turnId, "provider-turn", "ignored");
         snapshot = snapshot(true, "author", true, HEAD, true);
 
@@ -193,7 +193,7 @@ class TestDefaultCiAutofixService
                 ImmutableList.of("error: compilation failed"),
                 Optional.empty()));
         when(workspaceService.inspect(worktree)).thenReturn(workspace(false, HEAD));
-        when(taskService.create(any())).thenReturn(readyTask);
+        when(taskService.create(any())).thenReturn(openTask);
         when(taskService.get(taskId)).thenReturn(activeTask());
         when(turnService.start(any())).thenReturn(runningTurn);
         when(turnService.get(turnId)).thenReturn(runningTurn);
@@ -591,7 +591,7 @@ class TestDefaultCiAutofixService
         racingStore.conflict = first;
         DefaultCiAutofixService racing = service(racingStore);
         when(gitHub.inspect(any())).thenReturn(snapshot);
-        when(taskService.create(any())).thenReturn(readyTask);
+        when(taskService.create(any())).thenReturn(openTask);
 
         assertThat(racing.start(startCommand("repeat"))).isEqualTo(first);
         verify(taskService, never()).create(any());
@@ -1106,7 +1106,7 @@ class TestDefaultCiAutofixService
 
         assertThat(service.sendMessage(command)).isEqualTo(resumed);
         verify(turnService, times(2)).start(any());
-        verify(workspaceService).restore(taskId, worktree, REPOSITORY);
+        verify(workspaceService, times(2)).restore(taskId, worktree, REPOSITORY);
     }
 
     @Test
@@ -1155,20 +1155,20 @@ class TestDefaultCiAutofixService
         assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
         verify(turnService, times(1)).start(any());
 
-        MemoryStore unreadyStore = new MemoryStore();
-        DefaultCiAutofixService unreadyService = service(unreadyStore);
+        MemoryStore closedStore = new MemoryStore();
+        DefaultCiAutofixService closedService = service(closedStore);
         when(turnService.start(any())).thenReturn(runningTurn);
-        CiAutofixRun unreadyActive = unreadyService.start(startCommand("unready"));
+        CiAutofixRun openRun = closedService.start(startCommand("closed"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
-        CiAutofixRun unreadyPaused = unreadyService.advance(unreadyActive.id());
-        when(taskService.get(taskId)).thenReturn(readyTask.fail("task failed", NOW, NOW.plus(Duration.ofDays(7))));
+        CiAutofixRun pausedRun = closedService.advance(openRun.id());
+        when(taskService.get(taskId)).thenReturn(openTask.fail("task failed", NOW, NOW.plus(Duration.ofDays(7))));
 
-        assertThatThrownBy(() -> unreadyService.sendMessage(new SendCiAutofixMessageCommand(
-                unreadyPaused.id(),
+        assertThatThrownBy(() -> closedService.sendMessage(new SendCiAutofixMessageCommand(
+                pausedRun.id(),
                 "retry",
-                "unready-key")))
+                "closed-key")))
                 .isInstanceOf(CiAutofixConflictException.class)
-                .hasMessageContaining("not ready");
+                .hasMessageContaining("not open");
     }
 
     private void assertPausedAfterTerminal(TurnState state, PauseReason reason)
@@ -1255,13 +1255,14 @@ class TestDefaultCiAutofixService
 
     private AgentTask activeTask()
     {
-        return readyTask.activate(NOW);
+        return openTask;
     }
 
     private AgentTurn runningTurn(TurnId id, String providerReference, String idempotencyKey)
     {
         return AgentTurn.accepted(id, taskId, idempotencyKey, turnSettings(), NOW)
-                .running(new ProviderTurnRef(providerReference), Optional.empty(), NOW);
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef(providerReference), Optional.empty());
     }
 
     private static AgentTurnSettings turnSettings()

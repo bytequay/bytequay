@@ -189,7 +189,7 @@ class TestSqliteAgentEventOutboxStore
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-transactional-turn"),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW).ready(NOW);
+                NOW);
         tasks.insert(task);
         TurnId turnId = TurnId.random();
         AgentTurn turn = AgentTurn.accepted(

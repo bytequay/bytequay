@@ -113,10 +113,7 @@ class TestSqliteAgentStores
                 ImmutableList.of("keep the boundary small"),
                 Optional.of("reviewed"));
         AgentTask task = newTask(now)
-                .ready(now.plusSeconds(1))
-                .activate(now.plusSeconds(2))
                 .withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "session-1"), now.plusSeconds(3))
-                .beginCompletion(now.plusSeconds(4))
                 .complete(summary, now.plusSeconds(5), now.plus(Duration.ofDays(7)));
 
         taskStore.insert(task);
@@ -133,11 +130,11 @@ class TestSqliteAgentStores
         AgentTask original = newTask(now);
         taskStore.insert(original);
 
-        AgentTask updated = taskStore.update(original.ready(now.plusSeconds(1)));
+        AgentTask updated = taskStore.update(original.withMetrics(TaskMetrics.empty(), now.plusSeconds(1)));
 
         assertThat(updated.version()).isEqualTo(1);
         assertThat(taskStore.find(original.id())).contains(updated);
-        assertThatThrownBy(() -> taskStore.update(original.ready(now.plusSeconds(2))))
+        assertThatThrownBy(() -> taskStore.update(original.withMetrics(TaskMetrics.empty(), now.plusSeconds(2))))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("version changed");
     }
@@ -202,7 +199,7 @@ class TestSqliteAgentStores
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                now).ready(now);
+                now);
 
         taskStore.insert(task);
         entityManager.clear();
@@ -241,7 +238,8 @@ class TestSqliteAgentStores
         AgentTask task = newTask(now);
         taskStore.insert(task);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
-                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"), now.plusSeconds(1));
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"));
         turnStore.insert(turn);
         jdbc.update("""
                 UPDATE agent_turn
@@ -297,7 +295,8 @@ class TestSqliteAgentStores
         AgentTask task = newTask(now);
         taskStore.insert(task);
         AgentTurn first = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
-                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"), now.plusSeconds(1));
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"));
         turnStore.insert(first);
 
         AgentTurn terminal = turnStore.update(first.finish(

@@ -442,7 +442,7 @@ public class BranchRebaseService
     private WorkspaceSnapshot requireCallerScope(StartBranchRebaseCommand command)
     {
         AgentTask task = tasks.get(command.agentTaskId());
-        if (task.state() != TaskState.READY && task.state() != TaskState.ACTIVE) {
+        if (task.state() != TaskState.OPEN) {
             throw new BranchRebaseException("Agent task is not live");
         }
         WorkspaceSnapshot workspace = workspaces.inspect(command.worktree());

@@ -15,10 +15,7 @@ package com.bytequay.agent.core;
 
 public enum TaskState
 {
-    CREATED,
-    READY,
-    ACTIVE,
-    COMPLETING,
+    OPEN,
     COMPLETED,
     FAILED;
 

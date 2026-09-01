@@ -108,9 +108,15 @@ provider callback remains process-local. Startup closes all durable pending
 approvals, including rows owned by an already-terminal turn. Most other
 state/event writes have not moved to the crash-safe outbox. Accepted turns now
 commit their blob-backed user message through that outbox and drain it before
-provider delivery. Codex image inputs, steering, and durable queueing are absent, and
-Electron has no agent REST/SSE bridge. These are implementation prerequisites,
-not optional renderer polish.
+provider delivery. Direct start does not duplicate the turn in a delivery
+table: `startedAt` is persisted immediately before the provider call, and the
+provider reference confirms receipt. A failure before that marker is known
+unsent; a failure after it without a provider reference is uncertain and
+retains the blocking turn and mutation claim, so neither Send nor Complete can
+silently race or resend it. Startup derives the same facts from the turn; the
+task remains `OPEN`. Codex image inputs,
+steering, and durable queueing are absent, and Electron has no agent REST/SSE
+bridge. These are implementation prerequisites, not optional renderer polish.
 
 Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
 pushes, and user-confirmation gates remain application-owned invariants. The
@@ -187,7 +193,7 @@ amount.
 | `workspaceId` | Existing ByteQuay workspace identifier that scopes task navigation and authorization |
 | `ApprovalId` | One pending permission decision |
 | `QueuedInputId` | One durable user request waiting to become a turn |
-| `InputDeliveryId` | Durable attempt to deliver a start or steer input to a provider |
+| `InputDeliveryId` | Durable attempt to deliver steer input that cannot reuse a turn row |
 | `TaskWorktree` | Immutable ByteQuay-owned repository, path, branch, and start-commit facts for one verified task worktree |
 | `AttachmentRef` | Opaque reference to a bounded, task-owned input blob |
 | `AgentLaneId` | Stable driver ID such as `codex` or `claude` |
@@ -195,12 +201,12 @@ amount.
 | `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
 | `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
 | `AgentTurnSettings` | Immutable requested model, effort, permission, sandbox, runtime, and attachment snapshot; CP4 makes it effective at provider start |
-| `AgentInputDelivery` | Durable start/steer send attempt and known or uncertain outcome |
+| `AgentInputDelivery` | Durable steer send attempt and known or uncertain outcome; direct start uses `AgentTurn` |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
 | `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
 | `AgentTurnResult` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
-| `AgentTask` | Durable workspace, task state, lane, worktree, defaults, timestamps, totals, and summary |
+| `AgentTask` | Durable workspace, lifecycle state, lane, worktree, defaults, timestamps, totals, and summary |
 | `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
 
@@ -208,11 +214,8 @@ amount.
 
 ```text
 Task:
-  CREATED -> READY
-  READY <-> ACTIVE
-  READY -> COMPLETING -> COMPLETED
-  READY | ACTIVE | COMPLETING -> RECOVERING -> READY | FAILED
-  READY | ACTIVE | COMPLETING | RECOVERING -> FAILED
+  OPEN -> COMPLETED
+  OPEN -> FAILED
 
 Turn: ACCEPTED -> RUNNING -> COMPLETED
       |             |-----> FAILED
@@ -241,6 +244,22 @@ Input delivery: ACCEPTED -> SENDING -> DELIVERED
 
 ```
 
+`OPEN` is the only nonterminal task lifecycle state. Running, idle, closing,
+and recovery required are derived projections, not durable task states. An
+`OPEN` task is idle and sendable only when it has no nonterminal turn, no
+worktree-mutation claim, and provider quiescence has been proved. A live turn
+projects running, a `COMPLETION` claim projects closing, and an unsettled turn
+or retained `TURN` claim projects recovery required. No projection transition
+changes `TaskState`.
+
+A provider terminal, failed, cancelled, or interrupted status alone does not
+prove that its tools stopped. ByteQuay retains the blocking turn or mutation
+claim until recursive item/history/background-terminal reconciliation and
+owned-process verification prove quiescence. Only then may it release the
+claim and project the still-`OPEN` task as idle. The guarded mark-failed action
+is the only recovery-required path to `FAILED`; there is no recovery state
+machine, timer, or automatic retry loop.
+
 `cleanup action required` is a task projection used when a terminal task still
 has a dirty worktree. It is not a worktree lifecycle state. The shared service
 simply rejects cleanup until the worktree is clean and has no open Git
@@ -249,7 +268,7 @@ operation.
 The implementation must enforce these invariants:
 
 - One task has exactly one workspace, one lane, and one separately provisioned
-  canonical worktree. A task does not become `READY` until the generated
+  canonical worktree. The task is persisted as `OPEN` only after the generated
   branch, path, repository, and exact starting commit are verified durably.
 - At most one nonterminal turn is `ACCEPTED` or `RUNNING` for a task.
 - Each accepted turn snapshots its effective model, reasoning effort,
@@ -270,9 +289,10 @@ The implementation must enforce these invariants:
   block task completion. Completion rejects only live `QUEUED`, `PAUSED`, or
   `STARTING` rows; it records any `UNCERTAIN` row as `ABANDONED` because the
   explicit Complete action declines to resend it.
-- Provider delivery is never assumed from a timeout or lost connection.
-  `UNKNOWN` steer/turn delivery and `UNCERTAIN` queue claims are not retried
-  automatically because App Server supplies no input idempotency key.
+- Provider delivery is never assumed from a timeout or lost connection. A
+  direct turn with `startedAt` but no provider reference, an `UNKNOWN` steer,
+  and an `UNCERTAIN` queue claim are not retried automatically because App
+  Server supplies no input idempotency key.
 - A canonical worktree and generated branch belong to exactly one task. The
   task stores the immutable `TaskWorktree` returned by provisioning; there is
   no separate allocation state or startup worktree reconciliation.
@@ -301,10 +321,10 @@ The implementation must enforce these invariants:
   managed requirements; non-null or uninspectable requirements fail closed.
 - Definite terminal operations release their matching claim in the same unit
   of work as their terminal state. An unknown provider delivery, orphaned
-  process, or active descendant retains the claim and puts the task in
-  `RECOVERING`; Send, queue start, and Complete remain blocked. A failed
-  completion returns the task to `READY` when retry is safe or records
-  `FAILED`; it never leaves an ownerless claim.
+  process, or active descendant retains the blocking turn or claim and projects
+  recovery required; Send, queue start, and Complete remain blocked. A failed
+  completion releases its `COMPLETION` claim and leaves the task `OPEN` when
+  retry is safe or records `FAILED`; it never leaves an ownerless claim.
 - Event sequence numbers are monotonic within a task.
 - An event is appended before it is published to SSE.
 - Every SQLite state transition with a matching event commits that event's
@@ -324,13 +344,13 @@ The implementation must enforce these invariants:
 - UI-only summaries, icons, expanded state, step counters, and live timer ticks
   are derived by the renderer and are never persisted as execution facts.
 
-A terminal turn does not by itself make its task terminal. After a
-`COMPLETED`, `FAILED`, `CANCELLED`, or `INTERRUPTED` turn, the task returns to
-`READY` only when its task worktree, runtime files, and provider session
-reference remain usable and the root/descendant execution tree is proven
-quiescent. Otherwise it stays `RECOVERING` with its turn claim held. This
-permits an explicit later retry on the same task without allowing an older
-process to keep mutating beneath it. Task
+A terminal turn does not by itself make its task terminal or prove provider
+quiescence. The task remains `OPEN`. It projects idle and becomes sendable only
+when its task worktree, runtime files, and provider session reference remain
+usable, the root/descendant execution tree is proven quiescent, and the turn's
+mutation claim is released. Otherwise it projects recovery required and stays
+blocked. This permits an explicit later retry on the same task without
+allowing an older process to keep mutating beneath it. Task
 `FAILED` is reserved for an unrecoverable task-level problem such as lost task
 resources, invalid persisted worktree facts, or an unusable persisted session contract; it is
 never inferred from assistant message text.
@@ -376,7 +396,7 @@ public interface AgentTaskService
      * @param command ByteQuay-generated task ID, workspace, exact starting
      * commit, requested lane, repository identity, title, and default
      * model/effort/permission settings; no filesystem path
-     * @return the newly created task in {@code READY} state
+     * @return the newly created task in {@code OPEN} state
      * @throws InvalidAgentRequestException when the workspace, commit, or command is invalid
      * @throws AgentConflictException when the derived task path or branch conflicts
      * @throws AgentUnavailableException when the requested lane is unavailable
@@ -422,7 +442,7 @@ public interface AgentTaskService
      * @return terminal failed task
      * @throws AgentConflictException when any owned execution is live or unverifiable
      */
-    AgentTask failRecovering(FailRecoveringAgentTaskCommand command);
+    AgentTask markFailed(MarkAgentTaskFailedCommand command);
 
     /**
      * Lists tasks for the task window in reverse update order.
@@ -456,21 +476,22 @@ public interface AgentTurnService
      *
      * <p>The implementation rejects terminal tasks and concurrent turns. A
      * short unit of work reserves the idempotency key and worktree-mutation claim with
-     * an {@code ACCEPTED} turn plus the input-delivery row and user-message
-     * event. Only after its outbox drains may the service open or resume the
-     * provider session, capture a usage baseline, start the run, and return
-     * without waiting for completion.
+     * an {@code ACCEPTED} turn plus the user-message event. Only after its
+     * outbox drains may the service open or resume the provider session,
+     * capture a usage baseline, persist {@code startedAt}, start the run, and
+     * return without waiting for completion.
      *
      * <p>An exception before persistence means no turn was accepted. A
-     * definite local/session-open failure after acceptance records the delivery
-     * and turn {@code FAILED} without sending; a definite provider refusal
-     * after send does the same. A
-     * timeout or lost connection after send is reconciled from known provider
-     * history when possible; otherwise delivery becomes {@code UNKNOWN} and
-     * the turn {@code INTERRUPTED}. Neither case automatically resends input.
-     * The task returns to {@code READY} only after the provider execution and
-     * every known child are proven quiescent; until then it remains
-     * {@code RECOVERING} with the turn's worktree-mutation claim held.
+     * definite local/session-open failure before {@code startedAt} records the
+     * turn {@code FAILED} without sending. Once {@code startedAt} is durable,
+     * a provider reference proves receipt; a timeout or lost connection before
+     * that reference is reconciled from known provider history when possible,
+     * otherwise the turn becomes {@code INTERRUPTED}. Neither case
+     * automatically resends input.
+     * The task remains {@code OPEN}. It becomes idle and sendable only after
+     * the provider execution and every known child are proven quiescent and
+     * the turn's worktree-mutation claim is released; until then the derived
+     * status is recovery required.
      *
      * <p>Repeating the same idempotency key returns the previously accepted
      * turn. A different request while a turn is active fails with a conflict.
@@ -982,8 +1003,8 @@ public interface AgentCompletionService
      * prevent completion. The method does not delete retained runtime data.
      *
      * <p>A failure after the completion claim is acquired releases that claim in
-     * the same transaction as a retryable {@code READY} or terminal
-     * {@code FAILED} result.
+     * the same transaction and leaves the task retryable in {@code OPEN} or
+     * records terminal {@code FAILED}.
      *
      * @param command task ID/version plus optional user-supplied completion notes
      * @return the durable completion summary and retention deadline
@@ -1001,7 +1022,7 @@ public interface AgentCompletionService
      *
      * @param taskId terminal task whose retention deadline has passed
      * @return the updated cleanup result
-     * @throws AgentConflictException when the task is active or its retention deadline has not passed
+     * @throws AgentConflictException when the task is nonterminal or its retention deadline has not passed
      */
     CleanupResult cleanup(TaskId taskId);
 }
@@ -1550,8 +1571,9 @@ the experimental `thread/backgroundTerminals/list` API for the root and every
 known child. Cancellation first sends `turn/interrupt`, then uses
 `thread/backgroundTerminals/clean`; a targeted user stop may use
 `thread/backgroundTerminals/terminate` with a listed App Server `processId`.
-The turn remains `RECOVERING` while an observed item is nonterminal, a
-background-terminal page is non-empty, or history/list reconciliation fails.
+The `OPEN` task retains the turn claim and projects recovery required while an
+observed item is nonterminal, a background-terminal page is non-empty, or
+history/list reconciliation fails.
 An in-progress yielded item may be absent from `thread/read`; live item events
 and the background-terminal page remain authoritative until it terminates.
 Terminal reconciliation must then find the same item and terminal state in
@@ -1672,8 +1694,9 @@ public interface AgentTaskStore
      * Serializes queue insertion against task completion.
      *
      * <p>The conditional update bumps the task version only while the task is
-     * {@code READY} or {@code ACTIVE} and its claim is absent or owned by the
-     * active turn. It fails for completion or recovery claims. The queue row
+     * {@code OPEN} and its claim is absent or owned by the active turn. It
+     * fails for a completion claim or a turn claim whose quiescence is not
+     * proved. The queue row
      * and event outbox entry are inserted in the same unit of work, so either
      * enqueue wins before Complete observes the queue or Complete wins and
      * enqueue receives a conflict.
@@ -1798,11 +1821,13 @@ resolution before completing the driver callback. Unsupported, expired,
 unmatched, terminal-turn, and provider-disconnect requests resolve fail closed
 and append the same terminal event as a user denial.
 
-### 6.4 InputDeliveryStore
+### 6.4 SteerDeliveryStore
 
-App Server does not accept a client idempotency key for `turn/steer`, so
-ByteQuay tracks its own single send attempt without claiming exactly-once
-provider delivery.
+Direct `turn/start` is one-to-one with `AgentTurn`, so it uses the turn's
+`startedAt`, state, and provider reference and has no parallel delivery store.
+App Server does not accept a client idempotency key for `turn/steer`, so CP10
+may add this small steer-only store when steering is implemented. It must not
+be added earlier or generalized for speculative input kinds.
 
 ```java
 package com.bytequay.agent.core.store;
@@ -1810,13 +1835,12 @@ package com.bytequay.agent.core.store;
 import java.util.List;
 import java.util.Optional;
 
-public interface InputDeliveryStore
+public interface SteerDeliveryStore
 {
     void insert(AgentInputDelivery delivery);
 
     Optional<AgentInputDelivery> findByIdempotencyKey(
             TaskId taskId,
-            InputDeliveryKind kind,
             String idempotencyKey);
 
     AgentInputDelivery update(AgentInputDelivery delivery);
@@ -1825,7 +1849,7 @@ public interface InputDeliveryStore
 }
 ```
 
-The `(taskId, kind, idempotencyKey)` key is unique. `ACCEPTED` means no provider
+The `(taskId, idempotencyKey)` key is unique. `ACCEPTED` means no provider
 send was attempted and can be recovered safely. A definite local validation,
 session-open, or pre-send setup failure changes `ACCEPTED` to `FAILED`; it is
 never retried implicitly. Once the send begins, a definite provider refusal
@@ -1861,8 +1885,7 @@ public interface QueuedInputStore
 
     QueueClaim claimHeadAndInsertTurn(
             TaskId taskId,
-            AgentTurn acceptedTurn,
-            AgentInputDelivery acceptedDelivery);
+            AgentTurn acceptedTurn);
 
     QueuedAgentInput pause(QueuedInputId inputId, String reason);
 
@@ -1877,20 +1900,22 @@ public interface QueuedInputStore
 ```
 
 `claimHeadAndInsertTurn(...)` locks the FIFO head and commits its `STARTING`
-state, the `ACCEPTED` turn, and the input-delivery row in one SQLite
-transaction. Queue idempotency is unique per task. The user-message event is
-keyed by queued-input ID and drains before delivery becomes `SENDING`, so replay
-deduplication can safely identify a pre-send `ACCEPTED` claim. On startup, such
-a delivery becomes `FAILED`, its turn becomes `INTERRUPTED`, and the queue row
-becomes `PAUSED`; a `SENDING` claim becomes `UNCERTAIN` and its turn becomes
-`INTERRUPTED`. Only the latter is ineligible for resend. A committed
+state and the `ACCEPTED` turn in one SQLite transaction. The queue row itself
+owns its delivery claim; it does not create a second input-delivery row. Queue
+idempotency is unique per task. The user-message event is keyed by queued-input
+ID and drains before the claimed turn receives `startedAt`, so replay
+deduplication can safely identify a known-unsent claim. On startup, such a
+turn becomes `INTERRUPTED`, and the queue row
+becomes `PAUSED`; a claimed turn with `startedAt` but no provider reference
+becomes `UNCERTAIN` and `INTERRUPTED`. Only the latter is ineligible for
+resend. A committed
 `STARTED` claim is already consumed even if the provider later fails and does
 not block task completion. Removing an untouched input records `REMOVED`;
 discarding an `UNCERTAIN` claim records `ABANDONED` without claiming that the
 provider did not receive it.
 
 The first claim creates the queue item's stable user-message event. A later
-explicit resume after a known pre-send failure creates a new turn and delivery
+explicit resume after a known pre-send failure creates a new turn attempt
 but references that existing message event and emits only a delivery-attempt
 event, so replay shows one user request with its attempts rather than duplicate
 message text.
@@ -1995,14 +2020,14 @@ coordinates the narrower interfaces shown in the last column.
 
 | Step | Frontend action | Public service method | Required internal calls and result |
 | --- | --- | --- | --- |
-| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace/repository and exact starting commit; core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `WorktreeService.provision(...)`, `AgentResourceService.allocate(...)`, and task publication; a failed readiness probe creates no worktree or runtime resource, and success returns `READY` only after `TaskWorktree` has been verified |
+| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace/repository and exact starting commit; core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `WorktreeService.provision(...)`, `AgentResourceService.allocate(...)`, and task publication; a failed readiness probe creates no worktree or runtime resource, and success persists `OPEN` only after `TaskWorktree` has been verified |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
-| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the input delivery and user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, starts the run, and records `RUNNING` plus delivered/unknown outcome. Failed readiness creates no turn or delivery |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
 | 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the worktree-mutation claim, and insert terminal events. Only a quiescent success may atomically claim that mutation boundary and the FIFO head for the next turn |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef` and creates one new `TurnId`; non-success leaves queued work paused |
-| 8. Fail recovery | `POST /agent/tasks/{taskId}/fail-recovery` after inspecting the incident | `AgentTaskService.failRecovering(FailRecoveringAgentTaskCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work records task cleanup action required and remains untouched |
+| 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentTaskService.markFailed(MarkAgentTaskFailedCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work records task cleanup action required and remains untouched |
 | 9. Close | `POST /agent/tasks/{taskId}/complete` | `AgentCompletionService.complete(CompleteAgentTaskCommand)` | Rejects an active turn, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; the direct Complete action abandons uncertain inputs, claims the worktree-mutation boundary for completion, closes the session, collects Git/turn/metric facts, commits the summary, `COMPLETED`, and release of the matching claim, then synchronously removes the reverified worktree without force and retains its generated branch |
 | 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Calls `AgentResourceService.delete(...)`, then records cleanup as `DELETED` |
 
@@ -2030,7 +2055,6 @@ sequenceDiagram
     participant Sink as AgentEventSink
     participant Turns as AgentTurnService
     participant TurnStore as AgentTurnStore
-    participant Deliveries as InputDeliveryStore
     participant ApprovalStore
     participant Session as AgentSession
     participant Run as RunningTurn
@@ -2051,12 +2075,12 @@ sequenceDiagram
     Tasks->>Resources: allocate(taskId)
     Resources-->>Tasks: TaskResources
     Tasks->>UoW: execute(create task + event)
-    UoW->>TaskStore: insert(readyTask)
+    UoW->>TaskStore: insert(openTask)
     UoW->>Outbox: insert(taskCreatedEvent)
     Tasks->>Events: drain(taskCreatedEventId)
-    Tasks-->>Web: AgentTask(READY)
+    Tasks-->>Web: AgentTask(OPEN)
     Web-->>Desktop: 201 Created
-    Desktop-->>User: Task ready
+    Desktop-->>User: Task created
 
     User->>Desktop: Open task
     Desktop->>Web: GET /agent/tasks/{taskId}/stream?after=0
@@ -2077,7 +2101,6 @@ sequenceDiagram
         Turns->>UoW: execute(reserve accepted turn + claim)
         UoW->>TaskStore: claimWorktreeMutation(TURN)
         UoW->>TurnStore: insert(acceptedTurn)
-        UoW->>Deliveries: insert(acceptedDelivery)
         UoW->>Outbox: insert(userMessageBlobRefEvent)
         UoW-->>Turns: committed
         Turns->>Events: drain(userMessageEventId)
@@ -2092,10 +2115,9 @@ sequenceDiagram
         Session-->>Turns: AgentSessionRef
         Turns->>TaskStore: update(taskWithSessionRef)
         Turns->>Metrics: beginTurn(taskId, turnId)
-        Turns->>Deliveries: update(SENDING)
+        Turns->>TurnStore: update(acceptedTurn.startedAt)
         Turns->>Session: start(AgentTurnCommand)
         Session-->>Turns: RunningTurn
-        Turns->>Deliveries: update(DELIVERED)
         Turns->>Run: reference()
         Run-->>Turns: ProviderTurnRef
         Turns->>TurnStore: update(runningTurn)
@@ -2154,8 +2176,8 @@ sequenceDiagram
     Completion->>TurnStore: findActive(taskId)
     Completion->>UoW: execute(claim COMPLETION + event)
     UoW->>TaskStore: claimWorktreeMutation(COMPLETION)
-    UoW->>Outbox: insert(taskCompletingEvent)
-    Completion->>Events: drain(taskCompletingEventId)
+    UoW->>Outbox: insert(taskClosingEvent)
+    Completion->>Events: drain(taskClosingEventId)
     Completion->>Session: close()
     Completion->>Worktree: inspect(task.worktree)
     Completion->>TurnStore: list(taskId)
@@ -2172,7 +2194,7 @@ sequenceDiagram
 
 Every `UoW` group above is one SQLite transaction and every `drain` occurs
 after that transaction commits. The diagram expands representative writes;
-delivery-state, queue, cancellation, and timeout transitions use the same
+turn-delivery, queue, cancellation, and timeout transitions use the same
 mutation-plus-outbox rule. Provider calls, JSONL flushes,
 and SSE publication never run inside the SQLite transaction.
 
@@ -2270,8 +2292,8 @@ The connection and task sequence is:
    `TaskExecServerManager`, capture its emitted `ws://127.0.0.1:<port>` URL,
    call experimental `environment/add` with that URL and the task's unique
    environment ID, then call `environment/info`. `environment/add` only
-   registers; the task is not ready until `environment/info` has forced and
-   verified the executor handshake and returned the expected shell/canonical
+   registers; the executor is not usable until `environment/info` has forced
+   and verified its handshake and returned the expected shell/canonical
    working directory.
 5. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
@@ -2281,8 +2303,8 @@ The connection and task sequence is:
    `environments: [{environmentId, cwd, runtimeWorkspaceRoots: [cwd]}]` and an
    empty `selectedCapabilityRoots`. After start, page
    `mcpServerStatus/list(threadId)`, app/plugin status, and `hooks/list`; every
-   external tool/hook must be absent or disabled before the task becomes
-   `READY`. Persist the returned `thread.id` as the root provider value in
+   external tool/hook must be absent or disabled before the session is usable.
+   Persist the returned `thread.id` as the root provider value in
    `AgentSessionRef`.
 6. For a later backend process or unloaded task, first launch a replacement
    task exec-server, reissue `environment/add`, and verify it with
@@ -2392,9 +2414,9 @@ yielded-terminal gaps. It does not claim to detect an OS process that escaped
 App Server's own registries. All Codex lifecycle hooks are disabled for
 first-release tasks; any effective hook makes task start fail. Independently,
 any applicable or uninspectable managed requirements fail readiness. A
-read/list error, active descendant/item/process/background
-terminal, or unstable closure keeps the task
-`RECOVERING`. If transport is lost before that proof, it retains the turn claim
+read/list error, active descendant/item/process/background terminal, or
+unstable closure keeps the `OPEN` task blocked with the recovery-required
+projection. If transport is lost before that proof, it retains the turn claim
 and stops the shared App Server process only as a last-resort recovery action,
 because doing so interrupts every Codex task routed through that process.
 
@@ -2781,7 +2803,7 @@ POST /agent/tasks/{taskId}/queue
 GET  /agent/tasks/{taskId}/queue
 DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
 POST /agent/tasks/{taskId}/queue/resume
-POST /agent/tasks/{taskId}/fail-recovery
+POST /agent/tasks/{taskId}/mark-failed
 POST /agent/tasks/{taskId}/complete
 POST /agent/tasks/{taskId}/cleanup
 GET  /agent/tasks/{taskId}/events?after=...&limit=...
@@ -2800,11 +2822,12 @@ and snapshot the effective selection.
 Deleting a queue row removes an untouched `QUEUED`/`PAUSED` input or records
 an `UNCERTAIN` input as `ABANDONED`; it never erases a consumed `STARTED` row.
 
-`POST /agent/tasks/{taskId}/fail-recovery` carries the observed task version
-and a bounded user-visible reason. It maps only to
-`AgentTaskService.failRecovering(...)`, is enabled only for `RECOVERING`, and
-returns a conflict until provider-visible execution is terminal, background
-terminal lists are empty, and directly owned provider processes are stopped.
+`POST /agent/tasks/{taskId}/mark-failed` carries the observed task version and
+a bounded user-visible reason. It maps only to
+`AgentTaskService.markFailed(...)`, is enabled only when the `OPEN` task is
+blocked by retained execution ownership, and returns a conflict until
+provider-visible execution is terminal, background terminal lists are empty,
+and directly owned provider processes are stopped.
 Success records `FAILED`, releases the claim, and requests safe worktree
 cleanup. Dirty work remains untouched until the user or agent makes the
 generated branch clean; the shared service has no force-removal operation.
@@ -2839,7 +2862,7 @@ directly to App Server or localhost.
 - task ID, owning workspace ID, title, lane ID, repository identity, canonical
   worktree, generated result branch, and exact starting commit;
 - default model, reasoning effort, and permission policy;
-- task state, optimistic version, timestamps, terminal reason, and optional
+- task lifecycle state, optimistic version, timestamps, terminal reason, and optional
   worktree-mutation claim kind/owner/acquired time;
 - provider session reference and its contract version;
 - token totals, cost amount when available, cost provenance, elapsed time, and
@@ -2863,12 +2886,13 @@ state, idempotency key, effective settings, attachment references, payload blob
 reference, stable user-message event ID after first claim, current/previous
 claimed turn IDs, timestamps, and pause reason. The text payload
 lives in an owner-only task blob so detailed prompts are not copied into
-SQLite. A claimed queue row, task-local turn claim, new `agent_turn`, delivery,
-and user-message outbox row commit atomically.
+SQLite. A claimed queue row, task-local turn claim, new `agent_turn`, and
+user-message outbox row commit atomically.
 
-`agent_input_delivery` stores the delivery ID, task/turn, start-or-steer kind,
-unique ByteQuay idempotency key, state, timestamps, and redacted failure. It
-does not claim provider exactly-once delivery.
+When CP10 implements steering, `agent_input_delivery` stores only steer
+delivery ID, task/turn, unique ByteQuay idempotency key, state, timestamps, and
+redacted failure. Direct starts and queued starts reuse `agent_turn`; they do
+not claim provider exactly-once delivery.
 
 `agent_approval` stores the tagged request, source IDs, product-permitted
 available decisions,
@@ -2975,8 +2999,8 @@ requires a separate explicit user action and design decision.
 - Provider launches carry an owner marker with PID, executable, OS process-start
   token, and driver owner. Startup signals only a process whose identity still
   matches, then observes the entire directly owned process tree exit. If
-  identity or exit cannot be proven, the affected task claims remain held in
-  `RECOVERING`.
+  identity or exit cannot be proven, the affected `OPEN` task retains its claim
+  and projects recovery required.
 - Durable launch phase distinguishes a known pre-launch crash from an uncertain
   process result. `NOT_ATTEMPTED` and an intact `PREPARED` marker before
   `PreparedProcess.start()` prove no payload ran; a missing/corrupt marker after
@@ -2988,27 +3012,27 @@ requires a separate explicit user action and design decision.
   shared supervised provider process; root completion alone is not the
   quiescence barrier. Queue auto-start and all worktree-mutating actions remain
   disabled until it passes.
-- A startup task left in `COMPLETING` has no unrecorded Git write to resume.
-  After provider quiescence, one unit of work records completion interruption,
-  returns it to `READY`, and releases the `COMPLETION` claim. If the final
+- A startup `OPEN` task with a stale `COMPLETION` claim has no unrecorded Git
+  write to resume. After provider quiescence, one unit of work records
+  completion interruption and releases the claim; the task remains `OPEN` and
+  projects idle. If the final
   `COMPLETED` transaction already committed, startup finishes only provider
   shutdown; it does not automatically inspect or remove the task worktree.
   Crash fixtures cover both sides of the task transaction.
-- A pre-send `ACCEPTED` delivery is known unsent: startup records it `FAILED`,
-  marks its turn `INTERRUPTED`, and pauses any queue claim. Explicit resume
-  creates a new turn/delivery rather than leaving the old delivery unsettled.
-  A `SENDING` delivery becomes `UNKNOWN` and a matching queue claim
-  becomes `UNCERTAIN`; those states are not eligible for automatic or ordinary
-  queue-resume delivery. Only after quiescence may the user abandon that row or
-  Complete record it abandoned; neither action retries it.
+- A direct `ACCEPTED` turn without `startedAt` is known unsent: startup marks
+  it `INTERRUPTED` and pauses any queue claim. Explicit resume creates a new
+  turn rather than reusing the old attempt. An active turn with `startedAt`
+  but no provider reference is uncertain and a matching queue claim becomes
+  `UNCERTAIN`; it is not eligible for automatic or ordinary queue resume. An
+  independent steer delivery uses its steer-only ledger. Only after quiescence
+  may the user abandon uncertain input; neither action retries it.
 - Loss of the shared App Server interrupts every running Codex root/child turn
   routed through that process. ByteQuay terminates/verifies the old owned
   process before starting a replacement. Stored thread references and queued
   inputs stay intact, but no turn or queue head is implicitly restarted.
 - A repeated start request uses an idempotency key. Another concurrent request
   receives HTTP 409.
-- Queue claiming, turn/input-delivery insertion, the task-local
-  worktree-mutation claim,
+- Queue claiming, turn insertion, the task-local worktree-mutation claim,
   and their event outbox row are transactional. A successful terminal turn may
   claim the FIFO head once; every other terminal state requires a direct user
   resume action.
@@ -3148,7 +3172,7 @@ until automated contract and integration tests prove:
    every non-success terminal state; unknown/uncertain delivery is visible and
    never retried automatically; consumed `STARTED` rows do not block completion,
    while deleting or completing an uncertain row records `ABANDONED`; a
-   definite pre-send failure settles `ACCEPTED` delivery as `FAILED`; and a
+   definite pre-send start has no `startedAt` and is never sent; and a
    concurrent enqueue/Complete race either durably queues before the completion
    check or rejects enqueue after the completion claim;
 7. crash fixtures at every SQLite-commit/JSONL-flush/outbox-mark boundary
@@ -3169,7 +3193,8 @@ until automated contract and integration tests prove:
    fixtures must show that yielded and background commands are listed and
    cleanable, and a detached writer that escapes those registries makes the
    Codex lane ineligible for release rather than creating a fictional receipt;
-11. restart safely returns a pre-final stale `COMPLETING` claim to `READY`
+11. restart safely releases a pre-final stale `COMPLETION` claim from an
+   `OPEN` task after quiescence, leaving it idle
    without automatically inspecting or removing its worktree; every explicit
    worktree operation revalidates immutable ownership facts and preserves a
    half-finished or mismatched orphan; launch crash fixtures cover every database

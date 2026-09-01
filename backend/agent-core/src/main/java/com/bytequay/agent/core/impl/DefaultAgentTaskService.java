@@ -92,7 +92,7 @@ public final class DefaultAgentTaskService
                     command.laneId(),
                     worktree,
                     command.defaults(),
-                    now).ready(now);
+                    now);
             taskStore.insert(task);
             return task;
         }
@@ -124,7 +124,7 @@ public final class DefaultAgentTaskService
                     command.repository(),
                     lease.worktree(),
                     command.defaults(),
-                    now).ready(now);
+                    now);
             taskStore.insert(task);
             return task;
         }

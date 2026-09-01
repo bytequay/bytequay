@@ -301,8 +301,11 @@ class TestDefaultAgentApprovalService
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("blocked resolution event");
 
-        assertThat(first).isCompletedExceptionally();
-        assertThat(second.join().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
+        assertThat(first.isCompletedExceptionally() ^ second.isCompletedExceptionally()).isTrue();
+        assertThat(first).isDone();
+        assertThat(second).isDone();
+        CompletableFuture<ApprovalDecision> completed = first.isCompletedExceptionally() ? second : first;
+        assertThat(completed.join().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
         assertThat(stores.find(firstRequest.id()).orElseThrow().pending()).isFalse();
         assertThat(stores.find(secondRequest.id()).orElseThrow().pending()).isFalse();
         assertThat(stores.outboxEntries()).allSatisfy(entry -> assertThat(entry.sequence()).isPresent());

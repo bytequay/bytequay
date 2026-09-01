@@ -116,7 +116,7 @@ public record AgentTask(
                 worktree,
                 Optional.empty(),
                 defaults,
-                TaskState.CREATED,
+                TaskState.OPEN,
                 0,
                 now,
                 now,
@@ -150,7 +150,7 @@ public record AgentTask(
                 taskWorktree.canonicalWorktree(),
                 Optional.of(taskWorktree),
                 defaults,
-                TaskState.CREATED,
+                TaskState.OPEN,
                 0,
                 now,
                 now,
@@ -192,36 +192,9 @@ public record AgentTask(
         return defaults.permissionPolicy();
     }
 
-    public AgentTask ready(Instant now)
-    {
-        requireState(TaskState.CREATED);
-        return copy(TaskState.READY, version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
-    }
-
-    public AgentTask activate(Instant now)
-    {
-        if (state == TaskState.ACTIVE) {
-            return this;
-        }
-        requireState(TaskState.READY);
-        return copy(TaskState.ACTIVE, version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
-    }
-
-    public AgentTask beginCompletion(Instant now)
-    {
-        if (state == TaskState.COMPLETING) {
-            return this;
-        }
-        checkState(state == TaskState.READY || state == TaskState.ACTIVE, "expected task state READY or ACTIVE but was " + state);
-        return copy(TaskState.COMPLETING, version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
-    }
-
     public AgentTask complete(TaskSummary completedSummary, Instant completedAt, Instant deletionDeadline)
     {
-        requireState(TaskState.COMPLETING);
+        requireState(TaskState.OPEN);
         requireNonNull(completedSummary, "completedSummary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
@@ -248,7 +221,7 @@ public record AgentTask(
             checkState(state == TaskState.FAILED && terminalReason.orElseThrow().equals(reason), "task is already terminal");
             return this;
         }
-        checkState(state != TaskState.CREATED, "a task must be ready before it can fail durably");
+        requireState(TaskState.OPEN);
         return copy(
                 TaskState.FAILED,
                 version,

@@ -110,16 +110,15 @@ class TestCiAutofixMonitorJob
                         "cancelled",
                         Instant.parse("2026-08-18T00:00:02Z"));
         AgentTask task = AgentTask.created(
-                        taskId,
-                        Optional.empty(),
-                        false,
-                        "CI Autofix",
-                        AgentLaneId.CLAUDE_CLI,
-                        new RepositoryIdentity("bytequay", "sample"),
-                        Path.of("/tmp/bytequay-ci-monitor"),
-                        AgentPermissionPolicy.CI_AUTOFIX,
-                        Instant.parse("2026-08-18T00:00:00Z"))
-                .ready(Instant.parse("2026-08-18T00:00:00Z"));
+                taskId,
+                Optional.empty(),
+                false,
+                "CI Autofix",
+                AgentLaneId.CLAUDE_CLI,
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-ci-monitor"),
+                AgentPermissionPolicy.CI_AUTOFIX,
+                Instant.parse("2026-08-18T00:00:00Z"));
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 

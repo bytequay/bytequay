@@ -974,12 +974,16 @@ Implementation:
   fallback, and an approval for an unregistered thread is refused rather than
   guessed. A notification for an unregistered thread is now recorded and
   reported instead of silently discarded.
-  Child routing is still open, and it is not a small change: a child's parent is
-  only discoverable through `thread/read`, which cannot be called from the
-  notification path. Dispatch runs on the single output-reader thread, so a
-  blocking request there waits for a response that only that thread can read.
-  Child resolution has to happen off that thread, with the child's notifications
-  buffered until it is registered.
+  The dispatch path no longer runs handlers on the reader thread: a
+  `CodexMessageDispatcher` hands each message to a per-thread chain, so a handler
+  may call back into App Server, and `request` now fails fast if it is ever
+  called from the reader rather than stalling until its timeout. That removes the
+  obstacle that made child routing impossible, and it is the same prerequisite
+  any future ByteQuay tool call needs, since answering one means doing work
+  before replying.
+
+  Child routing itself is still open: a child's parent is only discoverable
+  through `thread/read`, and that resolution job still has to be written.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and
   discovered descendants with `thread/read(includeTurns: true)`, reconcile all
   live/history command/tool/file/hook/terminal items, and page background

@@ -23,7 +23,6 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +43,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 final class CodexAppServerClient
@@ -66,11 +66,11 @@ final class CodexAppServerClient
     private final AtomicReference<String> codexHome = new AtomicReference<>();
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
-    private final Set<String> unroutableThreads = ConcurrentHashMap.newKeySet();
+    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
 
+    private volatile Thread readerThread;
     private volatile ManagedProcess process;
     private volatile boolean closed;
 
@@ -96,6 +96,10 @@ final class CodexAppServerClient
         requireNonNull(params, "params is null");
         requireNonNull(responseType, "responseType is null");
         requireNonNull(timeout, "timeout is null");
+        // The reader is the only thread that can deliver this response, so waiting for one here
+        // would be waiting on itself. Fail loudly instead of stalling until the timeout.
+        checkState(Thread.currentThread() != readerThread,
+                "Codex request %s was issued from the App Server reader thread", method);
         start();
         CodexProtocol.JsonRpcEnvelope response = await(sendRequest(method, params), timeout, method);
         return codec.decodeResult(
@@ -104,18 +108,14 @@ final class CodexAppServerClient
                 responseType);
     }
 
-    void register(String threadId, Listener listener)
+    void register(String threadId, CodexMessageDispatcher.Listener listener)
     {
-        requireNonNull(threadId, "threadId is null");
-        requireNonNull(listener, "listener is null");
-        if (listeners.putIfAbsent(threadId, listener) != null) {
-            throw new AgentUnavailableException("Codex thread is already registered: " + threadId);
-        }
+        dispatcher.register(threadId, listener);
     }
 
-    void unregister(String threadId, Listener listener)
+    void unregister(String threadId, CodexMessageDispatcher.Listener listener)
     {
-        listeners.remove(threadId, listener);
+        dispatcher.unregister(threadId, listener);
     }
 
     private void start()
@@ -208,6 +208,9 @@ final class CodexAppServerClient
 
     private void receiveOutput(ProcessStream stream, ByteBuffer bytes)
     {
+        if (readerThread != Thread.currentThread()) {
+            readerThread = Thread.currentThread();
+        }
         try {
             if (stream == ProcessStream.STDOUT) {
                 protocolLines.accept(bytes);
@@ -274,25 +277,9 @@ final class CodexAppServerClient
         }
     }
 
-    /**
-     * Routes a notification to the session that owns its thread, and never guesses.
-     *
-     * <p>An unregistered thread is normally a child thread created by a subagent. Its parent is
-     * only discoverable through {@code thread/read}, which cannot be called from here: this runs on
-     * the single output-dispatch thread, so a blocking request would wait for a response that only
-     * this thread can read. Until child resolution is done off this thread, such a notification is
-     * recorded rather than dropped, so an unrouted child is visible instead of silent.
-     */
     private void receiveNotification(CodexProtocol.Notification notification)
     {
-        Listener listener = listeners.get(notification.threadId());
-        if (listener == null) {
-            if (unroutableThreads.add(notification.threadId())) {
-                log.warn("Codex notification for unregistered thread {} was not routed", notification.threadId());
-            }
-            return;
-        }
-        listener.onNotification(notification);
+        dispatcher.dispatch(notification);
     }
 
     /**
@@ -308,7 +295,7 @@ final class CodexAppServerClient
     /** Thread references seen on notifications that no registered session owns. */
     Set<String> unroutableThreads()
     {
-        return ImmutableSet.copyOf(unroutableThreads);
+        return dispatcher.unroutableThreads();
     }
 
     private void receiveResponse(CodexProtocol.JsonRpcEnvelope envelope)
@@ -330,27 +317,18 @@ final class CodexAppServerClient
 
     private void receiveRequest(CodexProtocol.ServerRequest request)
     {
-        Listener listener = listeners.get(request.threadId());
-        if (listener == null) {
-            sendError(request.id(), new AgentUnavailableException("Codex request has no active thread"));
-            return;
-        }
-        CompletionStage<?> result;
-        try {
-            result = requireNonNull(listener.onRequest(request), "request result is null");
-        }
-        catch (RuntimeException failure) {
-            sendError(request.id(), failure);
-            return;
-        }
-        result.whenComplete((value, failure) -> {
-            if (failure == null) {
-                send(new CodexProtocol.JsonRpcResponse(
-                        request.id(),
-                        requireNonNull(value, "request response is null")));
+        dispatcher.dispatch(request, new CodexMessageDispatcher.Replies()
+        {
+            @Override
+            public void respond(Object id, Object result)
+            {
+                send(new CodexProtocol.JsonRpcResponse(id, result));
             }
-            else {
-                sendError(request.id(), failure);
+
+            @Override
+            public void fail(Object id, Throwable failure)
+            {
+                sendError(id, failure);
             }
         });
     }
@@ -369,8 +347,7 @@ final class CodexAppServerClient
         }
         pending.forEach((id, response) -> response.completeExceptionally(failure));
         pending.clear();
-        listeners.values().forEach(listener -> listener.onDisconnect(failure));
-        listeners.clear();
+        dispatcher.disconnect(failure);
     }
 
     @Override
@@ -388,6 +365,7 @@ final class CodexAppServerClient
             current.close();
         }
         disconnect(new AgentUnavailableException("Codex App Server closed"));
+        dispatcher.close();
     }
 
     private static <T> T await(

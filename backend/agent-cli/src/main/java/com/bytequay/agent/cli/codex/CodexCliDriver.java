@@ -452,7 +452,7 @@ public final class CodexCliDriver
     private record CommandResult(int exitCode, String output) {}
 
     private final class CodexSession
-            implements AgentSession, CodexAppServerClient.Listener
+            implements AgentSession, CodexMessageDispatcher.Listener
     {
         private final AgentSessionRef reference;
         private final AgentSessionContext context;

@@ -56,9 +56,13 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -267,6 +271,7 @@ class TestCodexCliDriver
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
 
+        awaitCondition(() -> server.error(92) != null && server.error(93) != null && server.error(94) != null);
         assertThat(server.error(92).path("message").asText()).contains("active turn");
         assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
         assertThat(server.error(94).path("message").asText()).contains("no active thread");
@@ -291,7 +296,7 @@ class TestCodexCliDriver
             approval.set(request);
             return decision;
         }), event -> {});
-        session.start(command("late-decision"));
+        RunningTurn late = session.start(command("late-decision"));
         AppServerProcess server = supervisor.server();
 
         server.emit("""
@@ -300,12 +305,15 @@ class TestCodexCliDriver
                 "itemId":"exec-late","startedAtMs":1786884871465,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> approval.get() != null);
         assertThat(approval.get().detail()).isEqualTo("echo late");
 
         server.failTurn();
+        awaitCondition(() -> late.completion().toCompletableFuture().isDone());
         session.start(command("replacement"));
         decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
 
+        awaitCondition(() -> server.error(98) != null);
         assertThat(server.error(98).path("message").asText()).contains("no longer belongs");
         driver.close();
     }
@@ -331,6 +339,7 @@ class TestCodexCliDriver
                 "itemId":"exec-cancelled","startedAtMs":1786884871466,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> approval.get() != null);
         assertThat(approval.get().detail()).isEqualTo("echo cancelled");
 
         server.holdInterruptCompletion();
@@ -342,6 +351,7 @@ class TestCodexCliDriver
                 "itemId":"exec-after-cancel","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.error(103) != null);
         assertThat(server.error(103).path("message").asText()).contains("active turn");
         assertThat(approval).hasValue(null);
         decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
@@ -369,6 +379,7 @@ class TestCodexCliDriver
                 "itemId":"patch-1","reason":"write file","startedAtMs":1786884871461,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.result(95) != null);
         assertThat(server.result(95).path("decision").asText()).isEqualTo("decline");
 
         decision.set(ProviderApprovalDecision.allow(Optional.empty()));
@@ -377,6 +388,7 @@ class TestCodexCliDriver
                 "availableDecisions":["decline"],"command":"echo unavailable","itemId":"exec-1",
                 "startedAtMs":1786884871462,"threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.error(96) != null);
         assertThat(server.error(96).path("message").asText()).contains("did not offer decision accept");
 
         decision.set(ProviderApprovalDecision.allow(Optional.of("session")));
@@ -385,6 +397,7 @@ class TestCodexCliDriver
                 "availableDecisions":["accept","decline"],"command":"echo scoped","itemId":"exec-2",
                 "startedAtMs":1786884871463,"threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.error(97) != null);
         assertThat(server.error(97).path("message").asText()).contains("scoped permission");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
         driver.close();
@@ -508,6 +521,7 @@ class TestCodexCliDriver
         supervisor.server().emitForeignThreadNotification("child-thread-7");
 
         // A child thread is not routed to another task, and it does not vanish either.
+        awaitCondition(() -> !driver.unroutableThreads().isEmpty());
         assertThat(driver.unroutableThreads()).containsExactly("child-thread-7");
         assertThat(events).noneMatch(event -> event.toString().contains("child-thread-7"));
         session.close();
@@ -589,13 +603,31 @@ class TestCodexCliDriver
     }
 
     /** Opens a session and starts a turn against a scripted App Server configured by {@code setup}. */
-    private void startTurnWith(java.util.function.Consumer<ScriptedProcessSupervisor> setup)
+    private void startTurnWith(Consumer<ScriptedProcessSupervisor> setup)
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         setup.accept(supervisor);
         CodexCliDriver driver = driver(supervisor);
         driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})
                 .start(command("probe"));
+    }
+
+    /** Waits for asynchronously delivered work, since handlers no longer run on the caller. */
+    private static void awaitCondition(BooleanSupplier condition)
+    {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssertionError("condition was not met before the deadline");
+            }
+            try {
+                Thread.sleep(5);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted while waiting", e);
+            }
+        }
     }
 
     private CodexCliDriver driver(ProcessSupervisor supervisor)
@@ -839,6 +871,8 @@ class TestCodexCliDriver
         private final ProcessOutputSink output;
         private final boolean failThreadStart;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
+        private final ExecutorService reader = Executors.newSingleThreadExecutor(
+                Thread.ofVirtual().name("scripted-app-server-reader").factory());
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger threads = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
@@ -1088,10 +1122,16 @@ class TestCodexCliDriver
             emit("{\"id\":" + id + ",\"result\":" + result + "}");
         }
 
+        /**
+         * Delivers one line the way a real process does: on its own reader thread, in order.
+         *
+         * <p>Delivering inline on the caller's thread would make the caller and the reader the same
+         * thread, which is exactly the confusion that hid the dispatch deadlock.
+         */
         private void emit(String message)
         {
             String line = message.replace("\n", "").replace("\r", "");
-            output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(line + "\n"));
+            reader.execute(() -> output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(line + "\n")));
         }
 
         @Override

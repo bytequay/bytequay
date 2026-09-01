@@ -13,10 +13,10 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -24,75 +24,53 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/** Records launch intents in memory, keeping the transition order for assertions. */
+/** Records launches in memory, keeping the transition order for assertions. */
 final class InMemoryLaunchIntentRecorder
         implements LaunchIntentRecorder
 {
-    private final Map<String, LaunchIntent> intents = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> committed = new ConcurrentHashMap<>();
     private final List<String> transitions = new CopyOnWriteArrayList<>();
-    private final Map<String, Boolean> results = new ConcurrentHashMap<>();
 
     @Override
     public void prepared(String launchId, ProcessOwner owner, String executable, String argvDigest)
     {
-        intents.put(launchId, new LaunchIntent(launchId, LaunchIntent.State.PREPARED));
+        committed.put(launchId, false);
         transitions.add("prepared");
     }
 
     @Override
     public void attempting(String launchId)
     {
-        intents.put(launchId, new LaunchIntent(launchId, LaunchIntent.State.ATTEMPTING));
+        committed.put(launchId, true);
         transitions.add("attempting");
     }
 
     @Override
-    public void running(String launchId)
+    public Map<String, Boolean> committedLaunches()
     {
-        intents.put(launchId, new LaunchIntent(launchId, LaunchIntent.State.RUNNING));
-        transitions.add("running");
-    }
-
-    @Override
-    public void terminal(String launchId, boolean verifiedStopped)
-    {
-        intents.put(launchId, new LaunchIntent(launchId, LaunchIntent.State.TERMINAL));
-        results.put(launchId, verifiedStopped);
-        transitions.add("terminal");
-    }
-
-    @Override
-    public Optional<LaunchIntent> find(String launchId)
-    {
-        return Optional.ofNullable(intents.get(launchId));
-    }
-
-    @Override
-    public List<LaunchIntent> list()
-    {
-        return ImmutableList.copyOf(intents.values());
+        return ImmutableMap.copyOf(committed);
     }
 
     @Override
     public void forget(String launchId)
     {
-        intents.remove(launchId);
+        committed.remove(launchId);
         transitions.add("forget");
     }
 
-    /** Seeds an intent directly, standing in for a record committed by an earlier backend. */
-    void commit(String launchId, LaunchIntent.State state)
+    /** Seeds a launch directly, standing in for a record committed by an earlier backend. */
+    void commit(String launchId, boolean attempted)
     {
-        intents.put(launchId, new LaunchIntent(launchId, state));
+        committed.put(launchId, attempted);
+    }
+
+    Optional<Boolean> attempted(String launchId)
+    {
+        return Optional.ofNullable(committed.get(launchId));
     }
 
     List<String> transitions()
     {
         return ImmutableList.copyOf(transitions);
-    }
-
-    Optional<Boolean> verifiedStopped(String launchId)
-    {
-        return Optional.ofNullable(results.get(launchId));
     }
 }

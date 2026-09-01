@@ -14,25 +14,18 @@
 package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.LaunchIntentState;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 /** Durable ownership records for supervised provider processes. */
 public interface AgentProcessLaunchStore
 {
-    /** Commits a new launch intent before its payload can be spawned. */
+    /** Commits a new launch before its payload can be spawned. */
     void insert(AgentProcessLaunch launch);
 
-    /** Advances an existing launch intent that has not reached a terminal receipt. */
-    void updateState(String launchId, LaunchIntentState state, Instant at);
-
-    /** Records the terminal receipt and whether the owned process tree was proven stopped. */
-    void recordTerminal(String launchId, boolean verifiedStopped, Instant at);
-
-    Optional<AgentProcessLaunch> find(String launchId);
+    /** Records that the owner committed to spawning the payload. */
+    void markAttempted(String launchId, Instant at);
 
     /** Returns every committed launch, ordered by identifier so recovery is deterministic. */
     List<AgentProcessLaunch> list();

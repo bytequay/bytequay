@@ -16,7 +16,6 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentStorageException;
-import com.bytequay.agent.core.LaunchIntentState;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.persistence.sqlite.entity.AgentProcessLaunchEntity;
 import com.bytequay.persistence.sqlite.repository.AgentProcessLaunchJpaRepository;
@@ -26,7 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -60,34 +58,12 @@ public class SqliteAgentProcessLaunchStore
 
     @Override
     @Transactional
-    public void updateState(String launchId, LaunchIntentState state, Instant at)
-    {
-        requireNonNull(state, "state is null");
-        requireNonNull(at, "at is null");
-        AgentProcessLaunchEntity entity = require(launchId);
-        if (entity.state() == LaunchIntentState.TERMINAL) {
-            throw new AgentConflictException("Process launch is already terminal: " + launchId);
-        }
-        entity.advance(state, at);
-        repository.saveAndFlush(entity);
-    }
-
-    @Override
-    @Transactional
-    public void recordTerminal(String launchId, boolean verifiedStopped, Instant at)
+    public void markAttempted(String launchId, Instant at)
     {
         requireNonNull(at, "at is null");
         AgentProcessLaunchEntity entity = require(launchId);
-        entity.terminal(verifiedStopped, at);
+        entity.markAttempted(at);
         repository.saveAndFlush(entity);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Optional<AgentProcessLaunch> find(String launchId)
-    {
-        requireNonNull(launchId, "launchId is null");
-        return repository.findById(launchId).map(AgentProcessLaunchEntity::toDomain);
     }
 
     @Override

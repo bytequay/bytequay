@@ -14,7 +14,6 @@
 package com.bytequay.agent.cli.process.impl;
 
 import com.bytequay.agent.cli.process.ExecutionProfile;
-import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -237,7 +236,7 @@ class TestOwnedProcessRecovery
     @Test
     void failsClosedForACommittedIntentWhoseMarkerIsMissing()
     {
-        intents.commit("attempted", LaunchIntent.State.ATTEMPTING);
+        intents.commit("attempted", true);
 
         assertThat(recover()).satisfies(result -> {
             assertThat(result.launchId()).isEqualTo("attempted");
@@ -249,7 +248,7 @@ class TestOwnedProcessRecovery
     @Test
     void acceptsACommittedIntentThatWasNeverAttempted()
     {
-        intents.commit("never-started", LaunchIntent.State.PREPARED);
+        intents.commit("never-started", false);
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED);
     }
@@ -265,7 +264,7 @@ class TestOwnedProcessRecovery
                 Optional.of(Instant.EPOCH),
                 Optional.of(ABSENT_PROCESS_GROUP),
                 "/bin/sleep"));
-        intents.commit("launch-1", LaunchIntent.State.PREPARED);
+        intents.commit("launch-1", false);
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
     }
@@ -326,12 +325,7 @@ class TestOwnedProcessRecovery
     private void write(LaunchMarker marker)
     {
         new LaunchMarkerStore(launches).write(marker);
-        intents.commit(marker.launchId(), switch (marker.phase()) {
-            case PREPARED -> LaunchIntent.State.PREPARED;
-            case GATED -> LaunchIntent.State.ATTEMPTING;
-            case RELEASE_PENDING, RUNNING -> LaunchIntent.State.RUNNING;
-            case TERMINAL -> LaunchIntent.State.TERMINAL;
-        });
+        intents.commit(marker.launchId(), marker.phase() != LaunchPhase.PREPARED);
     }
 
     private static LaunchMarker marker(

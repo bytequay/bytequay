@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.LaunchIntentState;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
@@ -30,7 +29,6 @@ import jakarta.persistence.Transient;
 import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
-import java.util.Optional;
 
 @Entity
 @Table(name = "agent_process_launch")
@@ -47,18 +45,14 @@ public class AgentProcessLaunchEntity
     @Column(name = "owner_id", nullable = false)
     private String ownerId;
 
-    @Column(name = "state", nullable = false)
-    @Enumerated(EnumType.STRING)
-    private LaunchIntentState state;
+    @Column(name = "attempted", nullable = false)
+    private boolean attempted;
 
     @Column(name = "executable", nullable = false)
     private String executable;
 
     @Column(name = "argv_digest", nullable = false)
     private String argvDigest;
-
-    @Column(name = "verified_stopped")
-    private Boolean verifiedStopped;
 
     @Column(name = "updated_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
@@ -75,10 +69,9 @@ public class AgentProcessLaunchEntity
         entity.id = launch.launchId();
         entity.ownerKind = launch.ownerKind();
         entity.ownerId = launch.ownerId();
-        entity.state = launch.state();
+        entity.attempted = launch.attempted();
         entity.executable = launch.executable();
         entity.argvDigest = launch.argvDigest();
-        entity.verifiedStopped = launch.verifiedStopped().orElse(null);
         entity.updatedAt = launch.updatedAt();
         return entity;
     }
@@ -89,29 +82,16 @@ public class AgentProcessLaunchEntity
                 id,
                 ownerKind,
                 ownerId,
-                state,
+                attempted,
                 executable,
                 argvDigest,
-                Optional.ofNullable(verifiedStopped),
                 updatedAt);
     }
 
-    public void advance(LaunchIntentState next, Instant at)
+    public void markAttempted(Instant at)
     {
-        state = next;
+        attempted = true;
         updatedAt = at;
-    }
-
-    public void terminal(boolean stopped, Instant at)
-    {
-        state = LaunchIntentState.TERMINAL;
-        verifiedStopped = stopped;
-        updatedAt = at;
-    }
-
-    public LaunchIntentState state()
-    {
-        return state;
     }
 
     @Override

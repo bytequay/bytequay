@@ -908,16 +908,27 @@ Primary files:
 Purpose: turn the CP1 compatibility proof into the production Codex execution
 path and prevent one task or old process from mutating another task's worktree.
 
+**Status (2026-09-01): launch protocol landed; Codex isolation and quiescence
+open.** The gated launch protocol, the durable ownership row, and fail-closed
+process recovery are implemented and wired. The owning row was deliberately
+narrowed to one fact after review; see
+[Agent Service Design](agent-service.md) section 5.1. Everything below the
+process boundary — the task exec-server, per-task environments, routing, and
+recursive quiescence — is untouched.
+
 Implementation:
 
-- [ ] Implement the gated launch sequence from the canonical service design:
-  fsynced `PREPARED` marker, committed launch intent, `ATTEMPTING`, gated
+- [x] Implement the gated launch sequence from the canonical service design:
+  fsynced `PREPARED` marker, committed launch intent, gated
   launcher identity, `RELEASE_PENDING`, gate release, `RUNNING`, terminal
-  receipt, then durable acknowledgement.
-- [ ] Record executable identity and OS start token and verify directly owned
+  receipt, then durable acknowledgement. The owning row records whether the
+  owner committed to spawning rather than mirroring the marker's phases.
+- [x] Record executable identity and OS start token and verify directly owned
   process-tree termination during recovery; a root PID exit is insufficient.
-- [ ] Persist launch phase and opaque owner for the shared App Server, each task
-  executor, and each Claude turn.
+  An unreadable start token or executable is `UNVERIFIABLE`, never death.
+- [x] Persist launch ownership and opaque owner for the shared App Server and
+  each Claude turn. The task executor does not exist yet and is covered by the
+  `TaskExecServerManager` box below.
 - [ ] Add `TaskExecServerManager` using only the contract proven in CP1.
 - [ ] Launch one version-matched executor/environment per active Codex task.
 - [ ] Persist one unique environment ID per task, reuse it only for that task,
@@ -974,20 +985,34 @@ Exit gate:
   converge through recursive history closure without duplicate routing.
 - [ ] Cancellation lists/cleans background terminals and reaches the same
   quiescence barrier.
-- [ ] Backend restart either proves the old owned process tree stopped or leaves
-  the `OPEN` task visibly recovery-required with its mutation claim held.
-- [ ] Missing/corrupt process receipts fail closed.
+- [~] Backend restart proves the old owned process tree stopped, verified
+  against a live Codex App Server. The recovery-required half is coarser than
+  designed: an unverifiable tree blocks the whole agent serving gate rather than
+  one task's mutation claim, because no launch is bound to a task claim yet.
+- [x] Missing/corrupt process receipts fail closed. Marker loss, an
+  uninspectable process, an unrecognized executable, a committed launch whose
+  marker vanished, and process facts that could not have followed the committed
+  intent are all `UNVERIFIABLE`.
 - [ ] If a compatibility fixture can leave a writer outside both ByteQuay's
   directly owned process proof and App Server item/background-terminal
   registries, reject the Codex lane for release rather than merely leaving one
   `OPEN` task blocked with the recovery-required projection.
 
+Known gaps in the landed part:
+
+- A descendant that calls `setsid()` escapes the owned process group and cannot
+  be detected. This is the release-gate item at the end of this checkpoint, not
+  something more supervisor code can close.
+- Startup blocking is global rather than per task; the claim binding belongs
+  with the quiescence work below.
+
 Primary files:
 
-- `backend/agent-cli/.../process/...`
+- `backend/agent-cli/.../process/...` and `.../process/impl/launcher.sh`
 - `backend/agent-cli/.../codex/...`
 - new task-executor manager and fixtures in `agent-cli`
-- provider launch and claim stores in `agent-core`/`persistence-sqlite`
+- `backend/agent-core/.../AgentProcessLaunch.java` and its SQLite store
+- `backend/app/.../agent/StoredLaunchIntentRecorder.java`
 
 ## [ ] CP5 — Add the authenticated Electron task bridge
 

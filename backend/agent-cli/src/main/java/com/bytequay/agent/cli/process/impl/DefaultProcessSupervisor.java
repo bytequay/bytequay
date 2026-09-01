@@ -13,7 +13,6 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
@@ -64,7 +63,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -118,8 +116,7 @@ public final class DefaultProcessSupervisor
     @Override
     public List<OwnedProcessRecovery> recoverOwnedProcesses()
     {
-        Map<String, LaunchIntent> committed = intents.list().stream()
-                .collect(toImmutableMap(LaunchIntent::launchId, intent -> intent));
+        Map<String, Boolean> committed = intents.committedLaunches();
         Set<String> launches = ImmutableSet.<String>builder()
                 .addAll(store.list())
                 .addAll(committed.keySet())
@@ -140,16 +137,14 @@ public final class DefaultProcessSupervisor
         store.delete(launchId);
     }
 
-    private Optional<OwnedProcessRecovery> recover(String launchId, Optional<LaunchIntent> intent)
+    private Optional<OwnedProcessRecovery> recover(String launchId, Optional<Boolean> attempted)
     {
         Optional<LaunchMarker> found = store.read(launchId);
         if (found.isEmpty()) {
-            // A committed intent that never reached the spawn is provably unlaunched. Any later
-            // intent without its marker is an unexplained loss and must block rather than be
+            // A committed launch that never reached the spawn is provably unlaunched. Any attempted
+            // launch without its marker is an unexplained loss and must block rather than be
             // assumed harmless.
-            boolean unlaunched = intent
-                    .filter(committed -> committed.state() == LaunchIntent.State.PREPARED)
-                    .isPresent();
+            boolean unlaunched = attempted.filter(value -> !value).isPresent();
             return Optional.of(new OwnedProcessRecovery(
                     launchId,
                     Optional.empty(),
@@ -158,14 +153,14 @@ public final class DefaultProcessSupervisor
                             ? OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED
                             : OwnedProcessRecovery.Outcome.UNVERIFIABLE,
                     unlaunched
-                            ? "Committed intent was never attempted and has no marker"
+                            ? "Committed launch was never attempted and has no marker"
                             : "Launch marker is missing or undecodable"));
         }
         LaunchMarker marker = found.orElseThrow();
         if (marker.backendId().equals(backendId)) {
             return Optional.empty();
         }
-        return Optional.of(reconcile(marker, intent));
+        return Optional.of(reconcile(marker, attempted));
     }
 
     /**
@@ -174,20 +169,20 @@ public final class DefaultProcessSupervisor
      * <p>The owner always commits {@code ATTEMPTING} before a launcher can exist, so a marker that
      * observed a launcher under a merely prepared or absent intent is an impossible ordering.
      */
-    private static boolean impossibleOrdering(LaunchMarker marker, Optional<LaunchIntent> intent)
+    private static boolean impossibleOrdering(LaunchMarker marker, Optional<Boolean> attempted)
     {
         if (marker.phase() == LaunchPhase.PREPARED) {
             return false;
         }
-        return intent.map(committed -> committed.state() == LaunchIntent.State.PREPARED).orElse(true);
+        return !attempted.orElse(false);
     }
 
-    private OwnedProcessRecovery reconcile(LaunchMarker marker, Optional<LaunchIntent> intent)
+    private OwnedProcessRecovery reconcile(LaunchMarker marker, Optional<Boolean> attempted)
     {
         String launchId = marker.launchId();
         boolean released = store.gateReleased(launchId);
         LaunchPhase phase = marker.phase();
-        if (phase != LaunchPhase.TERMINAL && impossibleOrdering(marker, intent)) {
+        if (phase != LaunchPhase.TERMINAL && impossibleOrdering(marker, attempted)) {
             return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
                     "Recorded process facts do not follow the committed launch intent");
         }
@@ -467,7 +462,6 @@ public final class DefaultProcessSupervisor
                 store.writeGate(launchId(), LaunchMarkerStore.RELEASE);
                 recorded = recorded.withPhase(LaunchPhase.RUNNING);
                 store.write(recorded);
-                intents.running(launchId());
                 return new DefaultManagedProcess(recorded, launcher, identity.pid(), group, spec, output);
             }
             catch (RuntimeException failure) {
@@ -498,7 +492,6 @@ public final class DefaultProcessSupervisor
                 launcher.destroyForcibly();
                 store.write(recorded.terminal(
                         new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
-                intents.terminal(launchId(), termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
                 return;
             }
             store.writeGate(launchId(), LaunchMarkerStore.CANCEL);
@@ -819,8 +812,6 @@ public final class DefaultProcessSupervisor
         {
             try {
                 store.write(marker.terminal(result));
-                intents.terminal(marker.launchId(),
-                        result.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED);
             }
             catch (RuntimeException ignored) {
                 // The in-process result still stands; recovery treats a missing marker as

@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.LaunchIntentState;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
@@ -31,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,45 +59,37 @@ class TestSqliteAgentProcessLaunchStore
     }
 
     @Test
-    void advancesOneLaunchThroughItsCommittedIntentStates()
+    void recordsOwnershipAndWhetherTheOwnerCommittedToSpawning()
     {
-        launches.insert(prepared("launch-advance"));
+        launches.insert(prepared("launch-attempt"));
 
-        assertThat(launches.find("launch-advance").orElseThrow().state())
-                .isEqualTo(LaunchIntentState.PREPARED);
+        assertThat(only()).satisfies(launch -> {
+            assertThat(launch.attempted()).isFalse();
+            assertThat(launch.ownerKind()).isEqualTo(LaunchOwnerKind.CLAUDE_TURN);
+            assertThat(launch.ownerId()).isEqualTo("turn-1");
+            assertThat(launch.executable()).isEqualTo("/usr/local/bin/claude");
+            assertThat(launch.updatedAt()).isEqualTo(NOW);
+        });
 
-        launches.updateState("launch-advance", LaunchIntentState.ATTEMPTING, NOW.plusSeconds(1));
-        launches.updateState("launch-advance", LaunchIntentState.RUNNING, NOW.plusSeconds(2));
-        launches.recordTerminal("launch-advance", true, NOW.plusSeconds(3));
+        launches.markAttempted("launch-attempt", NOW.plusSeconds(1));
 
-        AgentProcessLaunch terminal = launches.find("launch-advance").orElseThrow();
-        assertThat(terminal.state()).isEqualTo(LaunchIntentState.TERMINAL);
-        assertThat(terminal.verifiedStopped()).contains(true);
-        assertThat(terminal.ownerKind()).isEqualTo(LaunchOwnerKind.CLAUDE_TURN);
-        assertThat(terminal.ownerId()).isEqualTo("turn-1");
-        assertThat(terminal.updatedAt()).isEqualTo(NOW.plusSeconds(3));
+        assertThat(only().attempted()).isTrue();
+        assertThat(only().updatedAt()).isEqualTo(NOW.plusSeconds(1));
 
-        launches.delete("launch-advance");
+        launches.delete("launch-attempt");
 
-        assertThat(launches.find("launch-advance")).isEmpty();
+        assertThat(launches.list()).isEmpty();
     }
 
     @Test
-    void rejectsADuplicateLaunchAndAnUnknownOrTerminalTransition()
+    void rejectsADuplicateLaunchAndAnUnknownTransition()
     {
         launches.insert(prepared("launch-guard"));
 
         assertThatThrownBy(() -> launches.insert(prepared("launch-guard")))
                 .isInstanceOf(AgentConflictException.class);
-        assertThatThrownBy(() -> launches.updateState("absent", LaunchIntentState.RUNNING, NOW))
+        assertThatThrownBy(() -> launches.markAttempted("absent", NOW))
                 .isInstanceOf(AgentConflictException.class);
-
-        launches.recordTerminal("launch-guard", false, NOW);
-
-        // A terminal receipt is the final word; it must not be reopened by a late transition.
-        assertThatThrownBy(() -> launches.updateState("launch-guard", LaunchIntentState.RUNNING, NOW))
-                .isInstanceOf(AgentConflictException.class);
-        assertThat(launches.find("launch-guard").orElseThrow().verifiedStopped()).contains(false);
 
         launches.delete("launch-guard");
         launches.delete("launch-guard");
@@ -119,16 +109,21 @@ class TestSqliteAgentProcessLaunchStore
         launches.delete("launch-b");
     }
 
+    private AgentProcessLaunch only()
+    {
+        assertThat(launches.list()).hasSize(1);
+        return launches.list().getFirst();
+    }
+
     private static AgentProcessLaunch prepared(String launchId)
     {
         return new AgentProcessLaunch(
                 launchId,
                 LaunchOwnerKind.CLAUDE_TURN,
                 "turn-1",
-                LaunchIntentState.PREPARED,
+                false,
                 "/usr/local/bin/claude",
                 "digest",
-                Optional.empty(),
                 NOW);
     }
 }

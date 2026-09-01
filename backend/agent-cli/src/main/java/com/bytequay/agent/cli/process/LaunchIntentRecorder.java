@@ -13,15 +13,19 @@
  */
 package com.bytequay.agent.cli.process;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 /**
  * Commits the durable ownership record for a supervised provider process.
  *
  * <p>{@code agent-cli} declares this port and never implements durable storage itself. The
- * supervisor calls it around every launch transition so no caller can spawn a payload without a
- * committed owner, and so a crash always leaves a record naming whatever might still be running.
+ * supervisor calls it around the two transitions that recovery can act on, so no caller can spawn a
+ * payload without a committed owner, and so a crash always leaves a record naming whatever might
+ * still be running.
+ *
+ * <p>The record deliberately carries one fact and not a lifecycle. Everything the operating system
+ * did is in the fsynced launch marker; duplicating it here would only create two state machines
+ * that must be kept in step, and one more write that could fail while the process is healthy.
  */
 public interface LaunchIntentRecorder
 {
@@ -35,25 +39,16 @@ public interface LaunchIntentRecorder
      */
     void prepared(String launchId, ProcessOwner owner, String executable, String argvDigest);
 
-    /** Commits that the payload is about to be spawned, before the launcher exists. */
+    /** Commits that the payload is about to be spawned, before any launcher exists. */
     void attempting(String launchId);
 
-    /** Commits that the gate was released and the payload was executed. */
-    void running(String launchId);
-
     /**
-     * Commits the terminal receipt for a launch.
+     * Returns every committed launch and whether its owner had committed to spawning.
      *
-     * @param launchId opaque launch identifier
-     * @param verifiedStopped whether the whole owned process tree was proven stopped
+     * @return launch identifier to attempted flag; an absent key was never committed at all
      */
-    void terminal(String launchId, boolean verifiedStopped);
+    Map<String, Boolean> committedLaunches();
 
-    Optional<LaunchIntent> find(String launchId);
-
-    /** Returns every committed launch intent, so recovery can find one whose marker is missing. */
-    List<LaunchIntent> list();
-
-    /** Deletes an acknowledged or rolled-back launch intent; absent records are ignored. */
+    /** Deletes an acknowledged or rolled-back launch; absent records are ignored. */
     void forget(String launchId);
 }

@@ -13,20 +13,17 @@
  */
 package com.bytequay.app.agent;
 
-import com.bytequay.agent.cli.process.LaunchIntent;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.LaunchIntentState;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
-import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -57,59 +54,29 @@ public class StoredLaunchIntentRecorder
                 launchId,
                 ownerKind(owner.kind()),
                 owner.id(),
-                LaunchIntentState.PREPARED,
+                false,
                 executable,
                 argvDigest,
-                Optional.empty(),
                 clock.instant()));
     }
 
     @Override
     public void attempting(String launchId)
     {
-        store.updateState(launchId, LaunchIntentState.ATTEMPTING, clock.instant());
+        store.markAttempted(launchId, clock.instant());
     }
 
     @Override
-    public void running(String launchId)
-    {
-        store.updateState(launchId, LaunchIntentState.RUNNING, clock.instant());
-    }
-
-    @Override
-    public void terminal(String launchId, boolean verifiedStopped)
-    {
-        store.recordTerminal(launchId, verifiedStopped, clock.instant());
-    }
-
-    @Override
-    public Optional<LaunchIntent> find(String launchId)
-    {
-        return store.find(launchId).map(StoredLaunchIntentRecorder::toIntent);
-    }
-
-    @Override
-    public List<LaunchIntent> list()
+    public Map<String, Boolean> committedLaunches()
     {
         return store.list().stream()
-                .map(StoredLaunchIntentRecorder::toIntent)
-                .collect(toImmutableList());
+                .collect(toImmutableMap(AgentProcessLaunch::launchId, AgentProcessLaunch::attempted));
     }
 
     @Override
     public void forget(String launchId)
     {
         store.delete(launchId);
-    }
-
-    private static LaunchIntent toIntent(AgentProcessLaunch launch)
-    {
-        return new LaunchIntent(launch.launchId(), switch (launch.state()) {
-            case PREPARED -> LaunchIntent.State.PREPARED;
-            case ATTEMPTING -> LaunchIntent.State.ATTEMPTING;
-            case RUNNING -> LaunchIntent.State.RUNNING;
-            case TERMINAL -> LaunchIntent.State.TERMINAL;
-        });
     }
 
     private static LaunchOwnerKind ownerKind(ProcessOwner.Kind kind)

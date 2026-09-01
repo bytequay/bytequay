@@ -14,7 +14,6 @@
 package com.bytequay.agent.core;
 
 import java.time.Instant;
-import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -24,25 +23,25 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>The row is committed before the payload can execute, so a crash always leaves a record naming
  * the owner of anything that might still be running. It stores no prompt text, credential, or raw
- * argument vector.
+ * argument vector, and it deliberately records one fact rather than mirroring the process
+ * lifecycle already held by the launch marker.
  *
  * @param launchId opaque launch identifier shared with the agent-cli launch marker
  * @param ownerKind closed owner role
  * @param ownerId opaque owner identifier
- * @param state durable launch intent
- * @param executable resolved executable path
+ * @param attempted whether the owner had committed to spawning the payload
+ * @param executable resolved executable path, which is the only record of what was launched when
+ * the process marker itself is missing
  * @param argvDigest digest of the argument vector
- * @param verifiedStopped whether the owned process tree was proven stopped, once terminal
  * @param updatedAt time of the last recorded transition
  */
 public record AgentProcessLaunch(
         String launchId,
         LaunchOwnerKind ownerKind,
         String ownerId,
-        LaunchIntentState state,
+        boolean attempted,
         String executable,
         String argvDigest,
-        Optional<Boolean> verifiedStopped,
         Instant updatedAt)
 {
     public AgentProcessLaunch
@@ -52,12 +51,8 @@ public record AgentProcessLaunch(
         requireNonNull(ownerKind, "ownerKind is null");
         requireNonNull(ownerId, "ownerId is null");
         checkArgument(!ownerId.isBlank(), "ownerId is blank");
-        requireNonNull(state, "state is null");
         requireNonNull(executable, "executable is null");
         requireNonNull(argvDigest, "argvDigest is null");
-        requireNonNull(verifiedStopped, "verifiedStopped is null");
         requireNonNull(updatedAt, "updatedAt is null");
-        checkArgument(state == LaunchIntentState.TERMINAL || verifiedStopped.isEmpty(),
-                "only a terminal launch carries a tree result");
     }
 }

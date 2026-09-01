@@ -1423,20 +1423,28 @@ affected claim unless the validated launch path provides a stronger platform
 primitive or all relevant execution is reconciled through the provider
 contract instead.
 
-The owning row persists `NOT_ATTEMPTED`, `PREPARED`, `ATTEMPTING`, and
-`RUNNING` launch phases, while the marker supplies the finer launch fact.
-Recovery uses both:
+The owning row records one durable fact, whether the owner had committed to
+spawning, while the marker supplies every finer launch fact. Recovery uses both:
 
-- `NOT_ATTEMPTED` has no launch and is known unlaunched;
-- `PREPARED` plus an intact `PREPARED` marker is known unlaunched;
-- `ATTEMPTING` plus `PREPARED` means the crash preceded `start` and is known
+- no owning row and no marker is known unlaunched;
+- a row that never reached the spawn, plus an intact `PREPARED` marker, is known
   unlaunched;
-- `ATTEMPTING` plus `GATED` closes the gate and, after the launcher is verified
-  stopped, proves the payload was unlaunched;
-- `ATTEMPTING` plus `RELEASE_PENDING`/`RUNNING`, or database `RUNNING`, is
-  treated as possibly executed and follows full process/result recovery; and
-- an impossible phase ordering, or a missing/corrupt marker for any committed
-  launch ID, is `UNVERIFIABLE`.
+- a row that never reached the spawn and has no marker at all is known
+  unlaunched, because the gate could not have been released;
+- an attempted row plus a `PREPARED` marker means the crash preceded the spawn
+  and is known unlaunched;
+- an attempted row plus `GATED` closes the gate and, after the launcher is
+  verified stopped, proves the payload was unlaunched;
+- an attempted row plus `RELEASE_PENDING`/`RUNNING` is treated as possibly
+  executed and follows full process/result recovery; and
+- an impossible ordering, such as a marker that observed a launcher under a row
+  that never reached the spawn, or a missing/corrupt marker for any attempted
+  launch, is `UNVERIFIABLE`.
+
+The owning row deliberately holds no lifecycle beyond that one fact. Every later
+transition is already durable in the marker, so mirroring them would create two
+state machines to keep in step and one more write that could fail while the
+process is healthy.
 
 Orphan prepared markers without an owning committed intent are removable only
 when their format proves no launcher was released.
@@ -2976,14 +2984,15 @@ the typed response when resolved, and request/resolution timestamps. Pending is
 derived from the missing response; it is not a separate lifecycle state.
 
 `agent_process_launch` begins when `prepare(...)` returns and stores the launch
-ID, closed owner kind and opaque owner ID,
-`PREPARED`/`ATTEMPTING`/`RUNNING`/`TERMINAL` phase, executable/argv digests,
-verified tree outcome, and timestamps for the shared App Server, task
-exec-servers, and Claude turns. Before that row exists, a turn owner remains
-`NOT_ATTEMPTED`. The launch row stores no prompt, credential, or raw argv. The
-owner reference and launch row commit in one unit of work; the fsynced
-agent-cli marker supplies the OS identity/receipt used to reconcile that
-durable intent.
+ID, closed owner kind and opaque owner ID, whether the owner committed to
+spawning, the resolved executable and argv digest, and a transition timestamp,
+for the shared App Server, task exec-servers, and Claude turns. Before that row
+exists, a turn owner has never been attempted. The executable is retained
+because it is the only record of what was launched when the process marker
+itself is the thing that went missing. The launch row stores no prompt,
+credential, or raw argv. The owner reference and launch row commit in one unit
+of work; the fsynced agent-cli marker supplies the OS identity, phase, and
+receipt used to reconcile that durable intent.
 
 `agent_event_outbox` stores each state-coupled unsequenced event in the same
 SQLite transaction as its owning state mutation, keyed by `eventId`, with its

@@ -979,6 +979,22 @@ Still open: terminating or cleaning a yielded terminal rather than waiting for
 it, claim retention and the atomic finalize/release in `agent-core`, and the
 guarded mark-failed operation.
 
+**Blocked on 2026-09-02: the reference pin cannot be regenerated.** The
+compatibility script asserts `codex --version` is exactly `codex-cli 0.151.0`
+before it will regenerate the pinned projection, and the local CLI self-updated
+to `0.152.1` mid-session. The committed projection is still valid and the
+bindings test still passes, because that test compares Java to the committed
+JSON and never runs the CLI. What is blocked is **adding or changing any
+protocol record**, since the bindings gate is an exact set in both directions
+and only the script can produce the JSON side.
+
+Terminating a background terminal on cancellation needs
+`ThreadBackgroundTerminalsTerminateParams` and its response, so it is blocked
+behind that. Unblocking it is a decision, not a fix: either reinstall
+`0.151.0`, or move the pin to `0.152.1` and re-run the live gates, since the
+four bundle hashes and every measured behaviour in this document were taken
+against `0.151.0`.
+
 Implementation:
 
 - [x] Implement the gated launch sequence from the canonical service design:
@@ -1032,9 +1048,12 @@ Implementation:
   forced rather than cached. The managed-requirements check reads the raw
   response on purpose, because its rule is about unknown sibling fields and a
   decoded record would ignore exactly the field that must fail it.
-- [ ] Verify inherited capabilities remain disabled after start and resume.
-  Force skill discovery and repeat the origin/error guard immediately before
-  every `turn/start`, including the first turn after resume/restart.
+- [x] Verify inherited capabilities remain disabled after start and resume.
+  `skills/list` is issued with `forceReload`, and the guard runs immediately
+  before every `turn/start`. Resume is the case worth pinning, because a hook
+  can appear while a task is unloaded and the process serving the resumed thread
+  is a different one
+  (`rechecksInheritedCapabilitiesOnTheFirstTurnAfterResume`).
 - [x] Route root and child events/approvals by provider thread and turn identity
   without cross-task fallback. Achieved by topology rather than by routing: one
   App Server process serves one task, so every thread reaching a connection
@@ -1092,8 +1111,9 @@ Exit gate:
   measured live against codex-cli 0.151.0 with no environment registered.
 - [x] A subagent's activity reaches the event sink and its turn completing does
   not end the task's turn (`surfacesSubagentActivityWithoutEndingTheTasksTurn`).
-- [ ] A second turn resumes the same root only after its process is relaunched
-  in the same worktree.
+- [x] A second turn resumes the same root only after its process is relaunched
+  in the same worktree, under the same task owner
+  (`relaunchesTheAppServerInTheSameWorktreeOnResume`).
 - [~] A two-turn driver test changes model/effort defaults between
   turns and proves each App Server `turn/start` receives exactly the immutable
   CP2 snapshot stored for that turn. Permission and sandbox are not varied,

@@ -623,6 +623,49 @@ class TestCodexCliDriver
                 .hasMessageContaining("lifecycle hooks apply");
     }
 
+    @Test
+    void relaunchesTheAppServerInTheSameWorktreeOnResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        AgentSessionRef reference = initial.reference();
+        initial.close();
+
+        AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
+
+        // The process that served the first session died with it, so a stored thread is only
+        // resumable inside a replacement rooted at the same worktree.
+        assertThat(supervisor.servers()).hasSize(2);
+        assertThat(supervisor.serverCwds()).containsExactly(worktree, worktree);
+        assertThat(supervisor.serverOwners())
+                .extracting(ProcessOwner::id)
+                .containsExactly("task-1", "task-1");
+        assertThat(supervisor.servers().getLast().resumeCount()).isOne();
+        resumed.close();
+    }
+
+    @Test
+    void rechecksInheritedCapabilitiesOnTheFirstTurnAfterResume()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        AgentSessionRef reference = initial.reference();
+        initial.close();
+
+        // A hook can appear while a task is unloaded, so a resumed thread proves nothing about the
+        // process now serving it.
+        supervisor.reportHooks("[{\"name\":\"stop\"}]");
+        AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
+
+        assertThatThrownBy(() -> resumed.start(command("after-resume")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("lifecycle hooks apply");
+        resumed.close();
+    }
+
     /** Opens a session and starts a turn against a scripted App Server configured by {@code setup}. */
     private void startTurnWith(Consumer<ScriptedProcessSupervisor> setup)
     {

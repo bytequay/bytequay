@@ -881,11 +881,11 @@ final class CodexProtocol
     /**
      * Client capabilities declared at initialize.
      *
-     * <p>Declared false. The experimental surface it unlocks is the environment method family,
-     * which a task no longer uses now that its App Server process is rooted in its own worktree.
-     * Measured against codex-cli 0.151.0: with the capability false, every method this client does
-     * call still answers, and {@code environment/add} and {@code environment/info} are the only
-     * refusals.
+     * <p>Declared true for exactly one reason: {@code thread/backgroundTerminals/list} is
+     * experimental, and it is the only inventory that can prove a thread owns no live process.
+     * Measured against codex-cli 0.151.0, the experimental surface is that method, its
+     * {@code clean} and {@code terminate} siblings, and the environment family this client does
+     * not use; every other method ByteQuay calls answers either way.
      */
     record InitializeCapabilities(boolean experimentalApi)
     {
@@ -1050,6 +1050,46 @@ final class CodexProtocol
         {
             checkIdentifier(threadId, "threadId");
             requireNonNull(includeTurns, "includeTurns is null");
+        }
+    }
+
+    /**
+     * Lists one thread's background terminals, a page at a time.
+     *
+     * <p>A yielded command keeps running after the item that started it reports terminal, so this
+     * is the only inventory that can say whether a thread still owns a live process.
+     */
+    record ThreadBackgroundTerminalsListParams(
+            String threadId,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<String> cursor)
+    {
+        ThreadBackgroundTerminalsListParams
+        {
+            checkIdentifier(threadId, "threadId");
+            requireNonNull(cursor, "cursor is null");
+        }
+    }
+
+    record ThreadBackgroundTerminalsListResponse(
+            List<ThreadBackgroundTerminal> data,
+            Optional<String> nextCursor)
+    {
+        ThreadBackgroundTerminalsListResponse
+        {
+            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+            requireNonNull(nextCursor, "nextCursor is null");
+        }
+    }
+
+    record ThreadBackgroundTerminal(String processId, String itemId, String command, String cwd)
+    {
+        ThreadBackgroundTerminal
+        {
+            checkIdentifier(processId, "processId");
+            checkIdentifier(itemId, "itemId");
+            requireNonNull(command, "command is null");
+            checkIdentifier(cwd, "cwd");
         }
     }
 

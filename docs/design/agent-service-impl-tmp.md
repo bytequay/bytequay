@@ -949,8 +949,35 @@ review of the change and each with a test that fails without it:
   deltas could fill the backlog and lose its own completion, wedging the turn
   forever. Only streamed text is shed now; everything else is always queued.
 
-Recursive quiescence, claim retention, and the atomic turn finalize/release
-remain untouched.
+**Quiescence (2026-09-02).** A turn no longer completes when its root thread
+says so. The root reporting completion is necessary but not sufficient, so the
+turn stays live until the process is shown quiet.
+
+The designed mechanism is not available. App Server v0.151.0 answers
+`thread/read(includeTurns: true)` with `-32601 list_turns is not supported yet`,
+in both capability modes, so there is no turn history to close over and the
+recursive history reconciliation CP4 specifies cannot be written against the
+pinned reference version. What is available, and what the implementation uses:
+
+- the **live item stream**, which is now sound for this purpose: item
+  notifications are never shed (only streamed text is), and subagent items
+  reach the session at all;
+- **`thread/backgroundTerminals/list`**, the only inventory that reports a
+  yielded command still running after the item that started it went terminal.
+
+That method is experimental, so `capabilities.experimentalApi` is declared true
+again, now for exactly one method rather than the environment family.
+
+On root completion a virtual thread — never the message consumer, whose queue
+holds the very notifications that would end the wait — polls until two whole
+passes in a row find no live item, no background terminal on any observed
+thread, and no thread that appeared mid-pass. A turn that cannot be shown quiet
+within its bound is reported `FAILED` with what was still outstanding, so the
+task keeps its worktree and its claim rather than being told the work is done.
+
+Still open: terminating or cleaning a yielded terminal rather than waiting for
+it, claim retention and the atomic finalize/release in `agent-core`, and the
+guarded mark-failed operation.
 
 Implementation:
 
@@ -1033,14 +1060,17 @@ Implementation:
   non-root turn lifecycle notification, because the child's `turn/completed`
   arrived fourteen messages before the root's and would otherwise have ended the
   task's turn early with the subagent's payload.
-- [ ] Run one combined fixed-point reconciliation: repeatedly read root and
-  discovered descendants with `thread/read(includeTurns: true)`, reconcile all
-  live/history command/tool/file/hook/terminal items, and page background
-  terminals for every known child. Stop only after a final whole pass discovers
-  no new child/item, every item is terminal, and every background list is
-  empty.
-- [ ] Treat root answer/turn completion as necessary but not sufficient for
-  quiescence.
+- [~] Run one combined fixed-point reconciliation. The fixed point is
+  implemented — repeat until a whole pass finds no live item, no background
+  terminal on any observed thread, and no newly appeared thread — but over the
+  live item stream rather than turn history: `thread/read(includeTurns: true)`
+  answers `-32601 list_turns is not supported yet` on the pinned reference
+  version, so history closure cannot be written against it. The gap is that a
+  missed item cannot be recovered from history; item notifications are never
+  shed, which is what makes the live stream load-bearing.
+- [x] Treat root answer/turn completion as necessary but not sufficient for
+  quiescence. A turn settles only after a stable pass over live items and every
+  observed thread's background terminals.
 - [ ] Retain the mutation claim and task worktree while a child, item, background
   terminal, unknown delivery, or owned process is active or unverifiable.
 - [ ] Add a guarded mark-failed operation that never edits or cleans the

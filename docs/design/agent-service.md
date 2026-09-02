@@ -1569,6 +1569,32 @@ implements `AutoCloseable` and is wired as the bean's destroy method, so a
 backend shutdown with open tasks does not strand their processes until the next
 start.
 
+### 5.4 Turn quiescence
+
+A turn completes when its process is quiet, not when its root thread reports
+completion. A yielded command outlives the item that started it, and a subagent
+can still be working, so a clean completion at that moment would release the
+task's claim over files something may still be writing.
+
+The reference version does not support the history closure this was designed
+around: `thread/read(includeTurns: true)` answers `-32601 list_turns is not
+supported yet`. Quiescence is therefore answered from what App Server does
+provide — the live item stream, and `thread/backgroundTerminals/list` for every
+thread the process has shown. Item notifications are never shed, which is what
+makes the live stream sound to reason from; only streamed text is dropped under
+backlog pressure. `capabilities.experimentalApi` is declared for that one
+method.
+
+The wait runs on its own thread, never the message consumer, because the
+consumer's queue holds the notifications that would end the wait. It repeats
+until two consecutive passes find no live item, no background terminal, and no
+thread that appeared mid-pass. A turn that cannot be shown quiet within its
+bound is reported failed, naming what was outstanding, so the task keeps its
+worktree.
+
+Terminating a yielded terminal instead of waiting for it, and the claim
+retention and atomic finalize in `agent-core`, are not part of this.
+
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,
 yielded commands must appear in background-terminal listing, and clean or

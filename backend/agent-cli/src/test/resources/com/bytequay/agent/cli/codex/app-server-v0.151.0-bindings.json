@@ -1714,6 +1714,89 @@
       ]
     },
     {
+      "javaType": "ThreadBackgroundTerminalsListParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadBackgroundTerminalsListParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "cursor",
+          "wireName": "cursor",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadBackgroundTerminalsListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadBackgroundTerminalsListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "nextCursor",
+          "wireName": "nextCursor",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadBackgroundTerminal",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadBackgroundTerminal"
+      ],
+      "components": [
+        {
+          "javaName": "processId",
+          "wireName": "processId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "itemId",
+          "wireName": "itemId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "command",
+          "wireName": "command",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
       "javaType": "HistoryThread",
       "mode": "decode",
       "sources": [

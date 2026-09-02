@@ -187,12 +187,11 @@ final class CodexAppServerClient
             process.exit().whenComplete((result, failure) -> processExited(result, failure));
 
             try {
-                // The experimental API is not declared: the environment methods were its only
-                // use, and a capability this connection never exercises is one more thing a task
-                // could reach.
+                // Declared for one method: thread/backgroundTerminals/list is experimental and is
+                // the only inventory that can prove a thread owns no live process.
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
-                        new CodexProtocol.InitializeCapabilities(false));
+                        new CodexProtocol.InitializeCapabilities(true));
                 CodexProtocol.JsonRpcEnvelope initialized =
                         await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
                 codexHome.set(initialized.result()

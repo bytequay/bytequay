@@ -57,6 +57,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -112,6 +114,10 @@ public final class CodexCliDriver
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration DEFAULT_QUIESCENCE_TIMEOUT = Duration.ofMinutes(2);
+    private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
+    /** A settled answer needs a whole pass that changed nothing, so one clean pass is not enough. */
+    private static final int QUIESCENCE_STABLE_PASSES = 2;
     private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final int MAX_APP_SERVER_STDOUT_BYTES = 64 * 1024 * 1024;
@@ -158,6 +164,7 @@ public final class CodexCliDriver
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
+    private final Duration quiescenceTimeout;
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
@@ -172,11 +179,22 @@ public final class CodexCliDriver
             ProcessSupervisor supervisor,
             Map<String, String> environment)
     {
+        this(executable, objectMapper, supervisor, environment, DEFAULT_QUIESCENCE_TIMEOUT);
+    }
+
+    CodexCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            Map<String, String> environment,
+            Duration quiescenceTimeout)
+    {
         this.executable = requireNonNull(executable, "executable is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
+        this.quiescenceTimeout = requireNonNull(quiescenceTimeout, "quiescenceTimeout is null");
     }
 
     /**
@@ -469,6 +487,10 @@ public final class CodexCliDriver
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
         private final AgentSessionRef reference;
+        /** Every thread this task's process has shown us, root and subagents alike. */
+        private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
+        /** Items reported started and not yet reported terminal, by the thread that owns them. */
+        private final ConcurrentMap<String, Set<String>> liveItems = new ConcurrentHashMap<>();
         private CodexRunningTurn running;
         private boolean closed;
 
@@ -573,6 +595,9 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
+            // An item the previous turn left unresolved belonged to that turn's outcome, which is
+            // already decided. Carrying it forward would fail every later turn for the same reason.
+            liveItems.clear();
             running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime());
             return running;
         }
@@ -594,6 +619,7 @@ public final class CodexCliDriver
             if (!rootThread && !subagentActivity(notification)) {
                 return;
             }
+            observe(notification);
             try {
                 if (rootThread
                         && notification instanceof CodexProtocol.ItemCompletedNotification completed
@@ -603,15 +629,163 @@ public final class CodexCliDriver
                 }
                 eventMapper.map(notification, rootThread).forEach(events::emit);
                 if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
-                    CodexRunningTurn completed = running;
-                    running = null;
-                    completed.complete(turnCompleted.params().turn());
+                    // The root saying it is done is necessary but not sufficient: an item or a
+                    // yielded command can still be running. The turn stays live until the process
+                    // is proven quiet, and the wait runs elsewhere because the notifications that
+                    // would end it are queued behind this handler.
+                    CodexRunningTurn completing = running;
+                    CodexProtocol.Turn reported = turnCompleted.params().turn();
+                    Thread.ofVirtual()
+                            .name("bytequay-codex-quiescence")
+                            .start(() -> settle(completing, reported));
                 }
             }
             catch (RuntimeException failure) {
                 CodexRunningTurn failed = running;
                 running = null;
                 failed.interrupt(failure);
+            }
+        }
+
+        /** Records what this process has shown us, so quiescence can be answered from it. */
+        private void observe(CodexProtocol.Notification notification)
+        {
+            observedThreads.add(notification.threadId());
+            if (notification instanceof CodexProtocol.ItemStartedNotification started) {
+                liveItems
+                        .computeIfAbsent(started.threadId(), thread -> ConcurrentHashMap.newKeySet())
+                        .add(started.params().item().id());
+            }
+            else if (notification instanceof CodexProtocol.ItemCompletedNotification completed) {
+                Set<String> items = liveItems.get(completed.threadId());
+                if (items != null) {
+                    items.remove(completed.params().item().id());
+                }
+            }
+        }
+
+        /**
+         * Finishes a turn once its process is quiet, or fails it when that cannot be shown.
+         *
+         * @param turn the turn whose root reported completion
+         * @param reported the completion App Server reported for it
+         */
+        private void settle(CodexRunningTurn turn, CodexProtocol.Turn reported)
+        {
+            Optional<String> unsettled = awaitQuiescence();
+            synchronized (this) {
+                if (running != turn) {
+                    // Cancelled, disconnected, or already finished while we waited.
+                    return;
+                }
+                running = null;
+            }
+            if (unsettled.isEmpty()) {
+                turn.complete(reported);
+                return;
+            }
+            // Never report a clean completion for work that may still be touching the worktree.
+            turn.completeUnverifiable(reported, unsettled.orElseThrow());
+        }
+
+        /**
+         * Waits until nothing this task's process started is still running.
+         *
+         * <p>App Server v0.151.0 answers {@code thread/read(includeTurns: true)} with
+         * {@code list_turns is not supported yet}, so there is no history to close over. What is
+         * available is the live item stream, which item notifications are never shed from, plus the
+         * background-terminal inventory that reports commands still running after the item that
+         * started them went terminal. A pass that changes nothing is not enough on its own, because
+         * a subagent can appear between two reads.
+         *
+         * @return empty when quiet, otherwise what was still outstanding
+         */
+        private Optional<String> awaitQuiescence()
+        {
+            Instant deadline = Instant.now().plus(quiescenceTimeout);
+            int stablePasses = 0;
+            String lastSeen = "";
+            while (stablePasses < QUIESCENCE_STABLE_PASSES) {
+                if (closed) {
+                    // The session is being released; its process is going with it.
+                    return Optional.empty();
+                }
+                if (Instant.now().isAfter(deadline)) {
+                    return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
+                }
+                Set<String> threads = ImmutableSet.copyOf(observedThreads);
+                Optional<String> outstanding = firstOutstanding(threads);
+                if (outstanding.isPresent()) {
+                    lastSeen = outstanding.orElseThrow();
+                    stablePasses = 0;
+                    sleep(QUIESCENCE_POLL);
+                    continue;
+                }
+                if (!observedThreads.equals(threads)) {
+                    // A thread appeared while we were reading, so this pass proved nothing.
+                    stablePasses = 0;
+                    continue;
+                }
+                stablePasses++;
+                if (stablePasses < QUIESCENCE_STABLE_PASSES) {
+                    sleep(QUIESCENCE_POLL);
+                }
+            }
+            return Optional.empty();
+        }
+
+        /** Returns the first still-running item or background terminal across the given threads. */
+        private Optional<String> firstOutstanding(Set<String> threads)
+        {
+            for (String thread : threads) {
+                Set<String> items = liveItems.get(thread);
+                if (items != null && !items.isEmpty()) {
+                    return Optional.of("item " + items.iterator().next() + " on thread " + thread);
+                }
+            }
+            for (String thread : threads) {
+                Optional<String> terminal = firstBackgroundTerminal(thread);
+                if (terminal.isPresent()) {
+                    return terminal;
+                }
+            }
+            return Optional.empty();
+        }
+
+        private Optional<String> firstBackgroundTerminal(String thread)
+        {
+            Optional<String> cursor = Optional.empty();
+            do {
+                CodexProtocol.ThreadBackgroundTerminalsListResponse page;
+                try {
+                    page = client.request(
+                            "thread/backgroundTerminals/list",
+                            new CodexProtocol.ThreadBackgroundTerminalsListParams(thread, cursor),
+                            CodexProtocol.ThreadBackgroundTerminalsListResponse.class,
+                            REQUEST_TIMEOUT);
+                }
+                catch (RuntimeException failure) {
+                    // An inventory that cannot be read is not an empty one.
+                    return Optional.of("the background terminals of thread " + thread
+                            + " could not be listed: " + failure.getMessage());
+                }
+                if (!page.data().isEmpty()) {
+                    return Optional.of("background terminal "
+                            + page.data().getFirst().processId() + " on thread " + thread);
+                }
+                cursor = page.nextCursor();
+            }
+            while (cursor.isPresent());
+            return Optional.empty();
+        }
+
+        private static void sleep(Duration duration)
+        {
+            try {
+                Thread.sleep(duration);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
 
@@ -885,6 +1059,26 @@ public final class CodexCliDriver
                     interrupt(failure);
                 }
             });
+        }
+
+        /**
+         * Reports a turn whose root finished while its process could still be doing work.
+         *
+         * <p>Reported FAILED rather than COMPLETED so the task stays open and keeps its worktree:
+         * a clean completion here would release the claim over files something may still be
+         * writing.
+         *
+         * @param turn the completion App Server reported
+         * @param unsettled what could not be shown stopped
+         */
+        private void completeUnverifiable(CodexProtocol.Turn turn, String unsettled)
+        {
+            completion.complete(new AgentTurnResult(
+                    AgentTurnResult.State.FAILED,
+                    finalResponse,
+                    Optional.of("Codex CLI " + rememberAppServerVersion()
+                            + " finished the turn but " + unsettled + " could not be shown stopped"),
+                    elapsed(turn)));
         }
 
         private void observeMessage(Optional<CodexProtocol.MessagePhase> phase, String text)

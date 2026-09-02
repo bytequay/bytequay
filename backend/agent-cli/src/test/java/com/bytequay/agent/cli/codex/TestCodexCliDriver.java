@@ -125,9 +125,10 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO);
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
-        // The experimental surface is the environment family, which no task uses.
+        // Declared for thread/backgroundTerminals/list, which is experimental and is the only
+        // inventory that can prove a thread owns no live process.
         assertThat(supervisor.servers()).allSatisfy(
-                server -> assertThat(server.experimentalApi()).containsExactly(false));
+                server -> assertThat(server.experimentalApi()).containsExactly(true));
 
         driver.close();
     }
@@ -501,6 +502,74 @@ class TestCodexCliDriver
     }
 
     @Test
+    void waitsForAYieldedCommandBeforeCompletingATurn()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("yield"));
+        supervisor.reportBackgroundTerminal();
+
+        supervisor.server().completeTurn();
+
+        // A yielded command outlives the item that started it, so the root reporting completion is
+        // not proof that anything stopped touching the worktree.
+        Thread.sleep(400);
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+
+        supervisor.reportNoBackgroundTerminals();
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+        session.close();
+    }
+
+    @Test
+    void failsATurnWhoseProcessCannotBeShownStopped()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("yield"));
+        supervisor.reportBackgroundTerminal();
+
+        supervisor.server().completeTurn();
+
+        // Reporting COMPLETED here would release the task's claim over files a live command may
+        // still be writing, so an unproven turn fails and the task keeps its worktree.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.terminalReason().orElseThrow()).contains("could not be shown stopped");
+        assertThat(result.terminalReason().orElseThrow()).contains("background terminal proc-1");
+        session.close();
+    }
+
+    @Test
+    void doesNotHoldATurnForAnEarlierTurnsUnfinishedItem()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+
+        RunningTurn first = session.start(command("one"));
+        supervisor.server().emitUnfinishedItem("exec-stuck");
+        supervisor.server().completeTurn();
+        assertThat(first.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.FAILED);
+
+        RunningTurn second = session.start(command("two"));
+        supervisor.server().completeTurn();
+
+        // The earlier turn's outcome is already decided. Carrying its unresolved item forward
+        // would fail every turn after it for a reason that is no longer about them.
+        assertThat(second.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+        session.close();
+    }
+
+    @Test
     void surfacesSubagentActivityWithoutEndingTheTasksTurn()
             throws Exception
     {
@@ -584,13 +653,19 @@ class TestCodexCliDriver
 
     private CodexCliDriver driver(ProcessSupervisor supervisor)
     {
+        return driver(supervisor, Duration.ofSeconds(30));
+    }
+
+    private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
+    {
         return new CodexCliDriver(
                 "/fake/codex",
                 objectMapper,
                 supervisor,
                 ImmutableMap.of(
                         "HOME", worktree.toString(),
-                        "OPENAI_API_KEY", "known-secret"));
+                        "OPENAI_API_KEY", "known-secret"),
+                quiescenceTimeout);
     }
 
     private AgentSessionContext context(
@@ -658,6 +733,19 @@ class TestCodexCliDriver
         private volatile String hooks = "[]";
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
+        private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+
+        /** Reports one command still running after the item that started it went terminal. */
+        private void reportBackgroundTerminal()
+        {
+            backgroundTerminals = "{\"data\":[{\"processId\":\"proc-1\",\"itemId\":\"exec-1\","
+                    + "\"command\":\"sleep 600\",\"cwd\":\"/worktree\"}],\"nextCursor\":null}";
+        }
+
+        private void reportNoBackgroundTerminals()
+        {
+            backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+        }
 
         private void reportManagedRequirements(String response)
         {
@@ -753,7 +841,8 @@ class TestCodexCliDriver
                     () -> managedRequirements,
                     () -> hooks,
                     () -> configLayers,
-                    () -> skills);
+                    () -> skills,
+                    () -> backgroundTerminals);
             servers.add(server);
             return server;
         }
@@ -813,6 +902,7 @@ class TestCodexCliDriver
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
         private final Supplier<String> skills;
+        private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
@@ -827,7 +917,8 @@ class TestCodexCliDriver
                 Supplier<String> managedRequirements,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
-                Supplier<String> skills)
+                Supplier<String> skills,
+                Supplier<String> backgroundTerminals)
         {
             this.objectMapper = objectMapper;
             this.output = output;
@@ -836,6 +927,7 @@ class TestCodexCliDriver
             this.hooks = hooks;
             this.configLayers = configLayers;
             this.skills = skills;
+            this.backgroundTerminals = backgroundTerminals;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -898,6 +990,7 @@ class TestCodexCliDriver
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
+                case "thread/backgroundTerminals/list" -> respond(id, backgroundTerminals.get());
                 case "model/list" -> respond(id, "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
                         + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
                         + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false}]}");
@@ -968,6 +1061,15 @@ class TestCodexCliDriver
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"" + threadId + "\","
                     + "\"turn\":{\"id\":\"subagent-turn\",\"status\":\"completed\","
                     + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
+        }
+
+        /** Starts an item and never reports it terminal, the way a cancelled turn leaves one. */
+        private void emitUnfinishedItem(String itemId)
+        {
+            emit("{\"method\":\"item/started\",\"params\":{\"item\":{"
+                    + "\"type\":\"commandExecution\",\"id\":\"" + itemId + "\","
+                    + "\"command\":\"sleep 600\",\"status\":\"inProgress\"},"
+                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
         }
 
         private void completeTurn()

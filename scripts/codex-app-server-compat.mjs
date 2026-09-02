@@ -298,6 +298,20 @@ const referenceRecordBindings = [
   recordBinding("ThreadReadResponse", "decode", [
     schemaSource("v2", "ThreadReadResponse"),
   ], [component("thread")]),
+  recordBinding("ThreadBackgroundTerminalsListParams", "encode", [
+    schemaSource("v2", "ThreadBackgroundTerminalsListParams"),
+  ], [component("threadId"), component("cursor")]),
+  recordBinding("ThreadBackgroundTerminalsListResponse", "decode", [
+    schemaSource("v2", "ThreadBackgroundTerminalsListResponse"),
+  ], [component("data"), component("nextCursor")]),
+  recordBinding("ThreadBackgroundTerminal", "decode", [
+    schemaSource("v2", "ThreadBackgroundTerminal"),
+  ], [
+    component("processId"),
+    component("itemId"),
+    component("command"),
+    component("cwd"),
+  ]),
   recordBinding("HistoryThread", "decode", [schemaSource("v2", "Thread")], [
     component("id"),
     component("sessionId"),

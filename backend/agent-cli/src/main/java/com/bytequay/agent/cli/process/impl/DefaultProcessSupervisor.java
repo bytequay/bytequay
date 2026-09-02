@@ -80,7 +80,12 @@ public final class DefaultProcessSupervisor
 
     /** Gated launcher script; see {@code launcher.sh} for what it does and why. */
     private static final String LAUNCHER_SCRIPT = readLauncherScript();
-    private static final String LAUNCHER_SHELL = "/bin/sh";
+    /**
+     * Bash, not {@code /bin/sh}: the launcher needs {@code set -m} to put the payload in its own
+     * process group, and dash, which is {@code /bin/sh} on Debian and Ubuntu, turns job control
+     * off when it has no controlling terminal. Bash creates the group without one.
+     */
+    private static final String LAUNCHER_SHELL = "/bin/bash";
     /** Exit status the launcher script uses when the gate closed and the payload never ran. */
     private static final int GATE_CLOSED_EXIT_CODE = 70;
     private static final Duration IDENTITY_TIMEOUT = Duration.ofSeconds(10);

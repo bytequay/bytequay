@@ -1,6 +1,6 @@
 # Gated launcher for one supervised provider process.
 #
-# Invoked as: /bin/sh -c <this script> bytequay-launch <gate> <identity> <parent-pid> <payload argv...>
+# Invoked as: /bin/bash -c <this script> bytequay-launch <gate> <identity> <parent-pid> <payload argv...>
 #
 # It exists to solve two problems the JVM cannot solve on its own:
 #
@@ -22,6 +22,8 @@ shift 3           # "$@" is now exactly the payload argv, with no shell interpre
 
 # Job control is enabled for one side effect only: under `set -m` a background job becomes a
 # process-group leader, so the subshell below gets pgid == pid. It is not used to manage jobs.
+# This needs bash: dash, which is /bin/sh on Debian and Ubuntu, refuses job control when it has
+# no controlling terminal, which is exactly how a backend or a CI runner starts this script.
 set -m
 
 {

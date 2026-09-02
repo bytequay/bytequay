@@ -53,6 +53,8 @@ type Fence = { marker: '`' | '~'; length: number; language: string };
 
 const TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓])\)|\[([ xX])\])\s+(.+)$/;
 const SOURCE_TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓]|&#(?:x0*2713|0*10003);)\)|\[([ xX])\])(\s+.+)$/i;
+// ponytail: Covers bot-generated HTTP definitions; use a GFM parser for the full reference grammar.
+const HTTP_LINK_REFERENCE_DEFINITION = /^ {0,3}\[(?![ \t]*\])([^\]\r\n]+)\]:[ \t]*(https?:\/\/[^\s<>()]+)[ \t]*$/i;
 
 function openingFence(line: string): Fence | null {
   const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
@@ -88,6 +90,49 @@ function withoutHtmlComments(line: string, insideComment: boolean) {
     insideComment = true;
   }
   return { visible, insideComment };
+}
+
+function normalizeLinkLabel(label: string) {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function extractHttpLinkDefinitions(markdown: string) {
+  const sourceParts = markdown.split(/(\r\n|\r|\n)/);
+  const definitions = new Map<string, string>();
+  let fence: Fence | null = null;
+  let insideComment = false;
+  let paragraph = false;
+
+  for (let index = 0; index < sourceParts.length; index += 2) {
+    const line = sourceParts[index];
+    if (fence) {
+      if (closesFence(line, fence)) fence = null;
+      continue;
+    }
+    if (!insideComment) {
+      const opening = openingFence(line);
+      if (opening) {
+        fence = opening;
+        paragraph = false;
+        continue;
+      }
+    }
+    const masked = withoutHtmlComments(line, insideComment);
+    insideComment = masked.insideComment;
+    if (!masked.visible.trim()) {
+      paragraph = false;
+      continue;
+    }
+    const definition = paragraph ? null : masked.visible.match(HTTP_LINK_REFERENCE_DEFINITION);
+    if (!definition) {
+      paragraph = true;
+      continue;
+    }
+    const label = normalizeLinkLabel(definition[1]);
+    if (!definitions.has(label)) definitions.set(label, definition[2]);
+    sourceParts[index] = '';
+  }
+  return { body: sourceParts.join(''), definitions };
 }
 
 /** Toggles one rendered task by ordinal without rewriting unrelated Markdown. */
@@ -227,7 +272,7 @@ function tableAlignments(line: string) {
   });
 }
 
-const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -408,7 +453,9 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
   return blocks;
 }
 
-function inline(text: string, keyPrefix: string): ReactNode[] {
+const EMPTY_LINK_DEFINITIONS = new Map<string, string>();
+
+function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS): ReactNode[] {
   return text.split(INLINE_TOKEN).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (part === '\\`' || part === '\\\\') return <Fragment key={key}>{part.slice(1)}</Fragment>;
@@ -421,18 +468,23 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         <img src={linkedImage[2]} alt={linkedImage[1]} />
       </a>
     );
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`)}</strong>;
-    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`)}</em>;
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions)}</strong>;
+    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions)}</em>;
     if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;
-    const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    if (link) {
-      const href = link[2].startsWith('/') ? `https://github.com${link[2]}` : link[2];
-      const reference = link[1].match(/^(.*) (#\d+)$/);
+    const directLink = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    const referenceLink = directLink ? null : part.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?$/);
+    const definitionLabel = referenceLink ? referenceLink[2] || referenceLink[1] : null;
+    const definition = definitionLabel ? definitions.get(normalizeLinkLabel(definitionLabel)) : undefined;
+    const linkText = directLink?.[1] ?? (definition ? referenceLink?.[1] : undefined);
+    const linkHref = directLink?.[2] ?? definition;
+    if (linkText && linkHref) {
+      const href = linkHref.startsWith('/') ? `https://github.com${linkHref}` : linkHref;
+      const reference = linkText.match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);
-      const showTitle = /^https?:\/\//i.test(link[1]);
+      const showTitle = /^https?:\/\//i.test(linkText);
       const label = showTitle && githubReference
         ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
-        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(link[1], `${key}-link`);
+        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions);
       if (githubReference) return (
         <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );
@@ -445,6 +497,12 @@ function inline(text: string, keyPrefix: string): ReactNode[] {
         </a>
       );
     }
+    if (referenceLink) return (
+      <Fragment key={key}>
+        [{inline(referenceLink[1], `${key}-reference-text`, definitions)}]
+        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions)}]</>}
+      </Fragment>
+    );
     const bareReference = parseGitHubReference(part);
     if (bareReference) return (
       <ReferenceLink key={key} reference={bareReference} showTitle>
@@ -785,12 +843,14 @@ export default function MarkdownBody({ body, className = '', repository, onTaskT
     const taskIndex = tasks.indexOf(event.target);
     if (taskIndex >= 0) onTaskToggle(taskIndex, event.target.checked);
   };
-  return <MarkdownBodyContent body={body} className={className} repository={repository}
+  const document = extractHttpLinkDefinitions(body);
+  return <MarkdownBodyContent body={document.body} definitions={document.definitions} className={className} repository={repository}
     tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
 }
 
-function MarkdownBodyContent({ body, className = '', repository, tasksInteractive, tasksDisabled, onTaskChange }: {
+function MarkdownBodyContent({ body, definitions, className = '', repository, tasksInteractive, tasksDisabled, onTaskChange }: {
   body: string;
+  definitions: ReadonlyMap<string, string>;
   className?: string;
   repository?: string;
   tasksInteractive: boolean;
@@ -801,18 +861,19 @@ function MarkdownBodyContent({ body, className = '', repository, tasksInteractiv
     <div className={`markdown-body ${className}`.trim()} onChange={onTaskChange}>
       {markdownSegments(body).map((segment, segmentIndex) => segment.kind === 'details' ? (
         <details className="md-details" key={`details-${segmentIndex}`}>
-          <summary>{inline(segment.summary, `details-${segmentIndex}`)}</summary>
-          <MarkdownBodyContent body={segment.text} repository={repository}
+          <summary>{inline(segment.summary, `details-${segmentIndex}`, definitions)}</summary>
+          <MarkdownBodyContent body={segment.text} definitions={definitions} repository={repository}
             tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
         </details>
       ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository}
-        tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} key={`markdown-${segmentIndex}`} />)}
+        definitions={definitions} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} key={`markdown-${segmentIndex}`} />)}
     </div>
   );
 }
 
-function MarkdownBlocks({ markdown, repository, tasksInteractive, tasksDisabled }: {
+function MarkdownBlocks({ markdown, definitions, repository, tasksInteractive, tasksDisabled }: {
   markdown: string;
+  definitions: ReadonlyMap<string, string>;
   repository?: string;
   tasksInteractive: boolean;
   tasksDisabled: boolean;
@@ -823,14 +884,14 @@ function MarkdownBlocks({ markdown, repository, tasksInteractive, tasksDisabled 
         const key = `${block.kind}-${index}`;
         if (block.kind === 'heading') {
           const Heading = `h${block.level}` as keyof React.JSX.IntrinsicElements;
-          return <Heading key={key}>{inline(block.text, key)}</Heading>;
+          return <Heading key={key}>{inline(block.text, key, definitions)}</Heading>;
         }
-        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key)}</p>;
+        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key, definitions)}</p>;
         if (block.kind === 'task') return (
           <p key={key}><label><input type="checkbox" checked={block.checked}
             disabled={!tasksInteractive || tasksDisabled} readOnly={!tasksInteractive}
             data-markdown-task={tasksInteractive ? '' : undefined}
-            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key)}</label></p>
+            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions)}</label></p>
         );
         if (block.kind === 'code') {
           const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
@@ -845,31 +906,31 @@ function MarkdownBlocks({ markdown, repository, tasksInteractive, tasksDisabled 
         if (block.kind === 'alert') return (
           <aside className={`md-alert is-${block.label.toLowerCase()}`} key={key}>
             <strong>ⓘ {block.label[0]}{block.label.slice(1).toLowerCase()}</strong>
-            <p>{inline(block.text, key)}</p>
+            <p>{inline(block.text, key, definitions)}</p>
           </aside>
         );
         if (block.kind === 'table') return (
           <div className="md-table-scroll" key={key}>
             <table>
               <thead><tr>{block.headers.map((header, cellIndex) => (
-                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`)}</th>
+                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`, definitions)}</th>
               ))}</tr></thead>
               <tbody>{block.rows.map((row, rowIndex) => (
                 <tr key={`${key}-row-${rowIndex}`}>{row.map((cell, cellIndex) => (
-                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`)}</td>
+                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`, definitions)}</td>
                 ))}</tr>
               ))}</tbody>
             </table>
           </div>
         );
         if (block.kind === 'quote') return (
-          <blockquote key={key}><MarkdownBlocks markdown={block.text} repository={repository}
+          <blockquote key={key}><MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository}
             tasksInteractive={false} tasksDisabled={tasksDisabled} /></blockquote>
         );
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
         return <List key={key}>{block.items.map((item, itemIndex) => (
-          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`)}</li>
+          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions)}</li>
         ))}</List>;
       })}
     </>;

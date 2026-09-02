@@ -127,6 +127,14 @@ describe('MarkdownBody', () => {
     expect(html).not.toContain('](cci:1://');
   });
 
+  it('preserves nested Markdown inside undefined references', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'Keep [**important**], [`code`], and [**full**][unknown].'} />);
+
+    expect(html).toContain('[<strong>important</strong>]');
+    expect(html).toContain('[<code>code</code>]');
+    expect(html).toContain('[<strong>full</strong>][unknown]');
+  });
+
   it('renders escaped backticks as literal delimiters', () => {
     const html = renderToStaticMarkup(<MarkdownBody body={'Use \\`ClickHouseClient.toColumnMapping()\\`.'} />);
 
@@ -151,6 +159,22 @@ describe('MarkdownBody', () => {
 
     expect(html).toContain(`<a href="${url}">${url}</a>. This validator matters.`);
     expect(html).not.toContain(`href="${url}."`);
+  });
+
+  it('hides HTTP link definitions and resolves their references across details', () => {
+    const definition = '[HBR-1234]: https://example.atlassian.net/browse/HBR-1234?atlOrigin=abc';
+    const body = 'See [HBR-1234], [ticket][HBR-1234], and [HBR-1234][].\n\n'
+      + '<details><summary>More</summary>[hbr-1234]</details>\n\n'
+      + definition;
+
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html.match(/href="https:\/\/example\.atlassian\.net\/browse\/HBR-1234\?atlOrigin=abc"/g)).toHaveLength(4);
+    expect(html).toContain('>ticket</a>');
+    expect(html).toContain('<details class="md-details"><summary>More</summary>');
+    expect(html).not.toContain('[HBR-1234]:');
+    expect(renderToStaticMarkup(<MarkdownBody body={`Review summary.\n${definition}`} />)).toContain('[HBR-1234]:');
+    expect(renderToStaticMarkup(<MarkdownBody body={`\`\`\`markdown\n${definition}\n\`\`\``} />)).toContain(definition);
   });
 
   it('renders the reported inline same-repository code permalink as a code card', () => {

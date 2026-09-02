@@ -977,21 +977,23 @@ task keeps its worktree and its claim rather than being told the work is done.
 Cancellation now terminates a yielded terminal rather than waiting for it, using
 `thread/backgroundTerminals/terminate`.
 
-**Blocked on 2026-09-02: the reference pin cannot be regenerated.** The
-compatibility script asserts `codex --version` is exactly `codex-cli 0.151.0`
-before it will regenerate the pinned projection, and the local CLI self-updated
-to `0.152.1` mid-session. The committed projection is still valid and the
-bindings test still passes, because that test compares Java to the committed
-JSON and never runs the CLI. What is blocked is **adding or changing any
-protocol record**, since the bindings gate is an exact set in both directions
-and only the script can produce the JSON side.
+**Regenerating the pinned projection needs exactly `codex-cli 0.151.0` on PATH.**
+The compatibility script asserts that version before it will regenerate, and the
+local CLI moved to `0.152.1` mid-session — ByteQuay's own startup update did it,
+which is why that update is now a floor rather than a refresh. Regeneration runs
+against a side-by-side `0.151.0` install without touching the machine's default:
 
-Terminating a background terminal on cancellation needs
-`ThreadBackgroundTerminalsTerminateParams` and its response, so it is blocked
-behind that. Unblocking it is a decision, not a fix: either reinstall
-`0.151.0`, or move the pin to `0.152.1` and re-run the live gates, since the
-four bundle hashes and every measured behaviour in this document were taken
-against `0.151.0`.
+```
+npm install --prefix <dir> @openai/codex@0.151.0
+PATH="<dir>/node_modules/.bin:$PATH" node scripts/codex-app-server-compat.mjs --update-bindings
+```
+
+Verified that way: regeneration reproduced the committed projection byte for
+byte before any record was added, and the records added since were generated
+through it. Note the version pin only gates regeneration — the bindings test
+compares Java to the committed JSON and never runs the CLI, and the app itself
+runs against whatever CLI the user has. Measured 0.151.0 against 0.152.1, the
+bound projection is identical; only the whole-bundle hashes differ.
 
 Implementation:
 

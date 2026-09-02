@@ -74,11 +74,19 @@ describe('preview journey', () => {
 
   it('runs create, open, send, cancel and complete as exact typed bridge commands', async () => {
     const bridge = createPreviewBridge('workspace-1');
+    // Creation carries a model the catalog actually offers; the backend rejects a blank one.
+    const catalog = await bridge.getModelSettings();
+    const codex = catalog.providers.find((provider) => provider.id === 'codex');
+    expect(codex?.models.map((model) => model.id)).toContain(codex?.selectedModel);
     const created = await bridge.createAgentTask({
       workspaceId: 'workspace-1',
       title: 'New agent task',
       laneId: 'codex',
-      defaults: { model: null, effort: null, permissionPolicy: 'AUTO' },
+      defaults: {
+        model: codex?.selectedModel ?? null,
+        effort: codex?.selectedEffort ?? null,
+        permissionPolicy: 'AUTO',
+      },
     });
     const session = await open(bridge, created.id);
 
@@ -93,6 +101,7 @@ describe('preview journey', () => {
 
     expect(cancelled.state).toBe('CANCELLED');
     expect(names(bridge.commands)).toEqual([
+      'getModelSettings',
       'createAgentTask',
       'getAgentTask',
       'readAgentEvents',

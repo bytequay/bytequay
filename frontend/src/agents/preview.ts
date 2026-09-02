@@ -20,6 +20,7 @@ import type {
   AgentTaskDto,
   AgentTurnDto,
   Bridge,
+  ModelSettingsDto,
 } from '../types';
 
 /** The slice of the bridge an agent screen uses, so a screen can be driven by a mock. */
@@ -33,7 +34,8 @@ export type AgentBridgePort = Pick<Bridge,
   | 'cancelAgentTurn'
   | 'resolveAgentApproval'
   | 'completeAgentTask'
-  | 'subscribeAgentTask'>;
+  | 'subscribeAgentTask'
+  | 'getModelSettings'>;
 
 /** Every command the preview sent, so a test can assert the exact bridge calls. */
 export interface PreviewCommand {
@@ -49,6 +51,27 @@ export interface PreviewOptions {
 }
 
 const FIXTURE_EVENTS: AgentEventEnvelope[] = parseAgentEventSequence(eventFixture.events);
+
+/** A catalog shaped like a probed Codex lane, so the preview exercises real selection code. */
+const PREVIEW_CATALOG: ModelSettingsDto = {
+  mainId: 'codex',
+  providers: [{
+    id: 'codex',
+    label: 'Codex',
+    readiness: 'READY',
+    version: '0.151.0',
+    diagnostic: '',
+    models: [
+      { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high' },
+      { id: 'gpt-5.6-codex-mini', name: '5.6 Sol', description: 'Faster', efforts: ['medium'], defaultEffort: 'medium' },
+    ],
+    selectedModel: 'gpt-5.6-codex',
+    selectedEffort: 'high',
+    main: true,
+  }],
+  apiKeys: [],
+  keyProviders: [],
+};
 
 export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
   return {
@@ -100,6 +123,11 @@ export function createPreviewBridge(
   return {
     commands,
     events: FIXTURE_EVENTS,
+
+    getModelSettings: async () => {
+      record('getModelSettings');
+      return PREVIEW_CATALOG;
+    },
 
     listAgentTasks: async (id, limit) => {
       record('listAgentTasks', id, limit);

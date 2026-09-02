@@ -22,9 +22,24 @@ import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { previewTask } from './preview';
-import type { AgentTaskDto } from '../types';
+import type { AgentTaskDto, ModelOptionDto } from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
+
+const MODELS: ModelOptionDto[] = [
+  { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high' },
+];
+
+/** Everything the list needs beyond its rows, so each test states only what it varies. */
+const listProps = {
+  laneId: 'codex',
+  models: MODELS,
+  selection: { model: 'gpt-5.6-codex', effort: 'high' as string | null },
+  creatable: true,
+  onSelectModel: () => {},
+  onCreate: () => {},
+  onOpenTask: () => {},
+};
 
 function task(id: string, state: string, title: string): AgentTaskDto {
   return { ...previewTask('workspace-1', id), state, title };
@@ -71,12 +86,11 @@ describe('agent task list', () => {
   it('separates open from finished and never hides that the data is fixture data', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskList
+        {...listProps}
         tasks={[task('t-1', 'OPEN', 'Rename the widget'), task('t-2', 'COMPLETED', 'Old work')]}
         loading={false}
         error={null}
-        onCreate={() => {}}
-        onOpenTask={() => {}}
-      />);
+        />);
 
     // Asserting the separator too: a JSX text node does not interpret \\u escapes, so a
     // hand-written one renders literally and only an exact match catches it.
@@ -92,15 +106,45 @@ describe('agent task list', () => {
     expect(markup).toContain('Fixture data');
   });
 
+  it('pins the lane and offers the catalog model, not an invented one', () => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+
+    // The lane is fixed at creation, so it must not render as a picker.
+    expect(markup).toContain('Codex');
+    expect(markup).toContain('agt-lane');
+    expect(markup).toContain('5.6 Terra');
+    expect(markup).toContain('high');
+    expect(markup).not.toContain('disabled=""');
+  });
+
+  it('refuses to offer creation when the provider has no model to run', () => {
+    // The backend rejects a blank model, so an empty catalog must block the button, not the POST.
+    const markup = renderToStaticMarkup(
+      <AgentTaskList
+        {...listProps}
+        models={[]}
+        selection={null}
+        creatable={false}
+        tasks={[]}
+        loading={false}
+        error={null}
+      />);
+
+    expect(markup).toMatch(/<button[^>]*disabled[^>]*>\s*New agent task/);
+    expect(markup).toContain('No Codex model is available yet');
+    expect(markup).toContain('Workspace settings');
+  });
+
   it('shows loading, empty and error states rather than an unexplained blank list', () => {
     expect(renderToStaticMarkup(
-      <AgentTaskList tasks={[]} loading error={null} onCreate={() => {}} onOpenTask={() => {}} />))
+      <AgentTaskList {...listProps} tasks={[]} loading error={null} />))
       .toContain('Loading agent tasks\u2026');
     expect(renderToStaticMarkup(
-      <AgentTaskList tasks={[]} loading={false} error={null} onCreate={() => {}} onOpenTask={() => {}} />))
+      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />))
       .toContain('No agent tasks yet');
     expect(renderToStaticMarkup(
-      <AgentTaskList tasks={[]} loading={false} error="backend refused" onCreate={() => {}} onOpenTask={() => {}} />))
+      <AgentTaskList {...listProps} tasks={[]} loading={false} error="backend refused" />))
       .toContain('backend refused');
   });
 });

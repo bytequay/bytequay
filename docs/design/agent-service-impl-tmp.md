@@ -1404,7 +1404,7 @@ Implementation:
 - [x] Make this milestone Codex-only. Show Claude as unavailable or
   preview-only until CP11 rather than accepting a task the product cannot yet
   render and recover at parity.
-- [ ] Add Codex model selection at task creation; keep the Codex lane immutable.
+- [x] Add Codex model selection at task creation; keep the Codex lane immutable.
 - [ ] Add supported model, effort, and permission selection for the next turn.
 - [ ] Persist defaults and display the effective settings actually snapshotted
   for each turn.

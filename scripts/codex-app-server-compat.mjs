@@ -346,14 +346,6 @@ const referenceRecordBindings = [
     component("approvalPolicy", "approvalPolicy", "on-request"),
     component("sandbox", "sandbox", "workspace-write"),
     component("serviceName"),
-    component("environments"),
-  ]),
-  recordBinding("TurnEnvironmentParams", "encode", [
-    schemaSource("v2", "TurnEnvironmentParams"),
-  ], [
-    component("environmentId"),
-    component("cwd"),
-    component("runtimeWorkspaceRoots"),
   ]),
   recordBinding("CwdsParams", "encode", [
     schemaSource("v2", "HooksListParams"),
@@ -410,30 +402,6 @@ const referenceRecordBindings = [
     component("errors"),
     component("warnings"),
   ]),
-  recordBinding("EnvironmentAddParams", "encode", [
-    schemaSource("v2", "EnvironmentAddParams"),
-  ], [
-    component("environmentId"),
-    component("execServerUrl"),
-    component("connectTimeoutMs"),
-  ]),
-  recordBinding("EnvironmentInfoParams", "encode", [
-    schemaSource("v2", "EnvironmentInfoParams"),
-  ], [
-    component("environmentId"),
-  ]),
-  recordBinding("EnvironmentInfoResponse", "decode", [
-    schemaSource("v2", "EnvironmentInfoResponse"),
-  ], [
-    component("shell"),
-    component("cwd"),
-  ]),
-  recordBinding("EnvironmentShellInfo", "decode", [
-    schemaSource("v2", "EnvironmentShellInfo"),
-  ], [
-    component("name"),
-    component("path"),
-  ]),
   recordBinding("ThreadResumeParams", "encode", [
     schemaSource("v2", "ThreadResumeParams"),
   ], [
@@ -448,7 +416,6 @@ const referenceRecordBindings = [
   recordBinding("TurnStartParams", "encode", [schemaSource("v2", "TurnStartParams")], [
     component("threadId"),
     component("input", "input", [{ type: "text", text: "value" }]),
-    component("environments"),
     component("model"),
     component("effort", "effort", "minimal"),
   ]),
@@ -992,11 +959,6 @@ function checkSchema(directory, experimental) {
   const threadResume = readJson(join(directory, "v2", "ThreadResumeParams.json"));
   requireProperties(threadResume, ["threadId", "cwd", "approvalPolicy", "sandbox"]);
   requireFields(threadResume, ["threadId"]);
-  assert.equal(
-    threadResume.properties.environments,
-    undefined,
-    "thread/resume unexpectedly gained an environments field",
-  );
 
   const configReadParams = readJson(join(directory, "v2", "ConfigReadParams.json"));
   requireExactObjectShape(configReadParams, ["cwd", "includeLayers"], []);
@@ -1249,21 +1211,10 @@ function checkSchema(directory, experimental) {
     ["decision"],
   );
 
-  const environmentAdd = readJson(join(directory, "v2", "EnvironmentAddParams.json"));
-  requireProperties(environmentAdd, ["environmentId", "execServerUrl", "connectTimeoutMs"]);
-  requireFields(environmentAdd, ["environmentId", "execServerUrl"]);
-
-  const environmentInfo = readJson(join(directory, "v2", "EnvironmentInfoResponse.json"));
-  requireProperties(environmentInfo, ["cwd", "shell"]);
-  requireFields(environmentInfo, ["shell"]);
-  requireFields(environmentInfo.definitions.EnvironmentShellInfo, ["name", "path"]);
-
   const threadStart = readJson(join(directory, "v2", "ThreadStartParams.json"));
   const turnStart = readJson(join(directory, "v2", "TurnStartParams.json"));
-  requireProperties(threadStart, ["environments", "selectedCapabilityRoots"]);
-  requireProperties(turnStart, ["environments", "threadId", "input"]);
-  requireFields(threadStart.definitions.TurnEnvironmentParams, ["environmentId", "cwd"]);
-  requireFields(turnStart.definitions.TurnEnvironmentParams, ["environmentId", "cwd"]);
+  requireProperties(threadStart, ["cwd", "approvalPolicy", "sandbox"]);
+  requireProperties(turnStart, ["threadId", "input"]);
 
   const backgroundList = readJson(
     join(directory, "v2", "ThreadBackgroundTerminalsListResponse.json"),

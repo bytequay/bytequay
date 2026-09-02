@@ -76,11 +76,9 @@ flowchart LR
     end
 
     subgraph CODEX["Codex runtime"]
-        APP_SERVER["one long-lived<br/>Codex App Server"]
+        APP_SERVER["one Codex App Server per task<br/>rooted at that task's worktree"]
         THREADS["root and child threads<br/>agent loop · tool selection"]
-        EXEC_SERVER["one task-owned exec-server per task<br/>stock process/filesystem tools · sandbox"]
         APP_SERVER --> THREADS
-        THREADS -->|"selected environment · built-in tool calls"| EXEC_SERVER
     end
 
     CLAUDE["Claude CLI<br/>separate process per turn"]
@@ -218,7 +216,7 @@ directory.
 | `persistence-sqlite` | JPA entities, repositories, converters, encrypted credential storage, current-feature stores, and agent stores | Controllers, GitHub clients, task orchestration, or provider protocols |
 | `agent-spi` | Driver/session/run contracts, lane IDs, capabilities, typed readiness, normalized provider events with opaque source identity, and usage samples | Spring, JPA, HTTP, SQLite, CLI process code, or provider SDKs |
 | `agent-core` | Agent task/turn state, the shared worktree-service contract, mutation claims, event sequencing, approvals, input delivery, durable queued inputs, attachment references, metrics, completion, cleanup, and agent storage ports | Workspace path resolution, Git process implementation, Codex/Claude wire formats, JPA entities, or HTTP DTOs |
-| `agent-cli` | Codex App Server client, experimental environment registration, task-owned Codex exec-server launch/handshake, Claude `stream-json` client, binary discovery, owned-process supervision, event mapping, and fixtures | Task tables, SSE, GitHub PR behavior, or database code |
+| `agent-cli` | Per-task Codex App Server client, Claude `stream-json` client, binary discovery, owned-process supervision, event mapping, and fixtures | Task tables, SSE, GitHub PR behavior, or database code |
 | `app` | Spring composition, HTTP/SSE, GitHub clients, application services, managed workspace/worktree Git operations, schedulers, configuration, and executable packaging | Provider branching in controllers or direct JPA access from web code |
 
 The frontend remains an npm project and does not become a Maven module.
@@ -351,15 +349,14 @@ gaps are implemented:
    create or resume the worktree-scoped task through `agent-core`.
 3. `agent-core` enforces lifecycle and queue rules and selects an
    `AgentDriver` through `agent-spi`.
-4. The Codex adapter multiplexes the task's root and child thread IDs through
-   one long-lived App Server, while each active Codex task has one separately
-   supervised official `codex exec-server` selected through experimental
-   `environment/add`. The Claude adapter remains a separate `stream-json`
-   process per turn.
-5. App Server owns the Codex model/tool loop, environment selection, built-in
-   tool execution, and provider approval requests. The task exec-server applies
-   the selected App Server sandbox and approval policy to the task's generated
-   worktree.
+4. The Codex adapter opens one App Server process per task, running in that
+   task's worktree. Every thread in that process, root or child, belongs to
+   that task, so no thread identity has to be routed between tasks. The Claude
+   adapter remains a separate `stream-json` process per turn.
+5. App Server owns the Codex model/tool loop, built-in tool execution, and
+   provider approval requests. Its default environment is rooted at its own
+   working directory, which is the task worktree, and that is what confines a
+   turn's writes.
    Each driver maps only user-visible provider facts to normalized ByteQuay
    events.
 6. `agent-core` correlates task, agent thread, turn, and item identity. Each
@@ -383,7 +380,7 @@ gaps are implemented:
 9. The renderer derives transcript grouping, folded activity prose, plans,
    icons, elapsed clocks, queue state, and root/child navigation without
    interpreting raw provider payloads.
-10. Phase one stops at the stock App Server harness and task exec-server. It
+10. Phase one stops at the stock App Server harness. It
     does not register ByteQuay actions as model-callable tools or add custom
     product-tool routing. The CodeGraph service is the only narrow
     exception: two fixed, fail-open structural tools after the base protocol,
@@ -416,11 +413,11 @@ The detailed backend contract is in
   require; endpoint-level OS filtering is not claimed by this first design.
   ByteQuay product-action tools are deferred. The optional two-tool CodeGraph
   boundary is specified separately and remains fail-open. Directly owned App
-  Server, task exec-server, and Claude processes use durable launch
+  Server and Claude processes use durable launch
   intents/markers; normal per-turn quiescence uses typed item history and App
   Server's background-terminal APIs.
-- The current executable proof starts the shared Codex App Server with an
-  explicit no-child isolation baseline. Before creating a thread, ByteQuay must
+- The current executable proof starts each task's Codex App Server with an
+  explicit isolation baseline. Before creating a thread, ByteQuay must
   verify through
   `config/read` that the effective session flags disable every unapproved
   optional feature and web search, expose no MCP server, and apply the minimal
@@ -448,19 +445,19 @@ The detailed backend contract is in
   These are the first-release guards against inherited exec-policy allow rules;
   App Server v0.151 has no public per-thread rule-disable or effective-rule
   inventory.
-- There is one Codex App Server process per ByteQuay backend runtime, not per
-  task. Its loss interrupts live Codex turns; stored thread IDs remain
-  resumable after restart and explicit retry. A replacement starts only after
-  any prior owned process tree is verified stopped.
-- Each active Codex task has one distinct, loopback-only official exec-server
-  process and environment ID. It is re-launched and verified with
-  `environment/info` before a stored thread resumes; no task silently falls
-  back to App Server's default environment. The stock listener is
-  unauthenticated and accepts multiple local clients, so its ephemeral port is
-  an explicit same-host trust boundary rather than a credential. The v0.151.0
-  reference API has no unregister request, so correctness does not depend on
-  one: task close stops the executor while its unique registry entry remains
-  disconnected until the shared App Server exits.
+- There is one Codex App Server process per active Codex task, launched with
+  the task id as its owner and the task worktree as its working directory. Its
+  loss interrupts only that task's turn; stored thread IDs remain resumable
+  after restart and explicit retry. A replacement starts only after any prior
+  owned process tree is verified stopped.
+- A task's process working directory is its sandbox root: under
+  `workspace-write` App Server's default environment confines writes to it, so
+  no separate execution environment is registered and no loopback listener is
+  opened. Nothing declares the experimental API, whose only use here was that
+  environment family.
+- A session owns the App Server process serving its task and closes it. The
+  runtime registry closes every session it still holds at backend shutdown,
+  because completing a task is otherwise the only thing that releases one.
 - The first release leaves the experimental, process-wide
   `--code-mode-host` option unset. It is not a per-task tool-routing API; any
   future custom Code Mode host needs a separately validated protocol design.

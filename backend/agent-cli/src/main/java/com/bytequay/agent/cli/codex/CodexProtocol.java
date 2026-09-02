@@ -881,9 +881,11 @@ final class CodexProtocol
     /**
      * Client capabilities declared at initialize.
      *
-     * <p>App Server refuses every environment method with {@code -32600} unless
-     * {@code experimentalApi} is declared here, so a task-owned execution environment is
-     * unreachable without it.
+     * <p>Declared false. The experimental surface it unlocks is the environment method family,
+     * which a task no longer uses now that its App Server process is rooted in its own worktree.
+     * Measured against codex-cli 0.151.0: with the capability false, every method this client does
+     * call still answers, and {@code environment/add} and {@code environment/info} are the only
+     * refusals.
      */
     record InitializeCapabilities(boolean experimentalApi)
     {
@@ -991,20 +993,17 @@ final class CodexProtocol
     record EmptyResponse() {}
 
     /**
-     * Starts a thread, optionally pinning it to one task-owned execution environment.
+     * Starts a thread in the App Server process that serves one task.
      *
-     * <p>{@code environments} is three-valued on the wire and the three values are not
-     * interchangeable: omitted selects App Server's default environment, an empty list disables
-     * environment access entirely, and a non-empty list selects its first entry. It is therefore
-     * modelled as an absent-or-present list rather than a plain collection.
+     * <p>No execution environment is selected, so the thread uses the process default, which is
+     * rooted at the process working directory. That directory is the task worktree, which is what
+     * confines the turn.
      */
     record ThreadStartParams(
             String cwd,
             String approvalPolicy,
             String sandbox,
-            String serviceName,
-            @JsonInclude(JsonInclude.Include.NON_ABSENT)
-            Optional<List<TurnEnvironmentParams>> environments)
+            String serviceName)
     {
         ThreadStartParams
         {
@@ -1012,59 +1011,6 @@ final class CodexProtocol
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(sandbox, "sandbox");
             checkIdentifier(serviceName, "serviceName");
-            environments = requireNonNull(environments, "environments is null").map(ImmutableList::copyOf);
-        }
-    }
-
-    /**
-     * Selects exactly one task-owned execution environment.
-     *
-     * <p>A non-empty list selects its first entry, so ByteQuay always sends exactly one. Sending
-     * none would silently fall back to App Server's default environment, which is never correct for
-     * a task-bound thread.
-     */
-    record TurnEnvironmentParams(String environmentId, String cwd, List<String> runtimeWorkspaceRoots)
-    {
-        TurnEnvironmentParams
-        {
-            checkIdentifier(environmentId, "environmentId");
-            checkIdentifier(cwd, "cwd");
-            runtimeWorkspaceRoots = ImmutableList.copyOf(runtimeWorkspaceRoots);
-        }
-    }
-
-    record EnvironmentAddParams(String environmentId, String execServerUrl, Long connectTimeoutMs)
-    {
-        EnvironmentAddParams
-        {
-            checkIdentifier(environmentId, "environmentId");
-            checkIdentifier(execServerUrl, "execServerUrl");
-        }
-    }
-
-    record EnvironmentInfoParams(String environmentId)
-    {
-        EnvironmentInfoParams
-        {
-            checkIdentifier(environmentId, "environmentId");
-        }
-    }
-
-    record EnvironmentInfoResponse(EnvironmentShellInfo shell, Optional<String> cwd)
-    {
-        EnvironmentInfoResponse
-        {
-            requireNonNull(shell, "shell is null");
-            requireNonNull(cwd, "cwd is null");
-        }
-    }
-
-    record EnvironmentShellInfo(String name, String path)
-    {
-        EnvironmentShellInfo
-        {
-            checkIdentifier(name, "name");
-            checkIdentifier(path, "path");
         }
     }
 
@@ -1141,17 +1087,11 @@ final class CodexProtocol
     }
 
     /**
-     * Starts a turn, selecting the task environment for this turn and the ones after it.
-     *
-     * <p>{@code environments} carries the same three-valued rule as {@link ThreadStartParams}:
-     * omitted keeps the thread's sticky selection, empty disables environment access for the turn,
-     * and non-empty selects its first entry.
+     * Starts a turn, carrying the model settings snapshotted when it was accepted.
      */
     record TurnStartParams(
             String threadId,
             List<TextInput> input,
-            @JsonInclude(JsonInclude.Include.NON_ABSENT)
-            Optional<List<TurnEnvironmentParams>> environments,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
             Optional<String> model,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -1162,7 +1102,6 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             input = ImmutableList.copyOf(requireNonNull(input, "input is null"));
             checkArgument(!input.isEmpty(), "input is empty");
-            environments = requireNonNull(environments, "environments is null").map(ImmutableList::copyOf);
             requireNonNull(model, "model is null");
             requireNonNull(effort, "effort is null");
         }

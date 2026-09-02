@@ -44,7 +44,16 @@ final class CodexEventMapper
         this.redactor = requireNonNull(redactor, "redactor is null");
     }
 
-    List<ProviderAgentEvent> map(CodexProtocol.Notification notification)
+    /**
+     * Maps one inbound notification to the events ByteQuay publishes.
+     *
+     * @param notification the notification
+     * @param answersForTheTurn whether it came from the thread that speaks for the turn. A subagent
+     *     produces its own final answer, and only the root thread's may be published as the turn's
+     *     answer, because that is what the task's recorded final response is read from.
+     * @return the mapped events, possibly empty
+     */
+    List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean answersForTheTurn)
     {
         Optional<Instant> timestamp = notification.emittedAtMs().map(Instant::ofEpochMilli);
         return switch (notification) {
@@ -63,9 +72,11 @@ final class CodexEventMapper
                     "Codex turn " + statusText(completed.params().turn().status()),
                     source(completed, Optional.empty())));
             case CodexProtocol.ItemStartedNotification started ->
-                mapItem(started.params().item(), timestamp, true, source(started, Optional.of(started.params().item().id())));
+                mapItem(started.params().item(), timestamp, true, answersForTheTurn,
+                        source(started, Optional.of(started.params().item().id())));
             case CodexProtocol.ItemCompletedNotification completed ->
-                mapItem(completed.params().item(), timestamp, false, source(completed, Optional.of(completed.params().item().id())));
+                mapItem(completed.params().item(), timestamp, false, answersForTheTurn,
+                        source(completed, Optional.of(completed.params().item().id())));
             case CodexProtocol.CommandOutputNotification output -> ImmutableList.of(
                     new ProviderAgentEvent.Command(
                             Optional.empty(),
@@ -102,6 +113,7 @@ final class CodexEventMapper
             CodexProtocol.ThreadItem item,
             Optional<Instant> timestamp,
             boolean started,
+            boolean answersForTheTurn,
             ProviderAgentEventSource source)
     {
         String eventId = item.id() + (started ? ":started" : ":completed");
@@ -111,7 +123,10 @@ final class CodexEventMapper
                     : ImmutableList.of(new ProviderAgentEvent.Message(
                             Optional.of(eventId),
                             timestamp,
-                            message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN)
+                            // A subagent's final answer is its own, not the turn's. Publishing it
+                            // as FINAL would let it be read back as the task's final response.
+                            answersForTheTurn
+                                    && message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN)
                                             == CodexProtocol.MessagePhase.FINAL_ANSWER
                                     ? ProviderAgentEvent.MessagePhase.FINAL
                                     : ProviderAgentEvent.MessagePhase.PARTIAL,

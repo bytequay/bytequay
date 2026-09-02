@@ -296,7 +296,7 @@ termination may report a null aggregate.
 The approval handler compares the structured command action exactly before it
 returns `accept`, and failure diagnostics report only bounded metadata, never
 raw command text or output. This still is not an OS filesystem-read boundary:
-the App Server, exec-server, and tools run as the same macOS user, so an
+the App Server and its tools run as the same macOS user, so an
 absolute path could reach the dedicated profile if a command learned it. CP0's
 same-host trust decision accepted that boundary for the planned first release
 on 2026-08-31; a future OS-user/container boundary may strengthen it.

@@ -14,68 +14,45 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Delivers inbound App Server messages to the session that owns their thread.
+ * Hands inbound App Server messages to the session that owns this connection.
  *
- * <p>One App Server process serves every Codex task, and its output arrives as one interleaved
- * stream that only a single reader can parse. That reader must therefore never wait for anything,
- * because a reply it waits for can only be produced by itself. This dispatcher exists to make that
- * structural: the reader hands a decoded message over and returns immediately, and every handler
- * runs somewhere else, free to call back into App Server.
+ * <p>The reader is the only thread that can parse a reply, so a handler that waits for one while
+ * running on the reader waits for itself. This exists to make that impossible: the reader hands a
+ * decoded message over and returns immediately, and the handler runs elsewhere, free to call back
+ * into App Server.
  *
- * <p>Messages for one thread stay in arrival order because each thread owns a chain of work.
- * Different threads make progress independently, so a slow handler for one task cannot stall
- * another. A thread whose chain grows past its bound is marked degraded rather than allowed to
- * consume memory without limit.
+ * <p>One task owns one App Server process, so a connection carries exactly one listener and nothing
+ * has to be routed. Handlers run on a single consumer, which is what keeps them in arrival order.
+ * Streamed text is shed once the backlog passes its bound, because that is what a slow handler
+ * falls behind on; everything else is always queued, because dropping a turn's completion would
+ * cost more than the memory it saves.
  */
 final class CodexMessageDispatcher
         implements AutoCloseable
 {
     private static final Logger log = LoggerFactory.getLogger(CodexMessageDispatcher.class);
 
-    /** Bounds how far one thread's handling may fall behind the reader before events are shed. */
-    private static final int MAX_PENDING_PER_THREAD = 512;
+    /** Bounds how far handling may fall behind the reader before messages are shed. */
+    private static final int MAX_PENDING = 512;
 
-    /** Bounds how far a subagent chain is walked before the origin is treated as unknowable. */
-    private static final int MAX_PARENT_DEPTH = 16;
-
-    private final ParentResolver parents;
-    private final ConcurrentMap<String, Listener> listeners = new ConcurrentHashMap<>();
-    private final Set<String> resolving = ConcurrentHashMap.newKeySet();
-    private final ConcurrentMap<String, CompletableFuture<Void>> chains = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, AtomicInteger> depths = new ConcurrentHashMap<>();
-    private final Set<String> unroutableThreads = ConcurrentHashMap.newKeySet();
-    private final Set<String> degradedThreads = ConcurrentHashMap.newKeySet();
-    private final ExecutorService handlers =
-            Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("bytequay-codex-handler-", 0).factory());
-
-    /** Reads the parent of one Codex thread, so a subagent can be traced back to its task. */
-    interface ParentResolver
-    {
-        Optional<String> parentOf(String threadId);
-    }
-
-    CodexMessageDispatcher(ParentResolver parents)
-    {
-        this.parents = requireNonNull(parents, "parents is null");
-    }
+    private final ExecutorService handlers = Executors.newSingleThreadExecutor(
+            Thread.ofVirtual().name("bytequay-codex-handler-", 0).factory());
+    private final AtomicReference<Listener> listener = new AtomicReference<>();
+    private final AtomicInteger pending = new AtomicInteger();
+    private volatile boolean degraded;
 
     /** Sends the outcome of one server request back to App Server. */
     interface Replies
@@ -85,7 +62,7 @@ final class CodexMessageDispatcher
         void fail(Object id, Throwable failure);
     }
 
-    /** Receives the messages of one registered Codex thread. */
+    /** Receives the inbound messages of one Codex connection. */
     interface Listener
     {
         void onNotification(CodexProtocol.Notification notification);
@@ -95,132 +72,67 @@ final class CodexMessageDispatcher
         void onDisconnect(Throwable failure);
     }
 
-    void register(String threadId, Listener listener)
-    {
-        requireNonNull(threadId, "threadId is null");
-        requireNonNull(listener, "listener is null");
-        if (listeners.putIfAbsent(threadId, listener) != null) {
-            throw new AgentUnavailableException("Codex thread is already registered: " + threadId);
-        }
-    }
-
     /**
-     * Releases a thread and every subagent thread adopted into it.
+     * Attaches the session that will receive this connection's messages.
      *
-     * <p>A session only knows its own root thread, so forgetting just that identifier would leave
-     * each adopted child registered for the lifetime of the backend.
+     * <p>Called before the first thread is started, so no message can arrive with nowhere to go.
+     *
+     * @param target the session
      */
-    void unregister(String threadId, Listener listener)
+    void listen(Listener target)
     {
-        if (!listeners.remove(threadId, listener)) {
-            return;
+        requireNonNull(target, "target is null");
+        if (!listener.compareAndSet(null, target)) {
+            throw new AgentUnavailableException("Codex connection already has a listener");
         }
-        forget(threadId);
-        listeners.entrySet().removeIf(entry -> {
-            if (entry.getValue() != listener) {
-                return false;
-            }
-            forget(entry.getKey());
-            return true;
-        });
-    }
-
-    private void forget(String threadId)
-    {
-        chains.remove(threadId);
-        depths.remove(threadId);
-        resolving.remove(threadId);
     }
 
     /**
-     * Hands one notification to its owning session without waiting for the handler.
+     * Hands one notification to the listener without waiting for the handler.
      *
-     * <p>An unregistered thread is not attributed to any session. Guessing an owner would deliver
-     * one task's activity to another, so the thread is recorded and reported instead.
+     * <p>Only streamed text is shed under backlog pressure. A turn emits thousands of deltas and a
+     * handful of lifecycle messages, so the deltas are both the cause of a backlog and the only
+     * thing safe to drop: losing one truncates displayed text, while losing a {@code turn/completed}
+     * would leave the turn waiting forever.
      */
     void dispatch(CodexProtocol.Notification notification)
     {
-        String threadId = notification.threadId();
-        Listener listener = listeners.get(threadId);
-        if (listener != null) {
-            submit(threadId, () -> listener.onNotification(notification));
+        Listener target = listener.get();
+        if (target == null) {
+            // The model catalog connection starts no thread and attaches no session.
             return;
         }
-        // An unregistered thread is a subagent whose parent is only discoverable by asking App
-        // Server. Exactly one resolution runs per thread; anything that arrives meanwhile queues
-        // behind it on the same chain, so nothing is replayed out of order or lost.
-        if (resolving.add(threadId)) {
-            submit(threadId, () -> {
-                adopt(threadId);
-                deliver(threadId, notification);
-            });
+        Runnable work = () -> target.onNotification(notification);
+        if (streamedText(notification)) {
+            submit(work);
             return;
         }
-        submit(threadId, () -> deliver(threadId, notification));
+        execute(work);
+    }
+
+    private static boolean streamedText(CodexProtocol.Notification notification)
+    {
+        return notification instanceof CodexProtocol.AgentMessageDeltaNotification
+                || notification instanceof CodexProtocol.CommandOutputNotification;
     }
 
     /**
-     * Registers a child thread against the session that owns its nearest registered ancestor.
-     *
-     * <p>A chain that never reaches a registered ancestor is left unowned. Attributing it to a
-     * guess would deliver one task's subagent activity to another task.
-     */
-    private void adopt(String threadId)
-    {
-        String current = threadId;
-        for (int depth = 0; depth < MAX_PARENT_DEPTH; depth++) {
-            Optional<String> parent;
-            try {
-                parent = parents.parentOf(current);
-            }
-            catch (RuntimeException failure) {
-                log.warn("Unable to resolve the parent of Codex thread {}", current, failure);
-                return;
-            }
-            if (parent.isEmpty()) {
-                return;
-            }
-            current = parent.orElseThrow();
-            Listener owner = listeners.get(current);
-            if (owner != null) {
-                listeners.putIfAbsent(threadId, owner);
-                log.debug("Codex child thread {} adopted by {}", threadId, current);
-                return;
-            }
-        }
-        log.warn("Codex thread {} exceeded the parent search depth", threadId);
-    }
-
-    private void deliver(String threadId, CodexProtocol.Notification notification)
-    {
-        Listener listener = listeners.get(threadId);
-        if (listener == null) {
-            if (unroutableThreads.add(threadId)) {
-                log.warn("Codex notification for unowned thread {} was not routed", threadId);
-            }
-            return;
-        }
-        listener.onNotification(notification);
-    }
-
-    /**
-     * Hands one server request to its owning session and answers when the session decides.
+     * Hands one server request to the listener and answers when it decides.
      *
      * <p>The handler may take as long as it needs, including asking App Server something first,
      * because it does not run on the reader.
      */
     void dispatch(CodexProtocol.ServerRequest request, Replies replies)
     {
-        String threadId = request.threadId();
-        Listener listener = listeners.get(threadId);
-        if (listener == null) {
-            replies.fail(request.id(), new AgentUnavailableException("Codex request has no active thread"));
+        Listener target = listener.get();
+        if (target == null) {
+            replies.fail(request.id(), new AgentUnavailableException("Codex request has no active session"));
             return;
         }
-        boolean submitted = submit(threadId, () -> {
+        boolean submitted = submit(() -> {
             CompletionStage<?> result;
             try {
-                result = requireNonNull(listener.onRequest(request), "request result is null");
+                result = requireNonNull(target.onRequest(request), "request result is null");
             }
             catch (RuntimeException failure) {
                 replies.fail(request.id(), failure);
@@ -238,76 +150,80 @@ final class CodexMessageDispatcher
         if (!submitted) {
             // A shed approval must be refused rather than left unanswered, or the turn would wait
             // on a decision that is never coming.
-            replies.fail(request.id(), new AgentUnavailableException("Codex thread is shedding messages: " + threadId));
+            replies.fail(request.id(), new AgentUnavailableException("Codex message handling is degraded"));
         }
     }
 
     /**
-     * Appends work to one thread's chain.
+     * Tells the session that the transport is gone, after the messages that preceded it.
      *
-     * @return false when the thread is already too far behind and the message was shed
-     */
-    private boolean submit(String threadId, Runnable work)
-    {
-        AtomicInteger depth = depths.computeIfAbsent(threadId, id -> new AtomicInteger());
-        if (depth.incrementAndGet() > MAX_PENDING_PER_THREAD) {
-            depth.decrementAndGet();
-            if (degradedThreads.add(threadId)) {
-                log.warn("Codex thread {} fell too far behind; its event stream is degraded", threadId);
-            }
-            return false;
-        }
-        chains.compute(threadId, (id, previous) -> {
-            CompletableFuture<Void> base = previous == null ? CompletableFuture.completedFuture(null) : previous;
-            // handleAsync, not thenRunAsync: one failed handler must not poison the rest of the
-            // thread's stream.
-            return base.handleAsync((ignored, failure) -> {
-                try {
-                    work.run();
-                }
-                catch (RuntimeException handlerFailure) {
-                    log.warn("Codex handler for thread {} failed", id, handlerFailure);
-                }
-                finally {
-                    depth.decrementAndGet();
-                }
-                return null;
-            }, handlers);
-        });
-        return true;
-    }
-
-    /**
-     * Tells every session that the transport is gone, after the messages that preceded it.
-     *
-     * <p>The notice is appended to each thread's chain rather than run immediately, so a session
-     * never learns it is disconnected before an event that arrived earlier. It bypasses the depth
-     * bound because a dropped disconnect would leave a session waiting forever.
+     * <p>The notice is appended rather than run immediately, so a session never learns it is
+     * disconnected before an event that arrived earlier. It bypasses the backlog bound because a
+     * dropped disconnect would leave a turn waiting forever.
      */
     void disconnect(Throwable failure)
     {
-        Map<String, Listener> current = Map.copyOf(listeners);
-        listeners.clear();
-        current.forEach((threadId, listener) -> chains.compute(threadId, (id, previous) -> {
-            CompletableFuture<Void> base = previous == null ? CompletableFuture.completedFuture(null) : previous;
-            return base.handleAsync((ignored, ignoredFailure) -> {
-                listener.onDisconnect(failure);
-                return null;
-            }, handlers);
-        }));
-        depths.clear();
+        Listener target = listener.getAndSet(null);
+        if (target == null) {
+            return;
+        }
+        execute(() -> target.onDisconnect(failure));
     }
 
-    /** Thread references seen on notifications that no registered session owns. */
-    Set<String> unroutableThreads()
+    /** Whether the backlog bound was reached and messages were dropped. */
+    boolean degraded()
     {
-        return ImmutableSet.copyOf(unroutableThreads);
+        return degraded;
     }
 
-    /** Threads whose handlers fell so far behind that messages were shed. */
-    Set<String> degradedThreads()
+    /**
+     * Appends work to the consumer.
+     *
+     * @return false when handling is already too far behind and the message was shed
+     */
+    private boolean submit(Runnable work)
     {
-        return ImmutableSet.copyOf(degradedThreads);
+        if (pending.incrementAndGet() > MAX_PENDING) {
+            pending.decrementAndGet();
+            if (!degraded) {
+                degraded = true;
+                log.warn("Codex message handling fell too far behind; the event stream is degraded");
+            }
+            return false;
+        }
+        if (!execute(() -> {
+            try {
+                work.run();
+            }
+            finally {
+                pending.decrementAndGet();
+            }
+        })) {
+            // The consumer is shut down, so the runnable that would have released the slot will
+            // never run.
+            pending.decrementAndGet();
+            return false;
+        }
+        return true;
+    }
+
+    private boolean execute(Runnable work)
+    {
+        try {
+            handlers.execute(() -> {
+                try {
+                    work.run();
+                }
+                catch (RuntimeException failure) {
+                    // One failed handler must not stop the messages behind it.
+                    log.warn("Codex message handler failed", failure);
+                }
+            });
+            return true;
+        }
+        catch (RejectedExecutionException closed) {
+            return false;
+        }
     }
 
     @Override

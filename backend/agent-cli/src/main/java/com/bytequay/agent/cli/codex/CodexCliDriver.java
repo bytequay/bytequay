@@ -66,6 +66,43 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Runs Codex tasks, one App Server process per task.
+ *
+ * <p>The process working directory is the task worktree, and that is the whole execution boundary:
+ * under {@code workspace-write} App Server's default environment confines writes to its own
+ * working directory, so nothing registers an execution environment and nothing declares the
+ * experimental API. The launch owner is the task id, so a process recovered after a crash is
+ * attributable to the task that leaked it.
+ *
+ * <p>Opening a session is what starts a process. The driver holds none between calls; the session
+ * owns its process and closes it.
+ *
+ * <pre>
+ *   open(context, events)
+ *     |- appServerClient(taskId, worktree)     ProcessOwner(APP_SERVER, taskId)
+ *     '- new CodexSession(client, ...)
+ *          1. client.listen(this)              before any thread exists, so no message
+ *                                              can arrive with nowhere to go
+ *          2. client.start()                   gated launch, then initialize/initialized
+ *          3. thread/start | thread/resume     in the worktree, no environment selected
+ *
+ *   session.start(command)
+ *     |- CodexIsolationGuard.verify(worktree)  re-run every turn: a turn runs under
+ *     |                                        workspace-write and can leave a hook behind
+ *     '- turn/start                            carries the turn's own model/effort snapshot
+ * </pre>
+ *
+ * <p>Inbound messages arrive on the dispatcher's consumer thread, never the reader. Every thread
+ * in this process belongs to this task, so a non-root thread is one of its subagents: its activity
+ * is reported, while turn completion and the final answer stay gated on the root thread, because a
+ * subagent's {@code turn/completed} arrives before the root's.
+ *
+ * <pre>
+ *   onNotification --&gt; eventMapper --&gt; AgentEventSink --&gt; agent-core (sequenced, then SSE)
+ *   onRequest      --&gt; approval request --&gt; agent-core --&gt; user --&gt; JSON-RPC response
+ * </pre>
+ */
 public final class CodexCliDriver
         implements AgentDriver, AutoCloseable
 {
@@ -120,9 +157,7 @@ public final class CodexCliDriver
     private final ProcessSupervisor supervisor;
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
-    private final CodexAppServerClient client;
-    private final TaskExecServerManager execServers;
-    private final CodexIsolationGuard isolation;
+    private final ObjectMapper objectMapper;
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
@@ -141,18 +176,29 @@ public final class CodexCliDriver
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
-        this.client = new CodexAppServerClient(
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
+    }
+
+    /**
+     * Builds an unstarted App Server connection owned by one caller.
+     *
+     * @param ownerId opaque owner recorded against the launch
+     * @param workingDirectory directory the process runs in, which is also its sandbox root
+     * @return the connection, which the caller must start and close
+     */
+    private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory)
+    {
+        return new CodexAppServerClient(
                 supervisor,
                 processSpec(
-                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-app-server"),
+                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId),
                         CodexLaunchProfile.arguments(executable),
+                        workingDirectory,
                         APP_SERVER_RUNTIME,
                         MAX_APP_SERVER_STDOUT_BYTES,
                         MAX_APP_SERVER_STDERR_BYTES),
                 objectMapper,
                 redactor);
-        this.execServers = new TaskExecServerManager(supervisor, client, executable, this.environment, redactor);
-        this.isolation = new CodexIsolationGuard(client);
     }
 
     @Override
@@ -241,8 +287,13 @@ public final class CodexCliDriver
     public List<ProviderModel> models()
     {
         rememberAppServerVersion();
-        try {
-            CodexProtocol.ModelListResponse response = client.request(
+        // The catalog belongs to no task, so it gets its own short-lived connection rather than a
+        // process kept alive all day to answer a question asked once at startup.
+        try (CodexAppServerClient catalog = appServerClient(
+                "codex-model-catalog",
+                Path.of(System.getProperty("user.dir")).toAbsolutePath())) {
+            catalog.start();
+            CodexProtocol.ModelListResponse response = catalog.request(
                     "model/list",
                     new CodexProtocol.ModelListParams(),
                     CodexProtocol.ModelListResponse.class,
@@ -270,71 +321,27 @@ public final class CodexCliDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
-        Optional<AgentSessionRef> existing = context.sessionReference();
-        // The environment is registered and verified before any thread exists, including on resume:
-        // the previous executor died with its backend, and a task must never silently fall back to
-        // App Server's shared default environment.
-        CodexProtocol.TurnEnvironmentParams environment =
-                execServers.open(context.taskId(), context.worktree());
-        String method;
-        Object params;
-        if (existing.isPresent()) {
-            AgentSessionRef reference = existing.orElseThrow();
-            if (!reference.laneId().equals(LANE_ID) || reference.contractVersion() != CONTRACT_VERSION) {
-                throw new AgentUnavailableException("Unsupported Codex session reference");
-            }
-            method = "thread/resume";
-            params = new CodexProtocol.ThreadResumeParams(
-                    reference.providerValue(),
-                    context.worktree().toString(),
-                    "on-request",
-                    "workspace-write");
-        }
-        else {
-            method = "thread/start";
-            params = new CodexProtocol.ThreadStartParams(
-                    context.worktree().toString(),
-                    "on-request",
-                    "workspace-write",
-                    "ByteQuay",
-                    // Exactly one entry: a non-empty list selects its first environment, while an
-                    // empty one would disable environment access outright.
-                    Optional.of(ImmutableList.of(environment)));
-        }
-
         rememberAppServerVersion();
-        CodexProtocol.ThreadResponse response;
+        // The process runs in the task worktree because that directory is also its sandbox root:
+        // App Server's default environment confines a turn's writes to its own working directory,
+        // which is why a task needs no separately registered execution environment.
+        CodexAppServerClient client = appServerClient(context.taskId(), context.worktree());
         try {
-            response = client.request(
-                    method,
-                    params,
-                    CodexProtocol.ThreadResponse.class,
-                    REQUEST_TIMEOUT);
+            return new CodexSession(client, context, events);
         }
         catch (RuntimeException failure) {
-            throw appServerFailure(method, failure);
+            // The process is running by the time anything below it can fail, and nothing else
+            // holds a reference that would ever close it.
+            client.close();
+            throw failure;
         }
-        String threadId = response.thread().id();
-        CodexSession session = new CodexSession(
-                new AgentSessionRef(LANE_ID, CONTRACT_VERSION, threadId),
-                context,
-                events,
-                environment);
-        client.register(threadId, session);
-        return session;
-    }
-
-    /** Thread references seen on notifications that no live session owns. */
-    Set<String> unroutableThreads()
-    {
-        return client.unroutableThreads();
     }
 
     @Override
     public void close()
     {
-        execServers.close();
-        client.close();
+        // Each session owns the App Server process serving its task and closes it. The driver
+        // itself holds no process between calls.
     }
 
     private AgentProviderStatus status(
@@ -393,6 +400,7 @@ public final class CodexCliDriver
                 processSpec(
                         new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
                         ImmutableList.copyOf(command),
+                        Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                         maximumRuntime,
                         MAX_PROBE_OUTPUT_BYTES,
                         MAX_PROBE_OUTPUT_BYTES))
@@ -415,6 +423,7 @@ public final class CodexCliDriver
     private ProcessSpec processSpec(
             ProcessOwner owner,
             List<String> argv,
+            Path workingDirectory,
             Duration maximumRuntime,
             int maximumStdoutBytes,
             int maximumStderrBytes)
@@ -422,7 +431,7 @@ public final class CodexCliDriver
         return new ProcessSpec(
                 owner,
                 argv,
-                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                workingDirectory,
                 environment,
                 maximumStdoutBytes,
                 maximumStderrBytes,
@@ -454,25 +463,71 @@ public final class CodexCliDriver
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
     {
-        private final AgentSessionRef reference;
+        private final CodexAppServerClient client;
         private final AgentSessionContext context;
         private final AgentEventSink events;
-        private final CodexProtocol.TurnEnvironmentParams environment;
         private final CodexEventMapper eventMapper;
+        private final CodexIsolationGuard isolation;
+        private final AgentSessionRef reference;
         private CodexRunningTurn running;
         private boolean closed;
 
         private CodexSession(
-                AgentSessionRef reference,
+                CodexAppServerClient client,
                 AgentSessionContext context,
-                AgentEventSink events,
-                CodexProtocol.TurnEnvironmentParams environment)
+                AgentEventSink events)
         {
-            this.reference = requireNonNull(reference, "reference is null");
+            this.client = requireNonNull(client, "client is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
-            this.environment = requireNonNull(environment, "environment is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
+            this.isolation = new CodexIsolationGuard(client);
+            // Attached before the process is started, so nothing App Server emits can arrive
+            // before there is a session to receive it.
+            client.listen(this);
+            client.start();
+            this.reference = new AgentSessionRef(LANE_ID, CONTRACT_VERSION, openThread(context));
+        }
+
+        /**
+         * Starts or resumes this task's Codex thread.
+         *
+         * @param context the task
+         * @return the provider thread identifier
+         */
+        private String openThread(AgentSessionContext context)
+        {
+            Optional<AgentSessionRef> existing = context.sessionReference();
+            String method;
+            Object params;
+            if (existing.isPresent()) {
+                AgentSessionRef previous = existing.orElseThrow();
+                if (!previous.laneId().equals(LANE_ID) || previous.contractVersion() != CONTRACT_VERSION) {
+                    throw new AgentUnavailableException("Unsupported Codex session reference");
+                }
+                method = "thread/resume";
+                params = new CodexProtocol.ThreadResumeParams(
+                        previous.providerValue(),
+                        context.worktree().toString(),
+                        "on-request",
+                        "workspace-write");
+            }
+            else {
+                method = "thread/start";
+                params = new CodexProtocol.ThreadStartParams(
+                        context.worktree().toString(),
+                        "on-request",
+                        "workspace-write",
+                        "ByteQuay");
+            }
+            try {
+                return client.request(method, params, CodexProtocol.ThreadResponse.class, REQUEST_TIMEOUT)
+                        .thread()
+                        .id();
+            }
+            catch (RuntimeException failure) {
+                throw appServerFailure(method, failure);
+            }
         }
 
         @Override
@@ -501,7 +556,6 @@ public final class CodexCliDriver
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     ImmutableList.of(new CodexProtocol.TextInput("text", command.message())),
-                    Optional.of(ImmutableList.of(environment)),
                     // The turn carries the settings that were snapshotted when it was accepted, so
                     // a default changed after acceptance cannot rewrite the turn that is starting.
                     command.model().or(context::model),
@@ -519,7 +573,7 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            running = new CodexRunningTurn(reference.providerValue(), turnId, command.maximumRuntime());
+            running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime());
             return running;
         }
 
@@ -529,17 +583,26 @@ public final class CodexCliDriver
             if (running == null) {
                 return;
             }
-            if (notification.turnId().isPresent()
+            // Every thread in this process belongs to this task, so a thread that is not the root
+            // is one of its subagents.
+            boolean rootThread = notification.threadId().equals(reference.providerValue());
+            if (rootThread
+                    && notification.turnId().isPresent()
                     && !notification.turnId().orElseThrow().equals(running.reference().value())) {
                 return;
             }
+            if (!rootThread && !subagentActivity(notification)) {
+                return;
+            }
             try {
-                if (notification instanceof CodexProtocol.ItemCompletedNotification completed
+                if (rootThread
+                        && notification instanceof CodexProtocol.ItemCompletedNotification completed
                         && completed.params().item() instanceof CodexProtocol.AgentMessageItem message) {
+                    // Only the root thread speaks for the turn; a subagent's message is activity.
                     running.observeMessage(message.phase(), redactor.redact(message.text()));
                 }
-                eventMapper.map(notification).forEach(events::emit);
-                if (notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
+                eventMapper.map(notification, rootThread).forEach(events::emit);
+                if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
                     CodexRunningTurn completed = running;
                     running = null;
                     completed.complete(turnCompleted.params().turn());
@@ -552,15 +615,46 @@ public final class CodexCliDriver
             }
         }
 
+        /**
+         * Whether a subagent's notification may be reported as this task's activity.
+         *
+         * <p>An allowlist rather than an exclusion list, because anything that speaks for the turn
+         * rather than describing work is wrong when it comes from a subagent. A subagent keeps its
+         * own cumulative token counter and its own plan, and feeding either into the root turn
+         * overwrites the task's real numbers with a second, unrelated running total.
+         *
+         * @param notification an inbound notification from a non-root thread
+         * @return true when it describes work the task should show
+         */
+        private boolean subagentActivity(CodexProtocol.Notification notification)
+        {
+            return notification instanceof CodexProtocol.ItemStartedNotification
+                    || notification instanceof CodexProtocol.ItemCompletedNotification
+                    || notification instanceof CodexProtocol.AgentMessageDeltaNotification
+                    || notification instanceof CodexProtocol.CommandOutputNotification
+                    || notification instanceof CodexProtocol.ErrorNotification;
+        }
+
         @Override
         public CompletionStage<?> onRequest(CodexProtocol.ServerRequest serverRequest)
         {
             CodexRunningTurn expectedTurn;
             synchronized (this) {
-                if (closed
-                        || running == null
-                        || serverRequest.turnId().isEmpty()
-                        || !serverRequest.turnId().orElseThrow().equals(running.reference().value())) {
+                if (closed || running == null) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex request does not belong to the active turn"));
+                }
+                if (serverRequest.threadId().isBlank()) {
+                    // A legacy request names a conversation rather than a thread, so it cannot be
+                    // attributed to this task's turn at all.
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex request has no active thread"));
+                }
+                // A subagent asks on its own thread and turn. It runs inside this task's process,
+                // so its approval belongs to the turn that spawned it.
+                if (serverRequest.threadId().equals(reference.providerValue())
+                        && (serverRequest.turnId().isEmpty()
+                                || !serverRequest.turnId().orElseThrow().equals(running.reference().value()))) {
                     return CompletableFuture.failedFuture(
                             new AgentUnavailableException("Codex request does not belong to the active turn"));
                 }
@@ -695,18 +789,9 @@ public final class CodexCliDriver
             if (running != null) {
                 running.cancel();
             }
-            execServers.close(context.taskId());
-            try {
-                client.request(
-                        "thread/unsubscribe",
-                        new CodexProtocol.ThreadParams(reference.providerValue()),
-                        CodexProtocol.EmptyResponse.class,
-                        Duration.ofSeconds(5));
-            }
-            catch (RuntimeException ignored) {
-                // The backend is already releasing this local session.
-            }
-            client.unregister(reference.providerValue(), this);
+            // Closing the connection terminates the App Server process serving this task, which
+            // releases every thread it held. There is nothing left to unsubscribe from.
+            client.close();
         }
 
         private synchronized Object approvalResponse(
@@ -745,6 +830,7 @@ public final class CodexCliDriver
     private final class CodexRunningTurn
             implements RunningTurn
     {
+        private final CodexAppServerClient client;
         private final ProviderTurnRef reference;
         private final String threadId;
         private final Instant startedAt = Instant.now();
@@ -753,10 +839,12 @@ public final class CodexCliDriver
         private volatile Optional<String> finalResponse = Optional.empty();
 
         private CodexRunningTurn(
+                CodexAppServerClient client,
                 String threadId,
                 String turnId,
                 Duration maximumRuntime)
         {
+            this.client = requireNonNull(client, "client is null");
             this.threadId = requireNonNull(threadId, "threadId is null");
             this.reference = new ProviderTurnRef(turnId);
             CompletableFuture.delayedExecutor(maximumRuntime.toMillis(), TimeUnit.MILLISECONDS)

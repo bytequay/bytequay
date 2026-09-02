@@ -908,13 +908,49 @@ Primary files:
 Purpose: turn the CP1 compatibility proof into the production Codex execution
 path and prevent one task or old process from mutating another task's worktree.
 
-**Status (2026-09-02): launch protocol and task execution isolation landed;
-quiescence open.** The gated launch protocol, the durable ownership row, and fail-closed
-process recovery are implemented and wired. The owning row was deliberately
-narrowed to one fact after review; see
-[Agent Service Design](agent-service.md) section 5.1. Everything below the
-process boundary — the task exec-server, per-task environments, routing, and
-recursive quiescence — is untouched.
+**Status (2026-09-02): launch protocol, per-task process isolation, and
+subagent event surfacing landed; quiescence open.** The gated launch protocol,
+the durable ownership row, and fail-closed process recovery are implemented and
+wired. The owning row was deliberately narrowed to one fact after review; see
+[Agent Service Design](agent-service.md) section 5.1.
+
+The task boundary was then rebuilt: ByteQuay now runs **one App Server process
+per task**, rooted at that task's worktree, instead of one shared process plus a
+per-task exec-server. Measured against codex-cli 0.151.0, a process rooted at
+the worktree already confines writes under `workspace-write` — an in-worktree
+write landed with zero approvals and an outside write was escalated and
+declined — so `TaskExecServerManager`, `environment/add`, `environment/info`,
+the `environments` fields, and the five environment protocol records were
+deleted, and `capabilities.experimentalApi` is now false. Thread routing and
+subagent adoption were deleted with them: every thread in a task's process
+belongs to that task.
+
+That rebuild also fixed a measured defect. A live subagent run produced 33
+notifications on its child thread; 29 carried the child's own turn id and were
+dropped by `CodexSession`'s turn filter, and the remaining 4 mapped to
+`UnknownNotification`, which emits nothing. **All subagent activity was
+invisible.** The session now accepts every thread in its process while gating
+turn completion on the root thread, because the subagent's `turn/completed`
+arrives before the root's and would otherwise end the task's turn early.
+
+Opening that filter needed three further guards, each found by adversarial
+review of the change and each with a test that fails without it:
+
+- A subagent keeps its **own cumulative token counter**. Feeding it to the root
+  turn fed two unrelated running totals into one accumulator, and because
+  `cumulativeMetrics` keeps the larger value, the task's real usage was then
+  discarded for the rest of the turn. Non-root notifications now pass a positive
+  allowlist of activity rather than an exclusion list.
+- A subagent's **`FINAL_ANSWER`** was published as a `FINAL` `ANSWER` event, and
+  `AgentFinalResponseReader` derives the task's recorded final response by
+  scanning the log for exactly that. `CodexEventMapper.map` now takes whether a
+  notification speaks for the turn, and only the root thread's answer is `FINAL`.
+- **`turn/completed` was shed-eligible.** A turn that streams thousands of
+  deltas could fill the backlog and lose its own completion, wedging the turn
+  forever. Only streamed text is shed now; everything else is always queued.
+
+Recursive quiescence, claim retention, and the atomic turn finalize/release
+remain untouched.
 
 Implementation:
 
@@ -926,22 +962,21 @@ Implementation:
 - [x] Record executable identity and OS start token and verify directly owned
   process-tree termination during recovery; a root PID exit is insufficient.
   An unreadable start token or executable is `UNVERIFIABLE`, never death.
-- [x] Persist launch ownership and opaque owner for the shared App Server and
-  each Claude turn. The task executor does not exist yet and is covered by the
-  `TaskExecServerManager` box below.
-- [x] Add `TaskExecServerManager` using only the contract proven in CP1. The
-  reference projection now covers `EnvironmentAddParams`, `EnvironmentInfoParams`,
-  `EnvironmentInfoResponse`, `EnvironmentShellInfo`, `TurnEnvironmentParams`, and
-  `InitializeCapabilities` (63 records to 69), regenerated and verified against
-  the exact v0.151.0 schema.
-- [x] Launch one version-matched executor/environment per active Codex task.
-- [x] Persist one unique environment ID per task, reuse it only for that task,
-  and never assign it to another task. The v0.151.0 reference protocol has no
-  unregister operation, so correctness must not depend on one. The identifier is
-  derived from the immutable owning task ID rather than stored, which makes
-  reassignment impossible by construction and needs no row to keep in step.
-- [x] Re-register and verify a replacement environment before thread resume.
-- [x] Select exactly that task's environment for thread and turn start.
+- [x] Persist launch ownership and opaque owner for each task's App Server and
+  each Claude turn. The App Server owner id is the task id, so a recovered
+  orphan is attributable to the task that leaked it.
+- [x] Give each task its own execution boundary. Superseded in favour of one
+  App Server process per task rooted at the task worktree: the process default
+  environment confines the turn, so no executor is launched and no environment
+  is registered. `TaskExecServerManager` and the five environment records were
+  deleted and the reference projection regenerated (78 records to 73).
+- [x] Close every session's process. A session owns its task's App Server and
+  closes it; `AgentRuntimeRegistry` is `AutoCloseable` and wired as the bean's
+  destroy method, because completing a task is otherwise the only thing that
+  releases a session.
+- [x] Surface subagent activity. Every thread in a task's process belongs to
+  that task, and turn completion is gated on the root thread so a subagent
+  finishing first does not end the task's turn.
 - [~] Apply canonical worktree roots, workspace-write sandbox, model/effort
   snapshot, and the reviewed Auto approval behavior. Worktree roots, sandbox and
   the model/effort snapshot are applied; the snapshot now reaches the provider
@@ -973,31 +1008,31 @@ Implementation:
 - [ ] Verify inherited capabilities remain disabled after start and resume.
   Force skill discovery and repeat the origin/error guard immediately before
   every `turn/start`, including the first turn after resume/restart.
-- [~] Route root and child events/approvals by provider thread and turn identity
-  without cross-task fallback. Root routing is an exact thread lookup with no
-  fallback, and an approval for an unregistered thread is refused rather than
-  guessed. A notification for an unregistered thread is now recorded and
-  reported instead of silently discarded.
-  The dispatch path no longer runs handlers on the reader thread: a
-  `CodexMessageDispatcher` hands each message to a per-thread chain, so a handler
-  may call back into App Server, and `request` now fails fast if it is ever
-  called from the reader rather than stalling until its timeout. That removes the
-  obstacle that made child routing impossible, and it is the same prerequisite
-  any future ByteQuay tool call needs, since answering one means doing work
-  before replying.
+- [x] Route root and child events/approvals by provider thread and turn identity
+  without cross-task fallback. Achieved by topology rather than by routing: one
+  App Server process serves one task, so every thread reaching a connection
+  belongs to that task and there is no other task to fall back to. The thread
+  map, the `thread/read` ancestry walk, the adoption bookkeeping, and the
+  unowned-thread report were deleted with the shared process.
 
-  Child routing now runs on that path. A notification for an unregistered thread
-  triggers exactly one ancestry resolution through `thread/read`, and the child
-  is adopted by the session owning its nearest registered ancestor; anything that
-  arrives meanwhile queues behind the resolution on the same chain, so nothing is
-  replayed out of order. A chain that reaches no live session leaves the thread
-  unowned and reported, because attributing it to a guess would hand one task's
-  subagent activity to another. The parent walk is depth-bounded.
+  The dispatch path still never runs handlers on the reader thread: a
+  `CodexMessageDispatcher` hands each message to a single ordered consumer, so a
+  handler may call back into App Server, and `request` fails fast if it is ever
+  called from the reader rather than stalling until its timeout. That is the same
+  prerequisite any future ByteQuay tool call needs, since answering one means
+  doing work before replying.
 
-  Proven live on 2026-09-02 against the running v0.151.0 CLI: a model asked to
-  use a subagent spawned one child thread that produced 42 notifications of its
-  own, and `thread/read` on that child reported its parent. Those 42 events are
-  exactly what the previous behaviour discarded.
+  What the session does with a child thread was the actual defect, and it was
+  measured on 2026-09-02 against the running v0.151.0 CLI. A model asked to
+  delegate spawned one child thread that produced 33 notifications; 29 carried
+  the child's own turn id and were dropped by `CodexSession`'s turn filter, and
+  the remaining 4 decoded to `UnknownNotification`, which maps to no event at
+  all. Adoption delivered every one of them and the session discarded all of
+  them. The session now accepts every thread in its process, gates turn
+  completion and final-answer observation on the root thread, and drops a
+  non-root turn lifecycle notification, because the child's `turn/completed`
+  arrived fourteen messages before the root's and would otherwise have ended the
+  task's turn early with the subagent's payload.
 - [ ] Run one combined fixed-point reconciliation: repeatedly read root and
   discovered descendants with `thread/read(includeTurns: true)`, reconcile all
   live/history command/tool/file/hook/terminal items, and page background
@@ -1020,12 +1055,15 @@ Implementation:
 
 Exit gate:
 
-- [ ] Two concurrent tasks share one App Server and distinct task executors with
-  no event, approval, command, or filesystem cross-talk.
-- [ ] Writes outside selected workspace roots are rejected by the compatibility
-  sandbox fixture.
-- [ ] A second turn resumes the same root only after its task environment is
-  verified.
+- [x] Two concurrent tasks get separate App Server processes rooted at their
+  own worktrees, with no event, approval, command, or filesystem cross-talk
+  (`bindsEachTaskToItsOwnAppServerProcess`).
+- [x] Writes outside the task worktree are escalated rather than performed,
+  measured live against codex-cli 0.151.0 with no environment registered.
+- [x] A subagent's activity reaches the event sink and its turn completing does
+  not end the task's turn (`surfacesSubagentActivityWithoutEndingTheTasksTurn`).
+- [ ] A second turn resumes the same root only after its process is relaunched
+  in the same worktree.
 - [~] A two-turn driver test changes model/effort defaults between
   turns and proves each App Server `turn/start` receives exactly the immutable
   CP2 snapshot stored for that turn. Permission and sandbox are not varied,
@@ -1512,9 +1550,9 @@ CP0 through CP2 are complete. The later
 unchecked questions below are decisions for their corresponding UI or release
 checkpoint rather than reasons to reopen the compatibility spike.
 
-- [x] The CP1 per-task environment design, including `environment/add`, is
-  supported by the v0.151.0 reference fixture and passed the local
-  subscription-backed live gates.
+- [x] The CP1 per-task environment design was proven, then superseded: one App
+  Server process per task rooted at the worktree gives the same confinement with
+  no environment API, no executor process, and no loopback listener.
 - [x] Use the user-managed Codex CLI, keep startup self-update enabled, and do
   not disable task start because of any reported version text, including
   unparseable output. Include the detected text when an actual protocol operation
@@ -1523,8 +1561,8 @@ checkpoint rather than reasons to reopen the compatibility spike.
   release audience? Accepted for the planned first release on 2026-08-31,
   subject to the compatibility and release gates.
 - [x] Is the unauthenticated loopback task-executor boundary acceptable on the
-  same host? Accepted for the planned first release on 2026-08-31 and still
-  documented as a trust boundary, not authentication.
+  same host? Moot: the executor and its listener were removed on 2026-09-02, so
+  ByteQuay opens no local listener of its own.
 - [ ] Is CP7 the right first usable real-runtime milestone, with images, rich
   folding, subagents, queueing, and Claude parity deliberately following it?
 - [x] Has CP0 selected and canonically designed one separate managed worktree

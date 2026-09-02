@@ -30,7 +30,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -46,12 +45,41 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * One connection to the App Server process serving one task.
+ *
+ * <p>A task owns its own process, launched in that task's worktree, so this connection carries
+ * exactly one session and nothing has to be routed between tasks. Closing it terminates the
+ * process, which is what releases every thread that task held.
+ *
+ * <p>Three message directions share the one stdio transport, and only the first is a reply to
+ * something ByteQuay asked for:
+ *
+ * <pre>
+ *   ByteQuay --request--&gt; App Server   thread/start, turn/start, turn/interrupt, model/list
+ *   ByteQuay &lt;-response-- App Server   completes the pending future holding that id
+ *   ByteQuay &lt;-request--- App Server   approvals; ByteQuay has to answer these
+ *   ByteQuay &lt;-notify---- App Server   turn and item activity; nothing to answer
+ * </pre>
+ *
+ * <p>A single reader parses all of it, so a handler that waited for a response while running on
+ * the reader would be waiting for itself. Every inbound message is handed to
+ * {@link CodexMessageDispatcher} and the reader returns immediately; {@link #request} fails fast
+ * rather than stalling if it is ever called from the reader.
+ *
+ * <pre>
+ *   stdout --&gt; Utf8LineBuffer --&gt; receive()
+ *                                   |- response       --&gt; pending future completes
+ *                                   |- notification   --+
+ *                                   '- server request --+--&gt; dispatcher --&gt; one virtual
+ *                                                                consumer --&gt; CodexSession
+ * </pre>
+ */
 final class CodexAppServerClient
         implements AutoCloseable
 {
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final Duration START_TIMEOUT = Duration.ofSeconds(15);
-    private static final Duration PARENT_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(15);
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
@@ -67,7 +95,7 @@ final class CodexAppServerClient
     private final AtomicReference<String> codexHome = new AtomicReference<>();
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
-    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher(this::parentOf);
+    private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
 
@@ -101,7 +129,14 @@ final class CodexAppServerClient
         // would be waiting on itself. Fail loudly instead of stalling until the timeout.
         checkState(Thread.currentThread() != readerThread,
                 "Codex request %s was issued from the App Server reader thread", method);
-        start();
+        // The lazy start this used to do was also the only closed-state check, so the guard is
+        // explicit now rather than a side effect of starting.
+        if (closed) {
+            throw new AgentUnavailableException("Codex App Server is closed");
+        }
+        if (process == null) {
+            throw new AgentUnavailableException("Codex App Server has not been started");
+        }
         CodexProtocol.JsonRpcEnvelope response = await(sendRequest(method, params), timeout, method);
         return codec.decodeResult(
                 response.result().orElseThrow(() -> new AgentUnavailableException(
@@ -109,28 +144,32 @@ final class CodexAppServerClient
                 responseType);
     }
 
-    void register(String threadId, CodexMessageDispatcher.Listener listener)
+    /**
+     * Attaches the session that receives this connection's inbound messages.
+     *
+     * <p>Called before the first thread is started, so App Server cannot emit anything this
+     * connection has nowhere to put.
+     *
+     * @param listener the session
+     */
+    void listen(CodexMessageDispatcher.Listener listener)
     {
-        dispatcher.register(threadId, listener);
+        dispatcher.listen(listener);
     }
 
-    void unregister(String threadId, CodexMessageDispatcher.Listener listener)
-    {
-        dispatcher.unregister(threadId, listener);
-    }
-
-    private void start()
+    /**
+     * Launches the App Server process and completes the initialize handshake.
+     *
+     * <p>One task owns one process, so this runs once when the session is opened rather than
+     * lazily on the first request. A failure here leaves nothing running.
+     */
+    void start()
     {
         synchronized (lifecycleLock) {
-            if (process != null && !process.exit().toCompletableFuture().isDone()) {
-                return;
-            }
             if (closed) {
                 throw new AgentUnavailableException("Codex App Server is closed");
             }
-            if (process != null) {
-                throw new AgentUnavailableException("Codex App Server disconnected");
-            }
+            checkState(process == null, "Codex App Server was already started");
             process = supervisor.prepare(processSpec).start(new ProcessOutputSink()
             {
                 @Override
@@ -148,9 +187,12 @@ final class CodexAppServerClient
             process.exit().whenComplete((result, failure) -> processExited(result, failure));
 
             try {
+                // The experimental API is not declared: the environment methods were its only
+                // use, and a capability this connection never exercises is one more thing a task
+                // could reach.
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
-                        new CodexProtocol.InitializeCapabilities(true));
+                        new CodexProtocol.InitializeCapabilities(false));
                 CodexProtocol.JsonRpcEnvelope initialized =
                         await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
                 codexHome.set(initialized.result()
@@ -284,25 +326,6 @@ final class CodexAppServerClient
     }
 
     /**
-     * Reads the parent of one thread, for tracing a subagent back to the task that owns it.
-     *
-     * <p>Safe to call from a handler and never from the reader: it issues an ordinary request.
-     *
-     * @param threadId thread to look up
-     * @return its parent thread, or empty when it has none or cannot be read
-     */
-    private Optional<String> parentOf(String threadId)
-    {
-        return request(
-                "thread/read",
-                new CodexProtocol.ThreadReadParams(threadId, Optional.of(false)),
-                CodexProtocol.ThreadReadResponse.class,
-                PARENT_TIMEOUT)
-                .thread()
-                .parentThreadId();
-    }
-
-    /**
      * Returns the Codex home App Server reported at initialize.
      *
      * @return the home directory, or empty when App Server did not report one
@@ -310,12 +333,6 @@ final class CodexAppServerClient
     Optional<String> codexHome()
     {
         return Optional.ofNullable(codexHome.get());
-    }
-
-    /** Thread references seen on notifications that no registered session owns. */
-    Set<String> unroutableThreads()
-    {
-        return dispatcher.unroutableThreads();
     }
 
     private void receiveResponse(CodexProtocol.JsonRpcEnvelope envelope)

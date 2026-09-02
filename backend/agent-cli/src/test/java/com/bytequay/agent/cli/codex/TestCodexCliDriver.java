@@ -50,7 +50,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -90,17 +89,20 @@ class TestCodexCliDriver
         AgentSessionRef reference = initial.reference();
         initial.close();
         AgentSession resumed = driver.open(context(Optional.of(reference), approval), events::add);
-        assertThat(supervisor.server().resumeCount()).isOne();
+        // Each session owns its own process, so the resume is served by a second one.
+        assertThat(supervisor.servers()).hasSize(2);
+        AppServerProcess resumedServer = supervisor.servers().getLast();
+        assertThat(resumedServer.resumeCount()).isOne();
 
         RunningTurn turn = resumed.start(command("complete"));
-        supervisor.server().completeTurn();
+        resumedServer.completeTurn();
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
         assertThat(result.toString()).doesNotContain("known-secret");
         assertThat(approval.get().detail()).isEqualTo("echo [REDACTED]");
-        assertThat(supervisor.server().approvalDecision()).isEqualTo("accept");
+        assertThat(resumedServer.approvalDecision()).isEqualTo("accept");
         assertThat(events).anySatisfy(event -> {
             assertThat(event).isInstanceOf(ProviderAgentEvent.Message.class);
             ProviderAgentEvent.Message message = (ProviderAgentEvent.Message) event;
@@ -121,7 +123,11 @@ class TestCodexCliDriver
 
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactly(AgentPermissionPolicy.AUTO);
-        assertThat(supervisor.server().approvalPolicies()).containsExactly("on-request", "on-request");
+        assertThat(supervisor.servers())
+                .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
+        // The experimental surface is the environment family, which no task uses.
+        assertThat(supervisor.servers()).allSatisfy(
+                server -> assertThat(server.experimentalApi()).containsExactly(false));
 
         driver.close();
     }
@@ -272,7 +278,10 @@ class TestCodexCliDriver
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
 
-        awaitCondition(() -> server.error(92) != null && server.error(93) != null && server.error(94) != null);
+        // Every rejection is answered on the dispatch thread, so all of them have to arrive
+        // before any is read. Waiting for only the first few leaves the rest racing the asserts.
+        List<Long> rejected = List.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L);
+        awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null));
         assertThat(server.error(92).path("message").asText()).contains("active turn");
         assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
         assertThat(server.error(94).path("message").asText()).contains("no active thread");
@@ -405,7 +414,7 @@ class TestCodexCliDriver
     }
 
     @Test
-    void bindsEachTaskToItsOwnVerifiedExecutionEnvironment()
+    void bindsEachTaskToItsOwnAppServerProcess()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -418,41 +427,22 @@ class TestCodexCliDriver
                 context("task-2", second, Optional.empty(), (request, timeout) -> new CompletableFuture<>()),
                 event -> {});
 
-        // One executor process per task, each rooted in its own worktree.
-        assertThat(supervisor.execServerCwds())
-                .containsExactly(worktree.toRealPath(), second.toRealPath());
-        assertThat(supervisor.execServerOwners())
+        // One App Server process per task, each rooted in its own worktree. That working directory
+        // is the sandbox root, which is what confines a turn without a separate execution
+        // environment.
+        assertThat(supervisor.servers()).hasSize(2);
+        assertThat(supervisor.serverCwds()).containsExactly(worktree, second);
+        assertThat(supervisor.serverOwners())
                 .extracting(ProcessOwner::kind)
-                .containsOnly(ProcessOwner.Kind.TASK_EXEC_SERVER);
-        assertThat(supervisor.execServerOwners())
+                .containsOnly(ProcessOwner.Kind.APP_SERVER);
+        // The owner is the task, so a recovered orphan is attributable to the task that leaked it.
+        assertThat(supervisor.serverOwners())
                 .extracting(ProcessOwner::id)
-                .containsExactly("bytequay-task-task-1", "bytequay-task-task-2")
+                .containsExactly("task-1", "task-2")
                 .doesNotHaveDuplicates();
-
-        // Every registration names its own executor, and both thread and turn select it.
-        assertThat(supervisor.server().environmentAdds())
-                .extracting(node -> node.path("environmentId").asText())
-                .contains("bytequay-task-task-1", "bytequay-task-task-2");
-        // Each thread pins its own environment, and the one turn that ran selected the same one.
-        assertThat(supervisor.server().threadEnvironmentIds())
-                .containsExactly("bytequay-task-task-1", "bytequay-task-task-2");
-        assertThat(supervisor.server().turnEnvironmentIds()).containsExactly("bytequay-task-task-1");
 
         other.close();
         first.close();
-    }
-
-    @Test
-    void refusesASessionWhoseEnvironmentResolvesAnotherDirectory()
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.reportForeignEnvironmentCwd();
-        CodexCliDriver driver = driver(supervisor);
-
-        // A verified handshake is the only thing standing between a task and another task's files.
-        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("different working directory");
     }
 
     @Test
@@ -511,39 +501,36 @@ class TestCodexCliDriver
     }
 
     @Test
-    void routesASubagentThreadToTheTaskThatOwnsItsParent()
+    void surfacesSubagentActivityWithoutEndingTheTasksTurn()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
-        supervisor.reportThreadParent("child-thread-7", "thread-1");
+        RunningTurn turn = session.start(command("delegate"));
 
-        supervisor.server().emitForeignThreadNotification("child-thread-7");
+        supervisor.server().emitSubagentActivity("child-thread-7");
 
-        // The child's ancestry is resolved once and it is adopted by its parent's session, so it
-        // is never reported as unowned.
-        awaitCondition(() -> supervisor.server().threadReads().contains("child-thread-7"));
-        assertThat(driver.unroutableThreads()).isEmpty();
-        session.close();
-    }
+        // Every thread in this process belongs to this task, so a subagent's work is reported
+        // rather than filtered out for carrying its own turn id.
+        awaitCondition(() -> events.stream().anyMatch(event -> event.toString().contains("from a child thread")));
+        // A subagent's turn completing is not the task's turn completing, and the subagent finishes
+        // first.
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+        // A subagent keeps its own cumulative token counter. Feeding it to the task's turn would
+        // overwrite the task's real usage with a second, unrelated running total.
+        assertThat(events).noneMatch(event -> event instanceof ProviderAgentEvent.Usage);
+        // Its final answer is its own. Published as FINAL it could be read back as the task's
+        // recorded final response.
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Message)
+                .allSatisfy(event -> assertThat(((ProviderAgentEvent.Message) event).phase())
+                        .isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL));
 
-    @Test
-    void leavesASubagentThreadUnownedWhenItsParentIsNotOurs()
-            throws Exception
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
-        CodexCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
-
-        supervisor.server().emitForeignThreadNotification("child-thread-7");
-
-        // No ancestry back to a live session, so the thread is reported rather than attributed.
-        awaitCondition(() -> !driver.unroutableThreads().isEmpty());
-        assertThat(driver.unroutableThreads()).containsExactly("child-thread-7");
-        assertThat(events).noneMatch(event -> event.toString().contains("from a child thread"));
+        supervisor.server().completeTurn();
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
         session.close();
     }
 
@@ -663,29 +650,14 @@ class TestCodexCliDriver
         private volatile String versionOutput;
         private boolean loggedIn = true;
         private boolean executableMissing;
-        private AppServerProcess server;
-        private final List<Path> execServerCwds = new CopyOnWriteArrayList<>();
-        private final List<ProcessOwner> execServerOwners = new CopyOnWriteArrayList<>();
+        // One App Server process per task, so the harness keeps every launch rather than the last.
+        private final List<AppServerProcess> servers = new CopyOnWriteArrayList<>();
+        private final List<Path> serverCwds = new CopyOnWriteArrayList<>();
+        private final List<ProcessOwner> serverOwners = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
         private volatile String hooks = "[]";
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
-        private final Map<String, String> threadParents = new ConcurrentHashMap<>();
-
-        private void reportThreadParent(String child, String parent)
-        {
-            threadParents.put(child, parent);
-        }
-
-        private void reportConfigLayers(String layers)
-        {
-            configLayers = layers;
-        }
-
-        private void reportSkills(String discovered)
-        {
-            skills = discovered;
-        }
 
         private void reportManagedRequirements(String response)
         {
@@ -755,21 +727,6 @@ class TestCodexCliDriver
             }
         }
 
-        private boolean foreignEnvironmentCwd;
-
-        private void reportForeignEnvironmentCwd()
-        {
-            foreignEnvironmentCwd = true;
-        }
-
-        private String environmentCwd()
-        {
-            if (foreignEnvironmentCwd) {
-                return "file:///tmp";
-            }
-            return execServerCwds.isEmpty() ? "file:///unset" : execServerCwds.getLast().toUri().toString();
-        }
-
         private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (executableMissing) {
@@ -785,39 +742,42 @@ class TestCodexCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
                 return loggedIn ? ImmediateProcess.success() : ImmediateProcess.failure();
             }
-            if (spec.argv().contains("exec-server")) {
-                // The real executor announces its loopback listener on stdout and then stays up.
-                execServerCwds.add(spec.workingDirectory());
-                execServerOwners.add(spec.owner());
-                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("ws://127.0.0.1:45671\n"));
-                return new IdleProcess();
-            }
-            server = new AppServerProcess(
+            // The working directory and owner are load-bearing now: they are what binds a task to
+            // its own process and its own sandbox root.
+            serverCwds.add(spec.workingDirectory());
+            serverOwners.add(spec.owner());
+            AppServerProcess server = new AppServerProcess(
                     objectMapper,
                     output,
                     failThreadStart,
-                    this::environmentCwd,
                     () -> managedRequirements,
                     () -> hooks,
                     () -> configLayers,
-                    () -> skills,
-                    () -> threadParents);
+                    () -> skills);
+            servers.add(server);
             return server;
         }
 
+        /** The only launched App Server, for the tests that open exactly one session. */
         private AppServerProcess server()
         {
-            return server;
+            assertThat(servers).hasSize(1);
+            return servers.getFirst();
         }
 
-        private List<Path> execServerCwds()
+        private List<AppServerProcess> servers()
         {
-            return execServerCwds;
+            return servers;
         }
 
-        private List<ProcessOwner> execServerOwners()
+        private List<Path> serverCwds()
         {
-            return execServerOwners;
+            return serverCwds;
+        }
+
+        private List<ProcessOwner> serverOwners()
+        {
+            return serverOwners;
         }
 
         private void versionOutput(String versionOutput)
@@ -849,17 +809,12 @@ class TestCodexCliDriver
         private final AtomicInteger threads = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
-        private final List<JsonNode> environmentAdds = new CopyOnWriteArrayList<>();
-        private final List<String> threadEnvironmentIds = new CopyOnWriteArrayList<>();
         private final Supplier<String> managedRequirements;
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
         private final Supplier<String> skills;
-        private final Supplier<Map<String, String>> threadParents;
-        private final List<String> turnEnvironmentIds = new CopyOnWriteArrayList<>();
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
-        private final List<String> threadReads = new CopyOnWriteArrayList<>();
-        private final Supplier<String> environmentCwd;
+        private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
         private volatile CompletableFuture<Void> interruptCompletionGate = CompletableFuture.completedFuture(null);
@@ -869,22 +824,18 @@ class TestCodexCliDriver
                 ObjectMapper objectMapper,
                 ProcessOutputSink output,
                 boolean failThreadStart,
-                Supplier<String> environmentCwd,
                 Supplier<String> managedRequirements,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
-                Supplier<String> skills,
-                Supplier<Map<String, String>> threadParents)
+                Supplier<String> skills)
         {
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
-            this.environmentCwd = environmentCwd;
             this.managedRequirements = managedRequirements;
             this.hooks = hooks;
             this.configLayers = configLayers;
             this.skills = skills;
-            this.threadParents = threadParents;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -894,34 +845,14 @@ class TestCodexCliDriver
             return index == 1 ? "thread-1" : "thread-" + index;
         }
 
-        private List<JsonNode> environmentAdds()
-        {
-            return environmentAdds;
-        }
-
-        private List<String> threadEnvironmentIds()
-        {
-            return threadEnvironmentIds;
-        }
-
-        private List<String> turnEnvironmentIds()
-        {
-            return turnEnvironmentIds;
-        }
-
         private List<String> turnSettings()
         {
             return turnSettings;
         }
 
-        private List<String> threadReads()
+        private List<Boolean> experimentalApi()
         {
-            return threadReads;
-        }
-
-        private void recordSelection(List<String> into, JsonNode params)
-        {
-            params.path("environments").forEach(entry -> into.add(entry.path("environmentId").asText()));
+            return experimentalApi;
         }
 
         @Override
@@ -954,16 +885,12 @@ class TestCodexCliDriver
             String method = message.path("method").asText();
             long id = message.path("id").asLong();
             switch (method) {
-                case "initialize" -> respond(id, "{\"codexHome\":\"/codex-home\"}");
-                case "configRequirements/read" -> respond(id, managedRequirements.get());
-                case "thread/read" -> {
-                    String target = message.path("params").path("threadId").asText();
-                    threadReads.add(target);
-                    String parent = threadParents.get().get(target);
-                    respond(id, "{\"thread\":{\"id\":\"" + target + "\",\"sessionId\":\"session-1\","
-                            + "\"parentThreadId\":" + (parent == null ? "null" : "\"" + parent + "\"")
-                            + ",\"turns\":[]}}");
+                case "initialize" -> {
+                    experimentalApi.add(message.path("params").path("capabilities")
+                            .path("experimentalApi").asBoolean());
+                    respond(id, "{\"codexHome\":\"/codex-home\"}");
                 }
+                case "configRequirements/read" -> respond(id, managedRequirements.get());
                 case "config/read" -> respond(id, "{\"config\":{},\"origins\":{},\"layers\":" + configLayers.get() + "}");
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
@@ -971,15 +898,11 @@ class TestCodexCliDriver
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
-                case "environment/add" -> {
-                    environmentAdds.add(message.path("params").deepCopy());
-                    respond(id, "{}");
-                }
-                case "environment/info" -> respond(id, "{\"shell\":{\"name\":\"zsh\",\"path\":\"/bin/zsh\"},"
-                        + "\"cwd\":\"" + environmentCwd.get() + "\"}");
+                case "model/list" -> respond(id, "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
+                        + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
+                        + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false}]}");
                 case "initialized" -> {}
                 case "thread/start" -> {
-                    recordSelection(threadEnvironmentIds, message.path("params"));
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
                     if (failThreadStart) {
                         emit("{\"id\":" + id + ",\"error\":{\"code\":-32602,\"message\":\"unsupported protocol\"}}");
@@ -995,7 +918,6 @@ class TestCodexCliDriver
                 }
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
-                    recordSelection(turnEnvironmentIds, message.path("params"));
                     turnSettings.add(message.path("params").path("model").asText("none")
                             + "/" + message.path("params").path("effort").asText("none"));
                     activeTurn = "turn-" + turns.incrementAndGet();
@@ -1024,11 +946,28 @@ class TestCodexCliDriver
             }
         }
 
-        private void emitForeignThreadNotification(String threadId)
+        /**
+         * Emits what a subagent produces: activity on its own thread under its own turn, then that
+         * turn completing before the root's.
+         */
+        private void emitSubagentActivity(String threadId)
         {
             emit("{\"method\":\"item/agentMessage/delta\",\"params\":{"
-                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"turn-x\","
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\","
                     + "\"itemId\":\"message-9\",\"delta\":\"from a child thread\"}}");
+            // Its own cumulative counter, which is not the task's.
+            emit("{\"method\":\"thread/tokenUsage/updated\",\"params\":{"
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\","
+                    + "\"tokenUsage\":{\"total\":{\"inputTokens\":900,\"cachedInputTokens\":0,"
+                    + "\"outputTokens\":300,\"reasoningOutputTokens\":0,\"totalTokens\":1200}}}}");
+            // Its own final answer, which is not the task's answer.
+            emit("{\"method\":\"item/completed\",\"params\":{\"item\":{"
+                    + "\"type\":\"agentMessage\",\"id\":\"message-9\","
+                    + "\"text\":\"from a child thread\",\"phase\":\"final_answer\"},"
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\"}}");
+            emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"" + threadId + "\","
+                    + "\"turn\":{\"id\":\"subagent-turn\",\"status\":\"completed\","
+                    + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
         }
 
         private void completeTurn()
@@ -1136,58 +1075,6 @@ class TestCodexCliDriver
         public void cancel()
         {
             exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
-        }
-
-        @Override
-        public void close()
-        {
-            cancel();
-        }
-    }
-
-    /** Stands in for the exec-server: announces its listener, then stays up until closed. */
-    private static final class IdleProcess
-            implements ManagedProcess
-    {
-        private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
-
-        @Override
-        public String launchId()
-        {
-            return "scripted";
-        }
-
-        @Override
-        public long pid()
-        {
-            return 4343;
-        }
-
-        @Override
-        public CompletionStage<Void> write(ByteBuffer bytes)
-        {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        @Override
-        public void closeInput() {}
-
-        @Override
-        public CompletionStage<ProcessExit> exit()
-        {
-            return exit;
-        }
-
-        @Override
-        public void cancel()
-        {
-            exit.complete(new ProcessExit(
-                    0,
-                    ProcessExit.Reason.CANCELLED,
-                    ProcessExit.TreeTermination.VERIFIED_STOPPED,
-                    Duration.ZERO,
-                    false,
-                    false));
         }
 
         @Override

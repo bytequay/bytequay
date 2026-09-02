@@ -16,9 +16,8 @@ capability-driven ByteQuay contract.
 This is technically feasible, but it has an explicit product risk: the
 [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
 currently marks the `app-server` command as experimental and unsupported for
-production workloads. ByteQuay accepted that dependency and the stock
-exec-server's same-host trust boundary for the planned first release on
-2026-08-31. Shipping still requires the fixed reference-schema fixture and
+production workloads. ByteQuay accepted that dependency for the planned first
+release on 2026-08-31. Shipping still requires the fixed reference-schema fixture and
 compatibility tests. That fixture does not gate the user-managed production CLI: Codex's
 startup self-update remains enabled and no reported version text, including
 unparseable output, makes the lane unavailable. ByteQuay uses documented stdio
@@ -46,18 +45,14 @@ not weaken the remaining compatibility, isolation, and release gates.
   lane, and one separately provisioned generated branch/worktree through the
   shared [Managed Worktree Service](worktree-service.md). It contains multiple
   turns in one resumable provider conversation.
-- ByteQuay runs one long-lived Codex App Server process and multiplexes root
-  and child Codex threads by thread ID. It does not start one App Server per
-  task.
-- ByteQuay launches one official `codex exec-server` per Codex task and selects
-  it through App Server's experimental `environment/add` and per-thread
-  `environments` fields. App Server still chooses and sequences tools; the
-  task-owned executor performs their process/filesystem work in the generated
-  task worktree.
-- The spike-selected v0.151.0 exec-server listens on an ephemeral loopback port but is
-  unauthenticated and accepts multiple local clients. That avoids off-host
-  exposure, not a hostile same-host process; the first release records this as
-  a conscious trust boundary rather than calling the random port a credential.
+- ByteQuay runs one Codex App Server process per task, with the task worktree
+  as its working directory. Root and child threads inside it all belong to that
+  task, so thread IDs are never routed between tasks.
+- No execution environment is registered. App Server's default environment is
+  rooted at its own working directory, so `workspace-write` confines a turn to
+  the task worktree. Nothing declares the experimental API, and no loopback
+  listener is opened, so the first release carries no same-host trust boundary
+  of ByteQuay's own making.
 - This is separate from App Server's experimental `--code-mode-host`, which
   selects one Code Mode runtime for the whole App Server process. The first
   release leaves that process-wide option unset.
@@ -76,7 +71,7 @@ not weaken the remaining compatibility, isolation, and release gates.
   in this phase.
 - Inherited Codex MCP servers, apps/plugins, dynamic tools, and lifecycle hooks
   are disabled for the first release. Only App Server built-ins plus the
-  task-selected exec-server/sandbox are enabled; an active inherited
+  process-default sandbox are enabled; an active inherited
   capability makes the lane unavailable instead of silently widening the task
   boundary.
 
@@ -370,30 +365,27 @@ flowchart LR
         LOOP["Codex harness<br/>reason · tool · observe · repeat"]
         MODEL["selected model provider"]
         TOOLS["App Server tool decisions/events<br/>shell · files · web"]
-        EXEC["one task-owned codex exec-server<br/>process/filesystem RPCs · sandbox"]
-        DRIVER <-->|"JSON-RPC events<br/>environment/add + info"| SERVER
+        DRIVER <-->|"JSON-RPC events"| SERVER
         SERVER --> THREADS
         THREADS --> LOOP
         LOOP <--> MODEL
         LOOP <--> TOOLS
-        SERVER <-->|"selected environment<br/>process/filesystem RPCs"| EXEC
-        EXEC <-->|"canonical cwd + workspace-write policy"| WORKTREE
+        SERVER <-->|"process cwd + workspace-write policy"| WORKTREE
     end
 
     CLAUDE["Claude CLI lane<br/>separate stream-json adapter"]
 
     MAIN <-->|"localhost REST + SSE"| WEB
     SPI <-->|"task/thread/turn/item events<br/>and approval responses"| DRIVER
-    DRIVER -.->|"launch and own task executor"| EXEC
     SPI <-->|"capability-gated events"| CLAUDE
 ```
 
 App Server owns the Codex agent loop, provider requests, built-in tool
 decisions, approvals, and root/child thread execution. ByteQuay owns the
-selected local worktree, task-exec-server lifecycle and requested policy,
+selected local worktree, the per-task App Server lifecycle and requested policy,
 product task, durable projection, cross-provider event contract, UI, queue,
-metrics, and attachment boundary. The matching official exec-server implements
-Codex process/filesystem semantics; ByteQuay does not fork that protocol merely
+metrics, and attachment boundary. App Server implements Codex
+process/filesystem semantics; ByteQuay does not fork that protocol merely
 to draw the UI.
 
 ## 4. Frontend state and rendering
@@ -479,7 +471,7 @@ state:
 - immutable task-worktree ownership facts;
 - task-local worktree-mutation claim, held while provider-process recovery is
   unresolved;
-- task exec-server environment/launch identity plus directly owned
+- per-task App Server launch identity plus directly owned
   provider process recovery state;
 - task defaults and per-turn snapshots for model, effort, and permission;
 - image attachment references and advertised media types;
@@ -510,7 +502,7 @@ complete.
    during a live turn.
 3. **Usable Codex task** — gate creation on typed provider readiness before
    task/worktree provisioning; link unavailable lanes to Workspace Settings; add
-   per-task exec-server launch/`environment/add`/`environment/info`, disabled
+   per-task App Server launch rooted at the task worktree, disabled
    inherited capabilities, sandbox probes, and the task-local
    worktree-mutation claim;
    then create/open/complete a task, select
@@ -527,9 +519,8 @@ complete.
 
 ## 8. Acceptance criteria
 
-- Two Codex tasks can run through one App Server with distinct selected
-  exec-server environments and without event, approval, process, or filesystem
-  cross-talk.
+- Two Codex tasks run in separate App Server processes rooted at their own
+  worktrees, without event, approval, process, or filesystem cross-talk.
 - New/open/complete task routes survive deep-link, reload, back, and forward;
   completion removes the verified clean worktree while preserving its generated
   result branch, and task creation never trusts a renderer-supplied path.
@@ -579,9 +570,8 @@ complete.
   registration is not part of this release.
 - No event or persisted blob contains provider credentials, backend session
   secrets, arbitrary hidden reasoning, or unbounded command/tool output.
-- Shipping explicitly accepts App Server/environment API experimental maturity
-  and the unauthenticated same-host exec-server boundary, maintains reference
-  bindings with experimental definitions enabled, and passes the compatibility
+- Shipping explicitly accepts App Server's experimental maturity, maintains
+  reference bindings, and passes the compatibility
   suite. Production still uses the latest user-managed Codex CLI; a real
   incompatibility fails the affected operation with the detected version and an
   actionable issue-report diagnostic.

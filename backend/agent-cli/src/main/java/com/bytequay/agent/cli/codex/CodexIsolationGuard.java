@@ -31,10 +31,11 @@ import static java.util.Objects.requireNonNull;
 /**
  * Proves that no inherited Codex capability applies to a task before its first turn.
  *
- * <p>One App Server process serves every task, so process-wide configuration is shared rather than
- * partitioned. Safety therefore comes from proving these capabilities are absent, not from scoping
- * them per task. Every check fails closed: an unexpected shape, a request failure, or anything that
- * cannot be inspected makes the lane unavailable rather than assumed safe.
+ * <p>A task's own App Server process partitions what that task can reach, but these capabilities
+ * come from the host's Codex installation rather than from the process, so a per-task process does
+ * not scope them. Safety still comes from proving they are absent. Every check fails closed: an
+ * unexpected shape, a request failure, or anything that cannot be inspected makes the lane
+ * unavailable rather than assumed safe.
  *
  * <p>This covers managed requirements, lifecycle hooks, ambient exec-policy rule sources, and skill
  * origin. The isolated subprocess environment and the child-capable launch profile are separate

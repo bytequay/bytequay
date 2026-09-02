@@ -118,13 +118,13 @@ class TestCodexEventMapper
                 "emittedAtMs":1786884871461,"extra":"ignored"}
                 """);
         assertThat(notification).isInstanceOf(CodexProtocol.UnknownNotification.class);
-        assertThat(mapper.map(notification)).isEmpty();
+        assertThat(mapper.map(notification, true)).isEmpty();
 
         CodexProtocol.Notification item = codec.decodeNotification("""
                 {"method":"item/completed","params":{"item":{"type":"futureItem",
                 "id":"item-1","future":true},"threadId":"thread-1","turnId":"turn-1"}}
                 """);
-        assertThat(mapper.map(item)).isEmpty();
+        assertThat(mapper.map(item, true)).isEmpty();
     }
 
     @Test
@@ -240,7 +240,7 @@ class TestCodexEventMapper
                 {"path":"%s","kind":{"type":"add"},"diff":"+class Other {}"},
                 {"path":"/outside/secret","kind":{"type":"delete"},"diff":"-secret"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(file, worktree.resolve("src/Other.java"))));
+                """.formatted(file, worktree.resolve("src/Other.java"))), true);
 
         assertThat(events).hasSize(2);
         assertThat(events)
@@ -266,7 +266,7 @@ class TestCodexEventMapper
                 "id":"exec-1","command":"echo known-secret","status":"completed",
                 "aggregatedOutput":"known-secret","exitCode":0},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """));
+                """), true);
 
         ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
         assertThat(command.argv()).containsExactly("echo [REDACTED]");
@@ -276,7 +276,7 @@ class TestCodexEventMapper
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)
     {
-        List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json));
+        List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true);
         assertThat(events).hasSize(1);
         return type.cast(events.getFirst());
     }

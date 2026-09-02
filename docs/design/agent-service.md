@@ -18,8 +18,8 @@ agent subsystem as future work.
 ### Current situation
 
 - The Codex lane already uses the official App Server transport.
-  `CodexCliDriver` starts one long-lived
-  `codex app-server --listen stdio://` process, persists Codex thread and turn
+  `CodexCliDriver` starts one `codex app-server --listen stdio://` process per
+  task, rooted at that task's worktree, persists Codex thread and turn
   references, and maps App Server JSON-RPC notifications into
   `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
@@ -75,8 +75,8 @@ pass through Codex App Server.
 
 The follow-up therefore has these fixed boundaries:
 
-1. one long-lived App Server is shared by all live Codex tasks and routed by
-   persisted root and child thread IDs;
+1. one App Server process serves exactly one task, so its root and child
+   thread IDs need no routing between tasks;
 2. every interactive task is durably scoped to a ByteQuay workspace and a
    separate ByteQuay-provisioned worktree, and every accepted input, resolved
    approval, and child relationship is replayable from the task event
@@ -139,11 +139,11 @@ subagent activity, usage, errors, and lifecycle events. Hidden
 chain-of-thought and raw provider JSON are not part of the contract.
 
 For Codex development tasks, App Server owns reasoning and tool selection.
-ByteQuay launches the matching official `codex exec-server` process from the
-installed Codex distribution for each active task, registers it through
-experimental `environment/add`, and selects only
-that task environment on the thread and its turns. This gives every task a
-separate execution process/worktree boundary without reimplementing Codex's
+ByteQuay launches one App Server process per active task with that task's
+worktree as its working directory. Under `workspace-write` App Server's default
+environment is rooted at that directory, so every task gets a separate
+execution process and worktree boundary without registering an environment or
+reimplementing Codex's
 process/filesystem protocol. It is distinct from the experimental process-wide
 `--code-mode-host`, which is not a task router and remains unset. Ambient MCP
 servers, apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle
@@ -1453,10 +1453,9 @@ Tree stop changes the marker to `TERMINAL` and fsyncs the `ProcessExit`/result
 receipt; it does not delete it. The owning core transaction first commits the
 turn terminal fact and tree proof, then calls
 `acknowledge(launchId)`. A crash on either side replays the terminal receipt or
-deletes an already-acknowledged marker idempotently. The shared App Server
-marker names the one driver process; its task/thread routing lives in durable
-driver state. A Claude marker names its one turn; a task exec-server marker
-names its opaque environment owner.
+deletes an already-acknowledged marker idempotently. An App Server marker names
+the task that owns that process, so a recovered orphan is attributable to one
+task. A Claude marker names its one turn.
 Markers contain no credentials, prompt
 text, or core-domain objects. A missing/incomplete marker for a
 launch intent that had reached `ATTEMPTING` is unverifiable: recovery keeps the
@@ -1533,107 +1532,52 @@ public interface ManagedProcess
 process-group/job member and recorded descendant is observed gone. Detached/background-child uncertainty returns
 `UNVERIFIABLE`; recovery keeps the task claim held and its worktree untouched. The same
 rule applies to normal cancellation, backend-startup recovery, and forced
-close. The shared App Server, each task-owned Codex exec-server, and each Claude
+close. Each task's App Server and each Claude
 process use this exact rule.
 Per-command lifecycle is additionally reconciled through the provider contract
 in section 5.3.
 
-### 5.3 TaskExecServerManager
+### 5.3 Task process boundary
 
-The first rich Codex task uses the experimental remote-environment path, which
-is separate from App Server's model-facing loop. `agent-cli` launches the
-official task-owned process bundled with the installed Codex CLI. Its reference
-process/filesystem behavior is documented by the v0.151.0
-[exec-server README](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/exec-server/README.md):
+A task's App Server process runs with the task worktree as its working
+directory, and that is the whole boundary. Under `sandbox: workspace-write`
+App Server's default environment is rooted at its own working directory, so a
+model-requested write inside the worktree succeeds and one outside it is
+escalated as an approval rather than performed. Measured against codex-cli
+0.151.0 with no environment registered: an in-worktree write landed with zero
+approvals, and a write to a path under `$HOME` produced an approval request and
+never landed.
 
-```text
-codex exec-server --listen ws://127.0.0.1:0
-```
+That removes an entire mechanism rather than reimplementing it. There is no
+`codex exec-server` process, no `environment/add` upsert, no
+`environment/info` handshake, no `environments` selection on threads or turns,
+and no unauthenticated loopback listener to treat as a same-host trust
+boundary. `capabilities.experimentalApi` is declared false, because the
+environment family was its only use here; measured against the same version,
+every method ByteQuay calls still answers with it false, and `environment/add`
+and `environment/info` are the only refusals.
 
-The driver captures the actual loopback URL emitted by the task-owned process;
-that URL never enters the renderer. The v0.151.0 reference listener is
-unauthenticated and accepts multiple local WebSocket clients. Binding an
-ephemeral loopback port prevents off-host exposure but is not authentication
-against another same-host process. ByteQuay records that as an explicit
-first-release trust boundary, accepted for the planned release on 2026-08-31;
-stronger same-host protection requires an upstream authentication contract or
-a separately designed authenticated proxy, not an invented token field. `app` supplies
-an opaque environment-to-task resolver while all App Server and exec-server
-wire handling remains in `agent-cli`; neither protocol adapter imports
-`TaskId`.
+The launch owner is the task id, so a recovered orphan is attributable to the
+task that leaked it rather than to a single process shared by the backend.
+`ProcessOwner.Kind.APP_SERVER` carries that id; the persisted
+`LaunchOwnerKind.TASK_EXEC_SERVER` constant is retained only so launch markers
+and `agent_process_launch` rows written before this change still deserialize.
 
-After App Server's own `initialize`/`initialized` handshake, the driver calls
-experimental `environment/add` with the unique `environmentId`, the loopback
-`execServerUrl`, and a bounded connection timeout. That request only upserts
-the registry. The driver then calls `environment/info` to force the separate
-exec-server `initialize` -> response -> `initialized` handshake and validates
-the returned shell and canonical working directory before the task becomes
-ready. `environment/status` is observational and is never treated as a
-connection or recovery trigger.
-
-New `thread/start` and every `turn/start` select exactly one
-`TurnEnvironmentParams {environmentId, cwd, runtimeWorkspaceRoots}` for the
-task. That field is three-valued and the values are not interchangeable:
-omitting it selects App Server's default environment, an empty list disables
-environment access outright, and a non-empty list selects its first entry.
-ByteQuay therefore models it as absent-or-present rather than as a plain
-collection, and never sends an empty list to mean "no override". `thread/start` also sends empty `selectedCapabilityRoots`; that field is
-not sent by `turn/start` or `thread/resume`. A resumed thread restores its
-sticky environment selection, so the replacement exec-server is re-launched,
-re-added, and verified with `environment/info` before `thread/resume`; resume
-does not send a nonexistent `environments` field. Subagents inherit the parent
-thread/turn environment.
-
-The stock exec-server owns the version-matched process/filesystem protocol and
-sandbox helpers; ByteQuay does not reimplement those RPCs. `ProcessSupervisor`
-owns the task exec-server process and its observed descendants, applies output
-and runtime bounds to the helper process, and keeps its durable launch marker
-until task recovery acknowledges it. App Server events remain the authoritative
-per-item UI stream. Closing the exec-server connection terminates its remaining
-managed processes according to the running contract; cancellation also uses App
-Server background-terminal cleanup before the task executor is stopped.
-
-The v0.151 reference API has no environment remove/unregister request. The
-design therefore does not depend on one: closing a task stops its verified
-executor but leaves that unique environment ID as a disconnected App Server
-registry entry until the shared App Server exits. IDs are never reassigned to
-another task; resuming the same task reuses `environment/add`'s upsert behavior
-with its replacement URL. A newer runtime may add cleanup without becoming a
-required production version.
-
-The `--code-mode-host` launch option is not a per-thread environment API. It
-selects one process-scoped Code Mode host connection shared by every thread in
-that App Server. The option and host wire protocol are experimental and have
-changed transport shape across current documentation and source revisions.
-ByteQuay therefore does not set it in the first release. A future custom host
-requires its own design, a version-matched host implementation, and proof of
-what it does and does not intercept; it must not be described as a general
-ByteQuay tool router without that proof.
-
-For normal completion the driver reconciles typed item lifecycles and pages
-the experimental `thread/backgroundTerminals/list` API for the root and every
-known child. Cancellation first sends `turn/interrupt`, then uses
-`thread/backgroundTerminals/clean`; a targeted user stop may use
-`thread/backgroundTerminals/terminate` with a listed App Server `processId`.
-The `OPEN` task retains the turn claim and projects recovery required while an
-observed item is nonterminal, a background-terminal page is non-empty, or
-history/list reconciliation fails.
-An in-progress yielded item may be absent from `thread/read`; live item events
-and the background-terminal page remain authoritative until it terminates.
-Terminal reconciliation must then find the same item and terminal state in
-history.
+A session owns its task's process and closes it. Because completing a task is
+otherwise the only thing that closes a session, `AgentRuntimeRegistry`
+implements `AutoCloseable` and is wired as the bean's destroy method, so a
+backend shutdown with open tasks does not strand their processes until the next
+start.
 
 Release compatibility tests run reference-version sandbox and lifecycle
-fixtures: ordinary built-in tool execution must stay inside the selected
-workspace roots, yielded commands must appear in background-terminal listing,
-and clean or terminate must stop them. A command that escapes both exec-server
-process ownership and App Server's registries makes the result `UNVERIFIABLE`
-and the Codex lane ineligible for release; one successful fixture is not
-generalized into a proof about arbitrary detached descendants. Failure of the
-experimental environment API, exec-server handshake, sandbox path, or
+fixtures: ordinary built-in tool execution must stay inside the task worktree,
+yielded commands must appear in background-terminal listing, and clean or
+terminate must stop them. A command that escapes both process ownership and App
+Server's registries makes the result `UNVERIFIABLE` and the Codex lane
+ineligible for release; one successful fixture is not generalized into a proof
+about arbitrary detached descendants. Failure of the sandbox path or
 background-terminal API in the running CLI disables the affected Codex
-development task and reports the detected Codex version. ByteQuay never falls back
-to App Server's default environment for an already task-bound thread.
+development task and reports the detected Codex version.
 
 ## 6. Persistence ports
 
@@ -2322,9 +2266,9 @@ and is not used by the localhost sidecar.
 The connection and task sequence is:
 
 1. Send `initialize` once with ByteQuay `clientInfo` and
-   `capabilities.experimentalApi: true`, wait for its response, then send the
-   `initialized` notification. Experimental opt-in is required for the
-   background-terminal and child-history APIs; no other request is
+   `capabilities.experimentalApi: false`, wait for its response, then send the
+   `initialized` notification. The experimental surface is the environment
+   family, which a per-task process does not use; no other request is
    legal before this handshake finishes.
 2. Populate the existing ByteQuay model settings catalog from `model/list`,
    including supported reasoning efforts, input modalities, and
@@ -2368,41 +2312,32 @@ The connection and task sequence is:
    contain exactly that one top-level key; an unknown sibling policy field also
    fails closed. Supporting a broader shape later requires new exact executable
    evidence.
-4. Prepare and launch the matching official `codex exec-server` through
-   `TaskExecServerManager`, capture its emitted `ws://127.0.0.1:<port>` URL,
-   call experimental `environment/add` with that URL and the task's unique
-   environment ID, then call `environment/info`. `environment/add` only
-   registers; the executor is not usable until `environment/info` has forced
-   and verified its handshake and returned the expected shell/canonical
-   working directory.
-5. Call `thread/start` with canonical `cwd`, the selected default model,
+4. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
    (`approvalPolicy: "on-request"` in the v0.151 reference schema),
    `approvalsReviewer: "user"`, the generated per-thread config override, and
-   legacy `sandbox: "workspace-write"`. Select exactly
-   `environments: [{environmentId, cwd, runtimeWorkspaceRoots: [cwd]}]` and an
-   empty `selectedCapabilityRoots`. After start, page
+   legacy `sandbox: "workspace-write"`. No `environments` are selected: the
+   process default is rooted at the process working directory, which is this
+   task's worktree. After start, page
    `mcpServerStatus/list(threadId)`, app/plugin status, and `hooks/list`; every
    external tool/hook must be absent or disabled before the session is usable.
    Persist the returned `thread.id` as the root provider value in
    `AgentSessionRef`.
-6. For a later backend process or unloaded task, first launch a replacement
-   task exec-server, reissue `environment/add`, and verify it with
-   `environment/info`; only then call `thread/resume` with the stored
+5. For a later backend process or unloaded task, launch that task's App Server
+   again in the same worktree, then call `thread/resume` with the stored
    `threadId`, the same config and sandbox ceiling, and
-   `approvalsReviewer: "user"`. Resume restores the thread's sticky
-   environment selection and has no `environments` field. Repeat the
+   `approvalsReviewer: "user"`. Repeat the
    effective-capability checks and never infer a session ID from provider
    files.
-7. Start each user turn with `turn/start`. Its `input` is built only from the
+6. Start each user turn with `turn/start`. Its `input` is built only from the
    already-persisted user event: text plus model-gated
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
    input is URL-based and is outside the first local-upload release. Apply the
    turn's snapshotted model, reasoning effort, `approvalPolicy`,
    `approvalsReviewer: "user"`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and
-   `writableRoots: [canonicalWorktree]`, with tool network disabled. Select the
-   same one-element `environments` array; the thread's persisted
+   `writableRoots: [canonicalWorktree]`, with tool network disabled. The
+   thread's persisted
    `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
    `ProviderTurnRef`. Never add
    `.git`, a worktree pointer target, or the resolved Git directory as an extra
@@ -2498,11 +2433,11 @@ read/list error, active descendant/item/process/background terminal, or
 unstable closure keeps the `OPEN` task blocked with the recovery-required
 projection. If transport is lost before that proof, it retains the turn claim
 and stops the shared App Server process only as a last-resort recovery action,
-because doing so interrupts every Codex task routed through that process.
+because doing so interrupts the task that owns that process.
 
 The task uses the running App Server's selected sandbox and approval policy.
-Readiness verifies that ordinary built-in tool execution works through the
-task-selected exec-server and stays inside the selected workspace roots. The
+Readiness verifies that ordinary built-in tool execution works and stays inside
+the task worktree. The
 App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox or
 first-release process profile enforces a destination allowlist for that control
@@ -2584,9 +2519,8 @@ writer-lock, shell-snapshot, and trust records that App Server places in the
 fixture-only profile are removed only after every owned process group stops;
 `auth.json` and the profile remain.
 
-Every task exec-server and model-requested tool process instead receives a
-minimal allowlisted, credential-free environment. Every exec-server has a
-separate empty `CODEX_HOME`; both live gates proved that model-requested
+Every model-requested tool process instead receives a
+minimal allowlisted, credential-free environment; both live gates proved that model-requested
 commands receive no `CODEX_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME`, or App
 Server-only sentinel. A bounded Git-worktree action and credential isolation,
 one representative live command approval, yielded-terminal termination,
@@ -2990,7 +2924,7 @@ derived from the missing response; it is not a separate lifecycle state.
 `agent_process_launch` begins when `prepare(...)` returns and stores the launch
 ID, closed owner kind and opaque owner ID, whether the owner committed to
 spawning, the resolved executable and argv digest, and a transition timestamp,
-for the shared App Server, task exec-servers, and Claude turns. Before that row
+for each task's App Server and each Claude turn. Before that row
 exists, a turn owner has never been attempted. The executable is retained
 because it is the only record of what was launched when the process marker
 itself is the thing that went missing. The launch row stores no prompt,
@@ -3031,8 +2965,8 @@ The directory is outside every worktree:
 ```
 
 The task ID and content IDs are generated by ByteQuay, not supplied as paths.
-Process markers are owner-only, identify the shared App Server, a task-owned
-exec-server or a Claude turn, contain
+Process markers are owner-only, identify one task's App Server or a Claude
+turn, contain
 identity/recovery metadata only, and are validated against the OS process-start
 token before any signal is sent.
 Every resolved child is checked to remain under the configured runtime root.
@@ -3313,7 +3247,7 @@ until automated contract and integration tests prove:
    sandbox settings, and its readiness probe verifies the configured task
    workspace and permission adapter; and
 14. the release explicitly accepts App Server's documented experimental
-   maturity plus the unauthenticated same-host exec-server boundary, maintains
+   maturity, maintains
    the exact v0.151.0 reference fixture, compact projection, and experimental
    surface, and passes per-task environment handshake/resume, multi-task routing,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,

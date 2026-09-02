@@ -92,8 +92,8 @@ repository builds.
 The task surface is approved for incremental implementation behind the
 development-only gate. The accepted decisions are:
 
-1. **Runtime shape:** one shared Codex App Server, one official
-   task-owned exec-server/environment per active Codex task, and a separate
+1. **Runtime shape:** one Codex App Server process per active Codex task,
+   rooted at that task's worktree, and a separate
    Claude CLI lane.
 2. **UI contract:** ByteQuay persists and renders normalized messages, plans,
    approvals, activity/logs, images, metrics, queue/steer state, and root/child
@@ -142,10 +142,7 @@ transport success alone is not sufficient. Production keeps Codex's startup
 self-update enabled and runs the user's installed CLI without treating any
 reported version text, including an unparseable string, as a readiness gate. An
 incompatible operation fails with that detected version in its diagnostic so it
-can be reported and fixed. The stock
-exec-server's unauthenticated loopback listener is also an explicit same-host
-trust decision, accepted for the same planned release on 2026-08-31: an
-ephemeral port is not treated as authentication. The first release does not
+can be reported and fixed. The first release does not
 add the separate, process-wide `--code-mode-host` dependency.
 
 Agents do not edit the managed checkout. The approved workspace boundary is one
@@ -185,9 +182,8 @@ account type is `chatgpt`, and use a temporary
 `CODEX_SQLITE_HOME` for its database state. The fixture holds an exclusive
 profile lock before reading mutable auth/runtime state, rejects persistent
 Codex-home instruction files, and removes its run-scoped rollout, writer-lock,
-shell-snapshot, and trust records after every owned process stops. Executor and model-requested
-tool processes remain credential-free: each exec-server gets a separate empty
-`CODEX_HOME`, while model-requested commands must prove that `CODEX_API_KEY`,
+shell-snapshot, and trust records after every owned process stops. Model-requested
+tool processes remain credential-free: model-requested commands must prove that `CODEX_API_KEY`,
 `OPENAI_API_KEY`, `CODEX_HOME`, and the App Server-only sentinel are absent.
 API-key fixture support is deferred. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture

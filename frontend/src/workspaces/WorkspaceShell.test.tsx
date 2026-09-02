@@ -98,6 +98,33 @@ describe('watched repository workspace UI', () => {
     expect(html).not.toContain('linked');
   });
 
+  it('shows the agent task preview only in a development build', () => {
+    const props = {
+      workspace: workspace('FORK'),
+      tab: 'tasks' as const,
+      onSelectTab: () => {},
+      onWorkspaceChanged: () => {},
+      initialPullRequestNumber: null as number | null,
+      initialIssueNumber: null as number | null,
+      initialAgentTaskId: null as string | null,
+      onSelectAgentTask: () => {},
+      onSelectPullRequest: () => {},
+      onSelectIssue: () => {},
+      onRemoved: () => {},
+    };
+
+    const development = renderToStaticMarkup(<WorkspaceShell {...props} developmentBuild />);
+    expect(development).toContain('Agent tasks');
+    expect(development).toContain('New agent task');
+    // A packaged build must not ship a fixture-backed preview.
+    expect(renderToStaticMarkup(<WorkspaceShell {...props} />)).not.toContain('Agent tasks');
+
+    // The route, not component memory, decides which task is open.
+    const open = renderToStaticMarkup(
+      <WorkspaceShell {...props} developmentBuild initialAgentTaskId="task-1" />);
+    expect(open).toContain('Send a message to this task');
+  });
+
   it('keeps repository-scoped PRs and Issues available before metadata is synchronized', () => {
     const value = workspace('FORK');
     const props = {

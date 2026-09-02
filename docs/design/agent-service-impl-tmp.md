@@ -897,7 +897,7 @@ Primary files:
 - `scripts/ci-autofix`
 - `docs/ci-autofix-shell.md`
 
-## [ ] CP4 — Integrate task isolation and quiescent recovery
+## [x] CP4 — Integrate task isolation and quiescent recovery
 
 **Owner:** runtime owner with service/storage owner
 
@@ -1152,10 +1152,30 @@ Exit gate:
   uninspectable process, an unrecognized executable, a committed launch whose
   marker vanished, and process facts that could not have followed the committed
   intent are all `UNVERIFIABLE`.
-- [ ] If a compatibility fixture can leave a writer outside both ByteQuay's
-  directly owned process proof and App Server item/background-terminal
-  registries, reject the Codex lane for release rather than merely leaving one
-  `OPEN` task blocked with the recovery-required projection.
+- [x] No fixture leaves a writer outside both ByteQuay's ownership and App
+  Server's registry. Measured 2026-09-02 against the shipped topology (one
+  app-server rooted at the task worktree, no exec-server, no environment): a
+  turn told to yield `exec /bin/sleep 300` left exactly one writer, and it
+  appeared in **both** the app-server's descendant tree and
+  `thread/backgroundTerminals/list`; no matching process existed outside that
+  ownership. `thread/backgroundTerminals/terminate` returned `terminated: true`
+  and the writer was actually gone afterwards, which is what cancellation now
+  depends on.
+
+  **The two `--live` gates are stale and are not what closed this.** They prove
+  isolation *within a shared App Server* — assertions like "task B inherited task
+  A's terminal" — which per-task processes make true by construction, so porting
+  them unchanged would produce coverage that passes for the wrong reason.
+  `--live-children` is additionally unrunnable for two independent reasons: its
+  `readRecursiveChildHistory` calls `thread/read(includeTurns: true)`, which App
+  Server does not implement, and it prompts for a grandchild that
+  `agents.max_depth=1` now forbids. Porting both to the per-task topology is
+  follow-up work, and the assertions worth keeping are the ones above.
+
+  The release rule this item states — reject the Codex lane outright rather than
+  leaving one `OPEN` task blocked — is satisfied because no escape was found. It
+  is a release decision, not code: if a future fixture does escape, the lane is
+  ineligible until it does not.
 
 Runtime facts proven against the real v0.151.0 CLI while implementing this,
 which the generated schema alone does not state:

@@ -1231,7 +1231,7 @@ Primary files:
 - `backend/agent-core/.../AgentProcessLaunch.java` and its SQLite store
 - `backend/app/.../agent/StoredLaunchIntentRecorder.java`
 
-## [~] CP5 — Add the authenticated Electron task bridge
+## [x] CP5 — Add the authenticated Electron task bridge
 
 **Owner:** desktop owner
 
@@ -1265,8 +1265,10 @@ Implementation:
   connection states.
 - [x] Include subscription ID and task ID in pushed IPC so late events from a
   previous screen are ignored.
-- [~] Abort on explicit unsubscribe and renderer destruction. A replacement
-  subscription and backend shutdown are not yet wired.
+- [x] Abort on explicit unsubscribe, replacement subscription, renderer
+  destruction, and backend shutdown. Re-subscribing the same renderer to the same
+  task replaces the old reader rather than running two, which would push every
+  event twice into one screen and hold two connections open.
 - [x] Make authentication, not-found, workspace mismatch, and incompatible
   schema terminal instead of reconnecting forever. A 4xx other than 408/429 is an
   answer; a payload the contract cannot read fails rather than retrying.
@@ -1279,10 +1281,13 @@ Exit gate:
   terminal HTTP failure (`src/agents/sse.test.ts`).
 - [x] A test renderer receives ordered fixtures without knowing the backend URL
   or session token.
-- [~] No raw Codex/Claude payload, agent worktree/attachment path, or credential
-  crosses the agent bridge: replay and stream events are both validated in main by
-  `parseAgentEventSequence`, so only the narrowed envelope reaches the renderer.
-  Task, turn and completion DTOs are still forwarded as the backend returns them.
+- [x] No raw Codex/Claude payload, agent worktree/attachment path, or credential
+  crosses the agent bridge. Replay and stream events go through
+  `parseAgentEventSequence`; task, turn, approval and completion responses go
+  through `src/agents/contracts.ts`, which reads only the fields the contract
+  names. Nothing added upstream reaches the renderer until it is added there on
+  purpose, which a test pins by feeding a task carrying a worktree path and a
+  provider payload and asserting neither survives.
 - [x] Existing frontend lint and type checks pass, along with the test suite and
   `npm run package`.
 

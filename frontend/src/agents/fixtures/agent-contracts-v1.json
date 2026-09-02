@@ -1,0 +1,123 @@
+{
+  "task": {
+    "id": "<task-id>",
+    "workspaceId": "<workspace-id>",
+    "title": "Agent HTTP test",
+    "laneId": "codex",
+    "defaults": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    },
+    "state": "OPEN",
+    "version": 0,
+    "createdAt": "<timestamp>",
+    "updatedAt": "<timestamp>",
+    "terminalAt": null,
+    "terminalReason": null,
+    "metrics": {
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "cost": null,
+      "costProvenance": "UNAVAILABLE",
+      "elapsed": "<duration>"
+    },
+    "summary": null,
+    "cleanupState": "RETAINED",
+    "deleteAfter": null,
+    "cleanupFailure": null
+  },
+  "turn": {
+    "id": "<turn-1>",
+    "taskId": "<task-id>",
+    "state": "COMPLETED",
+    "version": 4,
+    "createdAt": "<timestamp>",
+    "startedAt": "<timestamp>",
+    "endedAt": "<timestamp>",
+    "cancellationRequestedAt": null,
+    "settings": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO",
+      "sandboxPolicy": "WORKSPACE_WRITE",
+      "maximumRuntimeMillis": 1800000,
+      "attachments": []
+    },
+    "terminalReason": null,
+    "metrics": {
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "cost": null,
+      "costProvenance": "UNAVAILABLE",
+      "elapsed": "<duration>"
+    }
+  },
+  "completion": {
+    "taskId": "<task-id>",
+    "summary": {
+      "finalResponse": "deterministic: second",
+      "resultBranch": "bytequay/task/<task-id>",
+      "resultHead": "<head>",
+      "tests": [],
+      "metrics": {
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "cost": null,
+        "costProvenance": "UNAVAILABLE",
+        "elapsed": "<duration>"
+      },
+      "learnings": [],
+      "notes": "ready for review"
+    },
+    "completedAt": "<timestamp>",
+    "deleteAfter": "<timestamp>"
+  },
+  "finalTask": {
+    "id": "<task-id>",
+    "workspaceId": "<workspace-id>",
+    "title": "Agent HTTP test",
+    "laneId": "codex",
+    "defaults": {
+      "model": "test-model",
+      "effort": "high",
+      "permissionPolicy": "AUTO"
+    },
+    "state": "COMPLETED",
+    "version": 10,
+    "createdAt": "<timestamp>",
+    "updatedAt": "<timestamp>",
+    "terminalAt": "<timestamp>",
+    "terminalReason": null,
+    "metrics": {
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "cost": null,
+      "costProvenance": "UNAVAILABLE",
+      "elapsed": "<duration>"
+    },
+    "summary": {
+      "finalResponse": "deterministic: second",
+      "resultBranch": "bytequay/task/<task-id>",
+      "resultHead": "<head>",
+      "tests": [],
+      "metrics": {
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "cost": null,
+        "costProvenance": "UNAVAILABLE",
+        "elapsed": "<duration>"
+      },
+      "learnings": [],
+      "notes": "ready for review"
+    },
+    "cleanupState": "RETAINED",
+    "deleteAfter": "<timestamp>",
+    "cleanupFailure": null
+  }
+}

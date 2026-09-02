@@ -16,6 +16,13 @@ import type { WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  parseAgentApproval,
+  parseAgentCompletion,
+  parseAgentTask,
+  parseAgentTasks,
+  parseAgentTurn,
+} from './agents/contracts';
 import { parseAgentEventSequence } from './agents/events';
 import { readAgentStream } from './agents/sse';
 import type {
@@ -249,7 +256,13 @@ function agentHeaders(json = false): Record<string, string> {
   return headers;
 }
 
-const agentSubscriptions = new Map<string, AbortController>();
+interface AgentSubscription {
+  controller: AbortController;
+  sender: WebContents;
+  taskId: string;
+}
+
+const agentSubscriptions = new Map<string, AgentSubscription>();
 
 /**
  * Streams one task to one renderer until it is stopped.
@@ -258,9 +271,16 @@ const agentSubscriptions = new Map<string, AbortController>();
  * still arriving for the screen it left rather than rendering them into the new one.
  */
 function startAgentSubscription(sender: WebContents, taskId: string, after: number): string {
+  // Re-subscribing replaces: two readers on one task would push the same events twice into the
+  // same screen and both would hold a connection open.
+  for (const [id, existing] of agentSubscriptions) {
+    if (existing.sender === sender && existing.taskId === taskId) {
+      stopAgentSubscription(id);
+    }
+  }
   const subscriptionId = randomUUID();
   const controller = new AbortController();
-  agentSubscriptions.set(subscriptionId, controller);
+  agentSubscriptions.set(subscriptionId, { controller, sender, taskId });
 
   const push = (message: AgentStreamPayload): void => {
     if (sender.isDestroyed() || !agentSubscriptions.has(subscriptionId)) {
@@ -295,8 +315,15 @@ function startAgentSubscription(sender: WebContents, taskId: string, after: numb
 }
 
 function stopAgentSubscription(subscriptionId: string): void {
-  agentSubscriptions.get(subscriptionId)?.abort();
+  agentSubscriptions.get(subscriptionId)?.controller.abort();
   agentSubscriptions.delete(subscriptionId);
+}
+
+/** Nothing may keep reading a backend that is going away. */
+function stopAllAgentSubscriptions(): void {
+  for (const id of [...agentSubscriptions.keys()]) {
+    stopAgentSubscription(id);
+  }
 }
 
 function refreshDashboardInBackground(): void {
@@ -372,17 +399,19 @@ function registerIpc(): void {
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));
-    return backendJson(`${BACKEND_BASE}/agent/tasks?${query}`, { headers: agentHeaders() });
+    return backendJson(`${BACKEND_BASE}/agent/tasks?${query}`, { headers: agentHeaders() })
+      .then(parseAgentTasks);
   });
   ipcMain.handle('agent:tasks:create', (_event, request: CreateAgentTaskRequest) =>
     backendJson(`${BACKEND_BASE}/agent/tasks`, {
       method: 'POST',
       headers: agentHeaders(true),
       body: JSON.stringify(request),
-    }));
+    }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:tasks:get', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() }));
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:events:read', async (_event, taskId: string, after?: number, limit?: number) => {
     const query = new URLSearchParams();
     if (after !== undefined) query.set('after', String(after));
@@ -399,14 +428,15 @@ function registerIpc(): void {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
       body: JSON.stringify({ message: request.message, attachments: [] }),
-    }));
+    }).then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:turns:get', (_event, turnId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() }));
+    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() })
+      .then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:turns:cancel', (_event, turnId: string) =>
     backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}/cancel`, {
       method: 'POST',
       headers: agentHeaders(),
-    }));
+    }).then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:approvals:resolve', (
     _event,
     approvalId: string,
@@ -417,14 +447,14 @@ function registerIpc(): void {
       method: 'POST',
       headers: agentHeaders(true),
       body: JSON.stringify({ decision, scopedPermission: scopedPermission ?? null }),
-    }));
+    }).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/complete`
       + `?${new URLSearchParams({ workspaceId })}`, {
       method: 'POST',
       headers: agentHeaders(true),
       body: JSON.stringify({ notes: notes ?? null }),
-    }));
+    }).then((completion) => parseAgentCompletion(completion)));
   ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number) =>
     startAgentSubscription(event.sender, taskId, after));
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
@@ -1195,7 +1225,11 @@ app.on('ready', async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
-app.on('before-quit', killBackend);
+app.on('before-quit', () => {
+  // Streams read from the backend, so they stop before it does.
+  stopAllAgentSubscriptions();
+  killBackend();
+});
 app.on('activate', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.focus();

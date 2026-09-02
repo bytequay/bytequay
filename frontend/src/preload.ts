@@ -219,6 +219,7 @@ const bridge: Bridge = {
   clearRecent: () => ipcRenderer.invoke('recent:clear'),
   clearRecentRow: id => ipcRenderer.invoke('recent:clear-row', id),
 
+  isDevelopmentBuild: () => ipcRenderer.invoke('app:is-development'),
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),
   getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),

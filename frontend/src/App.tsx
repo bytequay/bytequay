@@ -40,6 +40,7 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
   workspaceIssueRoute,
+  workspaceAgentTaskRoute,
   workspaceLocationFromRoute,
   workspacePullRequestRoute,
   workspaceRoute,
@@ -67,6 +68,8 @@ export default function App() {
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
+  const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
+  const [developmentBuild, setDevelopmentBuild] = useState(false);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -108,6 +111,7 @@ export default function App() {
     const stopBrowser = window.bridge.onInAppOpenRequest(({ url }) => setBrowserUrl(url));
     const stopFullScreen = window.bridge.onFullScreenChange(setFullScreen);
     void window.bridge.getFullScreen().then(setFullScreen);
+    void window.bridge.isDevelopmentBuild().then(setDevelopmentBuild);
     return () => {
       stopBrowser();
       stopFullScreen();
@@ -124,6 +128,7 @@ export default function App() {
         updateWorkspace(null);
         setInitialWorkspacePrNumber(null);
         setInitialIssueNumber(null);
+        setInitialAgentTaskId(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
         setInitialPr(pullRequest ?? undefined);
         setPage(pullRequest ? 'pulls' : pageFromRoute(window.location.hash));
@@ -135,6 +140,7 @@ export default function App() {
       setWorkspaceTab(workspaceLocation.tab ?? 'home');
       setInitialWorkspacePrNumber(workspaceLocation.pullRequestNumber);
       setInitialIssueNumber(workspaceLocation.issueNumber);
+      setInitialAgentTaskId(workspaceLocation.agentTaskId);
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
@@ -147,6 +153,7 @@ export default function App() {
             setWorkspaceTab('home');
             setInitialWorkspacePrNumber(null);
             setInitialIssueNumber(null);
+            setInitialAgentTaskId(null);
             replaceCurrentRoute('#/workspaces');
           }
         });
@@ -214,6 +221,15 @@ export default function App() {
   const selectWorkspacePullRequest = useCallback((number: number, mode: NavigationMode) => {
     const current = workspaceRef.current;
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
+  }, [navigateTo]);
+
+  // Agent tasks are a development-only preview until the surface is real.
+  const selectAgentTask = useCallback((taskId: string | null, mode: NavigationMode) => {
+    const current = workspaceRef.current;
+    if (!current) return;
+    navigateTo(taskId === null
+      ? workspaceRoute(current.id, 'tasks')
+      : workspaceAgentTaskRoute(current.id, taskId), mode);
   }, [navigateTo]);
 
   const selectWorkspaceIssue = useCallback((number: number, mode: NavigationMode) => {
@@ -332,8 +348,11 @@ export default function App() {
             onWorkspaceChanged={updateWorkspace}
             initialPullRequestNumber={initialWorkspacePrNumber}
             initialIssueNumber={initialIssueNumber}
+            initialAgentTaskId={initialAgentTaskId}
+            developmentBuild={developmentBuild}
             browserOpen={browserUrl !== null}
             onSelectPullRequest={selectWorkspacePullRequest}
+            onSelectAgentTask={selectAgentTask}
             onSelectIssue={selectWorkspaceIssue}
             onRemoved={() => { window.location.hash = '#/workspaces'; }}
           />

@@ -1298,7 +1298,7 @@ Primary files:
 - `frontend/src/preload.ts`
 - a small `frontend/src/agents/sse.ts` only if extraction is needed for testing
 
-## [ ] CP6 — Build the fixture-driven text-task developer preview
+## [x] CP6 — Build the fixture-driven text-task developer preview
 
 **Owner:** desktop owner
 
@@ -1316,50 +1316,50 @@ behavioral contract.
 
 Implementation:
 
-- [ ] Add `#/workspaces/{workspaceId}/tasks/agent/{taskId}` to the existing hash
+- [x] Add `#/workspaces/{workspaceId}/tasks/agent/{taskId}` to the existing hash
   route model; route state, not component memory, owns the selected task.
-- [ ] Keep cherry-pick tasks unchanged and add a separate **Agent tasks**
+- [x] Keep cherry-pick tasks unchanged and add a separate **Agent tasks**
   section to the existing Tasks screen.
-- [ ] Add a preview-only New agent task action using the route workspace, the
+- [x] Add a preview-only New agent task action using the route workspace, the
   fixed Codex lane, and backend/workspace defaults. Do not add the provider,
   model, effort, or permission picker before CP7.
-- [ ] Add one `agents/model.ts` reducer for task/turn state, ordered events,
+- [x] Add one `agents/model.ts` reducer for task/turn state, ordered events,
   last sequence, connection state, projection, and composer state.
-- [ ] Drive the screen and reducer through a typed mock bridge using the valid
+- [x] Drive the screen and reducer through a typed mock bridge using the valid
   monotonic CP2 fixture plus separate duplicate/gap/reconnect cases.
-- [ ] Simulate paged replay followed by subscription after the highest applied
+- [x] Simulate paged replay followed by subscription after the highest applied
   sequence.
-- [ ] Ignore simulated duplicate/older sequence and fill a simulated gap before
+- [x] Ignore simulated duplicate/older sequence and fill a simulated gap before
   projecting newer events.
-- [ ] Render durable user messages, partial/final assistant messages,
+- [x] Render durable user messages, partial/final assistant messages,
   lifecycle, and errors.
-- [ ] Render plan, command/output, file, tool, approval, and usage fixtures as
+- [x] Render plan, command/output, file, tool, approval, and usage fixtures as
   simple typed rows so the preview loses no information the shell prints.
-- [ ] Render only the product-permitted subset of provider-offered approval
+- [x] Render only the product-permitted subset of provider-offered approval
   decisions; do not reduce the contract to a generic boolean, and fail closed
   when that subset is empty.
-- [ ] Anchor a text composer with Send, Cancel, connection state, and idle-only
+- [x] Anchor a text composer with Send, Cancel, connection state, and idle-only
   Complete.
-- [ ] Have preview controls emit the exact typed bridge commands and one stable
+- [x] Have preview controls emit the exact typed bridge commands and one stable
   idempotency key, while transcript state still waits for the fixture's
   durable user-message event instead of inventing history.
-- [ ] Navigating away unsubscribes the mock renderer subscription only.
+- [x] Navigating away unsubscribes the mock renderer subscription only.
   Reopening replays the simulated still-running task.
-- [ ] Keep the preview behind the CP0 development gate and clearly label it as
+- [x] Keep the preview behind the CP0 development gate and clearly label it as
   fixture data; it must never connect to a real provider or claim durability.
 
 Exit gate:
 
-- [ ] Route tests cover create/open/deep-link/reload/back/forward.
-- [ ] Reducer tests cover replay/live overlap, duplicate/gap handling,
+- [x] Route tests cover create/open/deep-link/reload/back/forward.
+- [x] Reducer tests cover replay/live overlap, duplicate/gap handling,
   authoritative final replacement, approval resolution, cancellation, and
   terminal errors.
-- [ ] Static UI tests cover task list, task detail, composer, reconnecting, and
+- [x] Static UI tests cover task list, task detail, composer, reconnecting, and
   error states.
-- [ ] A mock-bridge journey covers create/open, Send command, streamed fixture,
+- [x] A mock-bridge journey covers create/open, Send command, streamed fixture,
   simulated reconnect/reload, Cancel command, and Complete command.
-- [ ] No live-backend or provider acceptance is claimed; CP7 owns that gate.
-- [ ] No new state/UI/CSS framework or generic task model is introduced.
+- [x] No live-backend or provider acceptance is claimed; CP7 owns that gate.
+- [x] No new state/UI/CSS framework or generic task model is introduced.
 
 Initial frontend shape:
 

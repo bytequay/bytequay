@@ -396,6 +396,8 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
+  // The renderer has no environment of its own, so the one dev signal comes from here.
+  ipcMain.handle('app:is-development', () => !app.isPackaged);
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));

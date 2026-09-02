@@ -110,23 +110,34 @@ export function workspacePullRequestRoute(workspaceId: string, pullRequestNumber
   return `${workspaceRoute(workspaceId, 'prs')}/${pullRequestNumber}`;
 }
 
+/** The route owns which agent task is open, so a reload or back/forward reopens the same one. */
+export function workspaceAgentTaskRoute(workspaceId: string, taskId: string): string {
+  return `${workspaceRoute(workspaceId, 'tasks')}/agent/${encodeURIComponent(taskId)}`;
+}
+
 export function workspaceLocationFromRoute(hash: string): {
   workspaceId: string;
   tab: WorkspaceTab | null;
   pullRequestNumber: number | null;
   issueNumber: number | null;
+  agentTaskId: string | null;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|settings)(?:\/(\d+))?)?$/.exec(hash);
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|settings)(?:\/(?:agent\/([^/]+)|(\d+)))?)?$/
+    .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
-  const number = match[3] ? Number(match[3]) : null;
+  const agentTaskId = match[3];
+  const number = match[4] ? Number(match[4]) : null;
   if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
+  // Only the tasks tab owns an agent task, so `prs/agent/x` is not a route at all.
+  if (agentTaskId !== undefined && tab !== 'tasks') return null;
   try {
     return {
       workspaceId: decodeURIComponent(match[1]),
       tab: tab ?? null,
       pullRequestNumber: tab === 'prs' ? number : null,
       issueNumber: tab === 'issues' ? number : null,
+      agentTaskId: agentTaskId === undefined ? null : decodeURIComponent(agentTaskId),
     };
   }
   catch {

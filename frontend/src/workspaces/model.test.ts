@@ -24,6 +24,7 @@ import {
   workspaceMetadataState,
   workspacePhaseLabel,
   workspacePullRequestRoute,
+  workspaceAgentTaskRoute,
   workspaceRoute,
   workspaceSyncState,
 } from './model';
@@ -98,6 +99,7 @@ describe('workspace model', () => {
       tab: 'issues',
       pullRequestNumber: null,
       issueNumber: 42,
+      agentTaskId: null,
     });
 
     const pullRequestRoute = workspacePullRequestRoute('workspace/id', 7);
@@ -107,7 +109,41 @@ describe('workspace model', () => {
       tab: 'prs',
       pullRequestNumber: 7,
       issueNumber: null,
+      agentTaskId: null,
     });
+  });
+
+  it('round-trips an agent task through the renderer route', () => {
+    const route = workspaceAgentTaskRoute('workspace/id', 'task/1');
+    expect(route).toBe('#/workspaces/workspace%2Fid/tasks/agent/task%2F1');
+
+    // The route owns the open task, so a reload or back/forward reopens the same one.
+    expect(workspaceLocationFromRoute(route)).toEqual({
+      workspaceId: 'workspace/id',
+      tab: 'tasks',
+      pullRequestNumber: null,
+      issueNumber: null,
+      agentTaskId: 'task/1',
+    });
+
+    // Only the tasks tab owns an agent task.
+    expect(workspaceLocationFromRoute('#/workspaces/w/prs/agent/task-1')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/tasks')?.agentTaskId).toBeNull();
+  });
+
+  it('walks create, open, back and forward without carrying a stale task', () => {
+    // What the history stack holds after opening a task from the list and going back.
+    const history = [
+      workspaceRoute('w', 'tasks'),
+      workspaceAgentTaskRoute('w', 'task-1'),
+      workspaceRoute('w', 'tasks'),
+    ];
+    expect(history.map(hash => workspaceLocationFromRoute(hash)?.agentTaskId))
+      .toEqual([null, 'task-1', null]);
+
+    // Forward to a second task, then across tabs: leaving tasks clears the open task.
+    expect(workspaceLocationFromRoute(workspaceAgentTaskRoute('w', 'task-2'))?.agentTaskId).toBe('task-2');
+    expect(workspaceLocationFromRoute(workspaceRoute('w', 'prs'))?.agentTaskId).toBeNull();
   });
 
   it('round-trips every workspace tab through the renderer route', () => {
@@ -118,6 +154,7 @@ describe('workspace model', () => {
         tab: tab === 'home' ? null : tab,
         pullRequestNumber: null,
         issueNumber: null,
+        agentTaskId: null,
       });
     }
   });

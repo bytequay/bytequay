@@ -1,0 +1,254 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.agt-section {
+  margin-top: 26px;
+}
+
+.agt-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.agt-head h2 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.agt-sub {
+  font-size: 12px;
+  color: #57606a;
+}
+
+.agt-spacer {
+  flex: 1;
+}
+
+/* The preview must always look like fixture data, never like a live task. */
+.agt-fixture-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9a6700;
+  background: #fff8c5;
+  border: 1px solid #eed888;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.agt-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.agt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid #eaeef2;
+  background: #ffffff;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agt-row:last-child {
+  border-bottom: 0;
+}
+
+.agt-row:hover {
+  background: #f6f8fa;
+}
+
+.agt-row.is-open {
+  background: #ddf4ff;
+}
+
+.agt-row-title {
+  font-weight: 600;
+  color: #24292f;
+}
+
+.agt-row-meta {
+  font-size: 11.5px;
+  color: #57606a;
+}
+
+.agt-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: #8c959f;
+}
+
+.agt-dot.is-running {
+  background: #bf8700;
+}
+
+.agt-dot.is-completed {
+  background: #1a7f37;
+}
+
+.agt-dot.is-failed {
+  background: #cf222e;
+}
+
+.agt-empty,
+.agt-loading {
+  padding: 14px 12px;
+  font-size: 12.5px;
+  color: #57606a;
+}
+
+.agt-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agt-screen-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agt-back {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 12px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.agt-conn {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #d0d7de;
+  background: #f6f8fa;
+  color: #57606a;
+}
+
+.agt-conn.is-reconnecting {
+  border-color: #eed888;
+  background: #fff8c5;
+  color: #9a6700;
+}
+
+.agt-conn.is-failed {
+  border-color: rgba(207, 34, 46, 0.35);
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+.agt-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agt-item {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.agt-item__kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #57606a;
+  margin-bottom: 4px;
+}
+
+.agt-item.is-user {
+  background: #f6f8fa;
+}
+
+.agt-item.is-error {
+  border-color: rgba(207, 34, 46, 0.35);
+  background: #ffebe9;
+}
+
+.agt-pre {
+  margin: 0;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agt-decisions {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.agt-decision {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.agt-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.agt-composer textarea {
+  flex: 1;
+  border: 0;
+  outline: none;
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+  min-height: 38px;
+}
+
+.agt-action {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.agt-action:disabled {
+  color: #8c959f;
+  cursor: not-allowed;
+}

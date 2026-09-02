@@ -106,6 +106,8 @@ describe('watched repository workspace UI', () => {
       onWorkspaceChanged: () => {},
       initialPullRequestNumber: null as number | null,
       initialIssueNumber: null as number | null,
+      initialAgentTaskId: null as string | null,
+      onSelectAgentTask: () => {},
       onSelectPullRequest: () => {},
       onSelectIssue: () => {},
       onRemoved: () => {},

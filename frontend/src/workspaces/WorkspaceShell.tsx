@@ -11,7 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import AgentTaskScreen from '../agents/AgentTaskScreen';
+import AgentTasksView from '../agents/AgentTasksView';
+import { createPreviewBridge } from '../agents/preview';
 import Avatar from '../Avatar';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
@@ -31,18 +34,24 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, browserOpen = false, onSelectPullRequest, onSelectIssue, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, developmentBuild = false, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue, onRemoved }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   initialPullRequestNumber: number | null;
   initialIssueNumber: number | null;
+  /** Route-owned: which agent task is open, so a reload reopens the same one. */
+  initialAgentTaskId: string | null;
+  developmentBuild?: boolean;
   browserOpen?: boolean;
+  onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
   onRemoved: () => void;
 }) {
+  // Fixture-backed and created once: the preview must never reach a real provider.
+  const agentPreviewBridge = useMemo(() => createPreviewBridge(workspace.id), [workspace.id]);
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
@@ -113,6 +122,18 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     />;
   }
   if (tab === 'tasks') {
+    if (developmentBuild && initialAgentTaskId !== null) {
+      return (
+        <div className="ws-tab-page">
+          <AgentTaskScreen
+            workspaceId={workspace.id}
+            taskId={initialAgentTaskId}
+            bridge={agentPreviewBridge}
+            onBack={() => onSelectAgentTask(null, 'push')}
+          />
+        </div>
+      );
+    }
     return (
       <div className="ws-tab-page">
         <WorkspaceTasks
@@ -127,6 +148,13 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
             onSelectTab('commits');
           }}
         />
+        {developmentBuild && (
+          <AgentTasksView
+            workspaceId={workspace.id}
+            bridge={agentPreviewBridge}
+            onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+          />
+        )}
       </div>
     );
   }

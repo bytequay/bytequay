@@ -1156,6 +1156,8 @@ export type Bridge = {
   clearRecent: () => Promise<void>;
   clearRecentRow: (id: string) => Promise<void>;
 
+  /** True only in an unpackaged build; gates surfaces that must never ship. */
+  isDevelopmentBuild: () => Promise<boolean>;
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;

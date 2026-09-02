@@ -1018,13 +1018,20 @@ Implementation:
 - [x] Surface subagent activity. Every thread in a task's process belongs to
   that task, and turn completion is gated on the root thread so a subagent
   finishing first does not end the task's turn.
-- [~] Apply canonical worktree roots, workspace-write sandbox, model/effort
-  snapshot, and the reviewed Auto approval behavior. Worktree roots, sandbox and
-  the model/effort snapshot are applied; the snapshot now reaches the provider
-  because `AgentTurnCommand` carries it, which it previously did not, so a
-  selected model was silently dropped for Codex. Approval policy and sandbox are
-  still thread-level constants rather than per-turn values, which is accurate
-  while the Codex lane advertises one permission policy.
+- [x] Apply canonical worktree roots, workspace-write sandbox, model/effort
+  snapshot, and the reviewed Auto approval behavior. The snapshot reaches the
+  provider because `AgentTurnCommand` carries it, which it previously did not, so
+  a selected model was silently dropped for Codex.
+
+  Approval policy and sandbox are sent once per thread rather than per turn, and
+  that is equivalent rather than partial: `AgentSandboxPolicy` has exactly one
+  constant and the Codex lane advertises exactly one permission policy, so a
+  per-turn value could not differ from the thread's. `turn/start` does accept
+  `approvalPolicy` and `sandboxPolicy`, so the change is available the moment a
+  second value of either exists — until then it would plumb two compile-time
+  constants through four modules. What was genuinely missing was coverage: the
+  driver fixture never read `sandbox` at all, so nothing asserted which one is
+  sent. It does now.
 - [x] Adopt the CP1-proven isolated subprocess environment, pre-turn
   child-capable launch profile plus the skill-origin, hook, config-layer
   rule-source, and managed-requirements guards in the production runtime path.
@@ -1124,11 +1131,14 @@ Exit gate:
 - [x] A second turn resumes the same root only after its process is relaunched
   in the same worktree, under the same task owner
   (`relaunchesTheAppServerInTheSameWorktreeOnResume`).
-- [~] A two-turn driver test changes model/effort defaults between
+- [x] A two-turn driver test changes model/effort defaults between
   turns and proves each App Server `turn/start` receives exactly the immutable
-  CP2 snapshot stored for that turn. Permission and sandbox are not varied,
-  because the Codex lane advertises a single permission policy and both are sent
-  once at thread start.
+  CP2 snapshot stored for that turn
+  (`appliesEachTurnsOwnSettingsSnapshotToTurnStart`). Permission and sandbox are
+  not varied because neither can vary — both enums are single-valued — but both
+  are asserted per turn at the layer that builds the snapshot, by
+  `preservesEachTurnsEffectiveSettingsAndOpaqueAttachmentReferences`, and the
+  sandbox actually sent is now asserted at the driver.
 - [x] Root completion while an item or background terminal runs keeps Send and
   Complete blocked. The retained claim is what blocks both: starting a turn is
   refused (`keepsTheWorktreeClaimWhenAProviderCannotBeShownStopped`) and so is
@@ -1144,10 +1154,26 @@ Exit gate:
   bound expires (`terminatesAYieldedCommandWhenTheTurnIsCancelled`). Only the
   first completion report starts the wait, because an interrupt and a natural
   finish can both arrive and the second would terminate a process twice.
-- [~] Backend restart proves the old owned process tree stopped, verified
-  against a live Codex App Server. The recovery-required half is coarser than
-  designed: an unverifiable tree blocks the whole agent serving gate rather than
-  one task's mutation claim, because no launch is bound to a task claim yet.
+- [x] Backend restart proves the old owned process tree stopped, verified
+  against a live Codex App Server, and an unverifiable tree now blocks one task
+  rather than everything. An App Server launch names its task, so an unverifiable
+  one holds that task's worktree mutation claim under a new
+  `WorktreeMutationClaim.Kind.RECOVERY` keyed by the launch id, and the serving
+  gate still opens for every other task
+  (`blocksOnlyTheTaskThatLeftAnUnverifiableProcess`).
+
+  Classification runs before any write, because a task can leak more than one
+  launch and hold only one claim, so deciding per launch as it is read would
+  release a block another launch still needs. The owner comes from the launch
+  marker when it survived and from the durable `agent_process_launch` row when it
+  did not — which is the case that most needs attributing, since a missing marker
+  is itself a reason to be unverifiable.
+
+  What still blocks globally, deliberately: a Claude turn names a turn rather than
+  a task, a CLI probe names neither and runs in the backend's own directory, and a
+  task that is gone or already terminal cannot hold a claim. Those leave something
+  writing somewhere nobody can name, so nothing may be served
+  (`keepsBlockingEverythingWhenAnUnverifiableProcessNamesNoLiveTask`).
 - [x] Missing/corrupt process receipts fail closed. Marker loss, an
   uninspectable process, an unrecognized executable, a committed launch whose
   marker vanished, and process facts that could not have followed the committed

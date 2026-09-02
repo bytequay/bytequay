@@ -34,9 +34,26 @@ public record WorktreeMutationClaim(Kind kind, String ownerId, Instant acquiredA
         return new WorktreeMutationClaim(Kind.TURN, turnId.toString(), acquiredAt);
     }
 
+    /**
+     * Holds a task's worktree because a process it launched could not be shown stopped.
+     *
+     * <p>Keyed by the launch, so the block is released by the launch that caused it rather than by
+     * whatever happens to run next.
+     *
+     * @param launchId the unresolved launch
+     * @param acquiredAt when the block was taken
+     * @return the claim
+     */
+    public static WorktreeMutationClaim recovery(String launchId, Instant acquiredAt)
+    {
+        checkNotBlank(launchId, "launchId");
+        return new WorktreeMutationClaim(Kind.RECOVERY, launchId, acquiredAt);
+    }
+
     public enum Kind
     {
         TURN,
-        COMPLETION
+        COMPLETION,
+        RECOVERY
     }
 }

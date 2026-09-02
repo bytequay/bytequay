@@ -126,6 +126,10 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO);
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
+        // Sent once per thread rather than per turn, which is equivalent while the lane advertises
+        // one permission policy and one sandbox policy.
+        assertThat(supervisor.servers())
+                .allSatisfy(server -> assertThat(server.sandboxes()).containsExactly("workspace-write"));
         // Declared for thread/backgroundTerminals/list, which is experimental and is the only
         // inventory that can prove a thread owns no live process.
         assertThat(supervisor.servers()).allSatisfy(
@@ -1083,6 +1087,12 @@ class TestCodexCliDriver
         private final Supplier<String> skills;
         private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
+        private final List<String> sandboxes = new CopyOnWriteArrayList<>();
+
+        private List<String> sandboxes()
+        {
+            return sandboxes;
+        }
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final List<String> terminated = new CopyOnWriteArrayList<>();
         private final List<String> backgroundTerminalThreads = new CopyOnWriteArrayList<>();
@@ -1203,6 +1213,7 @@ class TestCodexCliDriver
                 case "initialized" -> {}
                 case "thread/start" -> {
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
+                    sandboxes.add(message.path("params").path("sandbox").asText());
                     if (failThreadStart) {
                         emit("{\"id\":" + id + ",\"error\":{\"code\":-32602,\"message\":\"unsupported protocol\"}}");
                     }
@@ -1212,6 +1223,7 @@ class TestCodexCliDriver
                 }
                 case "thread/resume" -> {
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
+                    sandboxes.add(message.path("params").path("sandbox").asText());
                     resumes.incrementAndGet();
                     respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
                 }

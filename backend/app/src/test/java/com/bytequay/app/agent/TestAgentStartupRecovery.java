@@ -14,6 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
@@ -23,23 +24,34 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentMetricsService;
+import com.bytequay.agent.core.AgentProcessLaunch;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
+import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -69,7 +81,8 @@ class TestAgentStartupRecovery
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate)
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
                 .afterSingletonsInstantiated();
 
         InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
@@ -97,7 +110,8 @@ class TestAgentStartupRecovery
 
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate)
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -118,7 +132,8 @@ class TestAgentStartupRecovery
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
         new AgentStartupRecovery(
-                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate)
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -139,13 +154,106 @@ class TestAgentStartupRecovery
                 .thenReturn(ImmutableList.of(stopped("clean"), unverifiable("blocked")));
 
         new AgentStartupRecovery(
-                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate)
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
                 .afterSingletonsInstantiated();
 
         // An old process may still be writing to a worktree, so no agent operation may be served.
         assertThat(servingGate.isReady()).isFalse();
         verify(supervisor).acknowledge("clean");
         verify(supervisor, never()).acknowledge("blocked");
+    }
+
+    @Test
+    void blocksOnlyTheTaskThatLeftAnUnverifiableProcess()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                stopped("clean"), unverifiableFor("leaked", taskId.toString())));
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
+                .afterSingletonsInstantiated();
+
+        // The launch names one task, so only that task's worktree is held and every other task can
+        // still be served.
+        assertThat(servingGate.isReady()).isTrue();
+        ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+        verify(taskStore).update(held.capture());
+        assertThat(held.getValue().worktreeMutationClaim().orElseThrow().kind())
+                .isEqualTo(WorktreeMutationClaim.Kind.RECOVERY);
+        assertThat(held.getValue().worktreeMutationClaim().orElseThrow().ownerId()).isEqualTo("leaked");
+        // The marker is kept for inspection, so the block survives another restart.
+        verify(supervisor).acknowledge("clean");
+        verify(supervisor, never()).acknowledge("leaked");
+    }
+
+    @Test
+    void keepsBlockingEverythingWhenAnUnverifiableProcessNamesNoLiveTask()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.empty());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses())
+                .thenReturn(ImmutableList.of(unverifiableFor("orphan", taskId.toString())));
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, FIXED_CLOCK)
+                .afterSingletonsInstantiated();
+
+        // Nothing can be pinned to a worktree, so something may still be writing somewhere nobody
+        // can name and no agent operation may be served.
+        assertThat(servingGate.isReady()).isFalse();
+        verify(taskStore, never()).update(any());
+    }
+
+    private static AgentTask openTask(TaskId taskId)
+    {
+        return AgentTask.created(
+                taskId,
+                Optional.empty(),
+                false,
+                "Recovered task",
+                AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-recovery-" + taskId),
+                AgentPermissionPolicy.AUTO,
+                Instant.parse("2026-09-01T00:00:00Z"));
+    }
+
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-09-02T00:00:00Z"), ZoneOffset.UTC);
+
+    private static AgentProcessLaunchStore launchStore(AgentProcessLaunch... rows)
+    {
+        AgentProcessLaunchStore store = mock(AgentProcessLaunchStore.class);
+        when(store.list()).thenReturn(ImmutableList.copyOf(rows));
+        return store;
+    }
+
+    private static OwnedProcessRecovery unverifiableFor(String launchId, String taskId)
+    {
+        return new OwnedProcessRecovery(
+                launchId,
+                Optional.of(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, taskId)),
+                Optional.empty(),
+                OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                "unverifiable");
     }
 
     private static OwnedProcessRecovery stopped(String launchId)

@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList } from './AgentTasksView';
@@ -41,6 +43,30 @@ function body(state: Partial<AgentTaskState>): string {
     />);
 }
 
+const css = readFileSync(resolve(process.cwd(), 'src/css/agents.css'), 'utf8');
+
+/** The declarations of one exact selector, as `property: value` strings. */
+function declarations(selector: string): string[] {
+  const start = css.indexOf(`${selector} {`);
+  expect(start, `${selector} is missing from agents.css`).toBeGreaterThan(-1);
+  return css.slice(css.indexOf('{', start) + 1, css.indexOf('}', start))
+    .split(';')
+    .map(declaration => declaration.replace(/\/\*[^]*?\*\//g, '').trim())
+    .filter(declaration => declaration !== '');
+}
+
+describe('agent task layout', () => {
+  it('scrolls the transcript rather than the screen, so the composer stays reachable', () => {
+    // A long transcript must move under a fixed header and composer, not push them off-screen.
+    expect(declarations('.agt-screen')).toContain('height: 100%');
+    expect(declarations('.agt-screen')).toContain('overflow: hidden');
+    expect(declarations('.agt-transcript')).toContain('overflow-y: auto');
+    expect(declarations('.agt-transcript')).toContain('flex: 1');
+    // A flex child will not shrink below its content without this, which re-breaks the scroll.
+    expect(declarations('.agt-transcript')).toContain('min-height: 0');
+  });
+});
+
 describe('agent task list', () => {
   it('separates open from finished and never hides that the data is fixture data', () => {
     const markup = renderToStaticMarkup(
@@ -52,8 +78,10 @@ describe('agent task list', () => {
         onOpenTask={() => {}}
       />);
 
-    expect(markup).toContain('1 open');
-    expect(markup).toContain('1 finished');
+    // Asserting the separator too: a JSX text node does not interpret \\u escapes, so a
+    // hand-written one renders literally and only an exact match catches it.
+    expect(markup).toContain('1 open \u00b7 1 finished');
+    expect(markup).not.toContain('u00b7');
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('New agent task');
     // The preview must never read as a live task.
@@ -63,7 +91,7 @@ describe('agent task list', () => {
   it('shows loading, empty and error states rather than an unexplained blank list', () => {
     expect(renderToStaticMarkup(
       <AgentTaskList tasks={[]} loading error={null} onCreate={() => {}} onOpenTask={() => {}} />))
-      .toContain('Loading agent tasks');
+      .toContain('Loading agent tasks\u2026');
     expect(renderToStaticMarkup(
       <AgentTaskList tasks={[]} loading={false} error={null} onCreate={() => {}} onOpenTask={() => {}} />))
       .toContain('No agent tasks yet');

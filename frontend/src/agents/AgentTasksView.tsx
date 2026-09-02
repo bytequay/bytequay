@@ -104,7 +104,7 @@ export function AgentTaskList({ tasks, loading, error, onCreate, onOpenTask }: {
     <div className="agt-section">
       <div className="agt-head">
         <h2>Agent tasks</h2>
-        <span className="agt-sub">{openCount} open \u00b7 {tasks.length - openCount} finished</span>
+        <span className="agt-sub">{openCount} open · {tasks.length - openCount} finished</span>
         <span className="agt-fixture-badge">Fixture data</span>
         <span className="agt-spacer" />
         <button type="button" className="agt-action" onClick={onCreate}>New agent task</button>
@@ -113,7 +113,7 @@ export function AgentTaskList({ tasks, loading, error, onCreate, onOpenTask }: {
       {error !== null && <div className="cmt-error" role="alert">{error}</div>}
 
       <div className="agt-list">
-        {loading && <div className="agt-loading">Loading agent tasks\u2026</div>}
+        {loading && <div className="agt-loading">Loading agent tasks…</div>}
         {!loading && tasks.length === 0 && (
           <div className="agt-empty">
             No agent tasks yet. This preview reads checked-in fixture data and never runs an agent.
@@ -129,7 +129,7 @@ export function AgentTaskList({ tasks, loading, error, onCreate, onOpenTask }: {
             <span className={`agt-dot ${dotClass(task.state)}`} />
             <span className="agt-row-title">{task.title}</span>
             <span className="agt-spacer" />
-            <span className="agt-row-meta">{task.laneId} \u00b7 {task.state}</span>
+            <span className="agt-row-meta">{task.laneId} · {task.state}</span>
           </button>
         ))}
       </div>

@@ -123,15 +123,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   }
   if (tab === 'tasks') {
     if (developmentBuild && initialAgentTaskId !== null) {
+      // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
       return (
-        <div className="ws-tab-page">
-          <AgentTaskScreen
-            workspaceId={workspace.id}
-            taskId={initialAgentTaskId}
-            bridge={agentPreviewBridge}
-            onBack={() => onSelectAgentTask(null, 'push')}
-          />
-        </div>
+        <AgentTaskScreen
+          workspaceId={workspace.id}
+          taskId={initialAgentTaskId}
+          bridge={agentPreviewBridge}
+          onBack={() => onSelectAgentTask(null, 'push')}
+        />
       );
     }
     return (

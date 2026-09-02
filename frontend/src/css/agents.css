@@ -121,10 +121,19 @@
   color: #57606a;
 }
 
+/*
+ * The screen owns the tab height itself rather than sitting inside a scrolling page, so the
+ * header, connection banner and composer stay put and only the transcript moves. A composer that
+ * scrolls away with a long transcript is a composer the user cannot reach.
+ */
 .agt-screen {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 26px 32px;
+  overflow: hidden;
 }
 
 .agt-screen-head {
@@ -167,6 +176,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  /* Without this a flex child refuses to shrink below its content and scrolls the page instead. */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .agt-item {

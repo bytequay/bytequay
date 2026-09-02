@@ -49,6 +49,8 @@ function body(state: Partial<AgentTaskState>): string {
   return renderToStaticMarkup(
     <AgentTaskBody
       state={{ ...initialAgentTaskState(), ...state }}
+      models={MODELS}
+      onSelectModel={() => {}}
       onBack={() => {}}
       onSend={() => {}}
       onCancel={() => {}}
@@ -175,6 +177,29 @@ describe('agent task detail', () => {
     expect(idle).toMatch(/<button[^>]*disabled[^>]*>Cancel</);
     // A disabled Complete has to say why it is disabled.
     expect(body({ connection: 'open' })).toContain('Available when the task is idle');
+  });
+
+  it('names the model and policy the next turn will use, not the raw slug', () => {
+    const markup = body({
+      task: task('t-1', 'OPEN', 'x'),
+      connection: 'open',
+      effective: {
+        model: 'gpt-5.6-codex',
+        effort: 'high',
+        permissionPolicy: 'AUTO',
+        sandboxPolicy: 'WORKSPACE_WRITE',
+        maximumRuntimeMillis: 3600000,
+        attachments: [],
+      },
+    });
+
+    expect(markup).toContain('Next turn: 5.6 Terra');
+    expect(markup).toContain('high');
+    // The backend policy enum is shown as prose; the enum name is not user-facing copy.
+    expect(markup).toContain('Auto');
+    expect(markup).not.toContain('AUTO');
+    // A change lands on the next turn, so the wording must not promise it affects this one.
+    expect(markup).not.toContain('this turn');
   });
 
   it('says Connecting in the composer until the stream is open', () => {

@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useReducer } from 'react';
+import React, { useCallback, useEffect, useReducer, useState } from 'react';
+import { ModelChip } from '../settings/SettingsShell';
+import { INTERACTIVE_LANE_ID } from '../settings/model';
 import '../css/agents.css';
 import type { AgentBridgePort } from './preview';
 import {
@@ -27,13 +29,15 @@ import {
   type AgentRow,
   type AgentTaskState,
 } from './model';
-import type { AgentApprovalDecision } from '../types';
+import type { AgentApprovalDecision, ModelOptionDto } from '../types';
 
 export interface AgentTaskScreenProps {
   workspaceId: string;
   taskId: string;
   bridge: AgentBridgePort;
   onBack: () => void;
+  /** Fixed at creation; the screen reads its catalog, it does not offer a choice. */
+  laneId?: string;
 }
 
 function stateClass(state: string): string {
@@ -151,6 +155,17 @@ export function AgentRowView({ row, onDecide }: {
   }
 }
 
+/** The catalog's display name for a model id; the raw slug is never shown as a label. */
+function modelName(models: ModelOptionDto[], id: string | null): string {
+  if (id === null || id === '') return 'No model';
+  return models.find((model) => model.id === id)?.name ?? id;
+}
+
+/** Backend policy names are enum values, not prose, and not provider wire strings. */
+function permissionLabel(policy: string): string {
+  return policy === 'AUTO' ? 'Auto' : policy;
+}
+
 const CONNECTION_TEXT: Record<string, string> = {
   connecting: 'Connecting — loading task history…',
   open: 'Live',
@@ -177,14 +192,18 @@ function connectionText(state: AgentTaskState): string {
  * The effectful wrapper below owns the stream; this owns nothing, which is what makes a
  * reconnecting or errored screen testable without driving a real subscription to produce it.
  */
-export function AgentTaskBody({ state, onBack, onSend, onCancel, onComplete, onDecide, onCompose }: {
+export function AgentTaskBody({
+  state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
+}: {
   state: AgentTaskState;
+  models: ModelOptionDto[];
   onBack: () => void;
   onSend: () => void;
   onCancel: () => void;
   onComplete: () => void;
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
   onCompose: (text: string) => void;
+  onSelectModel: (model: string, effort: string | null) => void;
 }): React.JSX.Element {
   const rows = projectAgentRows(state.events);
   const idle = isIdle(state);
@@ -226,12 +245,33 @@ export function AgentTaskBody({ state, onBack, onSend, onCancel, onComplete, onD
           : rows.map((row) => <AgentRowView key={row.id} row={row} onDecide={onDecide} />)}
       </div>
 
+      {state.effective !== null && (
+        <div className="agt-next" role="status">
+          {/* Settings are snapshotted when a turn is accepted, so a change lands on the next one. */}
+          Next turn: {modelName(models, state.effective.model)}
+          {state.effective.effort === null ? '' : ` \u00b7 ${state.effective.effort}`}
+          {' \u00b7 '}{permissionLabel(state.effective.permissionPolicy)}
+        </div>
+      )}
+
       <div className="agt-composer">
         <textarea
           value={state.composer}
           aria-label="Message the agent"
           placeholder={state.connection === 'connecting' ? 'Connecting\u2026' : 'Message the agent'}
           onChange={(event) => onCompose(event.target.value)}
+        />
+        <span className="agt-lane" title="Permission policy for the next turn">
+          {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
+        </span>
+        <ModelChip
+          label={modelName(models, state.task?.defaults.model ?? null)}
+          detail={state.task?.defaults.effort ?? undefined}
+          disabled={models.length === 0}
+          models={models}
+          selectedModel={state.task?.defaults.model ?? ''}
+          selectedEffort={state.task?.defaults.effort ?? undefined}
+          onSelect={onSelectModel}
         />
         <button type="button" className="agt-action" onClick={onSend} disabled={!canSend(state)}>Send</button>
         {/* Cancel needs a turn to cancel; before one exists the handler falls straight out. */}
@@ -253,8 +293,10 @@ export default function AgentTaskScreen({
   taskId,
   bridge,
   onBack,
+  laneId = INTERACTIVE_LANE_ID,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
+  const [models, setModels] = useState<ModelOptionDto[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -264,6 +306,38 @@ export default function AgentTaskScreen({
       void session.then((stop) => stop());
     };
   }, [bridge, taskId, workspaceId]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const [catalog, effective] = await Promise.all([
+        bridge.getModelSettings(),
+        bridge.getEffectiveTurnSettings(taskId, workspaceId),
+      ]);
+      if (!active) return;
+      setModels(catalog.providers.find((provider) => provider.id === laneId)?.models ?? []);
+      dispatch({ type: 'settings/loaded', settings: effective });
+    })();
+    return () => { active = false; };
+  }, [bridge, laneId, taskId, workspaceId]);
+
+  const selectModel = useCallback(async (model: string, effort: string | null) => {
+    const task = state.task;
+    if (task === null) return;
+    // The response carries the bumped version; keeping the old one conflicts on the next change.
+    dispatch({
+      type: 'task/loaded',
+      task: await bridge.updateAgentTaskDefaults(taskId, workspaceId, task.version, {
+        model,
+        effort,
+        permissionPolicy: task.defaults.permissionPolicy,
+      }),
+    });
+    dispatch({
+      type: 'settings/loaded',
+      settings: await bridge.getEffectiveTurnSettings(taskId, workspaceId),
+    });
+  }, [bridge, state.task, taskId, workspaceId]);
 
   const send = useCallback(async () => {
     const message = state.composer.trim();
@@ -292,12 +366,14 @@ export default function AgentTaskScreen({
   return (
     <AgentTaskBody
       state={state}
+      models={models}
       onBack={onBack}
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
       onComplete={() => { void bridge.completeAgentTask(taskId, workspaceId); }}
       onDecide={(approvalId, decision) => { void bridge.resolveAgentApproval(approvalId, decision); }}
       onCompose={(text) => dispatch({ type: 'composer/changed', text })}
+      onSelectModel={(model, effort) => { void selectModel(model, effort); }}
     />
   );
 }

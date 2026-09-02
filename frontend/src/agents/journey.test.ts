@@ -118,6 +118,40 @@ describe('preview journey', () => {
     expect(agentIdempotencyKey(created.id, 1)).not.toBe(agentIdempotencyKey(created.id, 2));
   });
 
+  it('adopts the version each defaults write returns, so a second change is not a conflict', async () => {
+    const bridge = createPreviewBridge('workspace-1');
+    let task = await bridge.getAgentTask('task-1', 'workspace-1');
+
+    task = await bridge.updateAgentTaskDefaults('task-1', 'workspace-1', task.version, {
+      model: 'gpt-5.6-codex-mini', effort: 'medium', permissionPolicy: 'AUTO',
+    });
+    // JPA bumps @Version on write, so the response is the only source of the next expected value.
+    expect(task.version).toBe(1);
+
+    const second = await bridge.updateAgentTaskDefaults('task-1', 'workspace-1', task.version, {
+      model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO',
+    });
+    expect(second.version).toBe(2);
+
+    // Replaying a version already consumed is exactly what a stale screen would send.
+    await expect(bridge.updateAgentTaskDefaults('task-1', 'workspace-1', task.version, {
+      model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO',
+    })).rejects.toThrow('version changed');
+  });
+
+  it('reports the next turn from the persisted defaults, not from local state', async () => {
+    const bridge = createPreviewBridge('workspace-1');
+    const task = await bridge.getAgentTask('task-1', 'workspace-1');
+    await bridge.updateAgentTaskDefaults('task-1', 'workspace-1', task.version, {
+      model: 'gpt-5.6-codex-mini', effort: 'medium', permissionPolicy: 'AUTO',
+    });
+
+    const effective = await bridge.getEffectiveTurnSettings('task-1', 'workspace-1');
+    expect(effective.model).toBe('gpt-5.6-codex-mini');
+    expect(effective.effort).toBe('medium');
+    expect(effective.permissionPolicy).toBe('AUTO');
+  });
+
   it('unsubscribes on navigate away and replays the still-running task on reopen', async () => {
     const bridge = createPreviewBridge('workspace-1');
     const first = await open(bridge, 'task-1');

@@ -210,6 +210,13 @@
   color: #cf222e;
 }
 
+/* What the next turn will use, stated where the message that starts it is typed. */
+.agt-next {
+  font-size: 11.5px;
+  color: #57606a;
+  padding: 0 2px;
+}
+
 .agt-transcript {
   display: flex;
   flex-direction: column;

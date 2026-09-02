@@ -18,6 +18,7 @@ import type {
   AgentStreamConnectionState,
   AgentTaskDto,
   AgentTurnDto,
+  AgentTurnSettingsDto,
   Bridge,
 } from '../types';
 
@@ -49,6 +50,8 @@ export interface AgentTaskState {
   composer: string;
   /** True while a command is in flight, so the composer cannot send twice. */
   sending: boolean;
+  /** What the next turn would run with, read from the server rather than assembled here. */
+  effective: AgentTurnSettingsDto | null;
 }
 
 export type AgentTaskAction =
@@ -57,7 +60,8 @@ export type AgentTaskAction =
   | { type: 'events/applied'; events: AgentEventEnvelope[] }
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
-  | { type: 'composer/sending'; sending: boolean };
+  | { type: 'composer/sending'; sending: boolean }
+  | { type: 'settings/loaded'; settings: AgentTurnSettingsDto };
 
 export function initialAgentTaskState(): AgentTaskState {
   return {
@@ -71,13 +75,17 @@ export function initialAgentTaskState(): AgentTaskState {
     connectionDetail: null,
     composer: '',
     sending: false,
+    effective: null,
   };
 }
 
 export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction): AgentTaskState {
   switch (action.type) {
     case 'task/loaded':
+      // Every task response carries a fresh version; holding a stale one conflicts on the next write.
       return { ...state, task: action.task };
+    case 'settings/loaded':
+      return { ...state, effective: action.settings };
     case 'turn/changed':
       return { ...state, turn: action.turn };
     case 'connection/changed':

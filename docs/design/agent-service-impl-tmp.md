@@ -1405,10 +1405,14 @@ Implementation:
   preview-only until CP11 rather than accepting a task the product cannot yet
   render and recover at parity.
 - [x] Add Codex model selection at task creation; keep the Codex lane immutable.
-- [ ] Add supported model, effort, and permission selection for the next turn.
+- [x] Add supported model, effort, and permission selection for the next turn.
+  The Codex driver declares exactly one supported permission policy, so that
+  control states the policy rather than offering a choice of one.
 - [ ] Persist defaults and display the effective settings actually snapshotted
-  for each turn.
-- [ ] Map **Auto** through the typed backend policy; React never sends provider
+  for each turn. Defaults persist and the next turn's effective settings are
+  shown; a per-turn footer still needs a way to read a finished turn's
+  snapshot, which no route exposes today.
+- [x] Map **Auto** through the typed backend policy; React never sends provider
   wire strings.
 - [ ] Render complete typed approval cards with source, kind, reason,
   command/directory or scope, and only offered choices.

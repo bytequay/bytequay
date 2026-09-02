@@ -17,6 +17,7 @@ import eventFixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import type {
   AgentStreamMessage,
+  AgentTaskDefaultsDto,
   AgentTaskDto,
   AgentTurnDto,
   Bridge,
@@ -35,7 +36,9 @@ export type AgentBridgePort = Pick<Bridge,
   | 'resolveAgentApproval'
   | 'completeAgentTask'
   | 'subscribeAgentTask'
-  | 'getModelSettings'>;
+  | 'getModelSettings'
+  | 'updateAgentTaskDefaults'
+  | 'getEffectiveTurnSettings'>;
 
 /** Every command the preview sent, so a test can assert the exact bridge calls. */
 export interface PreviewCommand {
@@ -105,6 +108,12 @@ export function createPreviewBridge(
   const replayThrough = options.replayThrough ?? 2;
   const delivery = options.delivery ?? 'ordered';
   let turnState = 'COMPLETED';
+  let previewVersion = 0;
+  let previewDefaults: AgentTaskDefaultsDto = {
+    model: 'gpt-5.6-codex',
+    effort: 'high',
+    permissionPolicy: 'AUTO',
+  };
 
   const liveEvents = (): AgentEventEnvelope[] => {
     const live = FIXTURE_EVENTS.filter((event) => event.sequence > replayThrough);
@@ -139,7 +148,28 @@ export function createPreviewBridge(
     },
     getAgentTask: async (taskId, id) => {
       record('getAgentTask', taskId, id);
-      return previewTask(id, taskId);
+      return { ...previewTask(id, taskId), defaults: previewDefaults, version: previewVersion };
+    },
+    updateAgentTaskDefaults: async (taskId, id, expectedVersion, defaults) => {
+      record('updateAgentTaskDefaults', taskId, id, expectedVersion, defaults);
+      if (expectedVersion !== previewVersion) {
+        throw new Error(`Task version changed: ${taskId}`);
+      }
+      // The real service bumps the version on write, so a stale screen must fail the same way here.
+      previewVersion += 1;
+      previewDefaults = defaults;
+      return { ...previewTask(id, taskId), defaults, version: previewVersion };
+    },
+    getEffectiveTurnSettings: async (taskId, id) => {
+      record('getEffectiveTurnSettings', taskId, id);
+      return {
+        model: previewDefaults.model,
+        effort: previewDefaults.effort,
+        permissionPolicy: previewDefaults.permissionPolicy,
+        sandboxPolicy: 'WORKSPACE_WRITE',
+        maximumRuntimeMillis: 3600000,
+        attachments: [],
+      };
     },
     readAgentEvents: async (taskId, after = 0, limit) => {
       record('readAgentEvents', taskId, after, limit);

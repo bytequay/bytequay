@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { MINUTE_OPTIONS, formatMinuteOfDay, providerAvailable, providerStatusLabel } from './model';
+import { MINUTE_OPTIONS, formatMinuteOfDay, providerAvailable, providerRemedy, providerStatusLabel } from './model';
 
 describe('settings model helpers', () => {
   it('formats minutes of day as 12-hour times', () => {
@@ -42,3 +42,22 @@ describe('settings model helpers', () => {
     expect(providerAvailable('AUTHENTICATION_REQUIRED')).toBe(false);
   });
 });
+
+describe('provider remedies', () => {
+  it('offers the command the user runs themselves, never one ByteQuay runs for them', () => {
+    expect(providerRemedy('CLI_MISSING').kind).toBe('install');
+    expect(providerRemedy('CLI_MISSING').command).toBe('npm install -g @openai/codex');
+    expect(providerRemedy('AUTHENTICATION_REQUIRED').kind).toBe('login');
+    // The probe shells out to `codex login status`, so this is the command that clears it.
+    expect(providerRemedy('AUTHENTICATION_REQUIRED').command).toBe('codex login');
+  });
+
+  it('routes an undriveable CLI to a report and everything else to a re-probe', () => {
+    expect(providerRemedy('UNSUPPORTED').kind).toBe('report');
+    expect(providerRemedy('UNSUPPORTED').command).toBeNull();
+    for (const readiness of ['READY', 'DEGRADED', 'TEMPORARILY_UNAVAILABLE'] as const) {
+      expect(providerRemedy(readiness).kind).toBe('retry');
+    }
+  });
+});
+

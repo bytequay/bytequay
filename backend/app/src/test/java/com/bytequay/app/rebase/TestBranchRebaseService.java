@@ -661,6 +661,12 @@ class TestBranchRebaseService
         private boolean failAfterStarting;
 
         @Override
+        public AgentTurnSettings effectiveSettings(TaskId taskId)
+        {
+            throw new UnsupportedOperationException("this test never describes a turn before starting it");
+        }
+
+        @Override
         public AgentTurn start(StartAgentTurnCommand command)
         {
             lastPrompt = command.message();

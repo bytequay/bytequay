@@ -1399,9 +1399,9 @@ Implementation:
   per-task Codex server stop operation. Readiness, defaults, effective
   settings, and cancellation are wired; mark-failed and the per-task stop
   arrive with the checkpoint items that add their endpoints.
-- [ ] Add Workspace Settings provider rows and actionable install, login,
+- [x] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
-- [ ] Make this milestone Codex-only. Show Claude as unavailable or
+- [x] Make this milestone Codex-only. Show Claude as unavailable or
   preview-only until CP11 rather than accepting a task the product cannot yet
   render and recover at parity.
 - [ ] Add Codex model selection at task creation; keep the Codex lane immutable.

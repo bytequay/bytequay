@@ -13,7 +13,14 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
+import {
+  INTERACTIVE_LANE_ID,
+  laneLabel,
+  providerRemedy,
+  providerStatusLabel,
+} from '../settings/model';
 import type {
+  AgentProviderStatus,
   ModelSettingsDto,
   WorkspaceDto,
   WorkspaceRemoteDto,
@@ -97,6 +104,7 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
           onChanged={load}
           onError={report}
         />
+        <AgentProvidersCard onError={report} />
         <GitHubTokenCard
           workspaceId={workspace.id}
           settings={settings}
@@ -532,5 +540,86 @@ function GitHubTokenCard({ workspaceId, settings, onChanged, onError }: {
         </div>
       )}
     </section>
+  );
+}
+
+/** Where a CLI ByteQuay cannot drive gets reported. */
+const REPORT_ISSUE_URL = 'https://github.com/bytequay/bytequay/issues/new';
+
+function AgentProvidersCard({ onError }: { onError: (failure: unknown) => void }) {
+  const [providers, setProviders] = useState<AgentProviderStatus[] | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const check = useCallback(() => {
+    setChecking(true);
+    window.bridge.refreshAgentProviderReadiness()
+      .then(setProviders)
+      .catch(onError)
+      .finally(() => setChecking(false));
+  }, [onError]);
+
+  useEffect(() => { check(); }, [check]);
+
+  return (
+    <section className="sets-card">
+      <div className="sets-card-head">
+        <span className="sets-card-title">Agent providers</span>
+        <span className="sets-card-hint">Readiness is probed fresh, never cached</span>
+        <button type="button" className="sets-link sets-check" onClick={check} disabled={checking}>
+          {checking ? 'Checking\u2026' : 'Check again'}
+        </button>
+      </div>
+      {providers === null
+        ? <div className="sets-card-note">Checking providers\u2026</div>
+        : providers.map(provider => (
+          <AgentProviderRow key={provider.laneId} provider={provider} checking={checking} />
+        ))}
+    </section>
+  );
+}
+
+/** One provider's readiness and the action the user can take about it. */
+export function AgentProviderRow({ provider, checking }: {
+  provider: AgentProviderStatus;
+  checking: boolean;
+}) {
+  const status = providerStatusLabel(provider.readiness, checking);
+  const remedy = providerRemedy(provider.readiness);
+  // CP7 accepts tasks on Codex only; another lane is reported honestly rather than offered.
+  const interactive = provider.laneId === INTERACTIVE_LANE_ID;
+  return (
+    <div className="sets-row">
+      <div className="sets-row-main">
+        <div className="sets-row-title">
+          <span className="sets-name">{laneLabel(provider.laneId)} CLI</span>
+          <span className={`sets-badge ${status.tone}`}>{status.label}</span>
+          {!interactive && <span className="sets-badge is-neutral">Preview</span>}
+        </div>
+        <div className="sets-row-sub">
+          {provider.version ? `v${provider.version}` : 'version unknown'}
+          {!interactive && ' \u00b7 agent tasks run on Codex until Claude reaches parity'}
+        </div>
+        {provider.readiness !== 'READY' && (
+          <div className="sets-row-sub">
+            <strong>{remedy.title}</strong>{' \u2014 '}{remedy.detail}
+          </div>
+        )}
+        {remedy.command !== null && (
+          <div className="sets-row-sub sets-mono">{remedy.command}</div>
+        )}
+        {provider.diagnostic !== '' && (
+          <div className="sets-row-sub sets-mono">{provider.diagnostic}</div>
+        )}
+      </div>
+      {remedy.kind === 'report' && (
+        <button
+          type="button"
+          className="sets-link sets-nowrap"
+          onClick={() => { void window.bridge.openExternal(REPORT_ISSUE_URL); }}
+        >
+          Report an issue
+        </button>
+      )}
+    </div>
   );
 }

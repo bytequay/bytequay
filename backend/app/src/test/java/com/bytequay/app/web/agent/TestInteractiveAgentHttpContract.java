@@ -169,6 +169,32 @@ class TestInteractiveAgentHttpContract
     }
 
     @Test
+    void guardsDefaultsUpdatesWithAVersionAndTheSamePermissionRule()
+    {
+        InteractiveAgentHttpContract.TaskDefaults defaults = new InteractiveAgentHttpContract.TaskDefaults(
+                Optional.of("gpt-5.6-codex"),
+                Optional.of("high"),
+                "AUTO");
+        assertThat(new InteractiveAgentHttpContract.UpdateDefaultsRequest(3, defaults).expectedVersion())
+                .isEqualTo(3);
+
+        // Without a version a stale screen could overwrite a change it never saw.
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(-1, defaults))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("expectedVersion");
+
+        // An update must not be a way around the rule creation enforces.
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(
+                0,
+                new InteractiveAgentHttpContract.TaskDefaults(
+                        Optional.of("gpt-5.6-codex"),
+                        Optional.empty(),
+                        "CI_AUTOFIX")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("AUTO");
+    }
+
+    @Test
     void mapsLegacyMissingModelAndTurnSettingsWithoutLeakingHandles()
     {
         Instant now = Instant.parse("2026-09-01T00:00:00Z");

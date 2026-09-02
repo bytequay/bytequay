@@ -30,6 +30,63 @@ export function providerAvailable(readiness: AgentProviderReadiness): boolean {
   return readiness === 'READY' || readiness === 'DEGRADED';
 }
 
+/** The Codex lane is the only one CP7 accepts tasks on; the rest are shown but not offered. */
+export const INTERACTIVE_LANE_ID = 'codex';
+
+const LANE_LABELS: Record<string, string> = { codex: 'Codex', claude: 'Claude' };
+
+export function laneLabel(laneId: string): string {
+  return LANE_LABELS[laneId] ?? laneId;
+}
+
+/**
+ * What the user can actually do about a provider that is not ready.
+ *
+ * ByteQuay never installs or signs in on the user's behalf: both are interactive and belong to
+ * the user's own shell. So every state resolves to a command they run themselves plus a re-probe,
+ * and `retry` is always offered because a probe can go stale the moment it finishes.
+ */
+export type ProviderRemedy = {
+  kind: 'install' | 'login' | 'report' | 'retry';
+  title: string;
+  detail: string;
+  /** The command to run, when the fix is one. */
+  command: string | null;
+};
+
+export function providerRemedy(readiness: AgentProviderReadiness): ProviderRemedy {
+  switch (readiness) {
+    case 'CLI_MISSING':
+      return {
+        kind: 'install',
+        title: 'Install the CLI',
+        detail: 'ByteQuay runs the CLI you already manage; it does not install one for you.',
+        command: 'npm install -g @openai/codex',
+      };
+    case 'AUTHENTICATION_REQUIRED':
+      return {
+        kind: 'login',
+        title: 'Sign in',
+        detail: 'Sign in in your own terminal, then check again.',
+        command: 'codex login',
+      };
+    case 'UNSUPPORTED':
+      return {
+        kind: 'report',
+        title: 'Report an issue',
+        detail: 'This CLI reports a version ByteQuay cannot drive. Include the diagnostic below.',
+        command: null,
+      };
+    default:
+      return {
+        kind: 'retry',
+        title: 'Check again',
+        detail: 'Readiness is probed fresh on every check.',
+        command: null,
+      };
+  }
+}
+
 /** Maps backend provider readiness to the settings badge; checking wins over any probe result. */
 export function providerStatusLabel(readiness: AgentProviderReadiness, checking: boolean): ProviderStatusTone {
   if (checking) return { label: 'Checking…', tone: 'is-neutral' };

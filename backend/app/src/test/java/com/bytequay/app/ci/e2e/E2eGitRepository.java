@@ -78,6 +78,11 @@ final class E2eGitRepository
                 "clone", "--bare", "--config", "core.logAllRefUpdates=true",
                 template.toString(), bareRemote.toString());
         git(root, "clone", "--branch", HEAD_REF, bareRemote.toString(), worktree.toString());
+        // The program commits here through its own Git calls, which carry no identity
+        // environment, and a clone inherits none. Git only invents one when the host name
+        // has a domain, so without this the rebase fails on a plain CI host.
+        git(worktree, "config", "user.name", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_NAME"));
+        git(worktree, "config", "user.email", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_EMAIL"));
         git(worktree, "remote", "set-url", "origin", remoteUrl);
         git(
                 worktree,

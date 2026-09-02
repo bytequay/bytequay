@@ -66,7 +66,7 @@ export default function FlowView({
 
   useEffect(() => {
     let active = true;
-    window.bridge.getAgentProviderStatuses()
+    window.bridge.refreshAgentProviderReadiness()
       .then(statuses => {
         if (!active) return;
         setProviders(statuses);

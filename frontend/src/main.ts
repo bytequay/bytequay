@@ -462,7 +462,7 @@ function registerIpc(): void {
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
     stopAgentSubscription(subscriptionId);
   });
-  ipcMain.handle('cherrypick:providers', () =>
+  ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));

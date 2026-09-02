@@ -1388,15 +1388,15 @@ complete vertical slice.
 
 Implementation:
 
-- [ ] Gate task creation on fresh typed provider readiness before task resources
+- [x] Gate task creation on fresh typed provider readiness before task resources
   or worktree provisioning.
-- [ ] Promote the existing cherry-pick-specific provider-status IPC into one
+- [x] Promote the existing cherry-pick-specific provider-status IPC into one
   shared typed agent-provider readiness operation; update its existing consumer
   instead of maintaining two status paths.
 - [ ] Add typed Electron/preload operations to refresh provider readiness,
   update task defaults, read effective turn settings, cancel active execution,
   call `POST /agent/tasks/{taskId}/mark-failed`, and invoke the confirmed
-  shared-server stop operation.
+  per-task Codex server stop operation.
 - [ ] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
 - [ ] Make this milestone Codex-only. Show Claude as unavailable or
@@ -1422,16 +1422,18 @@ Implementation:
   `FAILED`, releases the claim, retains history, and requests safe worktree
   cleanup. Dirty work remains until it is committed or explicitly discarded.
   The backend rejects the action before that barrier.
-- [ ] Add supervised `GET /agent/runtime/codex/stop-impact` and
-  `POST /agent/runtime/codex/stop` operations plus typed Electron/preload
-  methods. The first returns the runtime generation and complete affected-task
-  list; the second requires both so a newly active task cannot be omitted by a
-  stale confirmation.
-- [ ] The confirmed **Stop shared Codex server** action marks every affected
-  live Codex turn `INTERRUPTED`, durably denies pending approvals, pauses queued
-  work, retains mutation claims and task worktrees, and blocks replacement until the old process
-  tree is verified stopped. Resumption is an explicit later user action; the
-  renderer never kills a process directly.
+- [ ] Add supervised `GET /agent/tasks/{taskId}/runtime/stop-impact` and
+  `POST /agent/tasks/{taskId}/runtime/stop` operations plus typed
+  Electron/preload methods. The first returns the task's current runtime
+  generation and what stopping would interrupt; the second requires that
+  generation so a turn started since the confirmation cannot be stopped by a
+  stale one.
+- [ ] The confirmed **Stop this task's Codex server** action marks that task's
+  live Codex turn `INTERRUPTED`, durably denies its pending approvals, pauses
+  its queued work, retains its mutation claim and task worktree, and blocks
+  replacement until the old process tree is verified stopped. It reaches no
+  other task. Resumption is an explicit later user action; the renderer never
+  kills a process directly.
 - [ ] After the recovery barrier, re-enable the composer. A **Retry** shortcut
   is the existing start-turn operation with a fresh idempotency key and an
   explicit confirmation to resend the prior message; it is never offered for

@@ -146,7 +146,7 @@ const bridge: Bridge = {
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
   getCherryPickPreview: previewId => ipcRenderer.invoke('cherrypick:preview:get', previewId),
-  getAgentProviderStatuses: () => ipcRenderer.invoke('cherrypick:providers'),
+  refreshAgentProviderReadiness: () => ipcRenderer.invoke('agent:providers:refresh'),
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
   listCherryPickExecutions: limit => ipcRenderer.invoke('cherrypick:execution:list', limit),

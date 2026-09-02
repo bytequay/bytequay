@@ -1069,7 +1069,13 @@ export type Bridge = {
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
   getCherryPickPreview: (previewId: string) => Promise<CherryPickPreview>;
-  getAgentProviderStatuses: () => Promise<AgentProviderStatus[]>;
+  /**
+   * Probes every configured provider and returns its readiness.
+   *
+   * The backend probes on every call, so this is the refresh: there is no second cached path to
+   * drift from it.
+   */
+  refreshAgentProviderReadiness: () => Promise<AgentProviderStatus[]>;
   startCherryPickExecution: (request: CherryPickExecutionRequest) => Promise<CherryPickExecution>;
   getCherryPickExecution: (executionId: string) => Promise<CherryPickExecution>;
   listCherryPickExecutions: (limit: number) => Promise<CherryPickExecution[]>;

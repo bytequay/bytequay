@@ -40,6 +40,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestModelSettingsService
@@ -176,6 +179,31 @@ class TestModelSettingsService
         assertThat(codex.models()).extracting(ModelOption::id).containsExactly("gpt-6-sol");
         assertThat(codex.selectedModel()).isEqualTo("gpt-6-sol");
         assertThat(codex.selectedEffort()).isEqualTo("low");
+    }
+
+    @Test
+    void fillsOnlyAMissingCatalogSoAFixedProviderNeedsNoRestart()
+    {
+        ModelSettingsService fresh = new ModelSettingsService(
+                drivers,
+                new InMemoryModelApiKeyStore(),
+                new InMemoryAppSettingsStore(),
+                new ObjectMapper(),
+                Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
+        when(codexDriver.models()).thenReturn(ImmutableList.of(
+                new ProviderModel(
+                        "gpt-6-sol", "GPT-6-Sol", "Next frontier model.",
+                        ImmutableList.of("low", "high"), Optional.of("low"), true)));
+
+        // A provider that became usable after startup has no catalog; this is what fills it.
+        fresh.refreshMissingCatalogs(drivers.statuses());
+        assertThat(fresh.get().providers().get(1).models()).extracting(ModelOption::id)
+                .containsExactly("gpt-6-sol");
+
+        // A provider that already has one is not probed again, so a status read stays cheap.
+        reset(codexDriver);
+        fresh.refreshMissingCatalogs(drivers.statuses());
+        verify(codexDriver, never()).models();
     }
 
     @Test

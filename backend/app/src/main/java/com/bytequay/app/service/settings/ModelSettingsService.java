@@ -122,16 +122,38 @@ public class ModelSettingsService
     }
 
     /**
+     * Probes only providers that are available and have no catalog yet.
+     *
+     * <p>A Codex catalog exists only after a successful probe, and the startup refresh skips a
+     * provider that was not yet installed or signed in. Without this, fixing the provider leaves
+     * the app with no models until it is restarted, and every surface that needs one stays dead
+     * while reporting the provider as ready.
+     */
+    public void refreshMissingCatalogs(List<AgentProviderStatus> statuses)
+    {
+        // Takes statuses the caller already probed; re-probing to decide whether to probe is waste.
+        refreshCatalogs(statuses, true);
+    }
+
+    /**
      * Re-probes every available provider's model catalog and rewrites its
      * stored row. A failed or empty probe keeps the stored catalog.
      */
     public void refreshCatalogs()
     {
-        for (AgentProviderStatus status : drivers.statuses()) {
+        refreshCatalogs(drivers.statuses(), false);
+    }
+
+    private void refreshCatalogs(List<AgentProviderStatus> statuses, boolean onlyMissing)
+    {
+        for (AgentProviderStatus status : statuses) {
             if (!status.available()) {
                 continue;
             }
             String id = status.laneId().value();
+            if (onlyMissing && storedCatalog(id).isPresent()) {
+                continue;
+            }
             List<ProviderModel> models;
             try {
                 models = drivers.require(status.laneId()).models();

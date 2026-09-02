@@ -133,7 +133,9 @@ describe('agent task list', () => {
 
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>\s*New agent task/);
     expect(markup).toContain('No Codex model is available yet');
+    // The catalog is only fetched by a readiness check, so the copy must send them there.
     expect(markup).toContain('Workspace settings');
+    expect(markup).toContain('also fetches its models');
   });
 
   it('shows loading, empty and error states rather than an unexplained blank list', () => {

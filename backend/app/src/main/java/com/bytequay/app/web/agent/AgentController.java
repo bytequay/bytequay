@@ -33,8 +33,10 @@ import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.app.service.settings.ModelSettingsService;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +77,7 @@ public class AgentController
     private final AgentApprovalService approvalService;
     private final AgentCompletionService completionService;
     private final AgentDriverRegistry driverRegistry;
+    private final ModelSettingsService modelSettings;
     private final RecentTouchRecorder recent;
 
     public AgentController(
@@ -85,6 +88,7 @@ public class AgentController
             AgentApprovalService approvalService,
             AgentCompletionService completionService,
             AgentDriverRegistry driverRegistry,
+            ModelSettingsService modelSettings,
             RecentTouchRecorder recent)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
@@ -94,6 +98,7 @@ public class AgentController
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
+        this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.recent = requireNonNull(recent, "recent is null");
     }
 
@@ -282,10 +287,19 @@ public class AgentController
         return AgentHttpModels.cleanup(completionService.cleanup(id));
     }
 
+    /**
+     * Probes every provider and reports its readiness.
+     *
+     * <p>A provider that has just become usable has no model catalog, because the catalog is only
+     * probed at startup. Filling it here is what makes fixing a provider take effect without a
+     * restart; a provider that already has one costs nothing.
+     */
     @GetMapping("/providers/status")
     public List<AgentHttpModels.ProviderStatusResponse> providerStatuses()
     {
-        return driverRegistry.statuses().stream()
+        List<AgentProviderStatus> statuses = driverRegistry.statuses();
+        modelSettings.refreshMissingCatalogs(statuses);
+        return statuses.stream()
                 .map(AgentHttpModels::providerStatus)
                 .collect(toImmutableList());
     }

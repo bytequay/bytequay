@@ -174,8 +174,8 @@ export function AgentTaskList({
       </div>
       {!creatable && (
         <div className="agt-empty">
-          No Codex model is available yet. Check the provider in Workspace settings, then reopen
-          this tab.
+          No Codex model is available yet. Make Codex ready in Workspace settings — checking it
+          there also fetches its models — then reopen this tab.
         </div>
       )}
 

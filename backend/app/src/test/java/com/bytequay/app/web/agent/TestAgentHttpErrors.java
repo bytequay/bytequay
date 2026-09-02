@@ -68,6 +68,7 @@ class TestAgentHttpErrors
                 mock(AgentApprovalService.class),
                 mock(AgentCompletionService.class),
                 driverRegistry,
+                mock(ModelSettingsService.class),
                 mock(RecentTouchRecorder.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

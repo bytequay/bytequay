@@ -27,7 +27,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,6 +52,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TestOwnedProcessRecovery
 {
+    /**
+     * Bash, resolved to the path the operating system reports back for a running process.
+     * {@code /bin/sh} is bash on macOS but dash on Debian and Ubuntu, so it cannot stand in for a
+     * provider CLI here: recovery matches a recorded executable against the reported one, and
+     * neither system reports the symlink a process was invoked through.
+     */
+    private static final String SHELL = resolveShell();
     private static final ProcessOwner OWNER = new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-app-server");
     private static final long ABSENT_PROCESS_GROUP = 0x7FFF_0000L;
 
@@ -363,7 +372,7 @@ class TestOwnedProcessRecovery
     {
         return new ProcessSpec(
                 OWNER,
-                ImmutableList.of("/bin/sh", "-c", script),
+                ImmutableList.of(SHELL, "-c", script),
                 worktree,
                 ImmutableMap.of("PATH", "/usr/bin:/bin"),
                 1024,
@@ -372,10 +381,25 @@ class TestOwnedProcessRecovery
                 Duration.ofMillis(100));
     }
 
+    private static String resolveShell()
+    {
+        try {
+            return Path.of("/bin/bash").toRealPath().toString();
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Bash, for the same reason the gated launcher uses it: {@link #spawnGroupLeader} needs
+     * {@code set -m}, and dash, which is {@code /bin/sh} on Debian and Ubuntu, turns job control
+     * off without a controlling terminal.
+     */
     private Process spawn(String script)
             throws Exception
     {
-        Process process = new ProcessBuilder("/bin/sh", "-c", script).start();
+        Process process = new ProcessBuilder(SHELL, "-c", script).start();
         spawned.add(process);
         return process;
     }

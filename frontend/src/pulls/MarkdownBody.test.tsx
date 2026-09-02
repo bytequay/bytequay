@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownBody, { CodeReferenceCard, markdownBlocks, parseGitHubCodePermalink } from './MarkdownBody';
+import MarkdownBody, { CodeReferenceCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
 
 describe('MarkdownBody', () => {
   it('renders checkbox and unordered-list markers', () => {
@@ -46,6 +46,74 @@ describe('MarkdownBody', () => {
     expect(html.match(/type="checkbox"/g)).toHaveLength(1);
     expect(html.match(/checked=""/g)).toHaveLength(1);
     expect(html).not.toContain('x2713');
+  });
+
+  it('keeps tasks read-only unless a task handler is supplied', () => {
+    const body = '- [ ] First\n\n<details><summary>More</summary>\n- [x] Nested\n</details>';
+    const readOnly = renderToStaticMarkup(<MarkdownBody body={body} />);
+    const interactive = renderToStaticMarkup(<MarkdownBody body={body} onTaskToggle={() => {}} />);
+    const disabled = renderToStaticMarkup(<MarkdownBody body={body} onTaskToggle={() => {}} tasksDisabled />);
+
+    expect(readOnly.match(/disabled=""/g)).toHaveLength(2);
+    expect(readOnly.match(/readOnly=""/g)).toHaveLength(2);
+    expect(interactive.match(/data-markdown-task=""/g)).toHaveLength(2);
+    expect(interactive).not.toContain('disabled=""');
+    expect(interactive).not.toContain('readOnly=""');
+    expect(disabled.match(/disabled=""/g)).toHaveLength(2);
+  });
+
+  it('toggles tasks by rendered ordinal while preserving source formatting', () => {
+    const body = '- [ ] Duplicate\r\n'
+      + '```markdown\r\n- [ ] Fenced fake\r\n```\r\n'
+      + '<!--\r\n- [ ] Comment fake\r\n-->\r\n'
+      + '<details>\r\n<summary>More</summary>\r\n(*) Duplicate\r\n</details>\r\n'
+      + '+ [X] Last\r\n';
+
+    expect(toggleMarkdownTask(body, 1, false)).toBe(
+      '- [ ] Duplicate\r\n'
+      + '```markdown\r\n- [ ] Fenced fake\r\n```\r\n'
+      + '<!--\r\n- [ ] Comment fake\r\n-->\r\n'
+      + '<details>\r\n<summary>More</summary>\r\n( ) Duplicate\r\n</details>\r\n'
+      + '+ [X] Last\r\n');
+    expect(toggleMarkdownTask(body, 2, false)).toContain('+ [ ] Last\r\n');
+    expect(toggleMarkdownTask(body, 0, true)).toContain('- [x] Duplicate\r\n');
+  });
+
+  it('preserves task marker families and ignores non-task source', () => {
+    expect(toggleMarkdownTask('( ) Release note', 0, true)).toBe('(*) Release note');
+    expect(toggleMarkdownTask('(&#x2713;) Release note', 0, false)).toBe('( ) Release note');
+    expect(toggleMarkdownTask('<!-- keep --> - [ ] Ship', 0, true)).toBe('<!-- keep --> - [x] Ship');
+    expect(toggleMarkdownTask('* [X] Ship', 0, true)).toBe('* [X] Ship');
+    expect(toggleMarkdownTask('~~~markdown\n- [ ] Fake\n~~~\n- [ ] Real', 0, true))
+      .toBe('~~~markdown\n- [ ] Fake\n~~~\n- [x] Real');
+    expect(toggleMarkdownTask('- [ ] Untouched', 4, true)).toBe('- [ ] Untouched');
+    expect(toggleMarkdownTask('- [ ] Untouched', -1, true)).toBe('- [ ] Untouched');
+  });
+
+  it('does not count an empty task marker that the renderer omits', () => {
+    const body = '- [ ] \n- [ ] Visible';
+
+    expect(toggleMarkdownTask(body, 0, true)).toBe('- [ ] \n- [x] Visible');
+  });
+
+  it('keeps quoted tasks read-only and outside interactive task ordinals', () => {
+    const body = '> - [ ] Quoted\n\n- [ ] Visible';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} onTaskToggle={() => {}} />);
+
+    expect(html.match(/data-markdown-task=""/g)).toHaveLength(1);
+    expect(html.match(/disabled=""/g)).toHaveLength(1);
+    expect(toggleMarkdownTask(body, 0, true)).toBe('> - [ ] Quoted\n\n- [x] Visible');
+  });
+
+  it('preserves an inline HTML comment when toggling a task', () => {
+    expect(toggleMarkdownTask('- [ ] Ship <!-- keep -->', 0, true))
+      .toBe('- [x] Ship <!-- keep -->');
+  });
+
+  it('does not let HTML-like fenced code hide a later task', () => {
+    const body = '```html\n<!-- unfinished\n```\n- [ ] Visible';
+
+    expect(toggleMarkdownTask(body, 0, true)).toBe('```html\n<!-- unfinished\n```\n- [x] Visible');
   });
 
   it('renders code and links nested inside bold text', () => {

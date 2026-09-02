@@ -541,23 +541,26 @@ public class PullRequestService
 
         PullRequestRef ref = parseRef(repo, number);
         GitHubCredential credential = credentialService.resolveGitHubCredential();
-        boolean finalState = switch (normalizedTarget) {
-            case "pull_request" -> viewerHasReacted == null
-                    ? pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent)
-                    : pullRequestWrites.togglePullRequestReaction(
-                            credential.token(), ref, normalizedContent, viewerHasReacted);
-            case "issue_comment" -> viewerHasReacted == null
-                    ? pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent)
-                    : pullRequestWrites.toggleIssueCommentReaction(
-                            credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
-            case "review_comment" -> viewerHasReacted == null
-                    ? pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent)
-                    : pullRequestWrites.toggleReviewCommentReaction(
-                            credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
-        };
-        invalidatePullRequestCaches(repo, number);
-        return finalState;
+        try {
+            return switch (normalizedTarget) {
+                case "pull_request" -> viewerHasReacted == null
+                        ? pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent)
+                        : pullRequestWrites.togglePullRequestReaction(
+                                credential.token(), ref, normalizedContent, viewerHasReacted);
+                case "issue_comment" -> viewerHasReacted == null
+                        ? pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent)
+                        : pullRequestWrites.toggleIssueCommentReaction(
+                                credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
+                case "review_comment" -> viewerHasReacted == null
+                        ? pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent)
+                        : pullRequestWrites.toggleReviewCommentReaction(
+                                credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
+                default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
+            };
+        }
+        finally {
+            invalidatePullRequestDetail(repo, number);
+        }
     }
 
     public void updateDescription(String repo, int number, String description)
@@ -567,7 +570,7 @@ public class PullRequestService
                 parseRef(repo, number),
                 requireNonNull(description, "description is null"));
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestCaches(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     public void closePullRequest(String repo, int number)
@@ -586,7 +589,7 @@ public class PullRequestService
                 normalizeNames(assignees, "assignees"),
                 normalizeNames(labels, "labels"));
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestCaches(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
@@ -595,7 +598,7 @@ public class PullRequestService
         pullRequestWrites.updateReviewerRequest(
                 credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestCaches(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     private static List<String> normalizeNames(List<String> values, String name)
@@ -626,7 +629,7 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         String threadId = gitHub.findReviewThreadId(pat, ref, rootCommentId);
         pullRequestWrites.setReviewThreadResolved(pat, threadId, resolved);
-        invalidatePullRequestCaches(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -1347,12 +1350,13 @@ public class PullRequestService
     private void invalidatePullRequestDetail(String repo, int number)
     {
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(snapshots::delete);
+                .ifPresent(snapshots::deleteDetail);
     }
 
     private void invalidatePullRequestCaches(String repo, int number)
     {
-        invalidatePullRequestDetail(repo, number);
+        store.findIdByRepoAndNumber(repo, number)
+                .ifPresent(snapshots::delete);
     }
 
     private PullRequestDetail patchCachedTimeline(

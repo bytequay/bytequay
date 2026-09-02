@@ -171,7 +171,11 @@ export type PullRequestDetailRefreshDto =
 
 export type PullReactionTarget = 'pull_request' | 'issue_comment' | 'review_comment';
 export type PullReactionContent = '+1' | '-1' | 'laugh' | 'hooray' | 'confused' | 'heart' | 'rocket' | 'eyes';
-export type PullReactionDto = { content: PullReactionContent; count: number };
+export type PullReactionDto = {
+  content: PullReactionContent;
+  count: number;
+  viewerHasReacted?: boolean | null;
+};
 
 export type PullTimelineCommentDto = {
   githubId: number | null;
@@ -853,14 +857,16 @@ export type Bridge = {
     number: number,
     comment: InlineReviewCommentDto,
   ) => Promise<PullRequestDetailDto>;
+  updatePrDescription: (repo: string, number: number, body: string) => Promise<void>;
   commentPr: (repo: string, number: number, body: string) => Promise<PullRequestDetailDto>;
-  togglePrReaction: (
+  setPrReaction: (
     repo: string,
     number: number,
     target: PullReactionTarget,
     commentId: number | null,
     content: PullReactionContent,
-  ) => Promise<void>;
+    viewerHasReacted: boolean | null,
+  ) => Promise<{ viewerHasReacted: boolean }>;
   closePr: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;

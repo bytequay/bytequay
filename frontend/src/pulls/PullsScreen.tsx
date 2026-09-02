@@ -17,7 +17,7 @@ import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
 import PullChanges, { type CommitRange } from './PullChanges';
-import PullOverview, { isQueued, remoteErrorMessage } from './PullOverview';
+import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import {
@@ -184,19 +184,24 @@ export default function PullsScreen({
   const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
   const toolbar = useRef<HTMLElement | null>(null);
   const searchInput = useRef<HTMLInputElement | null>(null);
+  const viewerLoginRef = useRef(viewerLogin);
   const rowsId = useId();
   const loadingMoreRequest = useRef(false);
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
   const routingInitialPr = useRef<string | null>(null);
   const detailSnapshot = useRef<string | null>(null);
+  const detailState = useRef<PullRequestDetailDto | null>(null);
+  const detailMutationVersion = useRef(0);
   const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
+  const manualDetailRefreshRequest = useRef(0);
   const diffRequest = useRef(0);
   const toastId = useRef(0);
   const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
+  viewerLoginRef.current = viewerLogin;
   listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
 
   useEffect(() => {
@@ -207,13 +212,20 @@ export default function PullsScreen({
     return () => { cancelled = true; };
   }, []);
 
-  const applyDetail = useCallback((prId: number, value: PullRequestDetailDto, refreshDiff: boolean) => {
+  const applyDetail = useCallback((
+    prId: number,
+    value: PullRequestDetailDto,
+    refreshDiff: boolean,
+    requestMutationVersion?: number,
+  ) => {
+    if (requestMutationVersion !== undefined && requestMutationVersion !== detailMutationVersion.current) return false;
     const snapshot = JSON.stringify(value);
     if (detailSnapshot.current === snapshot) return false;
     detailSnapshot.current = snapshot;
+    detailState.current = value;
     setDetail(value);
     setPrs(current => current.map(pr => pr.id === prId
-      ? reconcilePullRequestDetail(pr, value)
+      ? reconcilePullRequestDetail(pr, value, viewerLoginRef.current)
       : pr));
     if (refreshDiff) {
       diffRequest.current += 1;
@@ -225,28 +237,63 @@ export default function PullsScreen({
     return true;
   }, []);
 
-  const applyDetailRefresh = useCallback((prId: number, value: PullRequestDetailRefreshDto) => {
+  const updateSelectedDetail: PullDetailUpdater = useCallback((repo, number, update) => {
+    const key = `${repo.toLowerCase()}#${number}`;
+    const selected = selectedPullRequest.current;
+    const current = detailState.current;
+    if (selected?.key !== key || current === null
+        || `${current.repo.toLowerCase()}#${current.number}` !== key) return;
+    const next = update(current);
+    detailMutationVersion.current += 1;
+    detailSnapshot.current = JSON.stringify(next);
+    detailState.current = next;
+    setDetail(next);
+    setPrs(rows => rows.map(pr => pr.id === selected.id
+      ? reconcilePullRequestDetail(pr, next, viewerLoginRef.current)
+      : pr));
+  }, []);
+
+  const applyDetailRefresh = useCallback((
+    prId: number,
+    value: PullRequestDetailRefreshDto,
+    requestMutationVersion: number,
+  ) => {
     if (value.full) {
-      applyDetail(prId, value.detail, true);
+      applyDetail(prId, value.detail, true, requestMutationVersion);
       return;
     }
     const status = value.status;
-    setDetail(current => {
-      if (current === null) return current;
+    const current = detailState.current;
+    if (current !== null) {
       const next = mergePullRequestDetailStatus(current, status);
       detailSnapshot.current = JSON.stringify(next);
-      return next;
-    });
+      detailState.current = next;
+      setDetail(next);
+    }
     setPrs(current => current.map(pr => pr.id === prId
       ? { ...pr, ciStatus: status.ciStatus, mergeable: status.mergeable, mergeableState: status.mergeableState }
       : pr));
   }, [applyDetail]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
-    setPrs(result.pullRequests);
+    const selected = selectedPullRequest.current;
+    const selectedDetail = detailState.current;
+    const pullRequests = selected !== null && selectedDetail !== null
+      && selected.key === `${selectedDetail.repo.toLowerCase()}#${selectedDetail.number}`
+      ? result.pullRequests.map(pr => pr.id === selected.id
+          ? reconcilePullRequestDetail(pr, {
+              state: pr.state,
+              updatedAt: pr.updatedAt,
+              author: selectedDetail.author,
+              labels: selectedDetail.labels,
+              reviewers: selectedDetail.reviewers,
+            }, viewerLoginRef.current)
+          : pr)
+      : result.pullRequests;
+    setPrs(pullRequests);
     setPage(result.page);
     setHasMore(result.hasMore);
-    setSelected(current => result.pullRequests.some(pr => pr.id === current)
+    setSelected(current => pullRequests.some(pr => pr.id === current)
       ? current
       : null);
   }, []);
@@ -456,14 +503,17 @@ export default function PullsScreen({
   }, [onSelectPullRequest, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
+    manualDetailRefreshRequest.current += 1;
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) {
       detailSnapshot.current = null;
+      detailState.current = null;
       setDetail(null);
       return;
     }
     let cancelled = false;
     let refreshTimer: number | undefined;
     detailSnapshot.current = null;
+    detailState.current = null;
     setDetail(null);
     setDetailLoading(true);
     setError(null);
@@ -492,11 +542,12 @@ export default function PullsScreen({
           await pending.then((): undefined => undefined, (): undefined => undefined);
         }
         if (cancelled || document.hidden) return;
+        const requestMutationVersion = detailMutationVersion.current;
         request = refreshSelectedDetail();
         detailRefreshInFlight.current = request;
         const value = await request;
         if (!cancelled) {
-          applyDetailRefresh(selectedPrId, value);
+          applyDetailRefresh(selectedPrId, value, requestMutationVersion);
           setError(null);
         }
       }
@@ -514,9 +565,10 @@ export default function PullsScreen({
     const resume = () => schedule(0);
     document.addEventListener('visibilitychange', resume);
 
+    const initialMutationVersion = detailMutationVersion.current;
     fetchSelectedDetail()
       .then(value => {
-        if (!cancelled) applyDetail(selectedPrId, value, false);
+        if (!cancelled) applyDetail(selectedPrId, value, false, initialMutationVersion);
       })
       .catch(e => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -598,16 +650,24 @@ export default function PullsScreen({
 
   const refresh = useCallback(async () => {
     if (!selectedPr || detailLoading) return;
+    const selectedKey = `${selectedPr.repo.toLowerCase()}#${selectedPr.number}`;
+    const request = ++manualDetailRefreshRequest.current;
     const listVersion = listRequest.current;
+    const requestMutationVersion = detailMutationVersion.current;
     setDetailLoading(true);
     try {
       const value = await window.bridge.refreshAllPullRequestDetailByRef(
         selectedPr.repo, selectedPr.number);
-      applyDetail(selectedPr.id, value, true);
+      if (request !== manualDetailRefreshRequest.current
+          || selectedPullRequest.current?.key !== selectedKey) return;
+      applyDetail(selectedPr.id, value, true, requestMutationVersion);
       if (listVersion === listRequest.current) {
         try {
           const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
-          if (listVersion === listRequest.current) applyPage(result);
+          if (request === manualDetailRefreshRequest.current
+              && selectedPullRequest.current?.key === selectedKey
+              && listVersion === listRequest.current
+              && requestMutationVersion === detailMutationVersion.current) applyPage(result);
         }
         catch (e) {
           if (listVersion === listRequest.current) throw e;
@@ -615,22 +675,27 @@ export default function PullsScreen({
       }
     }
     catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (request === manualDetailRefreshRequest.current
+          && selectedPullRequest.current?.key === selectedKey) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     }
     finally {
-      setDetailLoading(false);
+      if (request === manualDetailRefreshRequest.current
+          && selectedPullRequest.current?.key === selectedKey) setDetailLoading(false);
     }
   }, [applyDetail, applyPage, detailLoading, query, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;
     if (current?.key === `${value.repo.toLowerCase()}#${value.number}`) {
-      applyDetail(current.id, value, false);
+      updateSelectedDetail(value.repo, value.number, detail => mergePullRequestWriteDetail(detail, value));
       setPrs(rows => rows.map(pr => pr.id === current.id
-        ? reconcilePostedComment(pr, value, kind, new Date().toISOString())
+        ? reconcilePostedComment(
+            pr, { state: value.state, updatedAt: value.updatedAt }, kind, new Date().toISOString())
         : pr));
     }
-  }, [applyDetail]);
+  }, [updateSelectedDetail]);
 
   const applySubmittedReview = useCallback((
     value: PullRequestDetailDto,
@@ -638,12 +703,13 @@ export default function PullsScreen({
   ) => {
     const current = selectedPullRequest.current;
     if (current?.key === `${value.repo.toLowerCase()}#${value.number}`) {
-      applyDetail(current.id, value, false);
+      updateSelectedDetail(value.repo, value.number, detail => mergePullRequestWriteDetail(detail, value));
       setPrs(rows => rows.map(pr => pr.id === current.id
-        ? reconcileSubmittedReview(pr, value, event, new Date().toISOString())
+        ? reconcileSubmittedReview(
+            pr, { state: value.state, updatedAt: value.updatedAt }, event, new Date().toISOString())
         : pr));
     }
-  }, [applyDetail]);
+  }, [updateSelectedDetail]);
 
   useEffect(() => {
     const returned = returnedFromInAppBrowser(browserWasOpen.current, browserOpen);
@@ -807,6 +873,7 @@ export default function PullsScreen({
               onPendingCommentsChange={setPendingReviewComments}
               contributorsWorkspaceId={repositoryScope?.workspaceId}
               onRefresh={refresh}
+              onDetailUpdate={updateSelectedDetail}
               onDiscussionPosted={value => applyPostedDetail(value, 'discussion')}
               onReviewPosted={value => applyPostedDetail(value, 'review')}
             />
@@ -1305,6 +1372,7 @@ function DetailBody({
   onPendingCommentsChange,
   contributorsWorkspaceId,
   onRefresh,
+  onDetailUpdate,
   onDiscussionPosted,
   onReviewPosted,
 }: {
@@ -1320,6 +1388,7 @@ function DetailBody({
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
   onDiscussionPosted: (detail: PullRequestDetailDto) => void;
   onReviewPosted: (detail: PullRequestDetailDto) => void;
 }) {
@@ -1341,10 +1410,12 @@ function DetailBody({
     /></div>;
   }
   return <div className="pull-detail__body"><PullOverview
+    key={`${pr.repo.toLowerCase()}#${pr.number}`}
     pr={pr}
     detail={detail}
     contributorsWorkspaceId={contributorsWorkspaceId}
     onRefresh={onRefresh}
+    onDetailUpdate={onDetailUpdate}
     onDetailChange={onDiscussionPosted}
   /></div>;
 }

@@ -757,6 +757,12 @@ function registerIpc(): void {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(comment),
   }));
+  ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string) =>
+    backendVoid(prUrl('/prs/description', repo, number), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }));
   ipcMain.handle('prs:comment', (
     _event,
     repo: string,
@@ -770,17 +776,18 @@ function registerIpc(): void {
       body: JSON.stringify({ body }),
     });
   });
-  ipcMain.handle('prs:reaction:toggle', (
+  ipcMain.handle('prs:reaction:set', (
     _event,
     repo: string,
     number: number,
     target: import('./types').PullReactionTarget,
     commentId: number | null,
     content: import('./types').PullReactionContent,
-  ) => backendVoid(prUrl('/prs/reactions', repo, number), {
+    viewerHasReacted: boolean | null,
+  ) => backendJson<{ viewerHasReacted: boolean }>(prUrl('/prs/reactions', repo, number), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target, commentId, content }),
+    body: JSON.stringify({ target, commentId, content, viewerHasReacted }),
   }));
   ipcMain.handle('prs:close', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/close', repo, number), { method: 'POST' }));

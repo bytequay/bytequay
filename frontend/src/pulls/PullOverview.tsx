@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Avatar from '../Avatar';
 import UserAvatar from '../UserAvatar';
 import type {
@@ -21,15 +21,44 @@ import type {
   PullReactionTarget,
   PullRequestDetailDto,
   PullRequestDto,
+  PullTimelinePayloadDto,
   RepoLabelDto,
   PullTimelineCommentDto,
   RepoUserDto,
 } from '../types';
 import BetterWordsButton from './BetterWordsButton';
-import MarkdownBody, { GitHubReferenceLink } from './MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask } from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
+const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
+  actorAvatarUrl: null,
+  actorBot: false,
+  state: null,
+  htmlUrl: null,
+  label: null,
+  labelColor: null,
+  renameFrom: null,
+  renameTo: null,
+  commitSha: null,
+  commitMessage: null,
+  sourceTitle: null,
+  sourceUrl: null,
+  sourceNumber: null,
+  milestoneTitle: null,
+  requestedReviewer: null,
+  path: null,
+  diffHunk: null,
+  line: null,
+  originalLine: null,
+  startLine: null,
+  originalStartLine: null,
+  side: null,
+  resolved: false,
+  outdated: false,
+  reactions: [],
+  comments: [],
+};
 const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
 const LABEL_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const HIDDEN_TIMELINE_EVENTS = new Set([
@@ -42,11 +71,18 @@ const HIDDEN_TIMELINE_EVENTS = new Set([
   'unsubscribed',
 ]);
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailChange = () => { void onRefresh(); } }: {
+export type PullDetailUpdater = (
+  repo: string,
+  number: number,
+  update: (detail: PullRequestDetailDto) => PullRequestDetailDto,
+) => void;
+
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailUpdate?: PullDetailUpdater;
   onDetailChange?: (detail: PullRequestDetailDto) => void;
 }) {
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
@@ -93,7 +129,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       </section>
 
       <div className="pr-overview__rule" />
-      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onRefresh={onRefresh} />
+      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
           Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
@@ -101,8 +137,8 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
       )}
 
       <section className="pr-timeline" aria-label="Pull request activity">
-        <DescriptionCard detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
-          onRefresh={onRefresh}
+        <DescriptionCard pr={pr} detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
+          onDetailUpdate={onDetailUpdate}
           onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
         {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
           // display:contents wrapper — Recent needs an addressable node per
@@ -110,7 +146,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           <div className="pr-timeline__slot" key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
             id={activities[0].githubId === null ? undefined : `pr-activity-${activities[0].githubId}`}>
             <TimelineItem activities={activities}
-              pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh}
+              pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
         ))}
@@ -141,10 +177,10 @@ type PeoplePickerKind = 'reviewers' | 'assignees';
 type MetadataPickerKind = PeoplePickerKind | 'labels';
 type PeoplePickerCandidate = RepoUserDto & { selected: boolean; locked: boolean };
 
-function Metadata({ detail, contributorsWorkspaceId, onRefresh }: {
+function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
-  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
@@ -154,6 +190,16 @@ function Metadata({ detail, contributorsWorkspaceId, onRefresh }: {
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const key = `${detail.repo.toLowerCase()}#${detail.number}`;
+  const [optimisticDetail, setOptimisticDetail] = useState<{
+    key: string;
+    value: PullRequestDetailDto;
+  } | null>(null);
+  const optionsRequest = useRef(0);
+  const optionsKey = useRef(key);
+  const updatingRef = useRef(false);
+  const visibleDetail = optimisticDetail?.key === key ? optimisticDetail.value : detail;
+  optionsKey.current = key;
 
   useEffect(() => {
     if (!open) return;
@@ -172,38 +218,66 @@ function Metadata({ detail, contributorsWorkspaceId, onRefresh }: {
   }, [open]);
 
   useEffect(() => {
+    optionsRequest.current += 1;
     setRepoUsers([]);
     setRepoLabels([]);
+    setOptimisticDetail(null);
+    setLoading(false);
     setOpen(null);
     setError(null);
-  }, [detail.repo]);
+  }, [key]);
 
   const toggle = (kind: MetadataPickerKind) => {
     setQuery('');
     setError(null);
     setOpen(current => current === kind ? null : kind);
     if (loading || (kind === 'labels' ? repoLabels.length > 0 : repoUsers.length > 0)) return;
+    const requestId = ++optionsRequest.current;
+    const requestKey = key;
     setLoading(true);
     const request = kind === 'labels'
-      ? window.bridge.fetchRepoLabels(detail.repo).then(setRepoLabels)
-      : window.bridge.fetchRepoUsers(detail.repo, contributorsWorkspaceId).then(setRepoUsers);
+      ? window.bridge.fetchRepoLabels(visibleDetail.repo).then(labels => {
+          if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoLabels(labels);
+        })
+      : window.bridge.fetchRepoUsers(visibleDetail.repo, contributorsWorkspaceId).then(users => {
+          if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoUsers(users);
+        });
     void request
-      .catch(failure => setError(remoteErrorMessage(failure)))
-      .finally(() => setLoading(false));
+      .catch(failure => {
+        if (requestId === optionsRequest.current && requestKey === optionsKey.current) {
+          setError(remoteErrorMessage(failure));
+        }
+      })
+      .finally(() => {
+        if (requestId === optionsRequest.current && requestKey === optionsKey.current) setLoading(false);
+      });
   };
 
-  const update = async (action: () => Promise<void>) => {
+  const update = async (
+    optimistic: (current: PullRequestDetailDto) => PullRequestDetailDto,
+    rollback: (current: PullRequestDetailDto) => PullRequestDetailDto,
+    action: () => Promise<void>,
+  ) => {
+    if (updatingRef.current) return;
+    updatingRef.current = true;
     setUpdating(true);
     setError(null);
+    const next = optimistic(visibleDetail);
+    setOptimisticDetail({ key, value: next });
+    onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
     try {
       await action();
-      await onRefresh();
+      onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
+      setOptimisticDetail(null);
       setOpen(null);
     }
     catch (failure) {
+      onDetailUpdate(visibleDetail.repo, visibleDetail.number, rollback);
+      setOptimisticDetail(null);
       setError(remoteErrorMessage(failure));
     }
     finally {
+      updatingRef.current = false;
       setUpdating(false);
     }
   };
@@ -214,57 +288,80 @@ function Metadata({ detail, contributorsWorkspaceId, onRefresh }: {
         <button type="button" className={`pr-meta__chip${open === 'reviewers' ? ' is-open' : ''}`}
           aria-expanded={open === 'reviewers'} aria-haspopup="listbox" onClick={() => toggle('reviewers')}>
           <small>Reviewers</small>
-          {detail.reviewers.length === 0
+          {visibleDetail.reviewers.length === 0
             ? 'None'
-            : detail.reviewers.length < 3
-              ? detail.reviewers.map(reviewer => (
+            : visibleDetail.reviewers.length < 3
+              ? visibleDetail.reviewers.map(reviewer => (
                 <span className="pr-meta__reviewer" key={reviewer.login}>
                   <Avatar login={reviewer.login} avatarUrl={reviewer.avatarUrl} size={18} />
                   {reviewer.login}
                 </span>
               ))
-              : `${detail.reviewers.length} people`}
+              : `${visibleDetail.reviewers.length} people`}
         </button>
-        {open === 'reviewers' && <PeoplePicker detail={detail} kind="reviewers" loading={loading}
+        {open === 'reviewers' && <PeoplePicker detail={visibleDetail} kind="reviewers" loading={loading}
           query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
-          onToggle={candidate => { if (!candidate.locked) void update(() => window.bridge.updatePrReviewer(
-            detail.repo, detail.number, candidate.login, !candidate.selected,
-          )); }} />}
+          onToggle={candidate => {
+            if (candidate.locked) return;
+            const previous = visibleDetail.reviewers;
+            const next = candidate.selected
+              ? previous.filter(reviewer => reviewer.login.toLowerCase() !== candidate.login.toLowerCase())
+              : [...previous, { login: candidate.login, avatarUrl: candidate.avatarUrl, state: 'PENDING' }];
+            void update(
+              current => ({ ...current, reviewers: next }),
+              current => current.reviewers === next ? { ...current, reviewers: previous } : current,
+              () => window.bridge.updatePrReviewer(
+                visibleDetail.repo, visibleDetail.number, candidate.login, !candidate.selected),
+            );
+          }} />}
       </div>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
           aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => toggle('assignees')}>
-          <PersonIcon /> <small>Assignees</small>{detail.assignees.length > 0 ? ` ${detail.assignees.length}` : ''}
+          <PersonIcon /> <small>Assignees</small>{visibleDetail.assignees.length > 0 ? ` ${visibleDetail.assignees.length}` : ''}
         </button>
-        {open === 'assignees' && <PeoplePicker detail={detail} kind="assignees" loading={loading}
+        {open === 'assignees' && <PeoplePicker detail={visibleDetail} kind="assignees" loading={loading}
           query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
-          onToggle={candidate => { void update(() => window.bridge.updatePrMetadata(
-            detail.repo,
-            detail.number,
-            toggleSelection(detail.assignees, candidate.login),
-            detail.labels.map(label => label.name),
-          )); }} />}
+          onToggle={candidate => {
+            const previous = visibleDetail.assignees;
+            const next = toggleSelection(previous, candidate.login);
+            void update(
+              current => ({ ...current, assignees: next }),
+              current => current.assignees === next ? { ...current, assignees: previous } : current,
+              () => window.bridge.updatePrMetadata(
+                visibleDetail.repo, visibleDetail.number, next, visibleDetail.labels.map(label => label.name)),
+            );
+          }} />}
       </div>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'labels' ? ' is-open' : ''}`}
           aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => toggle('labels')}>
           <span className="pr-meta__label-dots" aria-hidden="true">
-            {(detail.labels.length > 1 ? detail.labels.slice(0, 2) : [detail.labels[0]]).filter(Boolean).map((label, index) => (
+            {(visibleDetail.labels.length > 1 ? visibleDetail.labels.slice(0, 2) : [visibleDetail.labels[0]]).filter(Boolean).map((label, index) => (
               <i className="pr-meta__label-dot" style={{ background: labelPalette(label?.name ?? '', label?.color).color }} key={`${label?.name ?? 'label'}-${index}`} />
             ))}
           </span>
-          {detail.labels.length === 0 ? 'No labels' : detail.labels.length === 1 ? detail.labels[0].name : `${detail.labels.length} labels`}
+          {visibleDetail.labels.length === 0
+            ? 'No labels'
+            : visibleDetail.labels.length === 1 ? visibleDetail.labels[0].name : `${visibleDetail.labels.length} labels`}
         </button>
-        {open === 'labels' && <LabelPicker labels={repoLabels} selected={detail.labels.map(label => label.name)}
+        {open === 'labels' && <LabelPicker labels={repoLabels} selected={visibleDetail.labels.map(label => label.name)}
           loading={loading} query={query} setQuery={setQuery} updating={updating}
-          onToggle={label => { void update(() => window.bridge.updatePrMetadata(
-            detail.repo,
-            detail.number,
-            detail.assignees,
-            toggleSelection(detail.labels.map(value => value.name), label.name),
-          )); }} />}
+          onToggle={label => {
+            const previous = visibleDetail.labels;
+            const selected = previous.some(value => value.name.toLowerCase() === label.name.toLowerCase());
+            const next = selected
+              ? previous.filter(value => value.name.toLowerCase() !== label.name.toLowerCase())
+              : [...previous, { name: label.name, color: label.color }];
+            void update(
+              current => ({ ...current, labels: next }),
+              current => current.labels === next ? { ...current, labels: previous } : current,
+              () => window.bridge.updatePrMetadata(
+                visibleDetail.repo, visibleDetail.number, visibleDetail.assignees, next.map(value => value.name)),
+            );
+          }} />}
       </div>
-      {detail.milestone && <span><small>Milestone</small> {detail.milestone}</span>}
+      {visibleDetail.milestone && <span><small>Milestone</small> {visibleDetail.milestone}</span>}
       {error && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
     </div>
   );
@@ -448,44 +545,158 @@ export function peoplePickerCandidates(
   return result;
 }
 
-function DescriptionCard({ detail, fallbackAuthor, fallbackUrl, onRefresh, onQuote }: {
+function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpdate, onQuote }: {
+  pr: PullRequestDto;
   detail: PullRequestDetailDto;
   fallbackAuthor: string | null;
   fallbackUrl: string;
-  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
 }) {
   const actor = detail.author ?? fallbackAuthor ?? 'Unknown author';
-  const body = detail.body || 'No description provided.';
-  const reactions = detail.recentActivity.find(activity => activity.eventType === 'description_reactions')?.payload.reactions ?? [];
-  const reaction = reactionAction(detail.repo, detail.number, 'pull_request', null, onRefresh);
+  const key = `${detail.repo.toLowerCase()}#${detail.number}`;
+  const serverBody = detail.body ?? '';
+  const [localBody, setLocalBody] = useState<{ key: string; value: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [editBase, setEditBase] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const writeInFlight = useRef(false);
+  const body = localBody?.key === key ? localBody.value : serverBody;
+  const displayBody = body || 'No description provided.';
+  const serverReactions = detail.recentActivity
+    .find(activity => activity.eventType === 'description_reactions')?.payload.reactions ?? [];
+  const reaction = useReactionAction(
+    detail.repo,
+    detail.number,
+    'pull_request',
+    null,
+    serverReactions,
+    true,
+    (reactions, onlyIf) => onDetailUpdate(detail.repo, detail.number, current =>
+      updatePullReactionDetail(current, 'pull_request', null, reactions, onlyIf)),
+  );
+  const canEdit = detail.viewerCanWrite || pr.origin === 'AUTHORED';
+
+  useEffect(() => {
+    if (!saving && localBody?.key === key && localBody.value === serverBody) setLocalBody(null);
+  }, [key, localBody, saving, serverBody]);
+
+  useEffect(() => {
+    setEditing(false);
+    setDraft('');
+    setEditBase('');
+    setError(null);
+    writeInFlight.current = false;
+    setSaving(false);
+  }, [key]);
+
+  const persistBody = async (nextBody: string) => {
+    if (writeInFlight.current || nextBody === body) return false;
+    const previousLocal = localBody?.key === key ? localBody : null;
+    const previousBody = previousLocal?.value ?? detail.body;
+    writeInFlight.current = true;
+    setSaving(true);
+    setError(null);
+    setLocalBody({ key, value: nextBody });
+    onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
+    try {
+      await window.bridge.updatePrDescription(detail.repo, detail.number, nextBody);
+      onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
+      return true;
+    }
+    catch (failure) {
+      onDetailUpdate(detail.repo, detail.number, current => current.body === nextBody
+        ? { ...current, body: previousBody }
+        : current);
+      setLocalBody(current => current?.key === key && current.value === nextBody
+        ? previousLocal
+        : current);
+      setError(`Could not update description. ${remoteErrorMessage(failure)}`);
+      return false;
+    }
+    finally {
+      writeInFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (body !== editBase) {
+      setError('The description changed while you were editing. Reopen the editor to use the latest version.');
+      return;
+    }
+    setEditing(false);
+    if (!await persistBody(draft)) setEditing(true);
+  };
+
   return (
     <article className="pr-card pr-description">
       <CardHeader actor={actor} avatarUrl={detail.authorAvatarUrl} timestamp={detail.createdAt}
         reaction={reaction}
-        actions={{ link: detail.htmlUrl ?? fallbackUrl, markdown: body, onQuote: () => onQuote(body) }} />
-      <MarkdownBody body={body} repository={detail.repo} />
-      <Reactions reactions={reactions} reaction={reaction} alwaysShowPicker />
+        actions={{
+          link: detail.htmlUrl ?? fallbackUrl,
+          markdown: body,
+          onQuote: () => onQuote(body),
+          onEdit: canEdit ? () => {
+            setDraft(body);
+            setEditBase(body);
+            setError(null);
+            setEditing(true);
+          } : undefined,
+        }} />
+      {editing ? (
+        <div className="pr-description-editor">
+          <textarea aria-label="Pull request description" value={draft} rows={10} autoFocus
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={event => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                void saveEdit();
+              }
+            }} />
+          <div className="pr-description-editor__actions">
+            <button type="button" disabled={saving} onClick={() => {
+              setEditing(false);
+              setError(null);
+            }}>Cancel</button>
+            <button className="is-primary" type="button" disabled={saving || draft === body}
+              onClick={() => { void saveEdit(); }}>Save</button>
+          </div>
+        </div>
+      ) : (
+        <MarkdownBody body={displayBody} repository={detail.repo} tasksDisabled={saving}
+          onTaskToggle={canEdit ? (taskIndex, checked) => {
+            const nextBody = toggleMarkdownTask(body, taskIndex, checked);
+            if (nextBody !== body) void persistBody(nextBody);
+          } : undefined} />
+      )}
+      {error && <div className="pr-description__error" role="alert">{error}</div>}
+      <Reactions reactions={reaction.reactions} reaction={reaction} alwaysShowPicker />
     </article>
   );
 }
 
-function TimelineItem({ activities, pr, workspaceId, onRefresh, onQuote }: {
+function TimelineItem({ activities, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
 }) {
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
-    return <ReviewGroup activities={activities} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />;
+    return <ReviewGroup activities={activities} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
+      onDetailUpdate={onDetailUpdate} />;
   }
   if (activity.eventType === 'review_thread') {
-    return <ReviewThread activity={activity} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />;
+    return <ReviewThread activity={activity} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
+      onDetailUpdate={onDetailUpdate} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
-    return <CommentCard activity={activity} pr={pr} onRefresh={onRefresh} onQuote={onQuote} />;
+    return <CommentCard activity={activity} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
   return <CompactEvent activities={activities} />;
@@ -570,18 +781,25 @@ function CommitEvent({ activity }: { activity: Activity }) {
   );
 }
 
-function CommentCard({ activity, pr, onRefresh, onQuote }: {
+function CommentCard({ activity, pr, onDetailUpdate, onQuote }: {
   activity: Activity;
   pr: PullRequestDto;
-  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
 }) {
   const state = activity.payload.state?.toUpperCase();
   const actor = displayActor(activity.actor || 'github');
   const body = activity.body?.trim() ? activity.body : null;
-  const reaction = activity.eventType === 'commented' && activity.githubId !== null
-    ? reactionAction(pr.repo, pr.number, 'issue_comment', activity.githubId, onRefresh)
-    : undefined;
+  const reaction = useReactionAction(
+    pr.repo,
+    pr.number,
+    'issue_comment',
+    activity.githubId,
+    activity.payload.reactions,
+    activity.eventType === 'commented' && activity.githubId !== null,
+    (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
+      updatePullReactionDetail(current, 'issue_comment', activity.githubId, reactions, onlyIf)),
+  );
   const header = (
     <CardHeader
       actor={actor}
@@ -604,16 +822,17 @@ function CommentCard({ activity, pr, onRefresh, onQuote }: {
     <article className="pr-card pr-comment-card">
       {header}
       <MarkdownBody body={body} repository={pr.repo} />
-      <Reactions reactions={activity.payload.reactions} reaction={reaction} />
+      <Reactions reactions={reaction?.reactions ?? activity.payload.reactions} reaction={reaction} />
     </article>
   );
 }
 
-function ReviewGroup({ activities, pr, workspaceId, onRefresh }: {
+function ReviewGroup({ activities, pr, workspaceId, onRefresh, onDetailUpdate }: {
   activities: Activity[];
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
 }) {
   const review = activities[0];
   const actor = displayActor(review.actor || 'github');
@@ -631,17 +850,40 @@ function ReviewGroup({ activities, pr, workspaceId, onRefresh }: {
       </div>
       {activities.slice(1).map(thread => (
         <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread}
-          pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} />
+          pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
       ))}
     </section>
   );
 }
 
-function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
+export function updateReviewThreadResolution(
+  detail: PullRequestDetailDto,
+  activityId: number | null,
+  rootCommentId: number,
+  resolved: boolean,
+  onlyIfResolved?: boolean,
+) {
+  return {
+    ...detail,
+    recentActivity: detail.recentActivity.map(candidate => {
+      const matches = candidate.eventType === 'review_thread'
+        && (activityId !== null
+          ? candidate.githubId === activityId
+          : candidate.payload.comments.some(comment => comment.githubId === rootCommentId));
+      if (!matches || (onlyIfResolved !== undefined && candidate.payload.resolved !== onlyIfResolved)) {
+        return candidate;
+      }
+      return { ...candidate, payload: { ...candidate.payload, resolved } };
+    }),
+  };
+}
+
+function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate }: {
   activity: Activity;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
 }) {
   const { payload } = activity;
   const [replying, setReplying] = useState(false);
@@ -649,12 +891,15 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
+  const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resolutionInFlight = useRef(false);
   const targetLine = payload.line ?? payload.originalLine;
   const commentedLine = payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
+  const resolved = optimisticResolved ?? payload.resolved;
   const submit = async () => {
     if (!rootCommentId || !body.trim()) return;
     setPosting(true);
@@ -674,16 +919,27 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
     await onRefresh();
   };
   const changeResolution = async () => {
-    if (!rootCommentId) return;
+    if (!rootCommentId || resolutionInFlight.current) return;
+    const previous = resolved;
+    const desired = !previous;
+    resolutionInFlight.current = true;
     setChangingResolution(true);
+    setOptimisticResolved(desired);
     setError('');
+    onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
+      current, activity.githubId, rootCommentId, desired));
     try {
-      await window.bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, !payload.resolved);
-      await onRefresh();
+      await window.bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, desired);
+      onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
+        current, activity.githubId, rootCommentId, desired));
     }
     catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Could not ${payload.resolved ? 'unresolve' : 'resolve'} thread.`);
+      onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
+        current, activity.githubId, rootCommentId, previous, desired));
+      setError(cause instanceof Error ? cause.message : `Could not ${previous ? 'unresolve' : 'resolve'} thread.`);
     }
+    setOptimisticResolved(null);
+    resolutionInFlight.current = false;
     setChangingResolution(false);
   };
   const quoteReply = (quotedBody: string) => {
@@ -733,13 +989,11 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       <button className="pr-thread-resolve" type="button" disabled={!rootCommentId || changingResolution}
         onClick={() => { void changeResolution(); }}>
-        {changingResolution
-          ? (payload.resolved ? 'Unresolving…' : 'Resolving…')
-          : (payload.resolved ? 'Unresolve' : 'Resolve')}
+        {resolved ? 'Unresolve' : 'Resolve'}
       </button>
     </footer>
   );
-  if (payload.resolved) {
+  if (resolved) {
     return (
       <details className="pr-thread-row">
         <summary>
@@ -749,7 +1003,7 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
         </summary>
         <div className="pr-thread-row__comments">
           {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
-            pr={pr} onRefresh={onRefresh} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+            pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
           {controls}
         </div>
       </details>
@@ -764,22 +1018,29 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh }: {
       </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
-        pr={pr} onRefresh={onRefresh} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+        pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
     </details>
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, pr, onRefresh, onQuote }: {
+function ThreadComment({ comment, fallbackUrl, pr, onDetailUpdate, onQuote }: {
   comment: PullTimelineCommentDto;
   fallbackUrl: string;
   pr: PullRequestDto;
-  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
 }) {
-  const reaction = comment.githubId === null
-    ? undefined
-    : reactionAction(pr.repo, pr.number, 'review_comment', comment.githubId, onRefresh);
+  const reaction = useReactionAction(
+    pr.repo,
+    pr.number,
+    'review_comment',
+    comment.githubId,
+    comment.reactions,
+    comment.githubId !== null,
+    (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
+      updatePullReactionDetail(current, 'review_comment', comment.githubId, reactions, onlyIf)),
+  );
   return (
     <div className="pr-thread-comment">
       <div className="pr-thread-comment__author">
@@ -794,7 +1055,7 @@ function ThreadComment({ comment, fallbackUrl, pr, onRefresh, onQuote }: {
         }} />}</div>
       </div>
       {comment.body && <MarkdownBody body={comment.body} repository={pr.repo} />}
-      <Reactions reactions={comment.reactions} reaction={reaction} />
+      <Reactions reactions={reaction?.reactions ?? comment.reactions} reaction={reaction} />
     </div>
   );
 }
@@ -912,6 +1173,7 @@ type CardActions = {
   link: string;
   markdown: string;
   onQuote: () => void;
+  onEdit?: () => void;
 };
 
 export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, actions }: {
@@ -968,6 +1230,10 @@ function CardActionsMenu({ actions }: { actions: CardActions }) {
       <button type="button" className="pr-card-actions__trigger" aria-label="More actions"
         aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}><KebabIcon /></button>
       <div className="pr-card-actions__menu" role="menu" aria-label="Comment actions">
+        {actions.onEdit && <button type="button" role="menuitem" onClick={() => {
+          actions.onEdit?.();
+          setOpen(false);
+        }}><EditIcon />Edit description</button>}
         <button type="button" role="menuitem" onClick={() => { void copy(actions.link); }}><LinkIcon />Copy link</button>
         <button type="button" role="menuitem" onClick={() => { void copy(actions.markdown); }}><CopyIcon />Copy Markdown</button>
         <button type="button" role="menuitem" onClick={() => { actions.onQuote(); setOpen(false); }}><QuoteIcon />Quote reply</button>
@@ -1241,26 +1507,263 @@ type ReactionAction = {
   number: number;
   target: PullReactionTarget;
   commentId: number | null;
-  onRefresh: () => Promise<void>;
+  reactions: PullReactionDto[];
+  saving: boolean;
+  error: string | null;
+  intent: (content: PullReactionContent) => boolean | null;
+  submit: (content: PullReactionContent) => Promise<boolean>;
 };
 
-function reactionAction(
+type ReactionRequest = Pick<ReactionAction, 'repo' | 'number' | 'target' | 'commentId' | 'reactions'>;
+type ReactionChange = (reactions: PullReactionDto[], onlyIf?: PullReactionDto[]) => void;
+
+export function nextViewerReaction(reactions: PullReactionDto[], content: PullReactionContent) {
+  const existing = reactions.find(reaction => reaction.content === content);
+  if (!existing) return true;
+  return typeof existing.viewerHasReacted === 'boolean' ? !existing.viewerHasReacted : null;
+}
+
+export function applyViewerReaction(
+  reactions: PullReactionDto[],
+  content: PullReactionContent,
+  viewerHasReacted: boolean,
+) {
+  const index = reactions.findIndex(reaction => reaction.content === content);
+  if (index < 0) {
+    return viewerHasReacted
+      ? [...reactions, { content, count: 1, viewerHasReacted: true }]
+      : reactions;
+  }
+  const existing = reactions[index];
+  const delta = typeof existing.viewerHasReacted === 'boolean'
+    ? Number(viewerHasReacted) - Number(existing.viewerHasReacted)
+    : viewerHasReacted ? 1 : -1;
+  const count = Math.max(0, existing.count + delta);
+  if (count === 0) return reactions.filter((_, reactionIndex) => reactionIndex !== index);
+  return reactions.map((reaction, reactionIndex) => reactionIndex === index
+    ? { ...reaction, count, viewerHasReacted }
+    : reaction);
+}
+
+export function updatePullReactionDetail(
+  detail: PullRequestDetailDto,
+  target: PullReactionTarget,
+  commentId: number | null,
+  reactions: PullReactionDto[],
+  onlyIf?: PullReactionDto[],
+) {
+  if (target === 'pull_request') {
+    let found = false;
+    const recentActivity = detail.recentActivity.map(activity => {
+      if (activity.eventType !== 'description_reactions') return activity;
+      found = true;
+      if (onlyIf !== undefined && activity.payload.reactions !== onlyIf) return activity;
+      return { ...activity, payload: { ...activity.payload, reactions } };
+    });
+    if (!found && onlyIf === undefined) {
+      recentActivity.push({
+        actor: '',
+        eventType: 'description_reactions',
+        timestamp: null,
+        body: null,
+        githubId: null,
+        payload: { ...EMPTY_TIMELINE_PAYLOAD, reactions },
+      });
+    }
+    return { ...detail, recentActivity };
+  }
+  if (commentId === null) return detail;
+  const recentActivity = detail.recentActivity.map(activity => {
+    if (target === 'issue_comment') {
+      if (activity.eventType !== 'commented' || activity.githubId !== commentId
+          || (onlyIf !== undefined && activity.payload.reactions !== onlyIf)) return activity;
+      return { ...activity, payload: { ...activity.payload, reactions } };
+    }
+    const comments = activity.payload.comments.map(comment => {
+      if (comment.githubId !== commentId || (onlyIf !== undefined && comment.reactions !== onlyIf)) return comment;
+      return { ...comment, reactions };
+    });
+    return comments.some((comment, index) => comment !== activity.payload.comments[index])
+      ? { ...activity, payload: { ...activity.payload, comments } }
+      : activity;
+  });
+  return { ...detail, recentActivity };
+}
+
+function reviewThreadKey(activity: Activity) {
+  const rootCommentId = activity.payload.comments.find(comment => comment.inReplyToId === null)?.githubId
+    ?? activity.payload.comments[0]?.githubId;
+  return activity.githubId !== null ? `thread:${activity.githubId}` : `comment:${rootCommentId ?? ''}`;
+}
+
+/** Applies a write response without discarding independent optimistic fields. */
+export function mergePullRequestWriteDetail(
+  current: PullRequestDetailDto,
+  response: PullRequestDetailDto,
+): PullRequestDetailDto {
+  const issueReactions = new Map<number, PullReactionDto[]>();
+  const reviewReactions = new Map<number, PullReactionDto[]>();
+  const threadResolution = new Map<string, boolean>();
+  let descriptionReactions: PullReactionDto[] | undefined;
+  current.recentActivity.forEach(activity => {
+    if (activity.eventType === 'description_reactions') descriptionReactions = activity.payload.reactions;
+    if (activity.eventType === 'commented' && activity.githubId !== null) {
+      issueReactions.set(activity.githubId, activity.payload.reactions);
+    }
+    if (activity.eventType === 'review_thread') {
+      threadResolution.set(reviewThreadKey(activity), activity.payload.resolved);
+    }
+    activity.payload.comments.forEach(comment => {
+      if (comment.githubId !== null) reviewReactions.set(comment.githubId, comment.reactions);
+    });
+  });
+  let merged = {
+    ...response,
+    body: current.body,
+    labels: current.labels,
+    assignees: current.assignees,
+    reviewers: current.reviewers,
+    recentActivity: response.recentActivity.map(activity => ({
+      ...activity,
+      payload: {
+        ...activity.payload,
+        resolved: activity.eventType === 'review_thread'
+          ? threadResolution.get(reviewThreadKey(activity)) ?? activity.payload.resolved
+          : activity.payload.resolved,
+        reactions: activity.eventType === 'commented' && activity.githubId !== null
+          ? issueReactions.get(activity.githubId) ?? activity.payload.reactions
+          : activity.payload.reactions,
+        comments: activity.payload.comments.map(comment => ({
+          ...comment,
+          reactions: comment.githubId === null
+            ? comment.reactions
+            : reviewReactions.get(comment.githubId) ?? comment.reactions,
+        })),
+      },
+    })),
+  };
+  if (descriptionReactions !== undefined) {
+    merged = updatePullReactionDetail(merged, 'pull_request', null, descriptionReactions);
+  }
+  return merged;
+}
+
+function serverReflectsReaction(
+  reactions: PullReactionDto[],
+  content: PullReactionContent,
+  viewerHasReacted: boolean,
+) {
+  const reaction = reactions.find(value => value.content === content);
+  if (!reaction) return !viewerHasReacted;
+  return reaction.viewerHasReacted === viewerHasReacted;
+}
+
+function useReactionAction(
   repo: string,
   number: number,
   target: PullReactionTarget,
   commentId: number | null,
-  onRefresh: () => Promise<void>,
-): ReactionAction {
-  return { repo, number, target, commentId, onRefresh };
+  serverReactions: PullReactionDto[],
+  enabled = true,
+  onChange?: ReactionChange,
+): ReactionAction | undefined {
+  const key = `${repo.toLowerCase()}#${number}:${target}:${commentId ?? ''}`;
+  const [local, setLocal] = useState<{ key: string; reactions: PullReactionDto[] } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const confirmation = useRef<{
+    key: string;
+    content: PullReactionContent;
+    viewerHasReacted: boolean;
+  } | null>(null);
+  const optimisticEcho = useRef<{ key: string; reactions: PullReactionDto[] } | null>(null);
+  const reactions = local?.key === key ? local.reactions : serverReactions;
+
+  useEffect(() => {
+    setError(null);
+    confirmation.current = null;
+    optimisticEcho.current = null;
+    setLocal(current => current?.key === key ? current : null);
+  }, [key]);
+
+  useEffect(() => {
+    const expected = confirmation.current;
+    if (inFlight.current || local?.key !== key || expected?.key !== key
+        || (optimisticEcho.current?.key === key && optimisticEcho.current.reactions === serverReactions)
+        || !serverReflectsReaction(serverReactions, expected.content, expected.viewerHasReacted)) return;
+    confirmation.current = null;
+    optimisticEcho.current = null;
+    setLocal(null);
+  }, [key, local, serverReactions]);
+
+  const submit = async (content: PullReactionContent) => {
+    if (inFlight.current) return false;
+    const base = local?.key === key ? local.reactions : serverReactions;
+    const previousLocal = local?.key === key ? local : null;
+    const previousConfirmation = confirmation.current;
+    const previousEcho = optimisticEcho.current;
+    const desired = nextViewerReaction(base, content);
+    const optimistic = desired === null ? null : applyViewerReaction(base, content, desired);
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    if (optimistic !== null) {
+      setLocal({ key, reactions: optimistic });
+      onChange?.(optimistic);
+    }
+    try {
+      const result = await submitPullReaction(window.bridge, { repo, number, target, commentId, reactions: base }, content);
+      const confirmed = applyViewerReaction(
+        optimistic ?? base, content, result.viewerHasReacted);
+      confirmation.current = { key, content, viewerHasReacted: result.viewerHasReacted };
+      optimisticEcho.current = { key, reactions: confirmed };
+      setLocal({ key, reactions: confirmed });
+      onChange?.(confirmed);
+      return true;
+    }
+    catch (failure) {
+      confirmation.current = previousConfirmation;
+      optimisticEcho.current = previousEcho;
+      setLocal(current => current?.key === key
+        ? previousLocal
+        : current);
+      if (optimistic !== null) onChange?.(base, optimistic);
+      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
+      return false;
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  return enabled ? {
+    repo,
+    number,
+    target,
+    commentId,
+    reactions,
+    saving,
+    error,
+    intent: content => nextViewerReaction(reactions, content),
+    submit,
+  } : undefined;
 }
 
 export async function submitPullReaction(
-  bridge: Pick<Bridge, 'togglePrReaction'>,
-  action: ReactionAction,
+  bridge: Pick<Bridge, 'setPrReaction'>,
+  action: ReactionRequest,
   content: PullReactionContent,
 ) {
-  await bridge.togglePrReaction(action.repo, action.number, action.target, action.commentId, content);
-  await action.onRefresh();
+  return bridge.setPrReaction(
+    action.repo,
+    action.number,
+    action.target,
+    action.commentId,
+    content,
+    nextViewerReaction(action.reactions, content),
+  );
 }
 
 /**
@@ -1289,12 +1792,13 @@ function Reactions({ reactions, reaction, alwaysShowPicker = false }: {
   reaction?: ReactionAction;
   alwaysShowPicker?: boolean;
 }) {
-  if (reactions.length === 0 && (!alwaysShowPicker || !reaction)) return null;
+  if (reactions.length === 0 && (!alwaysShowPicker || !reaction) && !reaction?.error) return null;
   return <div className="pr-reactions">{reactions.map(value => (
     reaction
       ? <ReactionButton key={value.content} value={value} action={reaction} />
       : <span key={value.content}>{reactionEmoji(value.content)} {value.count}</span>
-  ))}{reaction && <ReactionPicker action={reaction} compact key="add-reaction" />}</div>;
+  ))}{reaction && <ReactionPicker action={reaction} compact key="add-reaction" />}
+  {reaction?.error && <span className="pr-reaction-error" role="alert">{reaction.error}</span>}</div>;
 }
 
 const REACTION_CHOICES = [
@@ -1313,43 +1817,28 @@ function reactionLabel(content: PullReactionContent) {
 }
 
 function ReactionButton({ value, action }: { value: PullReactionDto; action: ReactionAction }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const label = reactionLabel(value.content);
-  const update = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await submitPullReaction(window.bridge, action, value.content);
-    }
-    catch (failure) {
-      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
-    }
-    finally {
-      setSaving(false);
-    }
-  };
-  return <>
-    <button type="button" className="pr-reaction" disabled={saving}
+  const active = value.viewerHasReacted === true;
+  return (
+    <button type="button" className={`pr-reaction${active ? ' is-active' : ''}`} disabled={action.saving}
+      aria-pressed={active}
       aria-label={`Add or remove ${label} reaction`} title={`Add or remove ${label} reaction`}
-      onClick={() => { void update(); }}>{reactionEmoji(value.content)} {value.count}</button>
-    {error && <span className="pr-reaction-error" role="alert">{error}</span>}
-  </>;
+      onClick={() => { void action.submit(value.content); }}>{reactionEmoji(value.content)} {value.count}</button>
+  );
 }
 
 function ReactionPicker({ action, compact = false }: { action: ReactionAction; compact?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!saving && !pickerRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!action.saving && !pickerRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (!saving && event.key === 'Escape') setOpen(false);
+      if (!action.saving && event.key === 'Escape') setOpen(false);
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     document.addEventListener('keydown', closeOnEscape);
@@ -1357,38 +1846,34 @@ function ReactionPicker({ action, compact = false }: { action: ReactionAction; c
       document.removeEventListener('pointerdown', closeOnOutsidePointer);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [open, saving]);
+  }, [action.saving, open]);
 
   const choose = async (content: PullReactionContent) => {
-    setSaving(true);
-    setError(null);
-    try {
-      await submitPullReaction(window.bridge, action, content);
-      setOpen(false);
-    }
-    catch (failure) {
-      setError(`Could not update reaction. ${remoteErrorMessage(failure)}`);
-    }
-    finally {
-      setSaving(false);
-    }
+    const optimistic = action.intent(content) !== null;
+    if (optimistic) setOpen(false);
+    const succeeded = await action.submit(content);
+    if (succeeded) setOpen(false);
+    else if (optimistic) setOpen(true);
   };
 
   return (
     <div ref={pickerRef} className={`pr-reaction-picker${compact ? ' is-compact' : ''}${open ? ' is-open' : ''}`}
       data-reaction-target={action.target} data-reaction-comment-id={action.commentId ?? undefined}>
       <button type="button" className="pr-reaction-picker__trigger" aria-label="Add reaction" title="Add reaction"
-        aria-expanded={open} disabled={saving}
-        onClick={() => { setError(null); setOpen(value => !value); }}><ReactionMenuIcon /></button>
-      <div className="pr-reaction-picker__menu" role="menu" aria-label="Choose a reaction" aria-busy={saving}>
+        aria-expanded={open} aria-haspopup="menu" aria-controls={menuId} disabled={action.saving}
+        onClick={() => setOpen(value => !value)}><ReactionMenuIcon /></button>
+      <div className="pr-reaction-picker__menu" id={menuId} role="menu" aria-label="Choose a reaction" aria-busy={action.saving}>
         {REACTION_CHOICES.map(([content, emoji, label]) => (
-          <button type="button" role="menuitem" disabled={saving}
+          <button type="button" role="menuitemcheckbox" disabled={action.saving}
+            className={action.reactions.some(reaction => reaction.content === content && reaction.viewerHasReacted === true)
+              ? 'is-active' : undefined}
+            aria-checked={action.reactions.some(reaction => reaction.content === content && reaction.viewerHasReacted === true)}
             aria-label={`Add or remove ${label} reaction`} key={content}
             onClick={() => { void choose(content); }}>
             {emoji}
           </button>
         ))}
-        {error && <div className="pr-reaction-picker__error" role="alert">{error}</div>}
+        {action.error && <div className="pr-reaction-picker__error" role="alert">{action.error}</div>}
       </div>
     </div>
   );
@@ -1453,6 +1938,10 @@ function reactionEmoji(content: string) {
 
 function CopyIcon() {
   return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3" /></svg>;
+}
+
+function EditIcon() {
+  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" aria-hidden="true"><path d="m3 11.5-.5 2 2-.5 8-8-1.5-1.5-8 8Z" /><path d="m9.8 4.7 1.5 1.5" /></svg>;
 }
 
 export function CopyLinkButton({ value, label }: { value: string; label: string }) {

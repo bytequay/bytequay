@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, MetadataPicker, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -54,22 +54,77 @@ describe('PullOverview', () => {
     ))).toBe('Grant it access to this repository');
   });
 
-  it('toggles a reaction before refreshing the full pull request detail', async () => {
-    const order: string[] = [];
-    const togglePrReaction = vi.fn(async () => { order.push('write'); });
-    const onRefresh = vi.fn(async () => { order.push('refresh'); });
+  it('sends the known desired reaction state without requesting a refresh', async () => {
+    const setPrReaction = vi.fn(async () => ({ viewerHasReacted: true }));
 
-    await submitPullReaction({ togglePrReaction }, {
+    await submitPullReaction({ setPrReaction }, {
       repo: 'owner/repo',
       number: 42,
       target: 'issue_comment',
       commentId: 71,
-      onRefresh,
+      reactions: [],
     }, 'eyes');
 
-    expect(togglePrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes');
-    expect(onRefresh).toHaveBeenCalledOnce();
-    expect(order).toEqual(['write', 'refresh']);
+    expect(setPrReaction).toHaveBeenCalledWith('owner/repo', 42, 'issue_comment', 71, 'eyes', true);
+  });
+
+  it('falls back to server-side toggling when viewer reaction state is unknown', async () => {
+    const setPrReaction = vi.fn(async () => ({ viewerHasReacted: false }));
+
+    await submitPullReaction({ setPrReaction }, {
+      repo: 'owner/repo',
+      number: 42,
+      target: 'pull_request',
+      commentId: null,
+      reactions: [{ content: 'heart', count: 2, viewerHasReacted: null }],
+    }, 'heart');
+
+    expect(setPrReaction).toHaveBeenCalledWith('owner/repo', 42, 'pull_request', null, 'heart', null);
+  });
+
+  it('computes optimistic reaction counts and removes an empty group', () => {
+    expect(nextViewerReaction([], 'eyes')).toBe(true);
+    expect(nextViewerReaction([{ content: 'eyes', count: 2, viewerHasReacted: true }], 'eyes')).toBe(false);
+    expect(nextViewerReaction([{ content: 'eyes', count: 2, viewerHasReacted: null }], 'eyes')).toBeNull();
+    expect(applyViewerReaction([{ content: 'eyes', count: 1, viewerHasReacted: true }], 'eyes', false)).toEqual([]);
+    expect(applyViewerReaction([{ content: 'eyes', count: 2, viewerHasReacted: false }], 'eyes', true))
+      .toEqual([{ content: 'eyes', count: 3, viewerHasReacted: true }]);
+  });
+
+  it('keeps optimistic description reactions in the detail and guards rollback', () => {
+    const optimistic = [{ content: 'eyes' as const, count: 1, viewerHasReacted: true }];
+    const withReaction = updatePullReactionDetail(detail(), 'pull_request', null, optimistic);
+    const external = [{ content: 'heart' as const, count: 2, viewerHasReacted: false }];
+    const externallyChanged = updatePullReactionDetail(withReaction, 'pull_request', null, external);
+    const skippedRollback = updatePullReactionDetail(
+      externallyChanged, 'pull_request', null, [], optimistic);
+
+    expect(withReaction.recentActivity.find(activity => activity.eventType === 'description_reactions')
+      ?.payload.reactions).toBe(optimistic);
+    expect(skippedRollback.recentActivity.find(activity => activity.eventType === 'description_reactions')
+      ?.payload.reactions).toBe(external);
+  });
+
+  it('merges a write response without discarding independent optimistic fields', () => {
+    const current = updateReviewThreadResolution(detail(), 3, 99, false);
+    current.body = 'Optimistic description';
+    current.labels = [{ name: 'optimistic', color: 'abcdef' }];
+    const reactions = [{ content: 'eyes' as const, count: 1, viewerHasReacted: true }];
+    const optimistic = updatePullReactionDetail(current, 'pull_request', null, reactions);
+    const response = detail();
+    response.recentActivity.push({
+      actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T10:10:00Z', body: 'New', githubId: 80,
+      payload: emptyPayload,
+    });
+
+    const merged = mergePullRequestWriteDetail(optimistic, response);
+
+    expect(merged.body).toBe('Optimistic description');
+    expect(merged.labels).toEqual([{ name: 'optimistic', color: 'abcdef' }]);
+    expect(merged.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(false);
+    expect(merged.recentActivity.find(activity => activity.eventType === 'description_reactions')
+      ?.payload.reactions).toBe(reactions);
+    expect(merged.recentActivity.some(activity => activity.githubId === 80)).toBe(true);
   });
 
   it('applies the successful comment response without requesting a full refresh', async () => {
@@ -89,7 +144,7 @@ describe('PullOverview', () => {
     value.recentActivity = [
       {
         actor: 'bob', eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', githubId: 71,
-        payload: { ...emptyPayload, reactions: [{ content: '+1', count: 1 }] },
+        payload: { ...emptyPayload, reactions: [{ content: '+1', count: 1, viewerHasReacted: true }] },
       },
       {
         actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', githubId: 72,
@@ -121,10 +176,10 @@ describe('PullOverview', () => {
     expect(html.match(/data-reaction-target="issue_comment" data-reaction-comment-id="71"/g)).toHaveLength(2);
     expect(html.match(/data-reaction-target="review_comment" data-reaction-comment-id="73"/g)).toHaveLength(2);
     expect(html).not.toContain('data-reaction-comment-id="72"');
-    expect(html).toContain('<button type="button" class="pr-reaction" aria-label="Add or remove thumbs up reaction"');
+    expect(html).toContain('<button type="button" class="pr-reaction is-active" aria-pressed="true" aria-label="Add or remove thumbs up reaction"');
     expect(html).toContain('title="Add or remove eyes reaction"');
     expect(html).toContain('<span>❤️ 1</span>');
-    expect(html).not.toContain('class="is-active" role="menuitem"');
+    expect(html).toContain('role="menuitemcheckbox" class="is-active" aria-checked="true" aria-label="Add or remove thumbs up reaction"');
   });
 
   it('renders review submission as an overlay without replacing the pull request', () => {
@@ -200,6 +255,29 @@ describe('PullOverview', () => {
     expect(html).toContain('>Copy Markdown</button>');
     expect(html).toContain('>Quote reply</button>');
     expect(html).toContain('M10.5 7.75a2.75 2.75');
+  });
+
+  it('makes authored descriptions editable and their Markdown tasks interactive', () => {
+    const value = detail();
+    value.body = '- [ ] Update release notes';
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('>Edit description</button>');
+    expect(html).toContain('data-markdown-task=""');
+    expect(html).not.toContain('data-markdown-task="" disabled=""');
+  });
+
+  it('keeps another author\'s description tasks read-only without write access', () => {
+    const value = detail();
+    value.body = '- [ ] Update release notes';
+
+    const html = renderToStaticMarkup(<PullOverview
+      pr={{ ...pullRequest(), origin: 'OTHER' }} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).not.toContain('>Edit description</button>');
+    expect(html).toContain('disabled="" readOnly=""');
+    expect(html).not.toContain('data-markdown-task=""');
   });
 
   it('shows commits and force pushes in the timeline', () => {
@@ -346,6 +424,18 @@ describe('PullOverview', () => {
     expect(html).toContain('>Reply</button><button class="pr-thread-resolve"');
     expect(html).toContain('>Resolve</button>');
     expect(html).not.toContain('<strong>Reply</strong>');
+  });
+
+  it('updates only the matching review thread and supports a guarded rollback', () => {
+    const value = detail();
+    const optimistic = updateReviewThreadResolution(value, 3, 99, false);
+    const rolledBack = updateReviewThreadResolution(optimistic, 3, 99, true, false);
+    const externallyChanged = updateReviewThreadResolution(optimistic, 3, 99, true);
+    const skippedRollback = updateReviewThreadResolution(externallyChanged, 3, 99, true, false);
+
+    expect(optimistic.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(false);
+    expect(rolledBack.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(true);
+    expect(skippedRollback.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(true);
   });
 
   it('shows only the commented diff line with its number and state', () => {

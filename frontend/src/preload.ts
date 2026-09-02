@@ -48,9 +48,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:diff-content:refresh', repo, number, path, baseSha, headSha),
   postPrReviewComment: (repo, number, comment) =>
     ipcRenderer.invoke('prs:review-comment:create', repo, number, comment),
+  updatePrDescription: (repo, number, body) =>
+    ipcRenderer.invoke('prs:description:update', repo, number, body),
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
-  togglePrReaction: (repo, number, target, commentId, content) =>
-    ipcRenderer.invoke('prs:reaction:toggle', repo, number, target, commentId, content),
+  setPrReaction: (repo, number, target, commentId, content, viewerHasReacted) =>
+    ipcRenderer.invoke('prs:reaction:set', repo, number, target, commentId, content, viewerHasReacted),
   closePr: (repo, number) => ipcRenderer.invoke('prs:close', repo, number),
   replyToReviewComment: (repo, number, commentId, body) =>
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),

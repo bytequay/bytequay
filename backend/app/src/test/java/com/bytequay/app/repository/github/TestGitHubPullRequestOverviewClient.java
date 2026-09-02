@@ -199,6 +199,26 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void preservesUnknownViewerStateWhenGraphQlReactionGroupsArePartial()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
+                .andRespond(withSuccess("""
+                        {"node_id":"PR_42","reactions":{"+1":2}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[{"id":"PR_42","reactionGroups":null}]},
+                         "errors":[{"message":"Reaction groups unavailable"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST))
+                .singleElement()
+                .satisfies(reaction -> assertThat(reaction.viewerHasReacted()).isNull());
+        fixture.verify();
+    }
+
+    @Test
     void fetchesEveryReviewPage()
     {
         Fixture fixture = fixture();

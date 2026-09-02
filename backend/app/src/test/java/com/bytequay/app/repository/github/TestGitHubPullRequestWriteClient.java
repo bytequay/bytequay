@@ -24,8 +24,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -204,6 +206,30 @@ class TestGitHubPullRequestWriteClient
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", true)).isTrue();
         assertThat(client.togglePullRequestReaction("pat", pullRequest, "eyes", false)).isFalse();
 
+        server.verify();
+    }
+
+    @Test
+    void reportsDeleteFailureAfterCreatingAReactionForDesiredFalseState()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.CREATED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":105}"));
+        server.expect(requestTo(url + "/105"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        assertThatThrownBy(() -> client.togglePullRequestReaction(
+                "pat", PullRequestRef.of("upstream", "project", 12), "eyes", false))
+                .isInstanceOf(ResponseStatusException.class);
         server.verify();
     }
 

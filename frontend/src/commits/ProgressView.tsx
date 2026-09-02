@@ -11,14 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type {
   CherryPickExecution,
   CherryPickExecutionItem,
   PullRequestDetailDto,
   WorkspaceDeliveryStatus,
 } from '../types';
-import PullOverview from '../pulls/PullOverview';
+import PullOverview, { mergePullRequestWriteDetail } from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
 import { completedExecutionItems, foldNav, pullRequestPanelRef, shortSha, taskState } from './model';
 
@@ -76,6 +76,15 @@ export default function ProgressView({
   const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [leftWidth, setLeftWidth] = useState(260);
   const [rightWidth, setRightWidth] = useState(380);
+  const [viewerLogin, setViewerLogin] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void window.bridge.getUserProfile()
+      .then(profile => { if (active) setViewerLogin(profile.login); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const status = execution?.status;
   useEffect(() => {
@@ -539,23 +548,38 @@ export default function ProgressView({
           workspaceId={workspaceId}
           slug={pullRequest.slug}
           number={pullRequest.number}
+          viewerLogin={viewerLogin}
         />
       </div>
     </div>
   );
 }
 
-function PrPanel({ workspaceId, slug, number }: { workspaceId: string; slug: string | null; number: number | null }) {
+function PrPanel({ workspaceId, slug, number, viewerLogin }: {
+  workspaceId: string;
+  slug: string | null;
+  number: number | null;
+  viewerLogin: string | null;
+}) {
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const detailState = useRef<PullRequestDetailDto | null>(null);
+  const mutationVersion = useRef(0);
 
   useEffect(() => {
+    mutationVersion.current += 1;
+    detailState.current = null;
     setDetail(null);
     setError(null);
     if (slug === null || number === null) return;
     let cancelled = false;
     window.bridge.fetchPullRequestDetailByRef(slug, number)
-      .then(value => { if (!cancelled) setDetail(value); })
+      .then(value => {
+        if (!cancelled) {
+          detailState.current = value;
+          setDetail(value);
+        }
+      })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       });
@@ -577,13 +601,35 @@ function PrPanel({ workspaceId, slug, number }: { workspaceId: string; slug: str
   return (
     <div className="cmt-pr-overview">
       <PullOverview
-        pr={remotePullRequest(detail)}
+        pr={remotePullRequest(detail, viewerLogin ?? undefined)}
         detail={detail}
         contributorsWorkspaceId={workspaceId}
         onRefresh={async () => {
-          setDetail(await window.bridge.refreshAllPullRequestDetailByRef(slug, number));
+          const version = mutationVersion.current;
+          const response = await window.bridge.refreshAllPullRequestDetailByRef(slug, number);
+          const current = detailState.current;
+          const next = current !== null && version !== mutationVersion.current
+            ? mergePullRequestWriteDetail(current, response)
+            : response;
+          detailState.current = next;
+          setDetail(next);
         }}
-        onDetailChange={setDetail}
+        onDetailUpdate={(repo, pullNumber, update) => {
+          if (repo.toLowerCase() !== slug.toLowerCase() || pullNumber !== number) return;
+          const current = detailState.current;
+          if (current === null) return;
+          const next = update(current);
+          mutationVersion.current += 1;
+          detailState.current = next;
+          setDetail(next);
+        }}
+        onDetailChange={response => {
+          const current = detailState.current;
+          const next = current === null ? response : mergePullRequestWriteDetail(current, response);
+          mutationVersion.current += 1;
+          detailState.current = next;
+          setDetail(next);
+        }}
       />
       <div className="cmt-pr-footnote">
         Showing the pull request for the selected commit — pick another commit on the left to switch.

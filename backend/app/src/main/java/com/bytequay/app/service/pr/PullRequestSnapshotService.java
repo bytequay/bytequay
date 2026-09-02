@@ -289,6 +289,11 @@ public class PullRequestSnapshotService
         delete(ImmutableSet.of(prId));
     }
 
+    void deleteDetail(long prId)
+    {
+        details.deleteByPrIds(ImmutableSet.of(prId));
+    }
+
     private StoredPrDiff storedDiff(long prId, String baseSha, String headSha)
     {
         validateRange(baseSha, headSha);

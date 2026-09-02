@@ -663,6 +663,13 @@
 
 .markdown-body { padding: 16px 18px 20px; color: #1f2328; font-size: var(--ui-font-size); line-height: 1.53; overflow-wrap: anywhere; }
 .pull-request-overview .pr-description > .markdown-body { padding: 20px 18px 24px; font-size: var(--ui-font-size); line-height: 1.55; }
+.pr-description-editor { display: grid; gap: 10px; padding: 16px 18px; }
+.pr-description-editor textarea { width: 100%; min-height: 180px; resize: vertical; border: 1px solid #0969da; border-radius: 8px; outline: 0; background: #fff; color: #24292f; padding: 11px 13px; font: inherit; font-family: var(--font-mono); font-size: var(--ui-font-size); line-height: 1.5; }
+.pr-description-editor__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pr-description-editor__actions button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #24292f; padding: 6px 12px; font: inherit; }
+.pr-description-editor__actions button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
+.pr-description-editor__actions button:disabled { opacity: 0.5; }
+.pr-description__error { padding: 0 18px 12px; color: #cf222e; font-size: var(--ui-font-size); }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
 .markdown-body h1,
@@ -733,6 +740,7 @@
 .pr-reactions > span:not(.pr-reaction-error), .pr-reaction { display: inline-flex; min-height: 26px; align-items: center; border: 1px solid #d0d7de; border-radius: 999px; background: #fff; padding: 3px 9px; color: #59636e; font: inherit; font-size: 11.5px; }
 .pr-reaction { cursor: pointer; }
 .pr-reaction:not(:disabled):hover { border-color: #0969da; background: #ddf4ff; color: #0969da; }
+.pr-reaction.is-active { border-color: #54aeff; background: #ddf4ff; color: #0969da; }
 .pr-reaction:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 .pr-reaction:disabled { cursor: wait; opacity: 0.55; }
 .pr-reaction-error { max-width: 240px; color: #cf222e; font-size: var(--ui-font-size); line-height: 1.3; }
@@ -748,6 +756,7 @@
 .pr-reaction-picker__menu button { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 8px; background: transparent; padding: 0; font-size: 20px; line-height: 1; }
 .pr-reaction-picker__menu button:not(:disabled):hover,
 .pr-reaction-picker__menu button:not(:disabled):focus-visible { background: #ddf4ff; outline: 0; }
+.pr-reaction-picker__menu button.is-active { background: #ddf4ff; box-shadow: inset 0 0 0 1px #54aeff; }
 .pr-reaction-picker__trigger:disabled, .pr-reaction-picker__menu button:disabled { cursor: wait; opacity: 0.55; }
 .pr-reaction-picker__error { align-self: center; max-width: 240px; padding: 4px 7px; color: #cf222e; font-size: var(--ui-font-size); line-height: 1.3; white-space: normal; }
 .pr-reactions .pr-reaction-picker__menu { top: auto; right: auto; bottom: calc(100% + 5px); left: 0; transform: translateY(4px) scale(0.98); transform-origin: bottom left; }

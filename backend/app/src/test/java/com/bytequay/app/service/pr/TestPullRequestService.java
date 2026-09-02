@@ -153,6 +153,7 @@ class TestPullRequestService
                 ImmutableList.of("alice"),
                 ImmutableList.of("bug"));
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
@@ -165,6 +166,7 @@ class TestPullRequestService
         verify(writes).updateReviewerRequest(
                 "pat", PullRequestRef.of("owner", "repo", 7), "alice", true);
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
@@ -771,7 +773,23 @@ class TestPullRequestService
 
         verify(writes).toggleIssueCommentReaction("pat", ref, 41, "heart", false);
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
-        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
+    }
+
+    @Test
+    void invalidatesCachedDetailWhenReactionWriteFails()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        assertThatThrownBy(() -> service.toggleReaction(
+                "owner/repo", 7, "issue_comment", 41L, "heart", false))
+                .isInstanceOf(ResponseStatusException.class);
+
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
@@ -785,7 +803,7 @@ class TestPullRequestService
         verify(writes).updatePullRequestDescription("pat", ref, "Updated description");
         verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
-        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
@@ -837,6 +855,7 @@ class TestPullRequestService
 
         verify(writes).setReviewThreadResolved("pat", "PRRT_1", true);
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test

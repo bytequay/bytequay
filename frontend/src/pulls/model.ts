@@ -119,11 +119,30 @@ export function rowsForSearch(prs: PullRequestDto[]): PullRow[] {
 
 export function reconcilePullRequestDetail(
   pr: PullRequestDto,
-  detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>,
+  detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>
+    & Partial<Pick<PullRequestDetailDto, 'author' | 'labels' | 'reviewers'>>,
+  viewerLogin?: string | null,
 ): PullRequestDto {
   const state = detail.state?.toLowerCase() ?? pr.state;
   const updatedAt = detail.updatedAt ?? pr.updatedAt;
-  return state === pr.state && updatedAt === pr.updatedAt ? pr : { ...pr, state, updatedAt };
+  const labels = detail.labels?.map(label => label.name) ?? pr.labels;
+  const labelColors = detail.labels === undefined
+    ? pr.labelColors
+    : Object.fromEntries(detail.labels.map(label => [label.name, label.color ?? 'd0d7de']));
+  const requestedReviewers = detail.reviewers?.map(reviewer => reviewer.login) ?? pr.requestedReviewers;
+  const origin = viewerLogin && detail.author !== undefined && detail.reviewers !== undefined
+    ? detail.author?.toLowerCase() === viewerLogin.toLowerCase()
+      ? 'AUTHORED'
+      : state === 'open' && detail.reviewers.some(reviewer =>
+        reviewer.login.toLowerCase() === viewerLogin.toLowerCase() && reviewer.state.toLowerCase() === 'pending')
+        ? 'REVIEW_REQUESTED'
+        : 'OTHER'
+    : pr.origin;
+  return state === pr.state && updatedAt === pr.updatedAt
+      && labels === pr.labels && labelColors === pr.labelColors && requestedReviewers === pr.requestedReviewers
+      && origin === pr.origin
+    ? pr
+    : { ...pr, state, updatedAt, labels, labelColors, requestedReviewers, origin };
 }
 
 export function reconcilePostedComment(

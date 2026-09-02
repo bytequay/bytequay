@@ -153,4 +153,27 @@ describe('rowsForTab', () => {
     expect(rowsForTab([updated], 'reviewed')).toEqual([]);
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');
   });
+
+  it('projects optimistic labels and reviewers into the list row', () => {
+    const current = pr({ labels: ['old'], origin: 'OTHER', requestedReviewers: [] });
+    const updated = reconcilePullRequestDetail(current, {
+      state: 'open',
+      updatedAt: '2026-08-21T01:00:00Z',
+      author: 'alice',
+      labels: [{ name: 'docs', color: 'aabbcc' }],
+      reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }],
+    }, 'bob');
+    const removed = reconcilePullRequestDetail(updated, {
+      state: 'open',
+      updatedAt: '2026-08-21T01:00:00Z',
+      author: 'alice',
+      reviewers: [],
+    }, 'bob');
+
+    expect(updated.labels).toEqual(['docs']);
+    expect(updated.labelColors).toEqual({ docs: 'aabbcc' });
+    expect(updated.requestedReviewers).toEqual(['bob']);
+    expect(updated.origin).toBe('REVIEW_REQUESTED');
+    expect(removed.origin).toBe('OTHER');
+  });
 });

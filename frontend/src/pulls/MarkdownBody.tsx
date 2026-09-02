@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   openGitHubReference,
@@ -48,6 +48,108 @@ type Block =
 type Segment =
   | { kind: 'markdown'; text: string }
   | { kind: 'details'; summary: string; text: string };
+
+type Fence = { marker: '`' | '~'; length: number; language: string };
+
+const TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓])\)|\[([ xX])\])\s+(.+)$/;
+const SOURCE_TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓]|&#(?:x0*2713|0*10003);)\)|\[([ xX])\])(\s+.+)$/i;
+
+function openingFence(line: string): Fence | null {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  if (!match || (match[1][0] === '`' && match[2].includes('`'))) return null;
+  return {
+    marker: match[1][0] as Fence['marker'],
+    length: match[1].length,
+    language: match[2].trim().split(/\s+/, 1)[0] ?? '',
+  };
+}
+
+function closesFence(line: string, fence: Fence) {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+  return match?.[1][0] === fence.marker && match[1].length >= fence.length;
+}
+
+function withoutHtmlComments(line: string, insideComment: boolean) {
+  let visible = '';
+  let cursor = 0;
+  while (cursor < line.length) {
+    if (insideComment) {
+      const end = line.indexOf('-->', cursor);
+      if (end < 0) return { visible: visible + ' '.repeat(line.length - cursor), insideComment: true };
+      visible += ' '.repeat(end + 3 - cursor);
+      cursor = end + 3;
+      insideComment = false;
+      continue;
+    }
+    const start = line.indexOf('<!--', cursor);
+    if (start < 0) return { visible: visible + line.slice(cursor), insideComment: false };
+    visible += line.slice(cursor, start) + ' '.repeat(4);
+    cursor = start + 4;
+    insideComment = true;
+  }
+  return { visible, insideComment };
+}
+
+/** Toggles one rendered task by ordinal without rewriting unrelated Markdown. */
+export function toggleMarkdownTask(markdown: string, taskIndex: number, checked: boolean) {
+  if (!Number.isSafeInteger(taskIndex) || taskIndex < 0) return markdown;
+  const sourceParts = markdown.split(/(\r\n|\r|\n)/);
+  let fence: Fence | null = null;
+  let insideComment = false;
+  let quote = false;
+  let alert = false;
+  let currentTask = 0;
+
+  for (let index = 0; index < sourceParts.length; index += 2) {
+    const sourceLine = sourceParts[index];
+    if (fence) {
+      if (closesFence(sourceLine, fence)) fence = null;
+      continue;
+    }
+    if (!insideComment) {
+      const opening = openingFence(sourceLine);
+      if (opening) {
+        fence = opening;
+        continue;
+      }
+    }
+    const masked = withoutHtmlComments(sourceLine, insideComment);
+    const visibleLine = masked.visible;
+    insideComment = masked.insideComment;
+    if (alert) {
+      if (visibleLine.startsWith('>')) continue;
+      alert = false;
+    }
+    if (quote) {
+      if (visibleLine.trim()) continue;
+      quote = false;
+      continue;
+    }
+    if (/^> \[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i.test(visibleLine)) {
+      alert = true;
+      continue;
+    }
+    if (visibleLine.startsWith('>')) {
+      quote = true;
+      continue;
+    }
+    const task = visibleLine.match(SOURCE_TASK_LINE);
+    if (!task) continue;
+    if (currentTask++ !== taskIndex) continue;
+
+    const parenthesized = task[2] !== undefined;
+    const wasChecked = (task[2] ?? task[3]).trim() !== '';
+    if (wasChecked === checked) return markdown;
+    const marker = parenthesized ? `(${checked ? '*' : ' '})` : `[${checked ? 'x' : ' '}]`;
+    const markerStart = task[1].length;
+    const markerLength = parenthesized ? task[2].length + 2 : 3;
+    sourceParts[index] = sourceParts[index].slice(0, markerStart)
+      + marker
+      + sourceParts[index].slice(markerStart + markerLength);
+    return sourceParts.join('');
+  }
+  return markdown;
+}
 
 function markdownSegments(markdown: string): Segment[] {
   const segments: Segment[] = [];
@@ -166,7 +268,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
   const lines = markdown.replaceAll('\r\n', '\n').split('\n');
   let paragraph: string[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
-  let code: { language: string; lines: string[] } | null = null;
+  let code: { fence: Fence; lines: string[] } | null = null;
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -197,18 +299,18 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (code) {
-      if (line.startsWith('```')) {
-        blocks.push({ kind: 'code', language: code.language, text: code.lines.join('\n') });
+      if (closesFence(line, code.fence)) {
+        blocks.push({ kind: 'code', language: code.fence.language, text: code.lines.join('\n') });
         code = null;
       }
       else code.lines.push(line);
       continue;
     }
-    const fence = line.match(/^```([^\s]*)\s*$/);
+    const fence = openingFence(line);
     if (fence) {
       flushParagraph();
       flushList();
-      code = { language: fence[1], lines: [] };
+      code = { fence, lines: [] };
       continue;
     }
     if (!line.trim()) {
@@ -252,11 +354,11 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       blocks.push({ kind: 'rule' });
       continue;
     }
-    const task = line.match(/^\s*(?:[-*+]\s+)?(?:\(([ xX*✓])\)|\[([ xX])\])\s+(.+)$/);
+    const task = line.match(TASK_LINE);
     if (task) {
       flushParagraph();
       flushList();
-      blocks.push({ kind: 'task', checked: (task[1] ?? task[2]) !== ' ', text: task[3] });
+      blocks.push({ kind: 'task', checked: (task[2] ?? task[3]) !== ' ', text: task[4] });
       continue;
     }
     const item = line.match(/^\s*(?:(\d+)\.|[-*+])\s+(.+)$/);
@@ -300,7 +402,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
     flushList();
     paragraph.push(line.trim());
   }
-  if (code) blocks.push({ kind: 'code', language: code.language, text: code.lines.join('\n') });
+  if (code) blocks.push({ kind: 'code', language: code.fence.language, text: code.lines.join('\n') });
   flushParagraph();
   flushList();
   return blocks;
@@ -669,24 +771,52 @@ function markdownCode(text: string, keyPrefix: string) {
   });
 }
 
-export default function MarkdownBody({ body, className = '', repository }: {
+export default function MarkdownBody({ body, className = '', repository, onTaskToggle, tasksDisabled = false }: {
   body: string;
   className?: string;
   repository?: string;
+  onTaskToggle?: (taskIndex: number, checked: boolean) => void;
+  tasksDisabled?: boolean;
+}) {
+  const toggleTask = (event: ChangeEvent<HTMLDivElement>) => {
+    if (!onTaskToggle || !(event.target instanceof HTMLInputElement)
+        || event.target.dataset.markdownTask === undefined) return;
+    const tasks = Array.from(event.currentTarget.querySelectorAll<HTMLInputElement>('input[data-markdown-task]'));
+    const taskIndex = tasks.indexOf(event.target);
+    if (taskIndex >= 0) onTaskToggle(taskIndex, event.target.checked);
+  };
+  return <MarkdownBodyContent body={body} className={className} repository={repository}
+    tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
+}
+
+function MarkdownBodyContent({ body, className = '', repository, tasksInteractive, tasksDisabled, onTaskChange }: {
+  body: string;
+  className?: string;
+  repository?: string;
+  tasksInteractive: boolean;
+  tasksDisabled: boolean;
+  onTaskChange?: (event: ChangeEvent<HTMLDivElement>) => void;
 }) {
   return (
-    <div className={`markdown-body ${className}`.trim()}>
+    <div className={`markdown-body ${className}`.trim()} onChange={onTaskChange}>
       {markdownSegments(body).map((segment, segmentIndex) => segment.kind === 'details' ? (
         <details className="md-details" key={`details-${segmentIndex}`}>
           <summary>{inline(segment.summary, `details-${segmentIndex}`)}</summary>
-          <MarkdownBody body={segment.text} repository={repository} />
+          <MarkdownBodyContent body={segment.text} repository={repository}
+            tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
         </details>
-      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository} key={`markdown-${segmentIndex}`} />)}
+      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository}
+        tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} key={`markdown-${segmentIndex}`} />)}
     </div>
   );
 }
 
-function MarkdownBlocks({ markdown, repository }: { markdown: string; repository?: string }) {
+function MarkdownBlocks({ markdown, repository, tasksInteractive, tasksDisabled }: {
+  markdown: string;
+  repository?: string;
+  tasksInteractive: boolean;
+  tasksDisabled: boolean;
+}) {
   const blocks = markdownBlocks(markdown, repository);
   return <>
       {blocks.map((block, index) => {
@@ -697,7 +827,10 @@ function MarkdownBlocks({ markdown, repository }: { markdown: string; repository
         }
         if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key)}</p>;
         if (block.kind === 'task') return (
-          <p key={key}><label><input type="checkbox" checked={block.checked} disabled readOnly /> {inline(block.text, key)}</label></p>
+          <p key={key}><label><input type="checkbox" checked={block.checked}
+            disabled={!tasksInteractive || tasksDisabled} readOnly={!tasksInteractive}
+            data-markdown-task={tasksInteractive ? '' : undefined}
+            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key)}</label></p>
         );
         if (block.kind === 'code') {
           const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
@@ -730,7 +863,8 @@ function MarkdownBlocks({ markdown, repository }: { markdown: string; repository
           </div>
         );
         if (block.kind === 'quote') return (
-          <blockquote key={key}><MarkdownBlocks markdown={block.text} repository={repository} /></blockquote>
+          <blockquote key={key}><MarkdownBlocks markdown={block.text} repository={repository}
+            tasksInteractive={false} tasksDisabled={tasksDisabled} /></blockquote>
         );
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';

@@ -84,6 +84,10 @@ describe('agent task list', () => {
     expect(markup).not.toContain('u00b7');
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('New agent task');
+    // Wire enums never reach the user.
+    expect(markup).toContain('>Running<');
+    expect(markup).toContain('>Completed<');
+    expect(markup).not.toContain('OPEN');
     // The preview must never read as a live task.
     expect(markup).toContain('Fixture data');
   });
@@ -117,19 +121,46 @@ describe('agent task detail', () => {
   it('anchors a composer with Send, Cancel and idle-only Complete', () => {
     const idle = body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'go' });
 
-    expect(idle).toContain('Send a message to this task');
+    expect(idle).toContain('Message the agent');
     expect(idle).toContain('>Send<');
-    // Idle: Send is live, Cancel and only Cancel is disabled.
-    expect(idle).toContain('>Complete<');
+    expect(idle).toContain('Complete');
+    // Idle with no turn: Send is live, and Cancel alone is disabled because there is nothing to cancel.
     expect(idle.match(/disabled/g)).toHaveLength(1);
+    expect(idle).toMatch(/<button[^>]*disabled[^>]*>Cancel</);
+    // A disabled Complete has to say why it is disabled.
+    expect(body({ connection: 'open' })).toContain('Available when the task is idle');
   });
 
-  it('says it is reconnecting without claiming anything was lost', () => {
-    const markup = body({ connection: 'reconnecting', connectionDetail: 'stream closed' });
+  it('says Connecting in the composer until the stream is open', () => {
+    expect(body({ connection: 'connecting' })).toContain('placeholder="Connecting\u2026"');
+    expect(body({ connection: 'open' })).toContain('placeholder="Message the agent"');
+  });
+
+  it('keeps a healthy connection in the header instead of spending a row on it', () => {
+    const open = body({ connection: 'open' });
+    // Live state is the header dot only; no full-width strip.
+    expect(open).toContain('agt-conn-dot is-open');
+    expect(open).not.toContain('class="agt-conn ');
+    expect(open).toContain('aria-label="Live"');
+  });
+
+  it('says it is reconnecting, from where, without claiming anything was lost', () => {
+    const markup = body({ connection: 'reconnecting', lastSequence: 214 });
 
     expect(markup).toContain('agt-conn is-reconnecting');
+    // The resume point is the load-bearing part: "catching up" alone asks for faith.
+    expect(markup).toContain('catching up from event 214');
     expect(markup).toContain('Nothing is lost');
-    expect(markup).toContain('stream closed');
+  });
+
+  it('offers a decision on a pending approval and none on a settled one', () => {
+    const markup = body({ events, connection: 'open' });
+
+    // The fixture carries both, so the reviewable state is not only the settled one.
+    expect(markup).toContain('Allow once');
+    expect(markup).toContain('>Deny<');
+    expect(markup).toContain('Approval \u00b7 COMMAND \u00b7 ALLOWED');
+    expect(markup).toContain('git push origin fix/preview-limit');
   });
 
   it('surfaces a held gap and a terminal error instead of a silent hole', () => {

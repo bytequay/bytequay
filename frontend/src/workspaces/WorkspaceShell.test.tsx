@@ -122,7 +122,7 @@ describe('watched repository workspace UI', () => {
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
       <WorkspaceShell {...props} developmentBuild initialAgentTaskId="task-1" />);
-    expect(open).toContain('Send a message to this task');
+    expect(open).toContain('Message the agent');
   });
 
   it('keeps repository-scoped PRs and Issues available before metadata is synchronized', () => {

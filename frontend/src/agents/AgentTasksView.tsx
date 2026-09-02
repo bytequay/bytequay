@@ -26,7 +26,7 @@ export interface AgentTasksViewProps {
   laneId?: string;
 }
 
-function dotClass(state: string): string {
+function stateClass(state: string): string {
   switch (state) {
     case 'OPEN':
       return 'is-running';
@@ -38,6 +38,13 @@ function dotClass(state: string): string {
       return '';
   }
 }
+
+/** A task state reads as prose; the wire enum is never shown to the user. */
+const STATE_LABELS: Record<string, string> = {
+  OPEN: 'Running',
+  COMPLETED: 'Completed',
+  FAILED: 'Failed',
+};
 
 export default function AgentTasksView({
   workspaceId,
@@ -126,10 +133,12 @@ export function AgentTaskList({ tasks, loading, error, onCreate, onOpenTask }: {
             className="agt-row"
             onClick={() => onOpenTask(task.id)}
           >
-            <span className={`agt-dot ${dotClass(task.state)}`} />
             <span className="agt-row-title">{task.title}</span>
             <span className="agt-spacer" />
-            <span className="agt-row-meta">{task.laneId} · {task.state}</span>
+            <span className="agt-row-meta">{task.laneId}</span>
+            <span className={`agt-state ${stateClass(task.state)}`}>
+              {STATE_LABELS[task.state] ?? task.state}
+            </span>
           </button>
         ))}
       </div>

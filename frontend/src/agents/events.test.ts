@@ -42,6 +42,7 @@ describe('agent event contract', () => {
       'tool',
       'approval_requested',
       'approval_resolved',
+      'approval_requested',
       'error',
       'usage',
       'assistant_message',

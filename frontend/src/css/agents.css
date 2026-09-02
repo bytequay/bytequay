@@ -94,23 +94,51 @@
   color: #57606a;
 }
 
-.agt-dot {
-  width: 8px;
-  height: 8px;
+/* Task state reads as a pill, matching the colours the cherry-pick task list already uses. */
+.agt-state {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 2px 9px;
+  white-space: nowrap;
+  color: #57606a;
+  background: #eceff2;
+}
+
+.agt-state.is-running {
+  color: #0969da;
+  background: #ddf4ff;
+}
+
+.agt-state.is-completed {
+  color: #1a7f37;
+  background: #dafbe1;
+}
+
+.agt-state.is-failed {
+  color: #cf222e;
+  background: #ffebe9;
+}
+
+/* Healthy connection state lives in the header, so it never costs a whole row. */
+.agt-conn-dot {
+  width: 7px;
+  height: 7px;
   flex: none;
   border-radius: 50%;
   background: #8c959f;
 }
 
-.agt-dot.is-running {
-  background: #bf8700;
-}
-
-.agt-dot.is-completed {
+.agt-conn-dot.is-open {
   background: #1a7f37;
 }
 
-.agt-dot.is-failed {
+.agt-conn-dot.is-reconnecting {
+  background: #bf8700;
+}
+
+.agt-conn-dot.is-failed {
   background: #cf222e;
 }
 
@@ -182,6 +210,18 @@
   overflow-y: auto;
 }
 
+/*
+ * A reading column, centred inside a full-width scroller so the scrollbar stays at the pane edge.
+ * Transcript prose is unreadable stretched across a wide window.
+ */
+.agt-transcript > *,
+.agt-composer {
+  width: 100%;
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .agt-item {
   border: 1px solid #d0d7de;
   border-radius: 8px;
@@ -201,6 +241,12 @@
 
 .agt-item.is-user {
   background: #f6f8fa;
+}
+
+.agt-item.is-assistant {
+  border-color: #b6d4f7;
+  font-size: 13.5px;
+  line-height: 1.6;
 }
 
 .agt-item.is-error {
@@ -232,6 +278,7 @@
 }
 
 .agt-composer {
+  box-sizing: border-box;
   display: flex;
   gap: 8px;
   align-items: flex-end;

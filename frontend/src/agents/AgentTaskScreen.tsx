@@ -154,9 +154,22 @@ export function AgentRowView({ row, onDecide }: {
 const CONNECTION_TEXT: Record<string, string> = {
   connecting: 'Connecting — loading task history…',
   open: 'Live',
-  reconnecting: 'Reconnecting — catching up. Nothing is lost.',
   failed: 'Disconnected',
 };
+
+/**
+ * What the connection strip says.
+ *
+ * Reconnecting names the sequence it is resuming from, because "catching up" without a resume
+ * point asks the user to take the claim that nothing was lost on faith.
+ */
+function connectionText(state: AgentTaskState): string {
+  if (state.connection === 'reconnecting') {
+    return `Reconnecting — catching up from event ${state.lastSequence}. Nothing is lost.`;
+  }
+  const text = CONNECTION_TEXT[state.connection] ?? state.connection;
+  return state.connectionDetail === null ? text : `${text} — ${state.connectionDetail}`;
+}
 
 /**
  * The whole screen as a function of state, so every visual state can be rendered on its own.
@@ -182,14 +195,30 @@ export function AgentTaskBody({ state, onBack, onSend, onCancel, onComplete, onD
         <strong>{state.task?.title ?? 'Agent task'}</strong>
         <span className="agt-fixture-badge">Fixture data</span>
         <span className="agt-spacer" />
-        <button type="button" className="agt-action" onClick={onComplete} disabled={!idle}>Complete</button>
+        <span
+          className={`agt-conn-dot is-${stateClass(state.connection)}`}
+          role="status"
+          title={connectionText(state)}
+          aria-label={connectionText(state)}
+        />
+        <button
+          type="button"
+          className="agt-action"
+          title={idle ? 'Closes this task and frees the workspace' : 'Available when the task is idle'}
+          onClick={onComplete}
+          disabled={!idle}
+        >
+          Complete
+        </button>
       </div>
 
-      <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
-        {CONNECTION_TEXT[state.connection] ?? state.connection}
-        {state.connectionDetail === null ? '' : ` \u2014 ${state.connectionDetail}`}
-        {state.gap ? ' \u2014 waiting for a missing event' : ''}
-      </div>
+      {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
+      {(state.connection !== 'open' || state.gap) && (
+        <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
+          {connectionText(state)}
+          {state.gap ? ' \u2014 waiting for a missing event' : ''}
+        </div>
+      )}
 
       <div className="agt-transcript">
         {rows.length === 0
@@ -200,11 +229,20 @@ export function AgentTaskBody({ state, onBack, onSend, onCancel, onComplete, onD
       <div className="agt-composer">
         <textarea
           value={state.composer}
-          placeholder="Send a message to this task"
+          aria-label="Message the agent"
+          placeholder={state.connection === 'connecting' ? 'Connecting\u2026' : 'Message the agent'}
           onChange={(event) => onCompose(event.target.value)}
         />
         <button type="button" className="agt-action" onClick={onSend} disabled={!canSend(state)}>Send</button>
-        <button type="button" className="agt-action" onClick={onCancel} disabled={idle}>Cancel</button>
+        {/* Cancel needs a turn to cancel; before one exists the handler falls straight out. */}
+        <button
+          type="button"
+          className="agt-action"
+          onClick={onCancel}
+          disabled={state.turn === null || idle}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );

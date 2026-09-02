@@ -14,6 +14,9 @@
 package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-record GitHubIssueReactionsResponse(GitHubReactions reactions) {}
+record GitHubIssueReactionsResponse(
+        @JsonProperty("node_id") String nodeId,
+        GitHubReactions reactions) {}

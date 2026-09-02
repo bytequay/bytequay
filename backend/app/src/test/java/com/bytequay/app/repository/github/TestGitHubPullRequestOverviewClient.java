@@ -175,7 +175,14 @@ class TestGitHubPullRequestOverviewClient
                         """, MediaType.APPLICATION_JSON));
         fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
-                        {"reactions":{"+1":2,"eyes":1}}
+                        {"node_id":"PR_42","reactions":{"+1":2,"eyes":1}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[{"id":"PR_42","reactionGroups":[
+                          {"content":"THUMBS_UP","viewerHasReacted":true},
+                          {"content":"EYES","viewerHasReacted":false}
+                        ]}]}}
                         """, MediaType.APPLICATION_JSON));
 
         PrRawDetail detail = fixture.client().fetchPrDetail("pat", PULL_REQUEST);
@@ -186,8 +193,8 @@ class TestGitHubPullRequestOverviewClient
                 - [Linked issue #7](https://github.com/owner/repo/issues/7)
                 - [Linked pull #8](https://github.com/owner/repo/pull/8)""");
         assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST))
-                .extracting(reaction -> reaction.content() + ":" + reaction.count())
-                .containsExactly("+1:2", "eyes:1");
+                .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
+                .containsExactly("+1:2:true", "eyes:1:false");
         fixture.verify();
     }
 
@@ -285,9 +292,9 @@ class TestGitHubPullRequestOverviewClient
                 .andRespond(withSuccess("""
                         {"data":{"repository":{"pullRequest":{"reviews":{
                           "nodes":[{"databaseId":5,"reactionGroups":[
-                            {"content":"THUMBS_UP","users":{"totalCount":1}},
-                            {"content":"HEART","users":{"totalCount":2}},
-                            {"content":"EYES","users":{"totalCount":0}}]}],
+                            {"content":"THUMBS_UP","users":{"totalCount":1},"viewerHasReacted":true},
+                            {"content":"HEART","users":{"totalCount":2},"viewerHasReacted":false},
+                            {"content":"EYES","users":{"totalCount":0},"viewerHasReacted":true}]}],
                           "pageInfo":{"hasNextPage":false,"endCursor":"cursor"}
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
@@ -296,9 +303,39 @@ class TestGitHubPullRequestOverviewClient
 
         assertThat(timeline).hasSize(2);
         assertThat(timeline.getFirst().payload().reactions())
-                .extracting(reaction -> reaction.content() + ":" + reaction.count())
-                .containsExactly("+1:1", "heart:2");
+                .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
+                .containsExactly("+1:1:true", "heart:2:false");
         assertThat(timeline.getLast().payload().reactions()).isEmpty();
+        fixture.verify();
+    }
+
+    @Test
+    void enrichesIssueCommentsWithViewerReactionState()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":21,"node_id":"IC_21","body":"Looks good",
+                          "created_at":"2026-08-20T10:00:00Z",
+                          "user":{"login":"alice","type":"User"},
+                          "reactions":{"+1":2,"heart":1}}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[{"id":"IC_21","reactionGroups":[
+                          {"content":"THUMBS_UP","viewerHasReacted":false},
+                          {"content":"HEART","viewerHasReacted":true}
+                        ]}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> comments = fixture.client().fetchPrIssueComments(
+                "pat", PULL_REQUEST, null);
+
+        assertThat(comments).singleElement().satisfies(comment ->
+                assertThat(comment.payload().reactions())
+                        .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
+                        .containsExactly("+1:2:false", "heart:1:true"));
         fixture.verify();
     }
 
@@ -310,15 +347,23 @@ class TestGitHubPullRequestOverviewClient
                         "https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [
-                          {"id":11,"pull_request_review_id":5,"path":"src/App.java","line":12,
+                          {"id":11,"node_id":"RC_11","pull_request_review_id":5,"path":"src/App.java","line":12,
                            "diff_hunk":"@@ -1 +1 @@\\n-old\\n+new","body":"Please verify #8",
                            "created_at":"2026-08-20T10:00:00Z","html_url":"https://github/comment/11",
                            "user":{"login":"alice","avatar_url":"https://avatars/alice","type":"User"},
                            "reactions":{"+1":1}},
-                          {"id":12,"pull_request_review_id":5,"in_reply_to_id":11,"path":"src/App.java",
+                          {"id":12,"node_id":"RC_12","pull_request_review_id":5,"in_reply_to_id":11,"path":"src/App.java",
                            "body":"Done #8","created_at":"2026-08-20T10:05:00Z",
                            "user":{"login":"bob","type":"User"}}
                         ]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"nodes":[
+                          {"id":"RC_11","reactionGroups":[
+                            {"content":"THUMBS_UP","viewerHasReacted":true}]},
+                          {"id":"RC_12","reactionGroups":[]}
+                        ]}}
                         """, MediaType.APPLICATION_JSON));
         fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
                 .andRespond(withSuccess("""
@@ -351,7 +396,10 @@ class TestGitHubPullRequestOverviewClient
             assertThat(thread.payload().path()).isEqualTo("src/App.java");
             assertThat(thread.payload().comments()).hasSize(2);
             assertThat(thread.payload().comments().getFirst().reactions()).singleElement()
-                    .satisfies(reaction -> assertThat(reaction.content()).isEqualTo("+1"));
+                    .satisfies(reaction -> {
+                        assertThat(reaction.content()).isEqualTo("+1");
+                        assertThat(reaction.viewerHasReacted()).isTrue();
+                    });
         });
         assertThat(enriched.getFirst().body())
                 .isEqualTo("See [Linked pull #8](https://github.com/owner/repo/pull/8)");

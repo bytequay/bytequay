@@ -22,6 +22,7 @@ import java.time.Instant;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubIssueComment(
         long id,
+        @JsonProperty("node_id") String nodeId,
         User user,
         String body,
         @JsonProperty("created_at") Instant createdAt,

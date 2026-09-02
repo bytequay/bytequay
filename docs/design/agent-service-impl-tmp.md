@@ -953,11 +953,14 @@ review of the change and each with a test that fails without it:
 says so. The root reporting completion is necessary but not sufficient, so the
 turn stays live until the process is shown quiet.
 
-The designed mechanism is not available. App Server v0.151.0 answers
-`thread/read(includeTurns: true)` with `-32601 list_turns is not supported yet`,
-in both capability modes, so there is no turn history to close over and the
-recursive history reconciliation CP4 specifies cannot be written against the
-pinned reference version. What is available, and what the implementation uses:
+The implementation uses the live stream, which is weaker than the design
+intends. **Correction (same day): history closure is available after all.**
+`thread/read(includeTurns: true)` is unimplemented, but `thread/items/list` and
+`thread/turns/list` both work — measured on 0.151.0 and 0.152.1, neither
+experimental, returning items with their `turnId` and turns with
+`status`/`items`. Concluding from the one refusal that no history existed was a
+mistake, and the recursive reconciliation CP4 specifies can be written. What the
+shipped implementation currently uses instead:
 
 - the **live item stream**, which is now sound for this purpose: item
   notifications are never shed (only streamed text is), and subagent items
@@ -1082,11 +1085,11 @@ Implementation:
 - [~] Run one combined fixed-point reconciliation. The fixed point is
   implemented — repeat until a whole pass finds no live item, no background
   terminal on any observed thread, and no newly appeared thread — but over the
-  live item stream rather than turn history: `thread/read(includeTurns: true)`
-  answers `-32601 list_turns is not supported yet` on the pinned reference
-  version, so history closure cannot be written against it. The gap is that a
-  missed item cannot be recovered from history; item notifications are never
-  shed, which is what makes the live stream load-bearing.
+  live item stream rather than turn history. Remaining work is to close over
+  history with `thread/items/list` and `thread/turns/list`, which are available
+  and non-experimental on both 0.151.0 and 0.152.1; only
+  `thread/read(includeTurns: true)` is unimplemented. Until then a missed item
+  cannot be recovered, which is exactly what history closure is for.
 - [x] Treat root answer/turn completion as necessary but not sufficient for
   quiescence. A turn settles only after a stable pass over live items and every
   observed thread's background terminals.
@@ -1616,10 +1619,15 @@ checkpoint rather than reasons to reopen the compatibility spike.
 - [x] The CP1 per-task environment design was proven, then superseded: one App
   Server process per task rooted at the worktree gives the same confinement with
   no environment API, no executor process, and no loopback listener.
-- [x] Use the user-managed Codex CLI, keep startup self-update enabled, and do
-  not disable task start because of any reported version text, including
-  unparseable output. Include the detected text when an actual protocol operation
-  fails.
+- [x] Use the user-managed Codex CLI and do not disable task start because of any
+  reported version text, including unparseable output. Include the detected text
+  when an actual protocol operation fails. **Revised 2026-09-02:** the startup
+  update is a floor, not a refresh. `codex update` installs the latest release,
+  so running it every start walked the user's CLI past the schema the protocol
+  records were generated from — that is what moved this machine off the pin. It
+  now runs only when the installed CLI is older than `MINIMUM_VERSION`, which a
+  test ties to the reference projection's `codexVersion`. A newer or unreadable
+  version is left alone.
 - [x] Is the experimental App Server dependency acceptable for the intended
   release audience? Accepted for the planned first release on 2026-08-31,
   subject to the compatibility and release gates.

@@ -505,7 +505,18 @@ public class PullRequestService
         return detail;
     }
 
-    public void toggleReaction(String repo, int number, String target, Long commentId, String content)
+    public boolean toggleReaction(String repo, int number, String target, Long commentId, String content)
+    {
+        return toggleReaction(repo, number, target, commentId, content, null);
+    }
+
+    public boolean toggleReaction(
+            String repo,
+            int number,
+            String target,
+            Long commentId,
+            String content,
+            Boolean viewerHasReacted)
     {
         requireNotBlank(target, "reaction target must not be blank");
         requireNotBlank(content, "reaction content must not be blank");
@@ -530,12 +541,33 @@ public class PullRequestService
 
         PullRequestRef ref = parseRef(repo, number);
         GitHubCredential credential = credentialService.resolveGitHubCredential();
-        switch (normalizedTarget) {
-            case "pull_request" -> pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent);
-            case "issue_comment" -> pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent);
-            case "review_comment" -> pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent);
+        boolean finalState = switch (normalizedTarget) {
+            case "pull_request" -> viewerHasReacted == null
+                    ? pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent)
+                    : pullRequestWrites.togglePullRequestReaction(
+                            credential.token(), ref, normalizedContent, viewerHasReacted);
+            case "issue_comment" -> viewerHasReacted == null
+                    ? pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent)
+                    : pullRequestWrites.toggleIssueCommentReaction(
+                            credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
+            case "review_comment" -> viewerHasReacted == null
+                    ? pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent)
+                    : pullRequestWrites.toggleReviewCommentReaction(
+                            credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
-        }
+        };
+        invalidatePullRequestCaches(repo, number);
+        return finalState;
+    }
+
+    public void updateDescription(String repo, int number, String description)
+    {
+        pullRequestWrites.updatePullRequestDescription(
+                credentialService.resolveGitHubToken(),
+                parseRef(repo, number),
+                requireNonNull(description, "description is null"));
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+        invalidatePullRequestCaches(repo, number);
     }
 
     public void closePullRequest(String repo, int number)

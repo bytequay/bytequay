@@ -50,6 +50,7 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -756,6 +757,35 @@ class TestPullRequestService
         verify(writes).togglePullRequestReaction("pat", ref, "heart");
         verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1");
         verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes");
+    }
+
+    @Test
+    void setsKnownReactionStateAndInvalidatesCachedDetail()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false)).thenReturn(false);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        assertThat(service.toggleReaction(
+                "owner/repo", 7, "issue_comment", 41L, "heart", false)).isFalse();
+
+        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "heart", false);
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
+    }
+
+    @Test
+    void updatesDescriptionAndInvalidatesCachedDetail()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.updateDescription("owner/repo", 7, "Updated description");
+
+        verify(writes).updatePullRequestDescription("pat", ref, "Updated description");
+        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
     @Test

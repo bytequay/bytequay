@@ -51,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -110,6 +111,14 @@ public final class CodexCliDriver
 {
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
+    /**
+     * The oldest Codex CLI whose App Server protocol this lane is verified against.
+     *
+     * <p>Must equal {@code codexVersion} in the committed reference projection, which is the
+     * schema these protocol records were generated from. A newer CLI is left alone: the projection
+     * is a floor, not a ceiling.
+     */
+    static final String MINIMUM_VERSION = "0.151.0";
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
@@ -231,9 +240,28 @@ public final class CodexCliDriver
         return "Codex";
     }
 
+    /**
+     * Brings the Codex CLI up to the version this lane is verified against, and no further.
+     *
+     * <p>{@code codex update} always installs the latest release, so running it unconditionally
+     * would move a user's CLI on every backend start. It is only worth doing when the installed
+     * CLI is older than the protocol this lane was built against; a newer one already satisfies
+     * that floor. A version that cannot be read is left alone, because upgrading is the
+     * side-effectful choice and nothing here shows it is needed.
+     *
+     * @return what was done, or why nothing was
+     */
     @Override
     public Optional<String> update()
     {
+        Optional<String> installed = probe().version();
+        if (installed.isEmpty()) {
+            return Optional.of("Codex CLI version could not be read; leaving the installation alone");
+        }
+        if (!isOlderThanMinimum(installed.orElseThrow())) {
+            return Optional.of("Codex CLI " + installed.orElseThrow()
+                    + " already meets the verified minimum " + MINIMUM_VERSION);
+        }
         try {
             CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
             if (result.exitCode() != 0) {
@@ -360,6 +388,42 @@ public final class CodexCliDriver
     {
         // Each session owns the App Server process serving its task and closes it. The driver
         // itself holds no process between calls.
+    }
+
+    /**
+     * Whether an installed version is older than the verified minimum.
+     *
+     * <p>Compares the numeric release parts, then treats a pre-release as older than the release
+     * it precedes, so {@code 0.151.0-alpha.7} counts as older than {@code 0.151.0}. Anything that
+     * does not parse is treated as not older, because guessing would upgrade a CLI on no evidence.
+     *
+     * @param installed the reported version, without the {@code codex-cli } prefix
+     * @return true when it is below {@link #MINIMUM_VERSION}
+     */
+    static boolean isOlderThanMinimum(String installed)
+    {
+        String[] parts = installed.split("-", 2);
+        int[] release;
+        try {
+            release = Arrays.stream(parts[0].split("\\."))
+                    .mapToInt(Integer::parseInt)
+                    .toArray();
+        }
+        catch (NumberFormatException unparseable) {
+            return false;
+        }
+        int[] minimum = Arrays.stream(MINIMUM_VERSION.split("\\."))
+                .mapToInt(Integer::parseInt)
+                .toArray();
+        for (int index = 0; index < Math.max(release.length, minimum.length); index++) {
+            int left = index < release.length ? release[index] : 0;
+            int right = index < minimum.length ? minimum[index] : 0;
+            if (left != right) {
+                return left < right;
+            }
+        }
+        // Same release, so only a pre-release of it is older.
+        return parts.length > 1;
     }
 
     private AgentProviderStatus status(

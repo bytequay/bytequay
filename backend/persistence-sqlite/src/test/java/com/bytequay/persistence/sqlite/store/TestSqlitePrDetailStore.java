@@ -227,7 +227,7 @@ class TestSqlitePrDetailStore
                 "https://avatars/bot", true, null, "https://github/event", "reviewer", "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, false, false,
-                ImmutableList.of(new PrReaction("+1", 2)), ImmutableList.of());
+                ImmutableList.of(new PrReaction("+1", 2, true)), ImmutableList.of());
         StoredPrDetail detail = new StoredPrDetail(
                 new PrRawDetail(
                         "Overview", "https://github/pr/42", "open", "alice", "https://avatars/alice",
@@ -248,7 +248,7 @@ class TestSqlitePrDetailStore
         assertThat(restored.timeline()).singleElement().satisfies(event -> {
             assertThat(event.payload().requestedReviewer()).isEqualTo("reviewer");
             assertThat(event.payload().label()).isEqualTo("docs");
-            assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2));
+            assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2, true));
         });
         assertThat(restored.unavailableSections()).containsExactly("checks");
         assertThat(restored.viewerCanWrite()).isTrue();

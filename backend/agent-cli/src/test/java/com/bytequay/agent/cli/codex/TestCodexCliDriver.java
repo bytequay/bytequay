@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -171,6 +172,41 @@ class TestCodexCliDriver
                 assertThat(reason).contains("Codex CLI 0.151.0").contains("exited with code 1"));
 
         driver.close();
+    }
+
+    @Test
+    void updatesTheCodexCliOnlyWhenItIsOlderThanTheVerifiedMinimum()
+            throws Exception
+    {
+        // `codex update` installs the latest release, so running it unconditionally moves a user's
+        // CLI on every backend start, past the protocol this lane was generated against.
+        assertThat(CodexCliDriver.isOlderThanMinimum("0.150.9")).isTrue();
+        assertThat(CodexCliDriver.isOlderThanMinimum("0.151.0-alpha.7.2")).isTrue();
+        assertThat(CodexCliDriver.isOlderThanMinimum("0.151.0")).isFalse();
+        assertThat(CodexCliDriver.isOlderThanMinimum("0.152.1")).isFalse();
+        assertThat(CodexCliDriver.isOlderThanMinimum("1.0.0")).isFalse();
+        // Guessing would upgrade a CLI on no evidence.
+        assertThat(CodexCliDriver.isOlderThanMinimum("not-a-version")).isFalse();
+
+        ScriptedProcessSupervisor newer = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.152.1");
+        assertThat(driver(newer).update()).get().asString().contains("already meets the verified minimum");
+        assertThat(newer.updateRuns()).isZero();
+
+        ScriptedProcessSupervisor older = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.150.0");
+        driver(older).update();
+        assertThat(older.updateRuns()).isOne();
+    }
+
+    @Test
+    void pinsTheVerifiedMinimumToTheReferenceProjection()
+            throws Exception
+    {
+        // The minimum is the version the committed protocol records were generated from. If the two
+        // drift apart the lane would update toward a schema nothing has verified.
+        InputStream bindings = getClass().getResourceAsStream("app-server-v0.151.0-bindings.json");
+        assertThat(bindings).as("reference bindings are missing").isNotNull();
+        JsonNode reference = objectMapper.readTree(bindings);
+        assertThat(reference.path("codexVersion").asText()).isEqualTo(CodexCliDriver.MINIMUM_VERSION);
     }
 
     @Test
@@ -777,6 +813,12 @@ class TestCodexCliDriver
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+        private final AtomicInteger updateRuns = new AtomicInteger();
+
+        private int updateRuns()
+        {
+            return updateRuns.get();
+        }
 
         /** Reports one command still running after the item that started it went terminal. */
         private void reportBackgroundTerminal()
@@ -867,6 +909,11 @@ class TestCodexCliDriver
                 output.onOutput(
                         ProcessStream.STDOUT,
                         StandardCharsets.UTF_8.encode(versionOutput + "\n"));
+                return ImmediateProcess.success();
+            }
+            if (spec.argv().contains("update")) {
+                updateRuns.incrementAndGet();
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("updated\n"));
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("login")) {

@@ -31,8 +31,8 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubPullRequestWriteClient
 {
@@ -51,6 +51,26 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         client.closePullRequest("pat", PullRequestRef.of("upstream", "project", 12));
+
+        server.verify();
+    }
+
+    @Test
+    void updatesPullRequestDescription()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"body\":\"Updated description\"}"))
+                .andRespond(withSuccess());
+
+        client.updatePullRequestDescription(
+                "pat", PullRequestRef.of("upstream", "project", 12), "Updated description");
 
         server.verify();
     }
@@ -100,9 +120,9 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("{\"id\":902}"));
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
-        client.togglePullRequestReaction("pat", pullRequest, "heart");
-        client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1");
-        client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes");
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart")).isTrue();
+        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1")).isTrue();
+        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes")).isTrue();
 
         server.verify();
     }
@@ -150,9 +170,39 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
-        client.togglePullRequestReaction("pat", pullRequest, "heart");
-        client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1");
-        client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes");
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart")).isFalse();
+        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1")).isFalse();
+        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes")).isFalse();
+
+        server.verify();
+    }
+
+    @Test
+    void honorsKnownViewerReactionState()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"content\":\"heart\"}"))
+                .andRespond(withSuccess("{\"id\":104}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"content\":\"eyes\"}"))
+                .andRespond(withStatus(HttpStatus.CREATED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":105}"));
+        server.expect(requestTo(url + "/105"))
+                .andExpect(method(HttpMethod.DELETE))
+                .andRespond(withSuccess());
+
+        PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", true)).isTrue();
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "eyes", false)).isFalse();
 
         server.verify();
     }

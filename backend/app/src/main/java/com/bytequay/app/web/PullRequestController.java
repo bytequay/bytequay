@@ -179,6 +179,8 @@ public class PullRequestController
 
     public record CommentRequest(String body) {}
 
+    public record DescriptionRequest(String body) {}
+
     public record ReviewRequest(String event, String body, List<InlineReviewComment> comments) {}
 
     public record ResolutionRequest(boolean resolved) {}
@@ -187,7 +189,23 @@ public class PullRequestController
 
     public record ReviewerRequest(String login, boolean requested) {}
 
-    public record ReactionRequest(String target, Long commentId, String content) {}
+    public record ReactionRequest(
+            String target,
+            Long commentId,
+            String content,
+            Boolean viewerHasReacted) {}
+
+    public record ReactionResponse(boolean viewerHasReacted) {}
+
+    @PatchMapping("/prs/description")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateDescription(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody DescriptionRequest request)
+    {
+        pullRequests.updateDescription(repo, number, request.body());
+    }
 
     @PatchMapping("/prs/metadata")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -219,13 +237,18 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/reactions")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void toggleReaction(
+    public ReactionResponse toggleReaction(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
             @RequestBody ReactionRequest request)
     {
-        pullRequests.toggleReaction(repo, number, request.target(), request.commentId(), request.content());
+        return new ReactionResponse(pullRequests.toggleReaction(
+                repo,
+                number,
+                request.target(),
+                request.commentId(),
+                request.content(),
+                request.viewerHasReacted()));
     }
 
     @PostMapping("/prs/close")

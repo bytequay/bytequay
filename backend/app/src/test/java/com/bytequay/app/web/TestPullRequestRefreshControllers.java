@@ -45,6 +45,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -107,7 +108,30 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
-    void forwardsPullRequestReactionToggleRequest()
+    void forwardsPullRequestReactionToggleRequestWithoutKnownViewerState()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+        when(pullRequests.toggleReaction(
+                "owner/repo", 7, "issue_comment", 41L, "heart", null)).thenReturn(true);
+
+        standaloneSetup(controller).build().perform(post("/prs/reactions")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"target":"issue_comment","commentId":41,"content":"heart"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewerHasReacted").value(true));
+
+        verify(pullRequests).toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", null);
+    }
+
+    @Test
+    void forwardsDesiredPullRequestReactionState()
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
@@ -119,11 +143,32 @@ class TestPullRequestRefreshControllers
                         .queryParam("number", "7")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"target":"issue_comment","commentId":41,"content":"heart"}
+                                {"target":"pull_request","content":"heart","viewerHasReacted":false}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.viewerHasReacted").value(false));
+
+        verify(pullRequests).toggleReaction("owner/repo", 7, "pull_request", null, "heart", false);
+    }
+
+    @Test
+    void forwardsPullRequestDescriptionUpdate()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(
+                pullRequests, mock(PullRequestRefreshService.class));
+
+        standaloneSetup(controller).build().perform(patch("/prs/description")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"body":"Updated description"}
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart");
+        verify(pullRequests).updateDescription("owner/repo", 7, "Updated description");
     }
 
     @Test

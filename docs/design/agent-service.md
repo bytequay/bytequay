@@ -1576,14 +1576,18 @@ completion. A yielded command outlives the item that started it, and a subagent
 can still be working, so a clean completion at that moment would release the
 task's claim over files something may still be writing.
 
-The reference version does not support the history closure this was designed
-around: `thread/read(includeTurns: true)` answers `-32601 list_turns is not
-supported yet`. Quiescence is therefore answered from what App Server does
-provide — the live item stream, and `thread/backgroundTerminals/list` for every
-thread the process has shown. Item notifications are never shed, which is what
-makes the live stream sound to reason from; only streamed text is dropped under
-backlog pressure. `capabilities.experimentalApi` is declared for that one
-method.
+Quiescence is currently answered from the live item stream plus
+`thread/backgroundTerminals/list` for every thread the process has shown. Item
+notifications are never shed, which is what makes the live stream sound to
+reason from; only streamed text is dropped under backlog pressure.
+`capabilities.experimentalApi` is declared for the background-terminal method.
+
+That is weaker than the design intends and should be replaced. History closure
+IS available, through `thread/items/list` and `thread/turns/list` — both
+measured working on 0.151.0 and 0.152.1, neither experimental. Only
+`thread/read(includeTurns: true)` is unimplemented, and reading that one
+refusal as "no history exists" was a mistake. The live stream cannot recover an
+item it never saw; history can, which is the whole point of closing over it.
 
 The wait runs on its own thread, never the message consumer, because the
 consumer's queue holds the notifications that would end the wait. It repeats

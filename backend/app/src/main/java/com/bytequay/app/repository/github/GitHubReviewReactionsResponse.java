@@ -36,7 +36,7 @@ public record GitHubReviewReactionsResponse(Data data)
     public record Review(Long databaseId, List<ReactionGroup> reactionGroups) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ReactionGroup(String content, Users users) {}
+    public record ReactionGroup(String content, Users users, Boolean viewerHasReacted) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Users(int totalCount) {}

@@ -41,6 +41,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -418,7 +419,13 @@ public class GitHubPullRequestReadClient
                 .header("Authorization", authorization(pat))
                 .retrieve()
                 .body(GitHubIssueReactionsResponse.class));
-        return toReactions(response == null ? null : response.reactions());
+        if (response == null) {
+            return ImmutableList.of();
+        }
+        Map<String, Set<String>> viewerReactions = fetchViewerReactions(
+                pat,
+                Optional.ofNullable(response.nodeId()).stream().toList());
+        return toReactions(response.reactions(), viewerReactions.get(response.nodeId()));
     }
 
     public List<PrReviewState> fetchPrReviews(String pat, PullRequestRef pr) {
@@ -730,7 +737,7 @@ public class GitHubPullRequestReadClient
                   repository(owner:$owner,name:$repo) {
                     pullRequest(number:$number) {
                       reviews(first:100,after:$after) {
-                        nodes { databaseId reactionGroups { content users { totalCount } } }
+                        nodes { databaseId reactionGroups { content users { totalCount } viewerHasReacted } }
                         pageInfo { hasNextPage endCursor }
                       }
                     }
@@ -754,7 +761,10 @@ public class GitHubPullRequestReadClient
                 }
                 List<PrReaction> counts = Optional.ofNullable(review.reactionGroups()).orElse(ImmutableList.of()).stream()
                         .filter(group -> group.users() != null && group.users().totalCount() > 0)
-                        .map(group -> new PrReaction(reactionContent(group.content()), group.users().totalCount()))
+                        .map(group -> new PrReaction(
+                                reactionContent(group.content()),
+                                group.users().totalCount(),
+                                group.viewerHasReacted()))
                         .collect(toImmutableList());
                 if (!counts.isEmpty()) {
                     out.put(review.databaseId(), counts);
@@ -800,6 +810,60 @@ public class GitHubPullRequestReadClient
         }
     }
 
+    private Map<String, Set<String>> fetchViewerReactions(String pat, List<String> nodeIds)
+    {
+        List<String> ids = nodeIds.stream()
+                .filter(Objects::nonNull)
+                .filter(id -> !id.isBlank())
+                .distinct()
+                .collect(toImmutableList());
+        if (ids.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        String query = """
+                query($ids:[ID!]!) {
+                  nodes(ids:$ids) {
+                    id
+                    ... on Reactable { reactionGroups { content viewerHasReacted } }
+                  }
+                }
+                """;
+        Map<String, Set<String>> out = new LinkedHashMap<>();
+        for (int offset = 0; offset < ids.size(); offset += 100) {
+            List<String> batch = ImmutableList.copyOf(ids.subList(offset, Math.min(offset + 100, ids.size())));
+            ViewerReactionsResponse response;
+            try {
+                response = graphQlRestClient.post()
+                        .header("Authorization", authorization(pat))
+                        .body(ImmutableMap.of(
+                                "query", query,
+                                "variables", ImmutableMap.of("ids", batch)))
+                        .retrieve()
+                        .body(ViewerReactionsResponse.class);
+            }
+            catch (RestClientException ignored) {
+                continue;
+            }
+            List<ViewerReactionNode> nodes = Optional.ofNullable(response)
+                    .map(ViewerReactionsResponse::data)
+                    .map(ViewerReactionsData::nodes)
+                    .orElse(ImmutableList.of());
+            for (ViewerReactionNode node : nodes) {
+                if (node == null || node.id() == null || node.reactionGroups() == null
+                        || node.reactionGroups().stream().anyMatch(group -> group == null || group.viewerHasReacted() == null)) {
+                    continue;
+                }
+                Set<String> selected = node.reactionGroups().stream()
+                        .filter(group -> Boolean.TRUE.equals(group.viewerHasReacted()))
+                        .map(group -> reactionContent(group.content()))
+                        .filter(content -> !content.isBlank())
+                        .collect(ImmutableSet.toImmutableSet());
+                out.put(node.id(), selected);
+            }
+        }
+        return ImmutableMap.copyOf(out);
+    }
+
     private static PrTimelineEvent withReviewReactions(PrTimelineEvent event, List<PrReaction> reactions)
     {
         if (reactions == null || reactions.isEmpty()) {
@@ -826,21 +890,30 @@ public class GitHubPullRequestReadClient
 
     public List<PrTimelineEvent> fetchPrIssueComments(
             String pat, PullRequestRef pr, Instant since) {
-        return paginator
-                .paginateSince(
-                        pat,
-                        "/repos/{owner}/{repo}/issues/{number}/comments",
-                        new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
-                        since,
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number())
-                .stream()
-                .map(GitHubPullRequestReadClient::toCommentedTimelineEvent)
+        List<GitHubIssueComment> comments = paginator.paginateSince(
+                pat,
+                "/repos/{owner}/{repo}/issues/{number}/comments",
+                new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
+                since,
+                pr.owner(),
+                pr.repo(),
+                pr.number());
+        Map<String, Set<String>> viewerReactions = fetchViewerReactions(
+                pat,
+                comments.stream().map(GitHubIssueComment::nodeId).toList());
+        return comments.stream()
+                .map(comment -> toCommentedTimelineEvent(comment, viewerReactions.get(comment.nodeId())))
                 .collect(toImmutableList());
     }
 
     static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c) {
+        return toCommentedTimelineEvent(c, null);
+    }
+
+    private static PrTimelineEvent toCommentedTimelineEvent(
+            GitHubIssueComment c,
+            Set<String> viewerReactions)
+    {
         GitHubIssueComment.User user = c.user();
         return new PrTimelineEvent(
                 c.id(),
@@ -852,7 +925,7 @@ public class GitHubPullRequestReadClient
                         .actorAvatarUrl(Optional.ofNullable(user).map(GitHubIssueComment.User::avatarUrl).orElse(null))
                         .actorBot(user != null && "Bot".equalsIgnoreCase(user.type()))
                         .htmlUrl(c.htmlUrl())
-                        .reactions(toReactions(c.reactions()))
+                        .reactions(toReactions(c.reactions(), viewerReactions))
                         .build(),
                 Optional.empty());
     }
@@ -977,7 +1050,10 @@ public class GitHubPullRequestReadClient
         if (comments.isEmpty()) {
             return ImmutableList.of();
         }
-        return toReviewThreadEvents(comments, fetchReviewThreadFacts(pat, pr));
+        Map<String, Set<String>> viewerReactions = fetchViewerReactions(
+                pat,
+                comments.stream().map(GitHubReviewComment::nodeId).toList());
+        return toReviewThreadEvents(comments, fetchReviewThreadFacts(pat, pr), viewerReactions);
     }
 
     /**
@@ -1004,6 +1080,14 @@ public class GitHubPullRequestReadClient
             List<GitHubReviewComment> comments,
             Map<Long, ReviewThreadFacts> facts)
     {
+        return toReviewThreadEvents(comments, facts, ImmutableMap.of());
+    }
+
+    private static List<PrTimelineEvent> toReviewThreadEvents(
+            List<GitHubReviewComment> comments,
+            Map<Long, ReviewThreadFacts> facts,
+            Map<String, Set<String>> viewerReactions)
+    {
         if (comments.isEmpty()) {
             return ImmutableList.of();
         }
@@ -1019,7 +1103,10 @@ public class GitHubPullRequestReadClient
                     grouped.computeIfAbsent(rootId, ignored -> new ArrayList<>()).add(comment);
                 });
         return grouped.values().stream()
-                .map(thread -> toReviewThreadEvent(thread, facts.get(thread.getFirst().id())))
+                .map(thread -> toReviewThreadEvent(
+                        thread,
+                        facts.get(thread.getFirst().id()),
+                        viewerReactions))
                 .sorted(Comparator.comparing(event -> Optional.ofNullable(event.timestamp()).orElse(Instant.EPOCH)))
                 .collect(toImmutableList());
     }
@@ -1100,7 +1187,8 @@ public class GitHubPullRequestReadClient
 
     private static PrTimelineEvent toReviewThreadEvent(
             List<GitHubReviewComment> thread,
-            ReviewThreadFacts facts)
+            ReviewThreadFacts facts,
+            Map<String, Set<String>> viewerReactions)
     {
         GitHubReviewComment root = thread.getFirst();
         GitHubReviewComment.User user = root.user();
@@ -1117,7 +1205,7 @@ public class GitHubPullRequestReadClient
                         root.side())
                 : facts;
         List<PrTimelineComment> replies = thread.stream()
-                .map(GitHubPullRequestReadClient::toTimelineComment)
+                .map(comment -> toTimelineComment(comment, viewerReactions.get(comment.nodeId())))
                 .collect(toImmutableList());
         return new PrTimelineEvent(
                 root.id(),
@@ -1145,10 +1233,12 @@ public class GitHubPullRequestReadClient
 
     static PrTimelineEvent toReviewThreadEvent(GitHubReviewComment comment)
     {
-        return toReviewThreadEvent(ImmutableList.of(comment), null);
+        return toReviewThreadEvent(ImmutableList.of(comment), null, ImmutableMap.of());
     }
 
-    private static PrTimelineComment toTimelineComment(GitHubReviewComment comment)
+    private static PrTimelineComment toTimelineComment(
+            GitHubReviewComment comment,
+            Set<String> viewerReactions)
     {
         GitHubReviewComment.User user = comment.user();
         return new PrTimelineComment(
@@ -1161,10 +1251,17 @@ public class GitHubPullRequestReadClient
                 comment.htmlUrl(),
                 comment.reviewId(),
                 comment.inReplyToId(),
-                toReactions(comment.reactions()));
+                toReactions(comment.reactions(), viewerReactions));
     }
 
     private static List<PrReaction> toReactions(GitHubReactions reactions)
+    {
+        return toReactions(reactions, null);
+    }
+
+    private static List<PrReaction> toReactions(
+            GitHubReactions reactions,
+            Set<String> viewerReactions)
     {
         if (reactions == null) {
             return ImmutableList.of();
@@ -1180,7 +1277,10 @@ public class GitHubPullRequestReadClient
         counts.put("eyes", reactions.eyes());
         return counts.entrySet().stream()
                 .filter(entry -> entry.getValue() > 0)
-                .map(entry -> new PrReaction(entry.getKey(), entry.getValue()))
+                .map(entry -> new PrReaction(
+                        entry.getKey(),
+                        entry.getValue(),
+                        viewerReactions == null ? null : viewerReactions.contains(entry.getKey())))
                 .collect(toImmutableList());
     }
 
@@ -1194,6 +1294,18 @@ public class GitHubPullRequestReadClient
             Integer startLine,
             Integer originalStartLine,
             String side) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ViewerReactionsResponse(ViewerReactionsData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ViewerReactionsData(List<ViewerReactionNode> nodes) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ViewerReactionNode(String id, List<ViewerReactionGroup> reactionGroups) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ViewerReactionGroup(String content, Boolean viewerHasReacted) {}
 
     public FetchedPullRequest getPullRequest(String pat, PullRequestRef pr) {
         return getPullRequest(pat, pr, Optional.empty()).pullRequest()

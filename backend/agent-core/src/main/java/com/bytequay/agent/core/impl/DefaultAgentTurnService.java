@@ -63,11 +63,13 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.google.common.collect.ImmutableList;
 
 import java.nio.ByteBuffer;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -232,16 +234,20 @@ public final class DefaultAgentTurnService
         return task;
     }
 
+    @Override
+    public AgentTurnSettings effectiveSettings(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        // Attachments belong to a message, not to a task, so a described turn carries none.
+        return turnSettings(requireTask(taskId), ImmutableList.of());
+    }
+
     private TurnAcceptance acceptTurnLocked(AgentTask task, StartAgentTurnCommand command)
     {
         TurnId turnId = TurnId.random();
         Instant acceptedAt = Instant.now(clock);
-        AgentTurnSettings settings = new AgentTurnSettings(
-                task.defaults().model(),
-                task.defaults().effort(),
-                task.permissionPolicy(),
-                AgentSandboxPolicy.WORKSPACE_WRITE,
-                maximumTurnRuntime,
+        AgentTurnSettings settings = turnSettings(
+                task,
                 command.attachments().stream()
                         .map(attachment -> new AgentAttachmentReference(
                                 UUID.randomUUID().toString(),
@@ -609,6 +615,23 @@ public final class DefaultAgentTurnService
         return terminalState == TurnState.COMPLETED
                 ? Optional.empty()
                 : Optional.of(result.terminalReason().orElseThrow());
+    }
+
+    /**
+     * The settings a turn on this task records.
+     *
+     * <p>One derivation, shared by accepting a turn and by describing the next one, so what the
+     * user is shown before sending cannot disagree with what is snapshotted when they do.
+     */
+    private AgentTurnSettings turnSettings(AgentTask task, List<AgentAttachmentReference> attachments)
+    {
+        return new AgentTurnSettings(
+                task.defaults().model(),
+                task.defaults().effort(),
+                task.permissionPolicy(),
+                AgentSandboxPolicy.WORKSPACE_WRITE,
+                maximumTurnRuntime,
+                attachments);
     }
 
     private AgentTask requireTask(TaskId taskId)

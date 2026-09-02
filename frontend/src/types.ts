@@ -1167,6 +1167,15 @@ export type Bridge = {
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
+  /** Version-checked, so a stale screen cannot overwrite a change it never saw. */
+  updateAgentTaskDefaults: (
+    taskId: string,
+    workspaceId: string,
+    expectedVersion: number,
+    defaults: AgentTaskDefaultsDto,
+  ) => Promise<AgentTaskDto>;
+  /** What the next turn on this task would be given, derived from what starting one snapshots. */
+  getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
   startAgentTurn: (request: StartAgentTurnRequest) => Promise<AgentTurnDto>;
   getAgentTurn: (turnId: string) => Promise<AgentTurnDto>;

@@ -223,6 +223,10 @@ const bridge: Bridge = {
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),
   getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),
+  updateAgentTaskDefaults: (taskId, workspaceId, expectedVersion, defaults) =>
+    ipcRenderer.invoke('agent:task:defaults', taskId, workspaceId, expectedVersion, defaults),
+  getEffectiveTurnSettings: (taskId, workspaceId) =>
+    ipcRenderer.invoke('agent:task:effective-settings', taskId, workspaceId),
   readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),
   startAgentTurn: request => ipcRenderer.invoke('agent:turns:start', request),
   getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),

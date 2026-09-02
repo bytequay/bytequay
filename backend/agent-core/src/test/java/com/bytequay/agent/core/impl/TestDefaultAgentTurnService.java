@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -173,6 +174,31 @@ class TestDefaultAgentTurnService
         {
             throw new UnsupportedOperationException();
         }
+    }
+
+    @Test
+    void describesTheSettingsAStartedTurnActuallyRecords()
+    {
+        AgentTurnSettings described = service.effectiveSettings(task.id());
+        AgentTurn started = service.start(command("first", "key-1"));
+
+        // The surface that shows the user what is about to run must not be able to disagree with
+        // what starting it snapshots, so both go through one derivation.
+        AgentTurnSettings recorded = started.settings().orElseThrow();
+        assertThat(described.model()).isEqualTo(recorded.model());
+        assertThat(described.effort()).isEqualTo(recorded.effort());
+        assertThat(described.permissionPolicy()).isEqualTo(recorded.permissionPolicy());
+        assertThat(described.sandboxPolicy()).isEqualTo(recorded.sandboxPolicy());
+        assertThat(described.maximumRuntime()).isEqualTo(recorded.maximumRuntime());
+        // Attachments belong to a message, so a described turn carries none.
+        assertThat(described.attachments()).isEmpty();
+    }
+
+    @Test
+    void refusesToDescribeSettingsForATaskThatDoesNotExist()
+    {
+        assertThatThrownBy(() -> service.effectiveSettings(TaskId.random()))
+                .isInstanceOf(AgentTaskNotFoundException.class);
     }
 
     @Test

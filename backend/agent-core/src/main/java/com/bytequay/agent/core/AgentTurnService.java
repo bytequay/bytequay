@@ -37,6 +37,19 @@ public interface AgentTurnService
     AgentTurn start(StartAgentTurnCommand command);
 
     /**
+     * Returns the settings the next turn on this task would be given.
+     *
+     * <p>Derived from exactly what {@link #start} would snapshot, so the surface that shows the
+     * user what is about to run cannot drift from what actually runs. Attachments belong to a
+     * specific message, so the returned settings carry none.
+     *
+     * @param taskId task to describe
+     * @return the settings a turn started now would record
+     * @throws AgentTaskNotFoundException when the task does not exist
+     */
+    AgentTurnSettings effectiveSettings(TaskId taskId);
+
+    /**
      * Requests cancellation of an accepted or running turn.
      *
      * <p>The request is idempotent. Terminal state is recorded only after the

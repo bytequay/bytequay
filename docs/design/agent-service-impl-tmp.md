@@ -1396,7 +1396,9 @@ Implementation:
 - [ ] Add typed Electron/preload operations to refresh provider readiness,
   update task defaults, read effective turn settings, cancel active execution,
   call `POST /agent/tasks/{taskId}/mark-failed`, and invoke the confirmed
-  per-task Codex server stop operation.
+  per-task Codex server stop operation. Readiness, defaults, effective
+  settings, and cancellation are wired; mark-failed and the per-task stop
+  arrive with the checkpoint items that add their endpoints.
 - [ ] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
 - [ ] Make this milestone Codex-only. Show Claude as unavailable or

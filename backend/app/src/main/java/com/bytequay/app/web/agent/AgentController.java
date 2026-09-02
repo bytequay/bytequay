@@ -29,6 +29,7 @@ import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -43,6 +44,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -118,6 +120,34 @@ public class AgentController
     {
         return InteractiveAgentHttpContract.task(
                 taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
+    }
+
+    @PutMapping("/tasks/{taskId}/defaults")
+    public InteractiveAgentHttpContract.TaskResponse updateTaskDefaults(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody InteractiveAgentHttpContract.UpdateDefaultsRequest request)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        // Resolve through the workspace first so one workspace cannot retune another's task.
+        taskService.getInteractive(workspaceId, id);
+        return InteractiveAgentHttpContract.task(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                id,
+                request.expectedVersion(),
+                new AgentTaskDefaults(
+                        request.defaults().model(),
+                        request.defaults().effort(),
+                        AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy())))));
+    }
+
+    @GetMapping("/tasks/{taskId}/effective-settings")
+    public InteractiveAgentHttpContract.TurnSettings effectiveSettings(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return InteractiveAgentHttpContract.settings(turnService.effectiveSettings(id));
     }
 
     @GetMapping("/tasks")

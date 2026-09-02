@@ -108,7 +108,7 @@ final class InteractiveAgentHttpContract
                 defaults.permissionPolicy().name());
     }
 
-    private static TurnSettings settings(AgentTurnSettings settings)
+    static TurnSettings settings(AgentTurnSettings settings)
     {
         return new TurnSettings(
                 settings.model(),
@@ -147,6 +147,20 @@ final class InteractiveAgentHttpContract
             if (defaults.model().isEmpty()) {
                 throw new IllegalArgumentException("model must not be blank");
             }
+            if (!AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy())) {
+                throw new IllegalArgumentException("Interactive tasks currently support only AUTO permission");
+            }
+        }
+    }
+
+    record UpdateDefaultsRequest(
+            long expectedVersion,
+            TaskDefaults defaults)
+    {
+        UpdateDefaultsRequest
+        {
+            checkArgument(expectedVersion >= 0, "expectedVersion is negative");
+            requireNonNull(defaults, "defaults is null");
             if (!AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy())) {
                 throw new IllegalArgumentException("Interactive tasks currently support only AUTO permission");
             }

@@ -132,7 +132,8 @@ export function parseAgentTasks(value: unknown): AgentTaskDto[] {
   return value.map((entry, index) => parseAgentTask(entry, `tasks[${index}]`));
 }
 
-function turnSettings(value: unknown, path: string): AgentTurnSettingsDto {
+/** Narrows turn settings, whether they came from a turn or from the effective-settings read. */
+export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings'): AgentTurnSettingsDto {
   const source = object(value, path);
   return {
     model: optionalText(source.model, `${path}.model`),
@@ -158,7 +159,7 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     cancellationRequestedAt: optionalText(source.cancellationRequestedAt, `${path}.cancellationRequestedAt`),
     settings: source.settings === null || source.settings === undefined
       ? null
-      : turnSettings(source.settings, `${path}.settings`),
+      : parseAgentTurnSettings(source.settings, `${path}.settings`),
     terminalReason: optionalText(source.terminalReason, `${path}.terminalReason`),
     metrics: metrics(source.metrics, `${path}.metrics`),
   };

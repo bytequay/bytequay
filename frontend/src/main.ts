@@ -22,6 +22,7 @@ import {
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
+  parseAgentTurnSettings,
 } from './agents/contracts';
 import { parseAgentEventSequence } from './agents/events';
 import { readAgentStream } from './agents/sse';
@@ -414,6 +415,23 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:task:defaults', (
+    _event,
+    taskId: string,
+    workspaceId: string,
+    expectedVersion: number,
+    defaults: unknown,
+  ) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/defaults`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...agentHeaders() },
+      body: JSON.stringify({ expectedVersion, defaults }),
+    }).then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:task:effective-settings', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then((settings) => parseAgentTurnSettings(settings)));
   ipcMain.handle('agent:events:read', async (_event, taskId: string, after?: number, limit?: number) => {
     const query = new URLSearchParams();
     if (after !== undefined) query.set('after', String(after));

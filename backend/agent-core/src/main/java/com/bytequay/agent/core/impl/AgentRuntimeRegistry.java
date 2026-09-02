@@ -33,6 +33,7 @@ import static java.util.Objects.requireNonNull;
  * reference rather than treating this in-memory state as authoritative.
  */
 public final class AgentRuntimeRegistry
+        implements AutoCloseable
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
@@ -68,6 +69,34 @@ public final class AgentRuntimeRegistry
         AgentSession session = sessions.remove(taskId);
         if (session != null) {
             session.close();
+        }
+    }
+
+    /**
+     * Releases every session this backend still holds.
+     *
+     * <p>A session owns the provider process serving its task, and completing a task is the only
+     * thing that closes one. Without this, shutting the backend down while any task is incomplete
+     * would leave that task's process running with nothing left to reap it until the next start.
+     */
+    @Override
+    public void close()
+    {
+        RuntimeException firstFailure = null;
+        for (TaskId taskId : sessions.keySet()) {
+            try {
+                closeSession(taskId);
+            }
+            catch (RuntimeException failure) {
+                // One session that will not close must not strand the ones behind it, but the
+                // failure still has to surface once every other session has been released.
+                if (firstFailure == null) {
+                    firstFailure = failure;
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
         }
     }
 

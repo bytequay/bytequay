@@ -114,7 +114,7 @@ public class AgentConfiguration
         return new StaticAgentDriverRegistry(drivers);
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     public AgentRuntimeRegistry agentRuntimeRegistry()
     {
         return new AgentRuntimeRegistry();

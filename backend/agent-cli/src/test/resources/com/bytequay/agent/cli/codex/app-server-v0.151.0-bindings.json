@@ -1760,6 +1760,82 @@
       ]
     },
     {
+      "javaType": "ThreadItemsListParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadItemsListParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "cursor",
+          "wireName": "cursor",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadItemsListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItemsListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        },
+        {
+          "javaName": "nextCursor",
+          "wireName": "nextCursor",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadItemEntry",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItemEntry"
+      ],
+      "components": [
+        {
+          "javaName": "item",
+          "wireName": "item",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "command": "value",
+            "commandActions": [],
+            "cwd": "value",
+            "id": "value",
+            "status": "inProgress",
+            "type": "commandExecution"
+          }
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
       "javaType": "ThreadBackgroundTerminalsTerminateParams",
       "mode": "encode",
       "sources": [

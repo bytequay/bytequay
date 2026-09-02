@@ -795,6 +795,16 @@ public final class CodexCliDriver
                     sleep(QUIESCENCE_POLL);
                     continue;
                 }
+                // Live and background checks are clear, so confirm against history. This is the
+                // only thing that can see an item the notification stream never delivered, and it
+                // runs here rather than every pass because paging is not free.
+                Optional<String> unfinished = firstUnfinishedInHistory(threads);
+                if (unfinished.isPresent()) {
+                    lastSeen = unfinished.orElseThrow();
+                    stablePasses = 0;
+                    sleep(QUIESCENCE_POLL);
+                    continue;
+                }
                 if (!observedThreads.equals(threads)) {
                     // A thread appeared while we were reading, so this pass proved nothing.
                     stablePasses = 0;
@@ -826,6 +836,45 @@ public final class CodexCliDriver
                 if (terminal.isPresent()) {
                     return terminal;
                 }
+            }
+            return Optional.empty();
+        }
+
+        /**
+         * Returns the first item any known thread's history still reports unfinished.
+         *
+         * <p>The live stream can miss an item; history cannot. An inventory that cannot be read is
+         * not an empty one.
+         *
+         * @param threads every thread this process has shown
+         * @return what is unfinished, or empty when history agrees nothing is
+         */
+        private Optional<String> firstUnfinishedInHistory(Set<String> threads)
+        {
+            for (String thread : threads) {
+                Optional<String> cursor = Optional.empty();
+                do {
+                    CodexProtocol.ThreadItemsListResponse page;
+                    try {
+                        page = client.request(
+                                "thread/items/list",
+                                new CodexProtocol.ThreadItemsListParams(thread, cursor),
+                                CodexProtocol.ThreadItemsListResponse.class,
+                                REQUEST_TIMEOUT);
+                    }
+                    catch (RuntimeException failure) {
+                        return Optional.of("the items of thread " + thread
+                                + " could not be listed: " + failure.getMessage());
+                    }
+                    for (CodexProtocol.ThreadItemEntry entry : page.data()) {
+                        if (!entry.item().terminal()) {
+                            return Optional.of("item " + entry.item().id()
+                                    + " on thread " + thread + " is still running");
+                        }
+                    }
+                    cursor = page.nextCursor();
+                }
+                while (cursor.isPresent());
             }
             return Optional.empty();
         }

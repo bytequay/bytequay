@@ -561,6 +561,29 @@ class TestCodexCliDriver
     }
 
     @Test
+    void waitsForAnItemOnlyHistoryKnowsIsStillRunning()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("closure"));
+        // Never announced through the notification stream, so only history can see it.
+        supervisor.reportUnfinishedHistoryItem();
+
+        supervisor.server().completeTurn();
+
+        // The live stream can miss an item; closing over history is the only thing that catches it.
+        Thread.sleep(400);
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+
+        supervisor.reportSettledHistory();
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+        session.close();
+    }
+
+    @Test
     void terminatesAYieldedCommandWhenTheTurnIsCancelled()
             throws Exception
     {
@@ -833,6 +856,22 @@ class TestCodexCliDriver
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
+        private volatile String historyItems = "{\"data\":[],\"nextCursor\":null}";
+
+        /** Reports an item history still says is running, which the live stream never delivered. */
+        private void reportUnfinishedHistoryItem()
+        {
+            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"commandExecution\",\"id\":\"exec-missed\","
+                    + "\"command\":\"sleep 600\",\"status\":\"inProgress\"}}],\"nextCursor\":null}";
+        }
+
+        private void reportSettledHistory()
+        {
+            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"commandExecution\",\"id\":\"exec-missed\","
+                    + "\"command\":\"sleep 600\",\"status\":\"completed\"}}],\"nextCursor\":null}";
+        }
         private final AtomicInteger updateRuns = new AtomicInteger();
 
         private int updateRuns()
@@ -953,7 +992,8 @@ class TestCodexCliDriver
                     () -> configLayers,
                     () -> skills,
                     () -> backgroundTerminals,
-                    this::reportNoBackgroundTerminals);
+                    this::reportNoBackgroundTerminals,
+                    () -> historyItems);
             servers.add(server);
             return server;
         }
@@ -1018,6 +1058,7 @@ class TestCodexCliDriver
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final List<String> terminated = new CopyOnWriteArrayList<>();
         private final Runnable clearBackgroundTerminals;
+        private final Supplier<String> historyItems;
 
         private List<String> terminated()
         {
@@ -1037,7 +1078,8 @@ class TestCodexCliDriver
                 Supplier<String> configLayers,
                 Supplier<String> skills,
                 Supplier<String> backgroundTerminals,
-                Runnable clearBackgroundTerminals)
+                Runnable clearBackgroundTerminals,
+                Supplier<String> historyItems)
         {
             this.objectMapper = objectMapper;
             this.output = output;
@@ -1048,6 +1090,7 @@ class TestCodexCliDriver
             this.skills = skills;
             this.backgroundTerminals = backgroundTerminals;
             this.clearBackgroundTerminals = clearBackgroundTerminals;
+            this.historyItems = historyItems;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -1110,6 +1153,7 @@ class TestCodexCliDriver
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
+                case "thread/items/list" -> respond(id, historyItems.get());
                 case "thread/backgroundTerminals/list" -> respond(id, backgroundTerminals.get());
                 case "thread/backgroundTerminals/terminate" -> {
                     terminated.add(message.path("params").path("processId").asText());

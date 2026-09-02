@@ -953,14 +953,10 @@ review of the change and each with a test that fails without it:
 says so. The root reporting completion is necessary but not sufficient, so the
 turn stays live until the process is shown quiet.
 
-The implementation uses the live stream, which is weaker than the design
-intends. **Correction (same day): history closure is available after all.**
-`thread/read(includeTurns: true)` is unimplemented, but `thread/items/list` and
-`thread/turns/list` both work — measured on 0.151.0 and 0.152.1, neither
-experimental, returning items with their `turnId` and turns with
-`status`/`items`. Concluding from the one refusal that no history existed was a
-mistake, and the recursive reconciliation CP4 specifies can be written. What the
-shipped implementation currently uses instead:
+Quiescence closes over history as CP4 specifies. `thread/read(includeTurns:
+true)` is unimplemented, but `thread/items/list` works and is not experimental on
+either 0.151.0 or 0.152.1; concluding from that one refusal that no history
+existed was a mistake, corrected the same day. Each pass uses:
 
 - the **live item stream**, which is now sound for this purpose: item
   notifications are never shed (only streamed text is), and subagent items
@@ -1081,14 +1077,13 @@ Implementation:
   non-root turn lifecycle notification, because the child's `turn/completed`
   arrived fourteen messages before the root's and would otherwise have ended the
   task's turn early with the subagent's payload.
-- [~] Run one combined fixed-point reconciliation. The fixed point is
-  implemented — repeat until a whole pass finds no live item, no background
-  terminal on any observed thread, and no newly appeared thread — but over the
-  live item stream rather than turn history. Remaining work is to close over
-  history with `thread/items/list` and `thread/turns/list`, which are available
-  and non-experimental on both 0.151.0 and 0.152.1; only
-  `thread/read(includeTurns: true)` is unimplemented. Until then a missed item
-  cannot be recovered, which is exactly what history closure is for.
+- [x] Run one combined fixed-point reconciliation. Each pass checks live items,
+  then background terminals for every observed thread, then closes over history
+  with `thread/items/list`, and stops only after a whole pass changes nothing and
+  discovers no new thread. History runs after the cheap checks rather than every
+  pass, because paging is not free, and it is the only thing that can see an item
+  the notification stream never delivered. An item whose status cannot be read
+  counts as still running.
 - [x] Treat root answer/turn completion as necessary but not sufficient for
   quiescence. A turn settles only after a stable pass over live items and every
   observed thread's background terminals.

@@ -325,6 +325,20 @@ final class CodexProtocol
             DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, UnknownThreadItem
     {
         String id();
+
+        /**
+         * Whether this item has finished.
+         *
+         * <p>An item that carries no status is a record of something already done. One that does
+         * is finished only when its status says so: an unreadable status counts as still running,
+         * because quiescence must not be claimed on a status nothing could parse.
+         *
+         * @return true when nothing about this item is still in flight
+         */
+        default boolean terminal()
+        {
+            return true;
+        }
     }
 
     record AgentMessageItem(
@@ -357,6 +371,12 @@ final class CodexProtocol
             requireNonNull(aggregatedOutput, "aggregatedOutput is null");
             requireNonNull(exitCode, "exitCode is null");
         }
+
+        @Override
+        public boolean terminal()
+        {
+            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
+        }
     }
 
     record FileChangeItem(
@@ -370,6 +390,12 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             changes = ImmutableList.copyOf(requireNonNull(changes, "changes is null"));
             requireNonNull(status, "status is null");
+        }
+
+        @Override
+        public boolean terminal()
+        {
+            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -402,6 +428,12 @@ final class CodexProtocol
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");
         }
+
+        @Override
+        public boolean terminal()
+        {
+            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
+        }
     }
 
     record DynamicToolCallItem(String id, String tool, ActivityStatus status)
@@ -412,6 +444,12 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");
+        }
+
+        @Override
+        public boolean terminal()
+        {
+            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -434,6 +472,12 @@ final class CodexProtocol
             receiverThreadIds.forEach(threadId -> checkIdentifier(threadId, "receiverThreadId"));
             agentsStates = ImmutableMap.copyOf(agentsStates);
             agentsStates.keySet().forEach(threadId -> checkIdentifier(threadId, "agentThreadId"));
+        }
+
+        @Override
+        public boolean terminal()
+        {
+            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -1079,6 +1123,42 @@ final class CodexProtocol
         {
             data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
             requireNonNull(nextCursor, "nextCursor is null");
+        }
+    }
+
+    /**
+     * Lists a thread's items, a page at a time.
+     *
+     * <p>The live notification stream can miss an item; history cannot, which is what makes this
+     * the closure a quiescence check needs rather than a second opinion.
+     */
+    record ThreadItemsListParams(
+            String threadId,
+            @JsonInclude(JsonInclude.Include.NON_ABSENT)
+            Optional<String> cursor)
+    {
+        ThreadItemsListParams
+        {
+            checkIdentifier(threadId, "threadId");
+            requireNonNull(cursor, "cursor is null");
+        }
+    }
+
+    record ThreadItemsListResponse(List<ThreadItemEntry> data, Optional<String> nextCursor)
+    {
+        ThreadItemsListResponse
+        {
+            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+            requireNonNull(nextCursor, "nextCursor is null");
+        }
+    }
+
+    record ThreadItemEntry(ThreadItem item, String turnId)
+    {
+        ThreadItemEntry
+        {
+            requireNonNull(item, "item is null");
+            checkIdentifier(turnId, "turnId");
         }
     }
 

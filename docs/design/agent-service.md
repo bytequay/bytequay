@@ -1582,12 +1582,11 @@ notifications are never shed, which is what makes the live stream sound to
 reason from; only streamed text is dropped under backlog pressure.
 `capabilities.experimentalApi` is declared for the background-terminal method.
 
-That is weaker than the design intends and should be replaced. History closure
-IS available, through `thread/items/list` and `thread/turns/list` — both
-measured working on 0.151.0 and 0.152.1, neither experimental. Only
-`thread/read(includeTurns: true)` is unimplemented, and reading that one
-refusal as "no history exists" was a mistake. The live stream cannot recover an
-item it never saw; history can, which is the whole point of closing over it.
+Each pass then closes over history with `thread/items/list`, which is the only
+thing that can see an item the notification stream never delivered. It runs after
+the cheap checks rather than every pass, because paging is not free. Only
+`thread/read(includeTurns: true)` is unimplemented; reading that one refusal as
+"no history exists" was a mistake.
 
 The wait runs on its own thread, never the message consumer, because the
 consumer's queue holds the notifications that would end the wait. It repeats

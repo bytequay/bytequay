@@ -321,10 +321,15 @@ public final class GitSequencerDriver
 
     private Set<String> openMarkers(Path worktree)
     {
+        List<String> markers = ImmutableList.<String>builder()
+                .addAll(OPERATION_MARKERS)
+                .add("sequencer")
+                .build();
+        List<Path> paths = git.gitPaths(worktree, markers);
         Set<String> open = new LinkedHashSet<>();
-        for (String marker : ImmutableList.<String>builder().addAll(OPERATION_MARKERS).add("sequencer").build()) {
-            if (exists(worktree, marker)) {
-                open.add(marker);
+        for (int marker = 0; marker < paths.size(); marker++) {
+            if (java.nio.file.Files.exists(paths.get(marker))) {
+                open.add(markers.get(marker));
             }
         }
         // The sequencer directory can outlive a completed operation until the next
@@ -334,16 +339,6 @@ public final class GitSequencerDriver
         }
         open.remove("sequencer");
         return open;
-    }
-
-    private boolean exists(Path worktree, String marker)
-    {
-        Result path = git.run(worktree, "rev-parse", "--git-path", marker);
-        if (!path.successful()) {
-            return false;
-        }
-        Path resolved = worktree.resolve(path.output().strip()).normalize();
-        return java.nio.file.Files.exists(resolved);
     }
 
     private Optional<String> markerCommit(Path worktree, String marker)

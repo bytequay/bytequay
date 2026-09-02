@@ -330,18 +330,19 @@ public final class CiGitOperations
         if (!unmerged.isEmpty()) {
             throw problem("Git has unresolved index entries:\n" + unmerged);
         }
-        for (String state : ImmutableList.of(
+        List<String> states = ImmutableList.of(
                 "MERGE_HEAD",
                 "CHERRY_PICK_HEAD",
                 "rebase-merge",
                 "rebase-apply",
-                "sequencer")) {
-            Path path = Path.of(requiredOutput(worktree, "rev-parse", "--git-path", state));
-            if (!path.isAbsolute()) {
-                path = worktree.resolve(path).normalize();
-            }
-            if (Files.exists(path)) {
-                throw problem("Git operation is still open: " + state);
+                "sequencer");
+        List<Path> statePaths = runner.gitPaths(worktree, states);
+        if (statePaths.size() != states.size()) {
+            throw problem("Git could not report its operation state");
+        }
+        for (int state = 0; state < states.size(); state++) {
+            if (Files.exists(statePaths.get(state))) {
+                throw problem("Git operation is still open: " + states.get(state));
             }
         }
         String status = requiredOutput(worktree, "status", "--porcelain=v1", "--untracked-files=all");

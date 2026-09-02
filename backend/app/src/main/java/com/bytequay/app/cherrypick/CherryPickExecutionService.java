@@ -522,15 +522,10 @@ public class CherryPickExecutionService
         if (!git.run(worktree, "ls-files", "-u").output().isBlank()) {
             return true;
         }
-        for (String marker : ImmutableList.of(
-                "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply")) {
-            GitCommandRunner.Result path = git.run(worktree, "rev-parse", "--git-path", marker);
-            if (path.successful()
-                    && java.nio.file.Files.exists(worktree.resolve(path.output().strip()).normalize())) {
-                return true;
-            }
-        }
-        return false;
+        return git.gitPaths(worktree, ImmutableList.of(
+                        "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"))
+                .stream()
+                .anyMatch(java.nio.file.Files::exists);
     }
 
     private static Optional<String> originSha(String message)

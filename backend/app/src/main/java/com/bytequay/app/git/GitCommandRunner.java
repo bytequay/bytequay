@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -105,6 +106,44 @@ public class GitCommandRunner
             Thread.currentThread().interrupt();
             return Result.failed("Git was interrupted");
         }
+    }
+
+    /**
+     * Resolves several {@code --git-path} locations with one {@code rev-parse}.
+     *
+     * <p>Callers test a handful of operation markers together. Asking for them
+     * one at a time costs a process each, and process startup dominates a
+     * command this cheap.
+     *
+     * @param worktree directory to run in
+     * @param markers non-empty {@code --git-path} arguments
+     * @return one normalized path per marker, in order, or an empty list when
+     *         Git did not report exactly one path per marker
+     */
+    public List<Path> gitPaths(Path worktree, List<String> markers)
+    {
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(markers, "markers is null");
+        checkArgument(!markers.isEmpty(), "markers is empty");
+        ImmutableList.Builder<String> arguments =
+                ImmutableList.builderWithExpectedSize(1 + (2 * markers.size()));
+        arguments.add("rev-parse");
+        for (String marker : markers) {
+            arguments.add("--git-path", marker);
+        }
+        Result result = run(worktree, arguments.build());
+        if (!result.successful()) {
+            return ImmutableList.of();
+        }
+        List<String> reported = result.output().strip().lines().toList();
+        // A path holding a line break would misalign the answers, so only a
+        // one-to-one reply can be trusted.
+        if (reported.size() != markers.size()) {
+            return ImmutableList.of();
+        }
+        return reported.stream()
+                .map(line -> worktree.resolve(line).normalize())
+                .collect(toImmutableList());
     }
 
     /** Runs an arbitrary argv-based command in one working directory. */

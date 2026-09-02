@@ -168,20 +168,14 @@ public final class RebaseSequencerDriver
 
     private Set<String> openMarkers(Path worktree)
     {
+        List<Path> paths = git.gitPaths(worktree, OPERATION_MARKERS);
         Set<String> open = new LinkedHashSet<>();
-        for (String marker : OPERATION_MARKERS) {
-            if (exists(worktree, marker)) {
-                open.add(marker);
+        for (int marker = 0; marker < paths.size(); marker++) {
+            if (java.nio.file.Files.exists(paths.get(marker))) {
+                open.add(OPERATION_MARKERS.get(marker));
             }
         }
         return open;
-    }
-
-    private boolean exists(Path worktree, String marker)
-    {
-        Result path = git.run(worktree, "rev-parse", "--git-path", marker);
-        return path.successful()
-                && java.nio.file.Files.exists(worktree.resolve(path.output().strip()).normalize());
     }
 
     private Optional<String> markerCommit(Path worktree, String marker)

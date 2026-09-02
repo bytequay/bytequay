@@ -487,12 +487,9 @@ public class BranchRebaseService
         if (branch.successful() && branch.output().strip().equals(rebase.workBranch())) {
             return true;
         }
-        for (String state : ImmutableList.of("rebase-merge/head-name", "rebase-apply/head-name")) {
-            GitCommandRunner.Result path = git.run(rebase.worktree(), "rev-parse", "--git-path", state);
-            if (!path.successful()) {
-                continue;
-            }
-            Path headName = rebase.worktree().resolve(path.output().strip()).normalize();
+        for (Path headName : git.gitPaths(
+                rebase.worktree(),
+                ImmutableList.of("rebase-merge/head-name", "rebase-apply/head-name"))) {
             try {
                 if (java.nio.file.Files.isRegularFile(headName)
                         && java.nio.file.Files.readString(headName).strip()

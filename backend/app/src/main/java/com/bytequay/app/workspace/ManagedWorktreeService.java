@@ -245,8 +245,11 @@ public final class ManagedWorktreeService
             boolean dirty = !requireOutput(
                     git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"),
                     "read task worktree status").isEmpty();
-            boolean operationInProgress = GIT_OPERATION_PATHS.stream()
-                    .map(operation -> reportedGitPath(canonical, "rev-parse", "--git-path", operation))
+            List<Path> operationPaths = git.gitPaths(canonical, GIT_OPERATION_PATHS);
+            if (operationPaths.size() != GIT_OPERATION_PATHS.size()) {
+                throw invalid("Cannot read task worktree operation state");
+            }
+            boolean operationInProgress = operationPaths.stream()
                     .anyMatch(path -> Files.exists(path, LinkOption.NOFOLLOW_LINKS));
             return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
         }

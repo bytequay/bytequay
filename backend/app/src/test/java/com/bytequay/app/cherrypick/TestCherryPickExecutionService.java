@@ -110,13 +110,10 @@ class TestCherryPickExecutionService
             throws IOException
     {
         upstream = init("upstream");
-        fork = init("fork");
         write(upstream, "seed.txt", "seed\n");
         write(upstream, "pom.xml", "<project/>\n");
         commit(upstream, "Seed");
-        git(fork, "remote", "add", "upstream", upstream.toString());
-        git(fork, "fetch", "--quiet", "upstream");
-        git(fork, "checkout", "--quiet", "-B", "main", "upstream/main");
+        fork = cloneOf(upstream, "fork");
 
         clone = init(WORKSPACE_ID + "/repository");
         // GitHub-shaped remote URLs mapped to the local fixtures, so repository
@@ -1359,6 +1356,25 @@ class TestCherryPickExecutionService
         git(temporaryDirectory, "init", "--quiet", "-b", "main", root.toString());
         git(root, "config", "user.name", "ByteQuay Test");
         git(root, "config", "user.email", "bytequay@example.com");
+        return root.toRealPath();
+    }
+
+    /**
+     * Clones a seeded repository as the fork. One clone leaves the same remote,
+     * branch and committer identity that separate init, remote, fetch and
+     * checkout commands did, for a fifth of the Git processes.
+     */
+    private Path cloneOf(Path source, String name)
+            throws IOException
+    {
+        Path root = temporaryDirectory.resolve(name);
+        git(temporaryDirectory,
+                "clone", "--quiet",
+                "--origin", "upstream",
+                "--config", "user.name=ByteQuay Test",
+                "--config", "user.email=bytequay@example.com",
+                source.toString(),
+                root.toString());
         return root.toRealPath();
     }
 

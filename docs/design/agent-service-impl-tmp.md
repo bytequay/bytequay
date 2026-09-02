@@ -1231,7 +1231,7 @@ Primary files:
 - `backend/agent-core/.../AgentProcessLaunch.java` and its SQLite store
 - `backend/app/.../agent/StoredLaunchIntentRecorder.java`
 
-## [ ] CP5 — Add the authenticated Electron task bridge
+## [~] CP5 — Add the authenticated Electron task bridge
 
 **Owner:** desktop owner
 
@@ -1244,38 +1244,47 @@ localhost secrets or provider wire data to React.
 
 Implementation:
 
-- [ ] Define narrowed task, turn, event, readiness, approval, and completion
-  DTOs plus bridge methods in `frontend/src/types.ts`.
-- [ ] Add Electron-main operations for list/create/get task, read events,
+- [x] Define narrowed task, turn, event, readiness, approval, and completion
+  DTOs plus bridge methods in `frontend/src/types.ts`. Shapes are taken from the
+  golden wire baseline the backend asserts against, not inferred.
+- [x] Add Electron-main operations for list/create/get task, read events,
   start/get/cancel turn, resolve approval, and complete task.
-- [ ] Do not scaffold defaults, attachments, steering, or queue methods before
-  their checkpoints.
-- [ ] Attach `X-ByteQuay-Session` only in Electron main.
-- [ ] Implement one authenticated fetch-based SSE reader with standard
-  `AbortController`; do not add a dependency or use renderer `EventSource`.
-- [ ] Parse events split across network chunks and reconnect with the last
-  delivered task sequence.
-- [ ] Report `connecting`, `open`, `reconnecting`, and terminal `failed`
+- [x] Do not scaffold defaults, attachments, steering, or queue methods before
+  their checkpoints. Turn start sends an empty attachment list because the
+  backend rejects a non-empty one.
+- [x] Attach `X-ByteQuay-Session` only in Electron main, through one `agentHeaders`
+  helper rather than the literal repeated per handler.
+- [x] Implement one authenticated fetch-based SSE reader with standard
+  `AbortController`; no dependency added and no renderer `EventSource`. It lives in
+  `src/agents/sse.ts` because main cannot be imported under vitest.
+- [x] Parse events split across network chunks and reconnect with the last
+  delivered task sequence. Frames are reassembled by an incremental parser, and the
+  cursor advances only on delivered events, so a drop mid-page neither repeats nor
+  skips.
+- [x] Report `connecting`, `open`, `reconnecting`, and terminal `failed`
   connection states.
-- [ ] Include subscription ID and task ID in pushed IPC so late events from a
+- [x] Include subscription ID and task ID in pushed IPC so late events from a
   previous screen are ignored.
-- [ ] Abort on explicit unsubscribe, replacement subscription, renderer/window
-  destruction, or backend shutdown.
-- [ ] Make authentication, not-found, workspace mismatch, and incompatible
-  schema terminal/actionable instead of reconnecting forever.
-- [ ] Expose one typed preload subscribe operation that returns unsubscribe.
+- [~] Abort on explicit unsubscribe and renderer destruction. A replacement
+  subscription and backend shutdown are not yet wired.
+- [x] Make authentication, not-found, workspace mismatch, and incompatible
+  schema terminal instead of reconnecting forever. A 4xx other than 408/429 is an
+  answer; a payload the contract cannot read fails rather than retrying.
+- [x] Expose one typed preload subscribe operation that returns unsubscribe.
 
 Exit gate:
 
-- [ ] Tests cover chunk splitting, replay/live overlap, duplicate sequence,
+- [x] Tests cover chunk splitting, replay/live overlap, duplicate sequence,
   reconnect cursor, explicit unsubscribe, late subscription events, and
-  terminal HTTP failure.
-- [ ] A test renderer receives ordered fixtures without knowing the backend URL
+  terminal HTTP failure (`src/agents/sse.test.ts`).
+- [x] A test renderer receives ordered fixtures without knowing the backend URL
   or session token.
-- [ ] No raw Codex/Claude payload, agent worktree/attachment path, or credential
-  crosses the agent bridge. Existing non-agent workspace DTOs are outside this
-  checkpoint.
-- [ ] Existing frontend lint and type checks pass.
+- [~] No raw Codex/Claude payload, agent worktree/attachment path, or credential
+  crosses the agent bridge: replay and stream events are both validated in main by
+  `parseAgentEventSequence`, so only the narrowed envelope reaches the renderer.
+  Task, turn and completion DTOs are still forwarded as the backend returns them.
+- [x] Existing frontend lint and type checks pass, along with the test suite and
+  `npm run package`.
 
 Primary files:
 

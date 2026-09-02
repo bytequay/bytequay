@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import { AgentEventEnvelope } from './agents/events';
+
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
   id: number;
@@ -479,6 +481,123 @@ export type AgentProviderReadiness =
   | 'UNSUPPORTED'
   | 'DEGRADED'
   | 'TEMPORARILY_UNAVAILABLE';
+
+/** Token and cost totals the backend reports for a task or turn. */
+export type AgentMetricsDto = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  cost: number | null;
+  costProvenance: string;
+  elapsed: string;
+};
+
+export type AgentTaskDefaultsDto = {
+  model: string | null;
+  effort: string | null;
+  permissionPolicy: string;
+};
+
+export type AgentTaskSummaryDto = {
+  finalResponse: string | null;
+  resultBranch: string | null;
+  resultHead: string | null;
+  tests: string[];
+  metrics: AgentMetricsDto;
+  learnings: string[];
+  notes: string | null;
+};
+
+export type AgentTaskDto = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  laneId: string;
+  defaults: AgentTaskDefaultsDto;
+  state: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  terminalAt: string | null;
+  terminalReason: string | null;
+  metrics: AgentMetricsDto;
+  summary: AgentTaskSummaryDto | null;
+  cleanupState: string;
+  deleteAfter: string | null;
+  cleanupFailure: string | null;
+};
+
+export type AgentTurnSettingsDto = {
+  model: string | null;
+  effort: string | null;
+  permissionPolicy: string;
+  sandboxPolicy: string;
+  maximumRuntimeMillis: number;
+  attachments: string[];
+};
+
+export type AgentTurnDto = {
+  id: string;
+  taskId: string;
+  state: string;
+  version: number;
+  createdAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  cancellationRequestedAt: string | null;
+  settings: AgentTurnSettingsDto | null;
+  terminalReason: string | null;
+  metrics: AgentMetricsDto;
+};
+
+export type CreateAgentTaskRequest = {
+  workspaceId: string;
+  title: string;
+  laneId: string;
+  defaults: AgentTaskDefaultsDto;
+};
+
+export type StartAgentTurnRequest = {
+  taskId: string;
+  message: string;
+  /** Makes a retried start return the original turn instead of creating a second one. */
+  idempotencyKey: string;
+};
+
+export type AgentApprovalDecision = 'ALLOW' | 'DENY';
+
+export type AgentApprovalDto = {
+  approvalId: string;
+  decision: AgentApprovalDecision;
+  scopedPermission: string | null;
+  resolvedAt: string;
+  timedOut: boolean;
+};
+
+export type AgentCompletionDto = {
+  taskId: string;
+  summary: AgentTaskSummaryDto;
+  completedAt: string;
+  deleteAfter: string;
+};
+
+/** How the event stream itself is doing, as opposed to what it carries. */
+export type AgentStreamConnectionState = 'connecting' | 'open' | 'reconnecting' | 'failed';
+
+/**
+ * One push from a task subscription.
+ *
+ * Carries the subscription and task it belongs to so a renderer that has moved on can ignore
+ * events still arriving for the screen it left.
+ */
+export type AgentStreamPayload =
+  | { kind: 'events'; events: AgentEventEnvelope[] }
+  | { kind: 'state'; state: AgentStreamConnectionState; detail?: string };
+
+export type AgentStreamMessage = {
+  subscriptionId: string;
+  taskId: string;
+} & AgentStreamPayload;
 
 export type AgentProviderStatus = {
   laneId: string;
@@ -1036,6 +1155,26 @@ export type Bridge = {
   saveRecentDraft: (draft: RecentDraftRequest) => Promise<void>;
   clearRecent: () => Promise<void>;
   clearRecentRow: (id: string) => Promise<void>;
+
+  listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
+  createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
+  getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
+  readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
+  startAgentTurn: (request: StartAgentTurnRequest) => Promise<AgentTurnDto>;
+  getAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
+  cancelAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
+  resolveAgentApproval: (
+    approvalId: string,
+    decision: AgentApprovalDecision,
+    scopedPermission?: string,
+  ) => Promise<AgentApprovalDto>;
+  completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
+  /** Streams one task's events; the returned function stops the subscription. */
+  subscribeAgentTask: (
+    taskId: string,
+    after: number,
+    listener: (message: AgentStreamMessage) => void,
+  ) => Promise<() => void>;
 };
 
 export type WorkspaceIssueMetadataDto = {

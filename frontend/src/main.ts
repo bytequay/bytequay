@@ -12,17 +12,25 @@
  * limitations under the License.
  */
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import type { WebContents } from 'electron';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseAgentEventSequence } from './agents/events';
+import { readAgentStream } from './agents/sse';
 import type {
+  AgentApprovalDecision,
+  AgentStreamPayload,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
   CommitHistorySourceDto,
+  CreateAgentTaskRequest,
   GitHubCodeSnippetRequest,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
+  StartAgentTurnRequest,
 } from './types';
 import {
   BACKEND_BASE,
@@ -234,6 +242,63 @@ async function backendVoid(input: string | URL, init?: RequestInit): Promise<voi
   }
 }
 
+/** The session secret never leaves main; the renderer only ever sees parsed results. */
+function agentHeaders(json = false): Record<string, string> {
+  const headers: Record<string, string> = { 'X-ByteQuay-Session': sessionToken() };
+  if (json) headers['Content-Type'] = 'application/json';
+  return headers;
+}
+
+const agentSubscriptions = new Map<string, AbortController>();
+
+/**
+ * Streams one task to one renderer until it is stopped.
+ *
+ * Every push names its subscription and task, so a renderer that has moved on can drop events
+ * still arriving for the screen it left rather than rendering them into the new one.
+ */
+function startAgentSubscription(sender: WebContents, taskId: string, after: number): string {
+  const subscriptionId = randomUUID();
+  const controller = new AbortController();
+  agentSubscriptions.set(subscriptionId, controller);
+
+  const push = (message: AgentStreamPayload): void => {
+    if (sender.isDestroyed() || !agentSubscriptions.has(subscriptionId)) {
+      return;
+    }
+    sender.send('agent:stream:message', { subscriptionId, taskId, ...message });
+  };
+
+  const finish = (): void => {
+    agentSubscriptions.delete(subscriptionId);
+    sender.off('destroyed', finish);
+  };
+  // A closed window must not leave a stream reading forever.
+  sender.once('destroyed', () => {
+    controller.abort();
+    finish();
+  });
+
+  void readAgentStream({
+    after,
+    signal: controller.signal,
+    request: (cursor, signal) => fetch(
+      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/stream`
+        + `?${new URLSearchParams({ after: String(cursor) })}`,
+      { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
+    ),
+    onStatus: (state, detail) => push({ kind: 'state', state, detail }),
+    onEvents: (events) => push({ kind: 'events', events }),
+  }).finally(finish);
+
+  return subscriptionId;
+}
+
+function stopAgentSubscription(subscriptionId: string): void {
+  agentSubscriptions.get(subscriptionId)?.abort();
+  agentSubscriptions.delete(subscriptionId);
+}
+
 function refreshDashboardInBackground(): void {
   void backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, {
     method: 'POST',
@@ -304,6 +369,67 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
+  ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
+    const query = new URLSearchParams({ workspaceId });
+    if (limit !== undefined) query.set('limit', String(limit));
+    return backendJson(`${BACKEND_BASE}/agent/tasks?${query}`, { headers: agentHeaders() });
+  });
+  ipcMain.handle('agent:tasks:create', (_event, request: CreateAgentTaskRequest) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks`, {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify(request),
+    }));
+  ipcMain.handle('agent:tasks:get', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() }));
+  ipcMain.handle('agent:events:read', async (_event, taskId: string, after?: number, limit?: number) => {
+    const query = new URLSearchParams();
+    if (after !== undefined) query.set('after', String(after));
+    if (limit !== undefined) query.set('limit', String(limit));
+    const page = await backendJson<unknown>(
+      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/events?${query}`,
+      { headers: agentHeaders() },
+    );
+    // Validated in main so a payload the renderer cannot represent never reaches it.
+    return parseAgentEventSequence(page, after ?? 0);
+  });
+  ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
+      method: 'POST',
+      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
+      body: JSON.stringify({ message: request.message, attachments: [] }),
+    }));
+  ipcMain.handle('agent:turns:get', (_event, turnId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() }));
+  ipcMain.handle('agent:turns:cancel', (_event, turnId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}/cancel`, {
+      method: 'POST',
+      headers: agentHeaders(),
+    }));
+  ipcMain.handle('agent:approvals:resolve', (
+    _event,
+    approvalId: string,
+    decision: AgentApprovalDecision,
+    scopedPermission?: string,
+  ) =>
+    backendJson(`${BACKEND_BASE}/agent/approvals/${encodeURIComponent(approvalId)}`, {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ decision, scopedPermission: scopedPermission ?? null }),
+    }));
+  ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/complete`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ notes: notes ?? null }),
+    }));
+  ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number) =>
+    startAgentSubscription(event.sender, taskId, after));
+  ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
+    stopAgentSubscription(subscriptionId);
+  });
   ipcMain.handle('cherrypick:providers', () =>
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },

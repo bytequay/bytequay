@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bridge, FindResult, InAppNavState } from './types';
+import { belongsToSubscription } from './agents/sse';
+import type { AgentStreamMessage, Bridge, FindResult, InAppNavState } from './types';
 
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
@@ -217,6 +218,32 @@ const bridge: Bridge = {
   saveRecentDraft: draft => ipcRenderer.invoke('recent:draft', draft),
   clearRecent: () => ipcRenderer.invoke('recent:clear'),
   clearRecentRow: id => ipcRenderer.invoke('recent:clear-row', id),
+
+  listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
+  createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),
+  getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),
+  readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),
+  startAgentTurn: request => ipcRenderer.invoke('agent:turns:start', request),
+  getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),
+  cancelAgentTurn: turnId => ipcRenderer.invoke('agent:turns:cancel', turnId),
+  resolveAgentApproval: (approvalId, decision, scopedPermission) =>
+    ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
+  completeAgentTask: (taskId, workspaceId, notes) =>
+    ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
+  subscribeAgentTask: async (taskId, after, listener) => {
+    const subscriptionId: string = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after);
+    // Main pushes every task on one channel, so each listener keeps only what it asked for.
+    const receive = (_event: unknown, message: AgentStreamMessage): void => {
+      if (belongsToSubscription(subscriptionId, message)) {
+        listener(message);
+      }
+    };
+    ipcRenderer.on('agent:stream:message', receive);
+    return () => {
+      ipcRenderer.removeListener('agent:stream:message', receive);
+      void ipcRenderer.invoke('agent:stream:unsubscribe', subscriptionId);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

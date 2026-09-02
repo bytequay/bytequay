@@ -204,6 +204,20 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void refusesToCompleteATaskStuckHoldingAWorktreeClaim()
+    {
+        stores.update(stores.find(taskId).orElseThrow()
+                .claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        // A turn whose provider could not be shown stopped keeps the claim, and that has to block
+        // completing the task as well as starting another turn.
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("claimed by TURN");
+    }
+
+    @Test
     void refusesToAbandonATerminalTask()
     {
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));

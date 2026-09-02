@@ -1106,8 +1106,10 @@ Implementation:
   quiescence. Changing ByteQuay capability metadata does not prevent invisible
   descendants; otherwise mark the model/lane unavailable. CP9 adds inspection,
   not this safety behavior.
-- [ ] After a successful stable terminal reconciliation, atomically finalize
-  the turn and release its `TURN` claim. The task remains `OPEN` and its
+- [x] After a successful stable terminal reconciliation, atomically finalize
+  the turn and release its `TURN` claim. `persistTerminalTurn` finishes the turn,
+  releases the claim, and writes the lifecycle event in one unit of work, and it
+  only reaches that point once quiescence held. The task remains `OPEN` and its
   derived projection becomes idle.
 
 Exit gate:
@@ -1127,8 +1129,11 @@ Exit gate:
   CP2 snapshot stored for that turn. Permission and sandbox are not varied,
   because the Codex lane advertises a single permission policy and both are sent
   once at thread start.
-- [ ] Root completion while an item/child/background terminal runs keeps Send
-  and Complete blocked.
+- [x] Root completion while an item or background terminal runs keeps Send and
+  Complete blocked. The retained claim is what blocks both: starting a turn is
+  refused (`keepsTheWorktreeClaimWhenAProviderCannotBeShownStopped`) and so is
+  completing the task
+  (`refusesToCompleteATaskStuckHoldingAWorktreeClaim`).
 - [ ] A missed live child, a child-created grandchild, and live/history overlap
   converge through recursive history closure without duplicate routing.
 - [ ] Cancellation lists/cleans background terminals and reaches the same

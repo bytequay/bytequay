@@ -530,11 +530,10 @@ public class PullRequestService
 
         PullRequestRef ref = parseRef(repo, number);
         GitHubCredential credential = credentialService.resolveGitHubCredential();
-        String viewerLogin = credential.profile().login();
         switch (normalizedTarget) {
-            case "pull_request" -> pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent, viewerLogin);
-            case "issue_comment" -> pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent, viewerLogin);
-            case "review_comment" -> pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent, viewerLogin);
+            case "pull_request" -> pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent);
+            case "issue_comment" -> pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent);
+            case "review_comment" -> pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent);
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
         }
     }

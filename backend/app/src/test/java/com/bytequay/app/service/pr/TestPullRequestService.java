@@ -753,9 +753,9 @@ class TestPullRequestService
         service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "+1");
         service.toggleReaction("owner/repo", 7, "review_comment", 42L, "eyes");
 
-        verify(writes).togglePullRequestReaction("pat", ref, "heart", "me");
-        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1", "me");
-        verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes", "me");
+        verify(writes).togglePullRequestReaction("pat", ref, "heart");
+        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1");
+        verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes");
     }
 
     @Test

@@ -26,8 +26,10 @@ import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -52,7 +54,6 @@ public class GitHubPullRequestWriteClient
 
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
-    private final GitHubPaginator paginator;
 
     public GitHubPullRequestWriteClient(
             RestClient gitHubRestClient,
@@ -60,7 +61,6 @@ public class GitHubPullRequestWriteClient
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
-        this.paginator = new GitHubPaginator(gitHubRestClient);
     }
 
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
@@ -82,67 +82,60 @@ public class GitHubPullRequestWriteClient
         });
     }
 
-    public void togglePullRequestReaction(String pat, PullRequestRef pr, String content, String viewerLogin)
+    public void togglePullRequestReaction(String pat, PullRequestRef pr, String content)
     {
         toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/issues/{number}/reactions",
                 content,
-                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 pr.number());
     }
 
-    public void toggleIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content, String viewerLogin)
+    public void toggleIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
     {
         toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions",
                 content,
-                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 commentId);
     }
 
-    public void toggleReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content, String viewerLogin)
+    public void toggleReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
     {
         toggleReaction(
                 pat,
                 "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions",
                 content,
-                viewerLogin,
                 pr.owner(),
                 pr.repo(),
                 commentId);
     }
 
-    private void toggleReaction(String pat, String uri, String content, String viewerLogin, Object... uriVariables)
+    private void toggleReaction(String pat, String uri, String content, Object... uriVariables)
     {
-        Optional<GitHubReaction> existing = paginator.paginate(
-                        pat,
-                        uri,
-                        new ParameterizedTypeReference<List<GitHubReaction>>() {},
-                        uriVariables)
-                .stream()
-                .filter(reaction -> content.equals(reaction.content()))
-                .filter(reaction -> reaction.user() != null && viewerLogin.equalsIgnoreCase(reaction.user().login()))
-                .findFirst();
-        existing.ifPresentOrElse(
-                reaction -> deleteReaction(pat, uri, reaction.id(), uriVariables),
-                () -> addReaction(pat, uri, content, uriVariables));
+        ResponseEntity<GitHubReaction> response = addReaction(pat, uri, content, uriVariables);
+        if (response.getStatusCode() == HttpStatus.OK) {
+            GitHubReaction reaction = response.getBody();
+            if (reaction == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty response from GitHub when toggling reaction");
+            }
+            deleteReaction(pat, uri, reaction.id(), uriVariables);
+        }
     }
 
-    private void addReaction(String pat, String uri, String content, Object... uriVariables)
+    private ResponseEntity<GitHubReaction> addReaction(String pat, String uri, String content, Object... uriVariables)
     {
-        translating(() -> gitHubRestClient.post()
+        return translating(() -> gitHubRestClient.post()
                 .uri(uri, uriVariables)
                 .header("Authorization", authorization(pat))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ImmutableMap.of("content", content))
                 .retrieve()
-                .toBodilessEntity());
+                .toEntity(GitHubReaction.class));
     }
 
     private void deleteReaction(String pat, String uri, long reactionId, Object... uriVariables)
@@ -421,10 +414,7 @@ public class GitHubPullRequestWriteClient
     private record UpdatedUser(String login) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GitHubReaction(long id, String content, GitHubReactionUser user) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GitHubReactionUser(String login) {}
+    private record GitHubReaction(long id) {}
 
     private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
 }

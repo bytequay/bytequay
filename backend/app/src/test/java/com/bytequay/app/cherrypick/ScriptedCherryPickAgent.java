@@ -235,6 +235,12 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask abandon(TaskId taskId, String reason)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void cleanupWorktree(TaskId taskId)
     {
         beforeNextCleanup.ifPresent(Runnable::run);

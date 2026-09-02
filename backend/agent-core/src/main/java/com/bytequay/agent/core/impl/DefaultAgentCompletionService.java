@@ -25,6 +25,7 @@ import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -176,6 +177,46 @@ public final class DefaultAgentCompletionService
                     completedAt));
             return terminal;
         });
+    }
+
+    @Override
+    public AgentTask abandon(TaskId taskId, String reason)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (reason == null || reason.isBlank()) {
+            throw new InvalidAgentRequestException("reason must not be blank");
+        }
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireTask(taskId);
+            if (task.state().terminal()) {
+                throw new AgentConflictException("Task is already terminal: " + taskId);
+            }
+            runtimeRegistry.closeSession(taskId);
+            Instant failedAt = Instant.now(clock);
+            EventId eventId = EventId.random();
+            AgentTask failed = unitOfWork.execute(() -> {
+                AgentTask current = requireTask(taskId);
+                // The worktree is kept, not cleaned: the reason this task is stuck is that
+                // something may still have been writing to it, and that evidence is the point.
+                AgentTask terminal = taskStore.update(current.worktreeMutationClaim()
+                        .map(claim -> current.fail(
+                                reason,
+                                failedAt,
+                                failedAt.plus(RETENTION_PERIOD),
+                                claim))
+                        .orElseGet(() -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD))));
+                outboxStore.insert(pendingLifecycle(
+                        eventId,
+                        taskId,
+                        Optional.empty(),
+                        AgentEventPayload.LifecyclePhase.TASK_FAILED,
+                        reason,
+                        failedAt));
+                return terminal;
+            });
+            eventService.drain(eventId);
+            return failed;
+        }
     }
 
     private void releaseCompletionClaim(TaskId taskId, WorktreeMutationClaim claim, RuntimeException failure)

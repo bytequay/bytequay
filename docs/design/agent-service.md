@@ -1595,6 +1595,25 @@ worktree.
 Terminating a yielded terminal instead of waiting for it, and the claim
 retention and atomic finalize in `agent-core`, are not part of this.
 
+### 5.5 Claim retention and abandonment
+
+A turn releases its worktree mutation claim only when the provider was shown
+quiet. `AgentTurnResult` carries `providerQuiescent`; a provider whose turn owns
+its whole process asserts it implicitly through the four-argument constructor,
+and one that can outlive its own turn has to say otherwise.
+
+When it is false the claim is retained. That deliberately blocks every later
+turn on the task, because the alternative is handing a turn a worktree that
+something may still be writing to. The task stays `OPEN` and its worktree stays
+on disk.
+
+Completion cannot resolve that state — it refuses a held claim — so
+`AgentCompletionService.abandon` exists as the only way out. It is guarded the
+same way completion is, by naming the claim it discards, and it retains the
+worktree rather than cleaning it, because whatever the provider left behind is
+the evidence someone will want. It is reachable at
+`POST /agent/tasks/{taskId}/abandon`.
+
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,
 yielded commands must appear in background-terminal listing, and clean or

@@ -41,6 +41,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UsageBaseline;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -181,6 +182,36 @@ class TestDefaultAgentCompletionService
         assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("active turn");
+    }
+
+    @Test
+    void abandonsATaskStuckHoldingAWorktreeClaim()
+    {
+        TurnId turnId = TurnId.random();
+        stores.update(stores.find(taskId).orElseThrow()
+                .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        AgentTask failed = service.abandon(taskId, "provider activity could not be shown stopped");
+
+        // Completing is impossible while the claim is held, so this is the only way out. The
+        // worktree is retained rather than cleaned, because whatever the provider left is the
+        // evidence someone will want.
+        assertThat(failed.state()).isEqualTo(TaskState.FAILED);
+        assertThat(failed.worktreeMutationClaim()).isEmpty();
+        assertThat(failed.terminalReason()).contains("provider activity could not be shown stopped");
+        assertThat(worktrees.cleaned).isEmpty();
+    }
+
+    @Test
+    void refusesToAbandonATerminalTask()
+    {
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+        service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+
+        assertThatThrownBy(() -> service.abandon(taskId, "too late"))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("already terminal");
     }
 
     private static AgentTurnSettings turnSettings()

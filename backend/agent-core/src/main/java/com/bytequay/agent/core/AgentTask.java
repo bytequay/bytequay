@@ -245,6 +245,34 @@ public record AgentTask(
 
     public AgentTask fail(String reason, Instant failedAt, Instant deletionDeadline)
     {
+        checkState(worktreeMutationClaim.isEmpty(), "task has a worktree mutation claim");
+        return failed(reason, failedAt, deletionDeadline);
+    }
+
+    /**
+     * Fails a task still holding the claim of a turn whose work could not be shown stopped.
+     *
+     * <p>Guarded the way completion is: the caller names the claim it is discarding, so a task
+     * cannot lose one by accident. The worktree is retained rather than cleaned, because the reason
+     * this operation exists is that something may still have been writing to it.
+     *
+     * @param reason why the task is being failed
+     * @param failedAt when it was failed
+     * @param deletionDeadline when the retained worktree may be reclaimed
+     * @param claim the held claim being discarded
+     * @return the failed task
+     */
+    public AgentTask fail(String reason, Instant failedAt, Instant deletionDeadline, WorktreeMutationClaim claim)
+    {
+        requireNonNull(claim, "claim is null");
+        checkState(
+                worktreeMutationClaim.isEmpty() || worktreeMutationClaim.equals(Optional.of(claim)),
+                "worktree mutation claim owner changed");
+        return failed(reason, failedAt, deletionDeadline);
+    }
+
+    private AgentTask failed(String reason, Instant failedAt, Instant deletionDeadline)
+    {
         checkNotBlank(reason, "reason");
         requireNonNull(failedAt, "failedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
@@ -253,7 +281,6 @@ public record AgentTask(
             return this;
         }
         requireState(TaskState.OPEN);
-        checkState(worktreeMutationClaim.isEmpty(), "task has a worktree mutation claim");
         return copy(
                 TaskState.FAILED,
                 Optional.empty(),

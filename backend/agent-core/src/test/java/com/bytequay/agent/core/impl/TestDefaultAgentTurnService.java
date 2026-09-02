@@ -268,6 +268,34 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void keepsTheWorktreeClaimWhenAProviderCannotBeShownStopped()
+    {
+        AgentTurn running = service.start(command("first", "key-1"));
+
+        driver.completeUnverified("done");
+
+        // A turn that cannot prove nothing it started is still running keeps the claim, so no later
+        // turn edits a worktree something may still be writing to.
+        AgentTask task = stores.find(this.task.id()).orElseThrow();
+        assertThat(task.worktreeMutationClaim()).isPresent();
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.FAILED);
+        assertThatThrownBy(() -> service.start(command("second", "key-2")))
+                .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void releasesTheWorktreeClaimWhenAProviderIsShownStopped()
+    {
+        service.start(command("first", "key-1"));
+
+        driver.complete("done");
+
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(service.start(command("second", "key-2"))).isNotNull();
+        driver.complete("done again");
+    }
+
+    @Test
     void recordsUsageWithoutProviderIdentity()
     {
         AgentTurn running = service.start(command("first", "key-1"));

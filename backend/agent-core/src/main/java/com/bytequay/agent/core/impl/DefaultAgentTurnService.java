@@ -487,13 +487,18 @@ public final class DefaultAgentTurnService
                 if (completionFailure == null) {
                     AgentTurnResult result = requireNonNull(providerResult, "providerResult is null");
                     TurnState terminalState = terminalState(result.state());
-                    persistTerminalTurn(turn, terminalState, terminalReason(result, terminalState));
+                    persistTerminalTurn(
+                            turn,
+                            terminalState,
+                            terminalReason(result, terminalState),
+                            result.providerQuiescent());
                 }
                 else {
                     persistTerminalTurn(
                             turn,
                             TurnState.INTERRUPTED,
-                            Optional.of(failureMessage(completionFailure)));
+                            Optional.of(failureMessage(completionFailure)),
+                            true);
                 }
             }
         }
@@ -534,16 +539,24 @@ public final class DefaultAgentTurnService
             AgentTurn turn = requireTurn(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 Optional<String> reason = Optional.of(failureMessage(failure));
-                persistTerminalTurn(turn, TurnState.FAILED, reason);
+                persistTerminalTurn(turn, TurnState.FAILED, reason, true);
                 drainPending(outboxStore, eventService, turn.taskId());
             }
         });
     }
 
+    /**
+     * Ends a turn, releasing its worktree claim only when the provider was shown quiet.
+     *
+     * @param providerQuiescent whether the provider proved nothing it started is still running. A
+     *     turn that cannot show this keeps the claim, so no later turn edits a worktree something
+     *     may still be writing to. The task is then stuck by design until it is failed explicitly.
+     */
     private void persistTerminalTurn(
             AgentTurn turn,
             TurnState terminalState,
-            Optional<String> reason)
+            Optional<String> reason,
+            boolean providerQuiescent)
     {
         EventId eventId = EventId.random();
         unitOfWork.execute(() -> {
@@ -553,7 +566,9 @@ public final class DefaultAgentTurnService
             AgentTurn terminal = turnStore.update(latest.finish(terminalState, finalMetrics, reason, endedAt));
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
             AgentTask task = requireTask(terminal.taskId());
-            taskStore.update(task.releaseWorktreeMutation(claim, endedAt));
+            if (providerQuiescent) {
+                taskStore.update(task.releaseWorktreeMutation(claim, endedAt));
+            }
             outboxStore.insert(pendingLifecycle(
                     eventId,
                     terminal.taskId(),

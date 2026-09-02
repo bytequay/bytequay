@@ -367,6 +367,12 @@ class TestAgentMaintenance
         }
 
         @Override
+        public AgentTask abandon(TaskId taskId, String reason)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public void cleanupWorktree(TaskId taskId)
         {
             throw new UnsupportedOperationException();

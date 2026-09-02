@@ -1078,7 +1078,8 @@ public final class CodexCliDriver
                     finalResponse,
                     Optional.of("Codex CLI " + rememberAppServerVersion()
                             + " finished the turn but " + unsettled + " could not be shown stopped"),
-                    elapsed(turn)));
+                    elapsed(turn),
+                    false));
         }
 
         private void observeMessage(Optional<CodexProtocol.MessagePhase> phase, String text)

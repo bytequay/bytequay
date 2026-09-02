@@ -193,6 +193,12 @@ final class DeterministicAgentDriver
         requireCurrentTurn().complete(response);
     }
 
+    /** Completes a turn the provider could not show had stopped working. */
+    synchronized void completeUnverified(String response)
+    {
+        requireCurrentTurn().completeUnverified(response);
+    }
+
     synchronized void failCompletion(RuntimeException failure)
     {
         requireCurrentTurn().failCompletion(failure);
@@ -379,6 +385,17 @@ final class DeterministicAgentDriver
                     Optional.of(response),
                     Optional.empty(),
                     Duration.ZERO));
+        }
+
+        private void completeUnverified(String response)
+        {
+            checkState(!completion.isDone(), "deterministic turn is already complete");
+            completion.complete(new AgentTurnResult(
+                    AgentTurnResult.State.FAILED,
+                    Optional.of(response),
+                    Optional.of("provider activity could not be shown stopped"),
+                    Duration.ZERO,
+                    false));
         }
 
         private void failCompletion(RuntimeException failure)

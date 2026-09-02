@@ -1090,10 +1090,18 @@ Implementation:
 - [x] Treat root answer/turn completion as necessary but not sufficient for
   quiescence. A turn settles only after a stable pass over live items and every
   observed thread's background terminals.
-- [ ] Retain the mutation claim and task worktree while a child, item, background
-  terminal, unknown delivery, or owned process is active or unverifiable.
-- [ ] Add a guarded mark-failed operation that never edits or cleans the
-  worktree.
+- [x] Retain the mutation claim and task worktree when a turn's provider could not
+  be shown stopped. `AgentTurnResult` carries `providerQuiescent`, and
+  `persistTerminalTurn` releases the claim only when it is true, so a task whose
+  provider may still be writing blocks every later turn instead of handing one a
+  worktree it does not own. A provider that does not measure quiescence reports
+  the previous behaviour through the four-argument constructor.
+- [x] Add a guarded mark-failed operation that never edits or cleans the
+  worktree. `AgentCompletionService.abandon` is the only way out of a task stuck
+  holding a claim, since completion refuses one. It is guarded the way completion
+  is — the discarded claim has to be named — and it retains the worktree, because
+  the reason the task is stuck is that something may still have been writing to
+  it. Reachable at `POST /agent/tasks/{taskId}/abandon`.
 - [ ] Before enabling a model, prove full recursive child discovery/routing and
   quiescence. Changing ByteQuay capability metadata does not prevent invisible
   descendants; otherwise mark the model/lane unavailable. CP9 adds inspection,

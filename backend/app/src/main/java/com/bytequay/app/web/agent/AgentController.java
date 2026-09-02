@@ -223,6 +223,25 @@ public class AgentController
         return AgentHttpModels.completion(completion);
     }
 
+    /**
+     * Fails a task whose turn could not be shown to have stopped touching its worktree.
+     *
+     * <p>Such a turn keeps its worktree claim, which deliberately blocks every later turn. This is
+     * the way out, and it retains the worktree rather than cleaning it, so whatever the provider
+     * left behind stays inspectable.
+     */
+    @PostMapping("/tasks/{taskId}/abandon")
+    public InteractiveAgentHttpContract.TaskResponse abandonTask(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody AbandonTaskRequest request)
+    {
+        requireNotBlank(request.reason(), "reason must not be blank");
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return InteractiveAgentHttpContract.task(completionService.abandon(id, request.reason()));
+    }
+
     @PostMapping("/tasks/{taskId}/cleanup")
     public AgentHttpModels.CleanupResponse cleanupTask(
             @PathVariable String taskId,
@@ -248,4 +267,6 @@ public class AgentController
             String scopedPermission) {}
 
     public record CompleteTaskRequest(String notes) {}
+
+    public record AbandonTaskRequest(String reason) {}
 }

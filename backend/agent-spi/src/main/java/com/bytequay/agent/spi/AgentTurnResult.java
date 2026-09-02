@@ -24,8 +24,29 @@ public record AgentTurnResult(
         State state,
         Optional<String> finalResponse,
         Optional<String> terminalReason,
-        Duration elapsed)
+        Duration elapsed,
+        boolean providerQuiescent)
 {
+    /**
+     * A result from a provider that does not measure quiescence separately.
+     *
+     * <p>Reported quiescent, which is what a provider whose turn owns its whole process is
+     * asserting when that process exits. A provider that can outlive its own turn has to say so.
+     *
+     * @param state how the turn ended
+     * @param finalResponse the turn's answer, when it produced one
+     * @param terminalReason why it ended, for a turn that did not complete
+     * @param elapsed how long it ran
+     */
+    public AgentTurnResult(
+            State state,
+            Optional<String> finalResponse,
+            Optional<String> terminalReason,
+            Duration elapsed)
+    {
+        this(state, finalResponse, terminalReason, elapsed, true);
+    }
+
     public AgentTurnResult
     {
         requireNonNull(state, "state is null");

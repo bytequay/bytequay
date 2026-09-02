@@ -46,6 +46,20 @@ public interface AgentCompletionService
      * @param taskId terminal task whose worktree should be removed
      * @throws AgentConflictException when the task is live or cleanup is unsafe
      */
+    /**
+     * Fails a task whose turn could not be shown to have stopped touching its worktree.
+     *
+     * <p>A turn that cannot prove the provider went quiet keeps its worktree mutation claim, so no
+     * later turn edits files something may still be writing to. That deliberately leaves the task
+     * stuck, and this is the way out: it releases the held claim and marks the task failed while
+     * retaining the worktree, so whatever the provider left behind can still be inspected.
+     *
+     * @param taskId the stuck task
+     * @param reason why it is being abandoned
+     * @return the failed task
+     */
+    AgentTask abandon(TaskId taskId, String reason);
+
     void cleanupWorktree(TaskId taskId);
 
     /**

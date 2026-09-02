@@ -234,6 +234,7 @@ class TestSqliteAgentApprovalStore
                         AgentEventPayload.ApprovalKind.COMMAND,
                         "Run command",
                         "git status",
+                        ImmutableList.of("run: git status"),
                         true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY))),
                 NOW,

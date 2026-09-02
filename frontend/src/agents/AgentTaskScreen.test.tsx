@@ -154,6 +154,22 @@ describe('agent task list', () => {
 });
 
 describe('agent task detail', () => {
+  it('never leaks a raw escape sequence into rendered text', () => {
+    // A JSX text node does not interpret \\u escapes; one written there renders literally.
+    // This has slipped through twice, so it is asserted over every state the body can be in.
+    const states: Array<Partial<AgentTaskState>> = [
+      { events, connection: 'open', task: task('t-1', 'OPEN', 'x') },
+      { connection: 'connecting' },
+      { connection: 'reconnecting', lastSequence: 7 },
+      { connection: 'failed', connectionDetail: 'gone' },
+      { connection: 'open', gap: true },
+    ];
+    for (const state of states) {
+      expect(body(state)).not.toMatch(/\\u[0-9a-f]{4}|u00b7|u2014|u2026/);
+    }
+  });
+
+
   it('prints the whole fixture transcript', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' });
 
@@ -230,8 +246,11 @@ describe('agent task detail', () => {
     // The fixture carries both, so the reviewable state is not only the settled one.
     expect(markup).toContain('Allow once');
     expect(markup).toContain('>Deny<');
-    expect(markup).toContain('Approval \u00b7 COMMAND \u00b7 ALLOWED');
+    // The asking agent is part of the identity of the request, not decoration.
+    expect(markup).toContain('Approval \u00b7 COMMAND \u00b7 root agent \u00b7 ALLOWED');
     expect(markup).toContain('git push origin fix/preview-limit');
+    // The scope is what the decision is actually about.
+    expect(markup).toContain('cwd: workspaces/jackchen-trino');
   });
 
   it('surfaces a held gap and a terminal error instead of a silent hole', () => {

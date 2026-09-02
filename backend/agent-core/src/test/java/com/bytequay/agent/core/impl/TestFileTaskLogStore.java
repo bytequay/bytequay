@@ -103,6 +103,7 @@ class TestFileTaskLogStore
                         AgentEventPayload.ApprovalKind.COMMAND,
                         "Run tests",
                         "mvn verify",
+                        ImmutableList.of("run: mvn verify"),
                         true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
                 new AgentEventPayload.ApprovalResolved(

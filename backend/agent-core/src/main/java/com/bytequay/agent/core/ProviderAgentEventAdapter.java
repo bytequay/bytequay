@@ -70,6 +70,7 @@ public final class ProviderAgentEventAdapter
                     AgentEventPayload.ApprovalKind.OTHER,
                     approval.title(),
                     approval.detail(),
+                    ImmutableList.of(),
                     false,
                     ImmutableList.of());
             case ProviderAgentEvent.Usage usage -> usage(usage.sample());

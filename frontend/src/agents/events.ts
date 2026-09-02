@@ -108,6 +108,8 @@ export type AgentEventEnvelope =
     approvalKind: typeof APPROVAL_KINDS[number];
     title: string;
     detail: string;
+    /** What the provider asked to be allowed. Empty on events stored before this field existed. */
+    scope: string[];
     actionable: boolean;
     availableDecisions: Array<typeof APPROVAL_OPTIONS[number]>;
   }>
@@ -233,6 +235,10 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       enumValue(payload.approvalKind, APPROVAL_KINDS, 'approvalRequested.approvalKind');
       stringValue(payload.title, 'approvalRequested.title');
       stringValue(payload.detail, 'approvalRequested.detail');
+      // Absent on events stored before scope was carried; an empty scope reads the same.
+      if (payload.scope === undefined) payload.scope = [];
+      arrayValue(payload.scope, 'approvalRequested.scope')
+        .forEach((entry, scopeIndex) => stringValue(entry, `approvalRequested.scope[${scopeIndex}]`));
       const actionable = booleanValue(payload.actionable, 'approvalRequested.actionable');
       const decisions = arrayValue(payload.availableDecisions, 'approvalRequested.availableDecisions');
       decisions.forEach((decision, decisionIndex) =>

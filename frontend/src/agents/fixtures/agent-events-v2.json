@@ -215,6 +215,9 @@
         "approvalKind": "COMMAND",
         "title": "Run the test suite",
         "detail": "npm test",
+        "scope": [
+          "run: npm test"
+        ],
         "actionable": true,
         "availableDecisions": [
           "ALLOW_ONCE",
@@ -266,6 +269,10 @@
         "approvalKind": "COMMAND",
         "title": "Run a command in this workspace",
         "detail": "git push origin fix/preview-limit",
+        "scope": [
+          "run: git push origin fix/preview-limit",
+          "cwd: workspaces/jackchen-trino"
+        ],
         "actionable": true,
         "availableDecisions": [
           "ALLOW_ONCE",

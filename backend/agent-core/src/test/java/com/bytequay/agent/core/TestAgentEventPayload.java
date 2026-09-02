@@ -28,6 +28,7 @@ class TestAgentEventPayload
                 AgentEventPayload.ApprovalKind.COMMAND,
                 "Run command",
                 "git status",
+                ImmutableList.of("run: git status"),
                 true,
                 ImmutableList.of()))
                 .isInstanceOf(IllegalArgumentException.class)

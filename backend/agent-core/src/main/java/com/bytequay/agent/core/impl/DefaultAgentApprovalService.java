@@ -402,6 +402,7 @@ public final class DefaultAgentApprovalService
                         approvalKind(providerRequest.kind()),
                         providerRequest.title(),
                         providerRequest.detail(),
+                        providerRequest.requestedPermissions(),
                         true,
                         availableDecisions(providerRequest)),
                 request.requestedAt());

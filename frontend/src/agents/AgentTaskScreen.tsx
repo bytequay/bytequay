@@ -102,9 +102,18 @@ export function AgentRowView({ row, onDecide }: {
       const decisions = approvalDecisions(row);
       return (
         <div className="agt-item">
-          <div className="agt-item__kind">Approval · {row.approvalKind}{row.outcome === null ? '' : ` · ${row.outcome}`}</div>
+          <div className="agt-item__kind">
+            Approval · {row.approvalKind} · {row.agent}
+            {row.outcome === null ? '' : ` \u00b7 ${row.outcome}`}
+          </div>
           <div>{row.title}</div>
           <div className="agt-row-meta">{row.detail}</div>
+          {/* What is actually being asked for; a decision without it is made blind. */}
+          {row.scope.length > 0 && (
+            <ul className="agt-scope">
+              {row.scope.map((entry) => <li key={entry}>{entry}</li>)}
+            </ul>
+          )}
           {decisions.length > 0 && (
             <div className="agt-decisions">
               {decisions.map((choice) => (
@@ -258,13 +267,14 @@ export function AgentTaskBody({
         <textarea
           value={state.composer}
           aria-label="Message the agent"
-          placeholder={state.connection === 'connecting' ? 'Connecting\u2026' : 'Message the agent'}
+          placeholder={state.connection === 'connecting' ? 'Connecting…' : 'Message the agent'}
           onChange={(event) => onCompose(event.target.value)}
         />
         <span className="agt-lane" title="Permission policy for the next turn">
           {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
         </span>
         <ModelChip
+          ariaLabel="Model and effort for the next message"
           label={modelName(models, state.task?.defaults.model ?? null)}
           detail={state.task?.defaults.effort ?? undefined}
           disabled={models.length === 0}

@@ -1414,8 +1414,10 @@ Implementation:
   snapshot, which no route exposes today.
 - [x] Map **Auto** through the typed backend policy; React never sends provider
   wire strings.
-- [ ] Render complete typed approval cards with source, kind, reason,
-  command/directory or scope, and only offered choices.
+- [x] Render complete typed approval cards with source, kind, reason,
+  command/directory or scope, and only offered choices. The canonical event
+  now carries the requested scope, which the provider supplied and the event
+  had been dropping.
 - [ ] Render live command, output, file, tool, plan, usage, lifecycle, and error
   rows from canonical events.
 - [ ] Keep mutation controls disabled during recovery or unproven quiescence.

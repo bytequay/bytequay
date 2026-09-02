@@ -30,7 +30,7 @@ export type AgentRow =
   | { kind: 'command'; id: string; argv: string[]; state: string; output: string | null; exitCode: number | null; truncated: boolean }
   | { kind: 'file'; id: string; path: string; change: string; state: string; diff: string | null }
   | { kind: 'tool'; id: string; name: string; state: string; summary: string }
-  | { kind: 'approval'; id: string; approvalId: string; title: string; detail: string; approvalKind: string; decisions: string[]; actionable: boolean; outcome: string | null }
+  | { kind: 'approval'; id: string; approvalId: string; title: string; detail: string; approvalKind: string; scope: string[]; agent: string; decisions: string[]; actionable: boolean; outcome: string | null }
   | { kind: 'usage'; id: string; inputTokens: number; cachedInputTokens: number; outputTokens: number; cost: number | null; semantics: string }
   | { kind: 'lifecycle'; id: string; phase: string; message: string }
   | { kind: 'error'; id: string; code: string; message: string; retryable: boolean };
@@ -140,6 +140,19 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
 }
 
 /**
+ * Which agent an event came from.
+ *
+ * A subagent's approval must not read as the root agent's, because the two ask for different work.
+ * The logical path names the child when the provider supplies one; a thread with no parent is root.
+ */
+function agentName(source: AgentEventEnvelope['source']): string {
+  if (source.logicalAgentPath !== null && source.logicalAgentPath !== '') {
+    return source.logicalAgentPath;
+  }
+  return source.parentProviderThreadId === null ? 'root agent' : 'subagent';
+}
+
+/**
  * Projects applied events into transcript rows.
  *
  * A final assistant message replaces the partial one it completes rather than appending, so the
@@ -224,6 +237,8 @@ export function projectAgentRows(events: AgentEventEnvelope[]): AgentRow[] {
           title: event.payload.title,
           detail: event.payload.detail,
           approvalKind: event.payload.approvalKind,
+          scope: [...event.payload.scope],
+          agent: agentName(event.source),
           decisions: [...event.payload.availableDecisions],
           actionable: event.payload.actionable,
           outcome: null,

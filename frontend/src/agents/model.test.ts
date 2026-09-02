@@ -146,6 +146,8 @@ describe('projecting rows', () => {
       title: 't',
       detail: 'd',
       approvalKind: 'COMMAND',
+      scope: ['run: npm test'],
+      agent: 'root agent',
       decisions: ['ALLOW_ONCE', 'DENY'],
       actionable: true,
       outcome: null,
@@ -177,6 +179,17 @@ describe('projecting rows', () => {
     expect(errors.length).toBeGreaterThan(0);
     // A terminal error stays in the transcript rather than being swapped for a connection state.
     expect(errors.every((row) => row.kind === 'error' && row.message.length > 0)).toBe(true);
+  });
+
+  it('carries the requested scope and the asking agent onto the row', () => {
+    const approvals = projectAgentRows(all)
+      .filter((row): row is Extract<AgentRow, { kind: 'approval' }> => row.kind === 'approval');
+
+    // A decision made without seeing what was asked for is a guess.
+    expect(approvals.every((row) => row.scope.length > 0)).toBe(true);
+    expect(approvals.some((row) => row.scope.some((entry) => entry.startsWith('cwd:')))).toBe(true);
+    // A subagent's approval must not read as the root agent's.
+    expect(approvals.every((row) => row.agent === 'root agent')).toBe(true);
   });
 
   it('keeps every kind the shell prints', () => {

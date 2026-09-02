@@ -225,10 +225,12 @@ export function modelLabel(models: ModelOptionDto[], id: string): string {
   return models.find(model => model.id === id)?.name ?? id;
 }
 
-export function ModelChip({ label, detail, disabled, models, selectedModel, selectedEffort, onSelect }: {
+export function ModelChip({ label, detail, disabled, ariaLabel, models, selectedModel, selectedEffort, onSelect }: {
   label: string;
   detail?: string;
   disabled?: boolean;
+  /** Names what the chip governs when the visible label alone is ambiguous. */
+  ariaLabel?: string;
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort?: string;
@@ -250,6 +252,7 @@ export function ModelChip({ label, detail, disabled, models, selectedModel, sele
         type="button"
         className="sets-chip"
         disabled={disabled}
+        aria-label={ariaLabel}
         onClick={() => setOpen(value => !value)}
       >
         {label}

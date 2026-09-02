@@ -278,6 +278,14 @@
   word-break: break-word;
 }
 
+/* The requested permissions, listed so the decision is informed rather than a guess. */
+.agt-scope {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #57606a;
+}
+
 .agt-decisions {
   display: flex;
   gap: 8px;

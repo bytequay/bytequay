@@ -155,6 +155,8 @@ public sealed interface AgentEventPayload
             ApprovalKind approvalKind,
             String title,
             String detail,
+            /** What the provider asked to be allowed, so a decision is not made blind. */
+            List<String> scope,
             boolean actionable,
             List<ApprovalOption> availableDecisions)
             implements AgentEventPayload
@@ -165,7 +167,9 @@ public sealed interface AgentEventPayload
             requireNonNull(approvalKind, "approvalKind is null");
             checkNotBlank(title, "title");
             requireNonNull(detail, "detail is null");
+            scope = ImmutableList.copyOf(scope);
             availableDecisions = ImmutableList.copyOf(availableDecisions);
+            checkArgument(scope.stream().noneMatch(String::isBlank), "scope contains a blank value");
             checkArgument(actionable == !availableDecisions.isEmpty(),
                     "availableDecisions must be non-empty exactly when actionable");
         }

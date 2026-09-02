@@ -25,9 +25,9 @@ import java.util.List;
  * explicitly, the shell environment is reduced to a fixed allowlist, and host skill discovery is
  * skipped, so the running configuration matches the one the gate exercises.
  *
- * <p>Subagents are enabled: a task's model may spawn child threads, and their activity is routed
- * back to the owning task. The v1 feature additionally needs a depth of two, because its default of
- * one permits a root child but not that child's own child.
+ * <p>Subagents are enabled: a task's model may spawn child threads, and their activity is reported
+ * against the owning task. Depth is bounded to one, so a subagent cannot spawn its own, which keeps
+ * a task's thread tree to root plus children.
  */
 final class CodexLaunchProfile
 {
@@ -60,7 +60,14 @@ final class CodexLaunchProfile
             "TMPDIR",
             "USER");
 
-    private static final int MULTI_AGENT_V1_DEPTH = 2;
+    /**
+     * One level of subagents: a task's model may delegate, and what it delegates to may not.
+     *
+     * <p>Measured against codex-cli 0.152.1: a depth of one still spawns a subagent, so the
+     * shallower setting costs nothing. It bounds the thread tree to root plus its children, which
+     * is what lets quiescence enumerate a task's threads without walking an unknown depth.
+     */
+    private static final int MULTI_AGENT_MAX_DEPTH = 1;
 
     private CodexLaunchProfile() {}
 
@@ -95,11 +102,10 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
-        // Subagents are enabled through the v1 feature, whose default depth of one would allow a
-        // root child but not that child's own child.
+        // Subagents are enabled through the v1 feature, bounded to one level.
         arguments.add("--enable", "multi_agent");
         arguments.add("--disable", "multi_agent_v2");
-        arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_V1_DEPTH);
+        arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
         return arguments.build();
     }
 

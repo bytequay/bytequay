@@ -584,6 +584,25 @@ class TestCodexCliDriver
     }
 
     @Test
+    void findsASubagentThreadThatOnlyHistoryMentions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("delegate"));
+        supervisor.reportUnannouncedSubagent();
+
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        // A subagent that never reached the notification stream still has to be checked, so its
+        // thread is taken from the root's history rather than from what happened to arrive.
+        assertThat(supervisor.server().backgroundTerminalThreads()).contains("child-unannounced");
+        session.close();
+    }
+
+    @Test
     void terminatesAYieldedCommandWhenTheTurnIsCancelled()
             throws Exception
     {
@@ -858,6 +877,15 @@ class TestCodexCliDriver
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
         private volatile String historyItems = "{\"data\":[],\"nextCursor\":null}";
 
+        /** Names a subagent thread in history that the notification stream never mentioned. */
+        private void reportUnannouncedSubagent()
+        {
+            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"sub-1\","
+                    + "\"agentThreadId\":\"child-unannounced\",\"agentPath\":\"a/b\","
+                    + "\"kind\":\"started\"}}],\"nextCursor\":null}";
+        }
+
         /** Reports an item history still says is running, which the live stream never delivered. */
         private void reportUnfinishedHistoryItem()
         {
@@ -1057,6 +1085,12 @@ class TestCodexCliDriver
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final List<String> terminated = new CopyOnWriteArrayList<>();
+        private final List<String> backgroundTerminalThreads = new CopyOnWriteArrayList<>();
+
+        private List<String> backgroundTerminalThreads()
+        {
+            return backgroundTerminalThreads;
+        }
         private final Runnable clearBackgroundTerminals;
         private final Supplier<String> historyItems;
 
@@ -1154,7 +1188,10 @@ class TestCodexCliDriver
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
                 case "thread/items/list" -> respond(id, historyItems.get());
-                case "thread/backgroundTerminals/list" -> respond(id, backgroundTerminals.get());
+                case "thread/backgroundTerminals/list" -> {
+                    backgroundTerminalThreads.add(message.path("params").path("threadId").asText());
+                    respond(id, backgroundTerminals.get());
+                }
                 case "thread/backgroundTerminals/terminate" -> {
                     terminated.add(message.path("params").path("processId").asText());
                     clearBackgroundTerminals.run();

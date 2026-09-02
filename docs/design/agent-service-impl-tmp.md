@@ -1099,10 +1099,13 @@ Implementation:
   is — the discarded claim has to be named — and it retains the worktree, because
   the reason the task is stuck is that something may still have been writing to
   it. Reachable at `POST /agent/tasks/{taskId}/abandon`.
-- [ ] Before enabling a model, prove full recursive child discovery/routing and
-  quiescence. Changing ByteQuay capability metadata does not prevent invisible
-  descendants; otherwise mark the model/lane unavailable. CP9 adds inspection,
-  not this safety behavior.
+- [x] Before enabling a model, prove child discovery, routing and quiescence.
+  Depth is bounded to one, so a subagent cannot spawn its own and a task's thread
+  tree is root plus children — measured, a subagent still spawns at that depth, so
+  the shallower setting costs nothing. Children are enumerated from the root's
+  `SubAgentActivityItem` history rather than from whatever notifications happened
+  to arrive, so a thread that produced none is still checked
+  (`findsASubagentThreadThatOnlyHistoryMentions`).
 - [x] After a successful stable terminal reconciliation, atomically finalize
   the turn and release its `TURN` claim. `persistTerminalTurn` finishes the turn,
   releases the claim, and writes the lifecycle event in one unit of work, and it
@@ -1131,8 +1134,10 @@ Exit gate:
   refused (`keepsTheWorktreeClaimWhenAProviderCannotBeShownStopped`) and so is
   completing the task
   (`refusesToCompleteATaskStuckHoldingAWorktreeClaim`).
-- [ ] A missed live child, a child-created grandchild, and live/history overlap
-  converge through recursive history closure without duplicate routing.
+- [x] A missed live child and live/history overlap converge through history
+  closure without duplicate routing. A grandchild is not a case: `agents.max_depth`
+  is one, so a subagent cannot create one. Overlap is harmless because history is
+  read as a set of thread ids and item states, not replayed as events.
 - [x] Cancellation lists and terminates background terminals and reaches the same
   quiescence barrier. A cancelled turn is not waiting for its work, it is
   stopping it, so a yielded command is terminated rather than watched until the

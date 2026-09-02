@@ -867,6 +867,12 @@ public final class CodexCliDriver
                                 + " could not be listed: " + failure.getMessage());
                     }
                     for (CodexProtocol.ThreadItemEntry entry : page.data()) {
+                        // History names the subagents a thread spawned, so a child is found even
+                        // when nothing it did ever reached the notification stream. Depth is
+                        // bounded to one, so a child has no children of its own to look for.
+                        if (entry.item() instanceof CodexProtocol.SubAgentActivityItem subagent) {
+                            observedThreads.add(subagent.agentThreadId());
+                        }
                         if (!entry.item().terminal()) {
                             return Optional.of("item " + entry.item().id()
                                     + " on thread " + thread + " is still running");

@@ -551,7 +551,9 @@ const v1ChildLaunchProfile = {
   name: "multi-agent-v1-enabled",
   multi_agent: true,
   multi_agent_v2: false,
-  agentMaxDepth: 2,
+  // One level, matching the shipped launch profile: a task's model may delegate, and what it
+  // delegates to may not. A subagent still spawns at this depth.
+  agentMaxDepth: 1,
 };
 const v2ChildLaunchProfile = {
   name: "multi-agent-v2-enabled",
@@ -3576,7 +3578,7 @@ function checkChildHistoryHelpers() {
   );
 
   assert.equal(childLaunchProfileForVersion("v1").multi_agent, true);
-  assert.equal(childLaunchProfileForVersion("v1").agentMaxDepth, 2);
+  assert.equal(childLaunchProfileForVersion("v1").agentMaxDepth, 1);
   assert.equal(childLaunchProfileForVersion("v2").multi_agent_v2, true);
 }
 

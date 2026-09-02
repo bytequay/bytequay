@@ -42,6 +42,8 @@ class TestCodexLaunchProfile
         // that child's own child.
         assertThat(arguments).containsSequence("--enable", "multi_agent");
         assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
-        assertThat(arguments).containsSequence("-c", "agents.max_depth=2");
+        // One level: a task's model may delegate, and what it delegates to may not. Measured
+        // against codex-cli 0.152.1, a subagent still spawns at this depth.
+        assertThat(arguments).containsSequence("-c", "agents.max_depth=1");
     }
 }

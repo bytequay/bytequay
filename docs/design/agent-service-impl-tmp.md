@@ -978,9 +978,8 @@ thread, and no thread that appeared mid-pass. A turn that cannot be shown quiet
 within its bound is reported `FAILED` with what was still outstanding, so the
 task keeps its worktree and its claim rather than being told the work is done.
 
-Still open: terminating or cleaning a yielded terminal rather than waiting for
-it, claim retention and the atomic finalize/release in `agent-core`, and the
-guarded mark-failed operation.
+Cancellation now terminates a yielded terminal rather than waiting for it, using
+`thread/backgroundTerminals/terminate`.
 
 **Blocked on 2026-09-02: the reference pin cannot be regenerated.** The
 compatibility script asserts `codex --version` is exactly `codex-cli 0.151.0`
@@ -1139,8 +1138,12 @@ Exit gate:
   (`refusesToCompleteATaskStuckHoldingAWorktreeClaim`).
 - [ ] A missed live child, a child-created grandchild, and live/history overlap
   converge through recursive history closure without duplicate routing.
-- [ ] Cancellation lists/cleans background terminals and reaches the same
-  quiescence barrier.
+- [x] Cancellation lists and terminates background terminals and reaches the same
+  quiescence barrier. A cancelled turn is not waiting for its work, it is
+  stopping it, so a yielded command is terminated rather than watched until the
+  bound expires (`terminatesAYieldedCommandWhenTheTurnIsCancelled`). Only the
+  first completion report starts the wait, because an interrupt and a natural
+  finish can both arrive and the second would terminate a process twice.
 - [~] Backend restart proves the old owned process tree stopped, verified
   against a live Codex App Server. The recovery-required half is coarser than
   designed: an unverifiable tree blocks the whole agent serving gate rather than

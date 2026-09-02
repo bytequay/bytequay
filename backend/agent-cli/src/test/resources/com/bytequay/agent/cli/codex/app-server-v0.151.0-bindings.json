@@ -1760,6 +1760,29 @@
       ]
     },
     {
+      "javaType": "ThreadBackgroundTerminalsTerminateParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadBackgroundTerminalsTerminateParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "processId",
+          "wireName": "processId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
       "javaType": "ThreadBackgroundTerminal",
       "mode": "decode",
       "sources": [

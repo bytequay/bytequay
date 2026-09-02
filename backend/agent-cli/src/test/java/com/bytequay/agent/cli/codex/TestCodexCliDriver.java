@@ -561,6 +561,26 @@ class TestCodexCliDriver
     }
 
     @Test
+    void terminatesAYieldedCommandWhenTheTurnIsCancelled()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("yield"));
+        supervisor.reportBackgroundTerminal();
+
+        turn.cancel();
+
+        // A cancelled turn is not waiting for its work, it is stopping it, so the command it left
+        // running is terminated rather than watched until the bound expires.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertThat(supervisor.server().terminated()).containsExactly("proc-1");
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+        session.close();
+    }
+
+    @Test
     void failsATurnWhoseProcessCannotBeShownStopped()
             throws Exception
     {
@@ -932,7 +952,8 @@ class TestCodexCliDriver
                     () -> hooks,
                     () -> configLayers,
                     () -> skills,
-                    () -> backgroundTerminals);
+                    () -> backgroundTerminals,
+                    this::reportNoBackgroundTerminals);
             servers.add(server);
             return server;
         }
@@ -995,6 +1016,13 @@ class TestCodexCliDriver
         private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
+        private final List<String> terminated = new CopyOnWriteArrayList<>();
+        private final Runnable clearBackgroundTerminals;
+
+        private List<String> terminated()
+        {
+            return terminated;
+        }
         private final ConcurrentMap<Long, JsonNode> results = new ConcurrentHashMap<>();
         private final ConcurrentMap<Long, JsonNode> errors = new ConcurrentHashMap<>();
         private volatile CompletableFuture<Void> interruptCompletionGate = CompletableFuture.completedFuture(null);
@@ -1008,7 +1036,8 @@ class TestCodexCliDriver
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
                 Supplier<String> skills,
-                Supplier<String> backgroundTerminals)
+                Supplier<String> backgroundTerminals,
+                Runnable clearBackgroundTerminals)
         {
             this.objectMapper = objectMapper;
             this.output = output;
@@ -1018,6 +1047,7 @@ class TestCodexCliDriver
             this.configLayers = configLayers;
             this.skills = skills;
             this.backgroundTerminals = backgroundTerminals;
+            this.clearBackgroundTerminals = clearBackgroundTerminals;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -1081,6 +1111,11 @@ class TestCodexCliDriver
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
                 case "thread/backgroundTerminals/list" -> respond(id, backgroundTerminals.get());
+                case "thread/backgroundTerminals/terminate" -> {
+                    terminated.add(message.path("params").path("processId").asText());
+                    clearBackgroundTerminals.run();
+                    respond(id, "{\"terminated\":true}");
+                }
                 case "model/list" -> respond(id, "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
                         + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
                         + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false}]}");

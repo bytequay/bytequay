@@ -1082,6 +1082,16 @@ final class CodexProtocol
         }
     }
 
+    /** Stops one background terminal, so a cancelled turn does not wait on work nobody wants. */
+    record ThreadBackgroundTerminalsTerminateParams(String threadId, String processId)
+    {
+        ThreadBackgroundTerminalsTerminateParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(processId, "processId");
+        }
+    }
+
     record ThreadBackgroundTerminal(String processId, String itemId, String command, String cwd)
     {
         ThreadBackgroundTerminal

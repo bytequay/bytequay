@@ -44,6 +44,8 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -109,6 +111,7 @@ import static java.util.Objects.requireNonNull;
 public final class CodexCliDriver
         implements AgentDriver, AutoCloseable
 {
+    private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
     /**
@@ -699,9 +702,14 @@ public final class CodexCliDriver
                     // would end it are queued behind this handler.
                     CodexRunningTurn completing = running;
                     CodexProtocol.Turn reported = turnCompleted.params().turn();
-                    Thread.ofVirtual()
-                            .name("bytequay-codex-quiescence")
-                            .start(() -> settle(completing, reported));
+                    // An interrupt and a natural finish can both report the turn complete. Only the
+                    // first starts the wait, or the second would repeat its work and terminate a
+                    // background process twice.
+                    if (completing.beginSettling()) {
+                        Thread.ofVirtual()
+                                .name("bytequay-codex-quiescence")
+                                .start(() -> settle(completing, reported));
+                    }
                 }
             }
             catch (RuntimeException failure) {
@@ -736,7 +744,9 @@ public final class CodexCliDriver
          */
         private void settle(CodexRunningTurn turn, CodexProtocol.Turn reported)
         {
-            Optional<String> unsettled = awaitQuiescence();
+            // A cancelled turn is not waiting for its work, it is stopping it, so a yielded
+            // command is terminated rather than watched.
+            Optional<String> unsettled = awaitQuiescence(turn.cancellationRequested());
             synchronized (this) {
                 if (running != turn) {
                     // Cancelled, disconnected, or already finished while we waited.
@@ -764,7 +774,7 @@ public final class CodexCliDriver
          *
          * @return empty when quiet, otherwise what was still outstanding
          */
-        private Optional<String> awaitQuiescence()
+        private Optional<String> awaitQuiescence(boolean stopBackgroundWork)
         {
             Instant deadline = Instant.now().plus(quiescenceTimeout);
             int stablePasses = 0;
@@ -778,7 +788,7 @@ public final class CodexCliDriver
                     return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
                 }
                 Set<String> threads = ImmutableSet.copyOf(observedThreads);
-                Optional<String> outstanding = firstOutstanding(threads);
+                Optional<String> outstanding = firstOutstanding(threads, stopBackgroundWork);
                 if (outstanding.isPresent()) {
                     lastSeen = outstanding.orElseThrow();
                     stablePasses = 0;
@@ -798,8 +808,12 @@ public final class CodexCliDriver
             return Optional.empty();
         }
 
-        /** Returns the first still-running item or background terminal across the given threads. */
-        private Optional<String> firstOutstanding(Set<String> threads)
+        /**
+         * Returns the first still-running item or background terminal across the given threads.
+         *
+         * @param stopBackgroundWork terminate a background terminal instead of waiting for it
+         */
+        private Optional<String> firstOutstanding(Set<String> threads, boolean stopBackgroundWork)
         {
             for (String thread : threads) {
                 Set<String> items = liveItems.get(thread);
@@ -808,7 +822,7 @@ public final class CodexCliDriver
                 }
             }
             for (String thread : threads) {
-                Optional<String> terminal = firstBackgroundTerminal(thread);
+                Optional<String> terminal = firstBackgroundTerminal(thread, stopBackgroundWork);
                 if (terminal.isPresent()) {
                     return terminal;
                 }
@@ -816,7 +830,7 @@ public final class CodexCliDriver
             return Optional.empty();
         }
 
-        private Optional<String> firstBackgroundTerminal(String thread)
+        private Optional<String> firstBackgroundTerminal(String thread, boolean stopBackgroundWork)
         {
             Optional<String> cursor = Optional.empty();
             do {
@@ -834,13 +848,34 @@ public final class CodexCliDriver
                             + " could not be listed: " + failure.getMessage());
                 }
                 if (!page.data().isEmpty()) {
-                    return Optional.of("background terminal "
-                            + page.data().getFirst().processId() + " on thread " + thread);
+                    String processId = page.data().getFirst().processId();
+                    if (stopBackgroundWork) {
+                        terminate(thread, processId);
+                    }
+                    // Reported either way, so this pass is never counted as settled. A terminated
+                    // process leaves the inventory before the next one reads it.
+                    return Optional.of("background terminal " + processId + " on thread " + thread);
                 }
                 cursor = page.nextCursor();
             }
             while (cursor.isPresent());
             return Optional.empty();
+        }
+
+        private void terminate(String thread, String processId)
+        {
+            try {
+                client.request(
+                        "thread/backgroundTerminals/terminate",
+                        new CodexProtocol.ThreadBackgroundTerminalsTerminateParams(thread, processId),
+                        CodexProtocol.EmptyResponse.class,
+                        REQUEST_TIMEOUT);
+            }
+            catch (RuntimeException failure) {
+                // Reported as still outstanding either way, so the turn does not settle on a
+                // process this failed to stop.
+                log.warn("Unable to terminate Codex background terminal {} on thread {}", processId, thread, failure);
+            }
         }
 
         private static void sleep(Duration duration)
@@ -1074,6 +1109,7 @@ public final class CodexCliDriver
         private final Instant startedAt = Instant.now();
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
+        private final AtomicBoolean settling = new AtomicBoolean();
         private volatile Optional<String> finalResponse = Optional.empty();
 
         private CodexRunningTurn(
@@ -1187,6 +1223,16 @@ public final class CodexCliDriver
                                     ? "Codex disconnected"
                                     : redactor.redact(message))),
                     Duration.between(startedAt, Instant.now())));
+        }
+
+        /**
+         * Claims the right to wait for this turn to go quiet.
+         *
+         * @return true for the first caller only
+         */
+        private boolean beginSettling()
+        {
+            return settling.compareAndSet(false, true);
         }
 
         private synchronized boolean cancellationRequested()

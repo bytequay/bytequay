@@ -310,30 +310,45 @@ describe('PullOverview', () => {
   });
 
   it('groups review requests and names every requested reviewer', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-03T03:03:15Z'));
     const value = detail();
     value.recentActivity = [
       {
-        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 1,
+        actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', body: null, githubId: 1,
         payload: { ...emptyPayload, requestedReviewer: 'wren-d' },
       },
       {
-        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 2,
-        payload: { ...emptyPayload, requestedReviewer: 'lou-sip' },
+        actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:18Z', body: null, githubId: 2,
+        payload: { ...emptyPayload, requestedReviewer: 'dale' },
       },
       {
-        actor: 'ezra-b', eventType: 'review_requested', timestamp: '2026-08-28T09:55:10Z', body: null, githubId: 3,
-        payload: { ...emptyPayload, requestedReviewer: 'ravi-moreau' },
+        actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:03:31Z', body: null, githubId: 3,
+        payload: { ...emptyPayload, requestedReviewer: 'ezra-b' },
+      },
+      {
+        actor: 'ravi-moreau', eventType: 'review_requested', timestamp: '2026-09-02T12:05:09Z', body: null, githubId: 4,
+        payload: { ...emptyPayload, requestedReviewer: 'mwade77' },
       },
     ];
 
     const groups = groupTimelineActivities(value.recentActivity);
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    now.mockRestore();
 
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toHaveLength(3);
+    expect(groups[0]).toHaveLength(4);
     expect(html.match(/requested review from/g)).toHaveLength(1);
-    expect(html.indexOf('lou-sip')).toBeLessThan(html.indexOf('ravi-moreau'));
-    expect(html.indexOf('ravi-moreau')).toBeLessThan(html.indexOf('wren-d'));
+    expect(html.replace(/<[^>]+>/g, '')).toContain('requested review from dale, ezra-b, mwade77 and wren-d');
+    expect(html).toContain('class="pr-review-group__marker"');
+    expect(html).toContain('<time dateTime="2026-09-02T12:03:15Z">15 hours ago</time>');
+    expect(html).not.toContain('· 15 hours ago');
+
+    expect(groupTimelineActivities([...value.recentActivity, {
+      ...value.recentActivity[3],
+      githubId: 5,
+      timestamp: '2026-09-02T13:16:10Z',
+      payload: { ...emptyPayload, requestedReviewer: 'Prentice2112' },
+    }])).toHaveLength(2);
   });
 
   it('shows running checks in yellow and completed check times', () => {

@@ -13,6 +13,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Avatar from '../Avatar';
+import { relativeTime as formatRelativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
 import type {
   Bridge,
@@ -60,7 +61,7 @@ const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
   comments: [],
 };
 const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
-const LABEL_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
+const TIMELINE_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const HIDDEN_TIMELINE_EVENTS = new Set([
   'convert_to_draft',
   'description_reactions',
@@ -748,16 +749,13 @@ function canGroupTimelineEvents(previous: Activity, activity: Activity) {
     return false;
   }
   if (activity.eventType === 'head_ref_force_pushed') return true;
-  if (activity.eventType === 'review_requested') {
-    return activity.timestamp !== null && activity.timestamp === previous.timestamp;
-  }
-  if (!LABEL_EVENT_TYPES.has(activity.eventType)) return false;
+  if (activity.eventType !== 'review_requested' && !LABEL_EVENT_TYPES.has(activity.eventType)) return false;
   const previousTime = Date.parse(previous.timestamp ?? '');
   const activityTime = Date.parse(activity.timestamp ?? '');
   return Number.isFinite(previousTime)
     && Number.isFinite(activityTime)
     && activityTime - previousTime >= 0
-    && activityTime - previousTime <= LABEL_EVENT_GROUP_WINDOW_MS;
+    && activityTime - previousTime <= TIMELINE_EVENT_GROUP_WINDOW_MS;
 }
 
 function isVisibleTimelineActivity(activity: Activity, threadsByReview: Map<number, Activity[]>) {
@@ -1101,6 +1099,18 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
   const activity = activities[0];
   const { payload } = activity;
   const actor = displayActor(activity.actor || 'github');
+  if (activity.eventType === 'review_requested') {
+    return (
+      <div className="pr-review-group__summary">
+        <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
+        <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={28} />
+        <strong>{actor}</strong>
+        {payload.actorBot && <span className="pr-bot">Bot</span>}
+        <span>{eventText(activity, activities)}</span>
+        <time dateTime={activity.timestamp ?? undefined}>{formatRelativeTime(activity.timestamp, { style: 'long' })}</time>
+      </div>
+    );
+  }
   if (LABEL_EVENT_TYPES.has(activity.eventType)) {
     return (
       <div className="pr-event pr-label-event">

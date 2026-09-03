@@ -14,15 +14,23 @@
 package com.bytequay.agent.spi;
 
 import java.nio.file.Path;
+import java.util.UUID;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record AgentAttachment(String name, String mediaType, Path path)
+public record AgentAttachment(String id, String name, String mediaType, Path path)
 {
+    /** An attachment with no durable identity of its own, such as a log staged for one turn. */
+    public AgentAttachment(String name, String mediaType, Path path)
+    {
+        this(UUID.randomUUID().toString(), name, mediaType, path);
+    }
+
     public AgentAttachment
     {
+        checkNotBlank(id, "id");
         checkNotBlank(name, "name");
         checkNotBlank(mediaType, "mediaType");
         requireNonNull(path, "path is null");

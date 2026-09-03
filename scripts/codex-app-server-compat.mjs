@@ -382,6 +382,7 @@ const referenceRecordBindings = [
     component("defaultReasoningEffort"),
     component("supportedReasoningEfforts"),
     component("multiAgentVersion"),
+    component("inputModalities"),
   ]),
   recordBinding("ReasoningEffortOption", "decode", [
     schemaSource("v2", "ReasoningEffortOption"),
@@ -476,6 +477,9 @@ const referenceRecordBindings = [
   recordBinding("TextInput", "encode", [
     schemaSource("v2", "UserInput", "type", "text"),
   ], [component("type"), component("text")]),
+  recordBinding("LocalImageInput", "encode", [
+    schemaSource("v2", "UserInput", "type", "localImage"),
+  ], [component("type"), component("path")]),
   recordBinding("TurnStartParams", "encode", [schemaSource("v2", "TurnStartParams")], [
     component("threadId"),
     component("input", "input", [{ type: "text", text: "value" }]),

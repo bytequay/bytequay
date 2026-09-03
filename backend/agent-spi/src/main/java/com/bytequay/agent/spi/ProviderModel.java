@@ -31,10 +31,24 @@ public record ProviderModel(
         String description,
         List<String> efforts,
         Optional<String> defaultEffort,
-        boolean isDefault)
+        boolean isDefault,
+        List<String> inputModalities)
 {
+    /** A text-only model, which is what every model was before input modalities were carried. */
+    public ProviderModel(
+            String id,
+            String label,
+            String description,
+            List<String> efforts,
+            Optional<String> defaultEffort,
+            boolean isDefault)
+    {
+        this(id, label, description, efforts, defaultEffort, isDefault, ImmutableList.of("text"));
+    }
+
     public ProviderModel
     {
+        inputModalities = ImmutableList.copyOf(requireNonNull(inputModalities, "inputModalities is null"));
         checkNotBlank(id, "id");
         checkNotBlank(label, "label");
         requireNonNull(description, "description is null");

@@ -13,12 +13,20 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentAttachmentNotFoundException;
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import javax.imageio.ImageIO;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +61,73 @@ class TestFileAgentResourceService
             assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(resources.eventsFile())))
                     .isEqualTo("rw-------");
         }
+    }
+
+    @Test
+    void storesAVerifiedImageAsATaskOwnedBlobAndReadsItBack()
+            throws IOException
+    {
+        FileAgentResourceService service = new FileAgentResourceService(temporaryDirectory.resolve("runtime"));
+        TaskId taskId = TaskId.random();
+        service.allocate(taskId);
+
+        StoredAgentAttachment stored = service.storeAttachment(
+                new StoreAgentAttachmentCommand(taskId, "../shots/failing test.png", "image/png", png(12, 7)));
+
+        assertThat(stored.name()).isEqualTo("failing test.png");
+        assertThat(stored.mediaType()).isEqualTo("image/png");
+        assertThat(stored.width()).isEqualTo(12);
+        assertThat(stored.height()).isEqualTo(7);
+        assertThat(stored.path()).startsWith(temporaryDirectory.resolve("runtime").resolve(taskId.toString()));
+        assertThat(stored.path()).isRegularFile();
+        if (Files.getFileAttributeView(stored.path(), PosixFileAttributeView.class) != null) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(stored.path()))).isEqualTo("rw-------");
+        }
+        assertThat(service.readAttachment(taskId, stored.id())).isEqualTo(stored);
+        assertThat(stored.reference().id()).isEqualTo(stored.id());
+        assertThat(stored.input().path()).isEqualTo(stored.path());
+
+        // Another task can never reach it, and a removed one reads as gone.
+        assertThatThrownBy(() -> service.readAttachment(TaskId.random(), stored.id()))
+                .isInstanceOf(RuntimeException.class);
+        service.deleteAttachment(taskId, stored.id());
+        assertThatThrownBy(() -> service.readAttachment(taskId, stored.id()))
+                .isInstanceOf(AgentAttachmentNotFoundException.class);
+    }
+
+    @Test
+    void rejectsWhatIsNotAnAcceptableImage()
+            throws IOException
+    {
+        FileAgentResourceService service = new FileAgentResourceService(temporaryDirectory.resolve("runtime"), 4096, 50);
+        TaskId taskId = TaskId.random();
+        service.allocate(taskId);
+
+        // A claim never decides the type; the bytes do.
+        assertThatThrownBy(() -> service.storeAttachment(new StoreAgentAttachmentCommand(taskId, "a.jpg", "image/jpeg", png(2, 2))))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("claims image/jpeg");
+        assertThatThrownBy(() -> service.storeAttachment(new StoreAgentAttachmentCommand(taskId, "a.png", "image/png", "not an image".getBytes())))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("not a PNG, JPEG or GIF");
+        assertThatThrownBy(() -> service.storeAttachment(new StoreAgentAttachmentCommand(taskId, "big.png", "image/png", png(10, 10))))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("pixels");
+        assertThatThrownBy(() -> service.storeAttachment(new StoreAgentAttachmentCommand(taskId, "huge.png", "image/png", new byte[5000])))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("bytes");
+        // A reference this service never issued names no file, whatever it looks like.
+        assertThatThrownBy(() -> service.readAttachment(taskId, "../../events.jsonl"))
+                .isInstanceOf(AgentAttachmentNotFoundException.class);
+    }
+
+    private static byte[] png(int width, int height)
+            throws IOException
+    {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        return bytes.toByteArray();
     }
 
     @Test

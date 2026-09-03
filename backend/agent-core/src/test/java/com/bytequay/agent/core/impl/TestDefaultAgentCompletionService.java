@@ -31,6 +31,8 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -520,6 +522,23 @@ class TestDefaultAgentCompletionService
     private static final class RecordingResources
             implements AgentResourceService
     {
+        @Override
+        public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
+
+        @Override
+        public StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
+
+        @Override
+        public void deleteAttachment(TaskId taskId, String attachmentId)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
         private boolean failDeletion;
         private int deletions;
 

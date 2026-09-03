@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.AgentAttachmentNotFoundException;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -101,6 +102,7 @@ public class GlobalExceptionHandler
 
     @ExceptionHandler({
             AgentTaskNotFoundException.class,
+            AgentAttachmentNotFoundException.class,
             AgentTurnNotFoundException.class,
             ApprovalNotFoundException.class,
             CherryPickNotFoundException.class,

@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.CleanupResult;
+import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -91,6 +92,15 @@ final class AgentHttpModels
                 result.state().name(),
                 result.deletedAt(),
                 result.failure());
+    }
+
+    /** A stored attachment's facts; the blob itself is read through its own endpoint. */
+    record AttachmentResponse(String id, String name, String mediaType, long byteSize, int width, int height) {}
+
+    static AttachmentResponse attachment(StoredAgentAttachment stored)
+    {
+        return new AttachmentResponse(
+                stored.id(), stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height());
     }
 
     record EventResponse(

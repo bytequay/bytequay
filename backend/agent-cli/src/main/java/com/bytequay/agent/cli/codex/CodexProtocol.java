@@ -1336,6 +1336,7 @@ final class CodexProtocol
     }
 
     record TextInput(String type, String text)
+            implements UserInput
     {
         TextInput
         {
@@ -1347,9 +1348,34 @@ final class CodexProtocol
     /**
      * Starts a turn, carrying the model settings snapshotted when it was accepted.
      */
+    /** One item of a turn's input: the prompt text, or a validated task-owned image by path. */
+    @JsonTypeInfo(
+            use = JsonTypeInfo.Id.NAME,
+            include = JsonTypeInfo.As.EXISTING_PROPERTY,
+            property = "type",
+            visible = true)
+    @JsonSubTypes({
+            @JsonSubTypes.Type(name = "text", value = TextInput.class),
+            @JsonSubTypes.Type(name = "localImage", value = LocalImageInput.class),
+    })
+    sealed interface UserInput
+            permits TextInput, LocalImageInput
+    {
+    }
+
+    record LocalImageInput(String type, String path)
+            implements UserInput
+    {
+        LocalImageInput
+        {
+            checkIdentifier(type, "type");
+            checkIdentifier(path, "path");
+        }
+    }
+
     record TurnStartParams(
             String threadId,
-            List<TextInput> input,
+            List<UserInput> input,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
             Optional<String> model,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -1441,10 +1467,12 @@ final class CodexProtocol
             Boolean isDefault,
             String defaultReasoningEffort,
             List<ReasoningEffortOption> supportedReasoningEfforts,
-            Optional<MultiAgentVersion> multiAgentVersion)
+            Optional<MultiAgentVersion> multiAgentVersion,
+            Optional<List<String>> inputModalities)
     {
         ModelEntry
         {
+            inputModalities = requireNonNull(inputModalities, "inputModalities is null").map(ImmutableList::copyOf);
             checkIdentifier(id, "id");
             checkIdentifier(displayName, "displayName");
             requireNonNull(description, "description is null");

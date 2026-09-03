@@ -171,7 +171,8 @@ public class ModelSettingsService
                             model.label(),
                             model.description(),
                             model.efforts(),
-                            model.defaultEffort().orElse(null)))
+                            model.defaultEffort().orElse(null),
+                            model.inputModalities()))
                     .collect(toImmutableList());
             String defaultModelId = models.stream()
                     .filter(ProviderModel::isDefault)
@@ -489,7 +490,20 @@ public class ModelSettingsService
             String name,
             String description,
             List<String> efforts,
-            String defaultEffort) {}
+            String defaultEffort,
+            List<String> inputModalities)
+    {
+        /** A text-only model. */
+        public ModelOption(String id, String name, String description, List<String> efforts, String defaultEffort)
+        {
+            this(id, name, description, efforts, defaultEffort, ImmutableList.of("text"));
+        }
+
+        public boolean acceptsImages()
+        {
+            return inputModalities.contains("image");
+        }
+    }
 
     public record MainModel(
             String configId,

@@ -739,6 +739,49 @@ class TestCodexCliDriver
     }
 
     @Test
+    void sendsATaskOwnedImageAsLocalImageInputAndRefusesAnythingElse()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        Path image = worktree.resolve("blobs/attachments/shot.png");
+        Files.createDirectories(image.getParent());
+        Files.write(image, new byte[] {1});
+
+        RunningTurn turn = session.start(new AgentTurnCommand(
+                "turn-image",
+                "What is in this screenshot?",
+                ImmutableList.of(new AgentAttachment("att-1", "shot.png", "image/png", image)),
+                Duration.ofMinutes(1)));
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(supervisor.server().turnInputs().getLast())
+                .contains("\"type\":\"text\"")
+                .contains("\"type\":\"localImage\"")
+                .contains(image.toString());
+
+        // Only a task-owned image may be named to the App Server, whatever the caller claims.
+        Path elsewhere = Files.createTempFile("elsewhere", ".png");
+        assertThatThrownBy(() -> session.start(new AgentTurnCommand(
+                "turn-elsewhere",
+                "look",
+                ImmutableList.of(new AgentAttachment("att-2", "elsewhere.png", "image/png", elsewhere)),
+                Duration.ofMinutes(1))))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("task-owned image");
+        assertThatThrownBy(() -> session.start(new AgentTurnCommand(
+                "turn-text",
+                "look",
+                ImmutableList.of(new AgentAttachment("att-3", "notes.txt", "text/plain", image)),
+                Duration.ofMinutes(1))))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("task-owned image");
+        session.close();
+    }
+
+    @Test
     void cancelsATurnWhoseStreamingMessageAndReasoningWereLeftOpen()
             throws Exception
     {
@@ -1244,6 +1287,7 @@ class TestCodexCliDriver
         private final Supplier<String> skills;
         private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
+        private final List<String> turnInputs = new CopyOnWriteArrayList<>();
         private final List<String> sandboxes = new CopyOnWriteArrayList<>();
 
         private List<String> sandboxes()
@@ -1302,6 +1346,11 @@ class TestCodexCliDriver
         {
             int index = threads.incrementAndGet();
             return index == 1 ? "thread-1" : "thread-" + index;
+        }
+
+        private List<String> turnInputs()
+        {
+            return turnInputs;
         }
 
         private List<String> turnSettings()
@@ -1391,6 +1440,7 @@ class TestCodexCliDriver
                 case "turn/start" -> {
                     turnSettings.add(message.path("params").path("model").asText("none")
                             + "/" + message.path("params").path("effort").asText("none"));
+                    turnInputs.add(message.path("params").path("input").toString());
                     activeTurn = "turn-" + turns.incrementAndGet();
                     respond(id, "{\"turn\":{\"id\":\"" + activeTurn
                             + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");

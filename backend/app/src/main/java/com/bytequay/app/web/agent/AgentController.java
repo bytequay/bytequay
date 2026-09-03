@@ -16,6 +16,7 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -27,10 +28,13 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -44,6 +48,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -56,6 +61,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
 
@@ -80,6 +86,7 @@ public class AgentController
     private final AgentCompletionService completionService;
     private final AgentDriverRegistry driverRegistry;
     private final ModelSettingsService modelSettings;
+    private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
 
     public AgentController(
@@ -91,6 +98,7 @@ public class AgentController
             AgentCompletionService completionService,
             AgentDriverRegistry driverRegistry,
             ModelSettingsService modelSettings,
+            AgentResourceService resourceService,
             RecentTouchRecorder recent)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
@@ -101,6 +109,7 @@ public class AgentController
         this.completionService = requireNonNull(completionService, "completionService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
+        this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
     }
 
@@ -147,6 +156,67 @@ public class AgentController
                         AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy())))));
     }
 
+    /**
+     * Refuses images for a model that does not advertise image input, so the catalog gates the
+     * turn the same way it gates the composer's attach button.
+     */
+    private void requireImageInput(TaskId taskId)
+    {
+        AgentTask task = taskService.get(taskId);
+        String model = turnService.effectiveSettings(taskId).model().orElse("");
+        boolean accepted = modelSettings.get().providers().stream()
+                .filter(provider -> provider.id().equals(task.laneId().value()))
+                .flatMap(provider -> provider.models().stream())
+                .anyMatch(option -> option.id().equals(model) && option.acceptsImages());
+        if (!accepted) {
+            throw new InvalidAgentRequestException("Model " + model + " does not accept images");
+        }
+    }
+
+    @PostMapping("/tasks/{taskId}/attachments")
+    public ResponseEntity<AgentHttpModels.AttachmentResponse> storeAttachment(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestHeader("X-Attachment-Name") String name,
+            @RequestHeader("Content-Type") String mediaType,
+            @RequestBody byte[] bytes)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        requireNotBlank(name, "X-Attachment-Name must not be blank");
+        StoredAgentAttachment stored = resourceService.storeAttachment(
+                new StoreAgentAttachmentCommand(id, name, mediaType, bytes));
+        return ResponseEntity.status(HttpStatus.CREATED).body(AgentHttpModels.attachment(stored));
+    }
+
+    @GetMapping("/tasks/{taskId}/attachments/{attachmentId}")
+    public ResponseEntity<byte[]> readAttachment(
+            @PathVariable String taskId,
+            @PathVariable String attachmentId,
+            @RequestParam String workspaceId)
+            throws IOException
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        StoredAgentAttachment stored = resourceService.readAttachment(id, attachmentId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(stored.mediaType()))
+                .header("X-Attachment-Name", stored.name())
+                .body(Files.readAllBytes(stored.path()));
+    }
+
+    @DeleteMapping("/tasks/{taskId}/attachments/{attachmentId}")
+    public ResponseEntity<Void> deleteAttachment(
+            @PathVariable String taskId,
+            @PathVariable String attachmentId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        resourceService.deleteAttachment(id, attachmentId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/tasks/{taskId}/effective-settings")
     public InteractiveAgentHttpContract.TurnSettings effectiveSettings(
             @PathVariable String taskId,
@@ -175,13 +245,18 @@ public class AgentController
     {
         requireNotBlank(request.message(), "message must not be blank");
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
-        if (request.attachments() != null && !request.attachments().isEmpty()) {
-            throw new InvalidAgentRequestException("Interactive attachments are not available yet");
+        TaskId id = TaskId.valueOf(taskId);
+        List<String> attachmentIds = request.attachments() == null ? ImmutableList.of() : request.attachments();
+        List<AgentAttachment> attachments = attachmentIds.stream()
+                .map(attachmentId -> resourceService.readAttachment(id, attachmentId).input())
+                .collect(toImmutableList());
+        if (!attachments.isEmpty()) {
+            requireImageInput(id);
         }
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
-                TaskId.valueOf(taskId),
+                id,
                 request.message(),
-                ImmutableList.of(),
+                attachments,
                 idempotencyKey));
         recordPrompt(taskId, request.message());
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
@@ -356,7 +431,7 @@ public class AgentController
                 .collect(toImmutableList());
     }
 
-    public record StartTurnRequest(String message, List<Object> attachments) {}
+    public record StartTurnRequest(String message, List<String> attachments) {}
 
     public record ResolveApprovalRequest(
             ApprovalDecision.Decision decision,

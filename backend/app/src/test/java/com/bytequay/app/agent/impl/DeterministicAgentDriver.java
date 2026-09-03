@@ -77,13 +77,22 @@ public final class DeterministicAgentDriver
     @Override
     public List<ProviderModel> models()
     {
-        return ImmutableList.of(new ProviderModel(
-                "test-model",
-                "Test model",
-                "",
-                ImmutableList.of("high"),
-                Optional.of("high"),
-                true));
+        return ImmutableList.of(
+                new ProviderModel(
+                        "test-model",
+                        "Test model",
+                        "",
+                        ImmutableList.of("high"),
+                        Optional.of("high"),
+                        true,
+                        ImmutableList.of("text", "image")),
+                new ProviderModel(
+                        "text-only-model",
+                        "Text only",
+                        "",
+                        ImmutableList.of("high"),
+                        Optional.of("high"),
+                        false));
     }
 
     @Override

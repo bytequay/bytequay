@@ -49,6 +49,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import javax.imageio.ImageIO;
+
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -609,6 +613,105 @@ class TestAgentHttpApi
                 HttpMethod.POST,
                 new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
                 JsonNode.class);
+    }
+
+    @Test
+    void storesATaskOwnedImageAndSendsItWithATurn()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+
+        HttpHeaders upload = headers();
+        upload.setContentType(MediaType.IMAGE_PNG);
+        upload.set("X-Attachment-Name", "failing-test.png");
+        ResponseEntity<JsonNode> stored = rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments?workspaceId=" + workspaceId),
+                HttpMethod.POST,
+                new HttpEntity<>(png(9, 4), upload),
+                JsonNode.class);
+        assertThat(stored.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String attachmentId = stored.getBody().required("id").asText();
+        assertThat(stored.getBody().required("name").asText()).isEqualTo("failing-test.png");
+        assertThat(stored.getBody().required("width").asInt()).isEqualTo(9);
+        assertThat(stored.getBody().required("height").asInt()).isEqualTo(4);
+
+        ResponseEntity<byte[]> bytes = rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments/" + attachmentId + "?workspaceId=" + workspaceId),
+                HttpMethod.GET,
+                new HttpEntity<>(headers()),
+                byte[].class);
+        assertThat(bytes.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(bytes.getHeaders().getContentType()).isEqualTo(MediaType.IMAGE_PNG);
+        assertThat(bytes.getBody()).isEqualTo(png(9, 4));
+
+        // The turn's durable user message names the attachment by the reference the upload returned.
+        JsonNode turn = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of("message", "What is in this screenshot?", "attachments", ImmutableList.of(attachmentId)),
+                "attach-1").getBody();
+        assertThat(turn.required("settings").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
+        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
+        JsonNode userMessage = events.get(0);
+        assertThat(userMessage.required("type").asText()).isEqualTo("user_message");
+        assertThat(userMessage.required("payload").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
+
+        // A reference nobody issued, and a task that does not own the image, get nothing.
+        assertThat(rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments/not-an-attachment?workspaceId=" + workspaceId),
+                HttpMethod.GET,
+                new HttpEntity<>(headers()),
+                byte[].class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        String otherTask = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        assertThat(rest.exchange(
+                url("/agent/tasks/" + otherTask + "/attachments/" + attachmentId + "?workspaceId=" + workspaceId),
+                HttpMethod.GET,
+                new HttpEntity<>(headers()),
+                byte[].class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void refusesAnImageForAModelThatDoesNotAcceptOne()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", ImmutableMap.of(
+                "workspaceId", workspaceId,
+                "laneId", "codex",
+                "title", "Text only",
+                "defaults", ImmutableMap.of("model", "text-only-model", "effort", "high", "permissionPolicy", "AUTO")), null)
+                .getBody().required("id").asText();
+        HttpHeaders upload = headers();
+        upload.setContentType(MediaType.IMAGE_PNG);
+        upload.set("X-Attachment-Name", "shot.png");
+        String attachmentId = rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments?workspaceId=" + workspaceId),
+                HttpMethod.POST,
+                new HttpEntity<>(png(3, 3), upload),
+                JsonNode.class).getBody().required("id").asText();
+
+        ResponseEntity<JsonNode> refused = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId)),
+                "attach-2");
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refused.getBody().path("message").asText()).contains("does not accept images");
+
+        // Bytes that are not the claimed image never become an attachment.
+        upload.setContentType(MediaType.IMAGE_JPEG);
+        assertThat(rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments?workspaceId=" + workspaceId),
+                HttpMethod.POST,
+                new HttpEntity<>(png(3, 3), upload),
+                JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    private static byte[] png(int width, int height)
+            throws Exception
+    {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        return bytes.toByteArray();
     }
 
     @Test

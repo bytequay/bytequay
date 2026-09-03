@@ -700,9 +700,11 @@ public interface AgentResourceService
      *
      * <p>The command contains bytes supplied by the trusted Electron main
      * process, a display name, and a claimed media type. The implementation
-     * enforces independent byte and pixel limits, verifies the actual media
-     * type, strips unsafe metadata when required, and returns an opaque
-     * reference. It never accepts a renderer-provided filesystem path.
+     * reads the image header itself (PNG, JPEG, or GIF), refuses bytes that are
+     * not the claimed type, bounds the blob by size (10 MiB) and by pixel count
+     * (30 million), keeps the facts beside the blob, and returns an opaque
+     * reference. It never accepts a renderer-provided filesystem path, and it
+     * does not rewrite the image, so metadata inside it is kept as uploaded.
      *
      * @param command owning task and bounded attachment content
      * @return immutable attachment metadata and opaque reference
@@ -713,10 +715,17 @@ public interface AgentResourceService
      * Reads a previously validated attachment owned by the same task.
      *
      * @param taskId owning task
-     * @param attachmentRef opaque attachment reference
+     * @param attachmentId opaque attachment reference
      * @return bounded content and verified metadata
+     * @throws AgentAttachmentNotFoundException when the task owns no such attachment
      */
-    StoredAgentAttachment readAttachment(TaskId taskId, AttachmentRef attachmentRef);
+    StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId);
+
+    /**
+     * Removes a stored attachment. A message that already references it then
+     * shows the reference as unavailable rather than failing to render.
+     */
+    void deleteAttachment(TaskId taskId, String attachmentId);
 
     /**
      * Deletes all ByteQuay-owned runtime resources for a task.
@@ -2910,6 +2919,7 @@ POST /agent/turns/{turnId}/cancel
 POST /agent/approvals/{approvalId}
 POST /agent/tasks/{taskId}/attachments
 GET  /agent/tasks/{taskId}/attachments/{attachmentId}
+DELETE /agent/tasks/{taskId}/attachments/{attachmentId}
 POST /agent/tasks/{taskId}/queue
 GET  /agent/tasks/{taskId}/queue
 DELETE /agent/tasks/{taskId}/queue/{queuedInputId}

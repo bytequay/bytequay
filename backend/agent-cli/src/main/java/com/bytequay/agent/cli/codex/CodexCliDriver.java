@@ -19,6 +19,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -388,7 +389,9 @@ public final class CodexCliDriver
                                     .map(CodexProtocol.ReasoningEffortOption::reasoningEffort)
                                     .collect(toImmutableList()),
                             Optional.of(entry.defaultReasoningEffort()),
-                            entry.isDefault()))
+                            entry.isDefault(),
+                            // The schema's default when the field is absent: text and image.
+                            entry.inputModalities().orElse(ImmutableList.of("text", "image"))))
                     .collect(toImmutableList());
         }
         catch (RuntimeException failure) {
@@ -672,8 +675,10 @@ public final class CodexCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Codex session already has a running turn");
             }
-            if (!command.attachments().isEmpty()) {
-                throw new AgentUnavailableException("Codex attachments are not enabled");
+            ImmutableList.Builder<CodexProtocol.UserInput> input = ImmutableList.builder();
+            input.add(new CodexProtocol.TextInput("text", command.message()));
+            for (AgentAttachment attachment : command.attachments()) {
+                input.add(new CodexProtocol.LocalImageInput("localImage", taskOwnedImage(attachment).toString()));
             }
 
             // Re-checked before every turn, not once per session: a turn runs under workspace-write
@@ -681,7 +686,7 @@ public final class CodexCliDriver
             isolation.verify(context.worktree());
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
-                    ImmutableList.of(new CodexProtocol.TextInput("text", command.message())),
+                    input.build(),
                     // The turn carries the settings that were snapshotted when it was accepted, so
                     // a default changed after acceptance cannot rewrite the turn that is starting.
                     command.model().or(context::model),
@@ -769,6 +774,20 @@ public final class CodexCliDriver
                     || item instanceof CodexProtocol.PlanTextItem
                     || item instanceof CodexProtocol.ContextCompactionItem
                     || item instanceof CodexProtocol.ModelOutputItem);
+        }
+
+        /**
+         * The path an image input may name: a verified image inside this task's own runtime
+         * directory. Anything else never reaches the App Server, whatever the caller claims.
+         */
+        private Path taskOwnedImage(AgentAttachment attachment)
+        {
+            Path path = attachment.path().toAbsolutePath().normalize();
+            Path runtime = context.runtimeDirectory().toAbsolutePath().normalize();
+            if (!attachment.mediaType().startsWith("image/") || !path.startsWith(runtime)) {
+                throw new AgentUnavailableException("Attachment " + attachment.name() + " is not a task-owned image");
+            }
+            return path;
         }
 
         /** Records what this process has shown us, so quiescence can be answered from it. */

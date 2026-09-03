@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
@@ -69,6 +70,7 @@ class TestAgentHttpErrors
                 mock(AgentCompletionService.class),
                 driverRegistry,
                 mock(ModelSettingsService.class),
+                mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())

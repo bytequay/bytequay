@@ -14,6 +14,8 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -288,6 +290,23 @@ class TestDefaultCiMemoryService
     private static final class MemoryResources
             implements AgentResourceService
     {
+        @Override
+        public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
+
+        @Override
+        public StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
+
+        @Override
+        public void deleteAttachment(TaskId taskId, String attachmentId)
+        {
+            throw new UnsupportedOperationException("attachments are not part of this test");
+        }
         private final Path root;
 
         private MemoryResources(Path root)

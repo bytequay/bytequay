@@ -2269,6 +2269,16 @@
           "required": false,
           "nullable": true,
           "sample": "disabled"
+        },
+        {
+          "javaName": "inputModalities",
+          "wireName": "inputModalities",
+          "required": false,
+          "nullable": false,
+          "sample": [
+            "text",
+            "image"
+          ]
         }
       ]
     },
@@ -2672,6 +2682,29 @@
         {
           "javaName": "text",
           "wireName": "text",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "LocalImageInput",
+      "mode": "encode",
+      "sources": [
+        "v2#UserInput[type=localImage]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "localImage"
+        },
+        {
+          "javaName": "path",
+          "wireName": "path",
           "required": true,
           "nullable": false,
           "sample": "value"

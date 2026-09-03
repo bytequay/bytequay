@@ -44,6 +44,30 @@ public interface AgentResourceService
     TaskResources require(TaskId taskId);
 
     /**
+     * Verifies and stores one user-selected image as a task-owned blob.
+     *
+     * <p>The bytes come from the trusted Electron main process with a display name and a
+     * claimed media type. The implementation checks the bytes are an image of that type, bounds
+     * them by size and by pixel count, and returns an opaque reference. It never accepts a
+     * renderer-provided filesystem path.
+     *
+     * @param command owning task and bounded attachment content
+     * @return immutable attachment facts and opaque reference
+     * @throws InvalidAgentRequestException when the bytes are not an acceptable image
+     */
+    StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command);
+
+    /**
+     * Reads a previously stored attachment owned by the same task.
+     *
+     * @throws AgentAttachmentNotFoundException when the task owns no such attachment
+     */
+    StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId);
+
+    /** Removes a stored attachment; a reference to it in an earlier message then reads as unavailable. */
+    void deleteAttachment(TaskId taskId, String attachmentId);
+
+    /**
      * Deletes all ByteQuay-owned runtime resources for a task.
      *
      * <p>Deletion is idempotent and must reject paths outside the configured

@@ -1562,7 +1562,7 @@ End-to-end acceptance:
 **Checkpoint result:** this is the first usable Codex task surface. Do not call
 CP2, CP5, or CP6 alone “agent UI complete.”
 
-## [ ] CP8 — Add rich transcript projection and safe images
+## [x] CP8 — Add rich transcript projection and safe images
 
 **Owners:** service/runtime owner for facts and attachment boundary; desktop
 owner for projection
@@ -1571,47 +1571,68 @@ owner for projection
 
 **Visible UI:** yes
 
+**Status: complete.** The Codex lane decodes readable reasoning summaries
+(the hidden reasoning text is never read), free-form Plan-mode text and its
+deltas, web search, image view and context compaction items, a command's
+working directory, duration and parsed actions, and a tool call's duration,
+and carries them as typed facts. The screen projects the transcript the way
+the HTML design draws it: turns under collapsible headers with a live clock
+that stops with the turn, structured plan steps that the latest update
+replaces in place, contiguous activity merged by provider item identity into
+one group that stays open while running and folds to a sentence derived from
+its members once done unless the user chose otherwise, streamed text that the
+completed item replaces, and a footer per turn with its settings, duration and
+token usage naming an unavailable cost. Images are task-owned blobs: Electron
+main picks and uploads the file, the backend verifies PNG, JPEG or GIF bytes
+against the claimed type and bounds them by size and pixels, the turn carries
+the opaque reference, Codex receives a `localImage` input only for a
+task-owned image, and the composer offers the attach control only when the
+selected model advertises image input. Previews are object URLs the screen
+owns and revokes, and a reference whose blob is gone reads as unavailable.
+The live image check ran through the API against the real Codex CLI; the
+native file dialog itself is exercised by hand, not by the CDP driver.
+
 Implementation:
 
-- [ ] Distinguish structured checklist updates from free-form Plan-mode text.
-- [ ] Preserve provider-supported readable reasoning summaries and discard
+- [x] Distinguish structured checklist updates from free-form Plan-mode text.
+- [x] Preserve provider-supported readable reasoning summaries and discard
   hidden reasoning.
-- [ ] Normalize bounded/redacted command output, cwd, file changes, built-in
+- [x] Normalize bounded/redacted command output, cwd, file changes, built-in
   tools, web search, image view, compaction, retry, duration, and usage facts.
-- [ ] Merge activity by provider thread/turn/item identity; completed items
+- [x] Merge activity by provider thread/turn/item identity; completed items
   authoritatively replace deltas.
-- [ ] Group contiguous activity into one expandable block and derive the folded
+- [x] Group contiguous activity into one expandable block and derive the folded
   sentence from typed facts only.
-- [ ] Keep an activity group visibly active and expanded while any member is
+- [x] Keep an activity group visibly active and expanded while any member is
   running. After all members become terminal, fold to the derived summary
   unless the user explicitly chose an expanded/collapsed state; live updates
   never override that choice.
-- [ ] Show plan state, turn elapsed time, provider-supplied item duration,
+- [x] Show plan state, turn elapsed time, provider-supplied item duration,
   usage, unavailable cost, and existing-style status icons.
-- [ ] Add task-owned attachment storage using opaque references.
-- [ ] Add typed Electron/preload operations for native image selection, byte
+- [x] Add task-owned attachment storage using opaque references.
+- [x] Add typed Electron/preload operations for native image selection, byte
   upload, owned-reference preview reads, and attachment removal. Electron main
   owns file paths; the renderer sees only metadata and opaque references.
-- [ ] Verify media type, byte size, pixel dimensions, ownership, and model input
+- [x] Verify media type, byte size, pixel dimensions, ownership, and model input
   modality.
-- [ ] Convert a supported task-owned image to `localImage`; reject URL images,
+- [x] Convert a supported task-owned image to `localImage`; reject URL images,
   arbitrary paths, cross-task references, malformed images, and oversize data.
-- [ ] Load replayed user-message attachment references through the typed bridge
+- [x] Load replayed user-message attachment references through the typed bridge
   into transcript previews; show retained, expired, and unavailable states.
-- [ ] Revoke every renderer object URL on replacement, removal, unmount, and
+- [x] Revoke every renderer object URL on replacement, removal, unmount, and
   failed preview load.
-- [ ] Add composer preview/remove and retained/expired attachment states.
+- [x] Add composer preview/remove and retained/expired attachment states.
 
 Exit gate:
 
-- [ ] Folded summaries are reproducible from the canonical event fixture and
+- [x] Folded summaries are reproducible from the canonical event fixture and
   are never persisted as state.
-- [ ] Plan replacement, live elapsed stop, missing-cost display, and
+- [x] Plan replacement, live elapsed stop, missing-cost display, and
   delta/final replacement have reducer tests.
-- [ ] A supported image survives send/reload and reaches Codex from a
+- [x] A supported image survives send/reload and reaches Codex from a
   task-owned path.
-- [ ] An unsupported model cannot attach an image.
-- [ ] Arbitrary local paths and unbounded output are rejected before
+- [x] An unsupported model cannot attach an image.
+- [x] Arbitrary local paths and unbounded output are rejected before
   persistence or provider input.
 
 ## [ ] CP9 — Preserve and inspect subagents

@@ -289,6 +289,22 @@ function pullRequest(number: number, title: string, state = 'open', draft = fals
   };
 }
 
+describe('placeholders for later checkpoints', () => {
+  const fakes = (markup: string): string[] =>
+    (markup.match(/data-fake="([^"]+)"/g) ?? []).map((match) => match.replace(/^data-fake="|"$/g, ''));
+
+  it('leaves exactly the three placeholders later checkpoints retire, and none anywhere else', () => {
+    const list = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+    const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
+    // The ledger: grep -rn data-fake frontend/src must list these and only these.
+    expect([...new Set([...fakes(list), ...fakes(drafting)])].sort())
+      .toEqual(['CP10 · queue', 'CP10 · steer', 'CP11 · provider choice']);
+    // Every other state ships nothing that stands in for a missing backend.
+    expect(fakes(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'x' }))).toEqual([]);
+    expect(fakes(body({ task: task('t-1', 'COMPLETED', 'x'), connection: 'open' }))).toEqual([]);
+  });
+});
+
 describe('agent task side panel', () => {
   const props = {
     models: MODELS,

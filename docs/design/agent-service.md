@@ -1610,12 +1610,26 @@ turn on the task, because the alternative is handing a turn a worktree that
 something may still be writing to. The task stays `OPEN` and its worktree stays
 on disk.
 
-Completion cannot resolve that state — it refuses a held claim — so
-`AgentCompletionService.abandon` exists as the only way out. It is guarded the
-same way completion is, by naming the claim it discards, and it retains the
-worktree rather than cleaning it, because whatever the provider left behind is
-the evidence someone will want. It is reachable at
-`POST /agent/tasks/{taskId}/abandon`.
+Completion cannot resolve that state — it refuses a held claim — so two
+user actions exist. `AgentTurnService.stopRuntime` stops only this task's App
+Server process; the session close returns once the process tree is verified
+stopped, which releases a claim left by a turn whose provider could not be
+shown quiet, and fails while the tree cannot be verified. It is confirmed
+against the generation returned by `GET /agent/tasks/{taskId}/runtime/stop-impact`
+and reachable at `POST /agent/tasks/{taskId}/runtime/stop`.
+`AgentCompletionService.abandon` is the way out of the task itself. It is guarded
+the same way completion is, by naming the claim it discards, refuses a task
+with an active turn, stops and verifies the task's own process first, and
+retains the worktree rather than cleaning it, because whatever the provider
+left behind is the evidence someone will want. It is reachable at
+`POST /agent/tasks/{taskId}/mark-failed`, which then removes only a clean
+worktree and never touches one whose old process could not be verified stopped.
+
+After a backend restart, a turn that was mid-flight has no transport and is
+interrupted once the previous backend's processes are classified. A verified
+stop releases the turn's claim; an unverifiable launch swaps it for a
+`RECOVERY` claim keyed by that launch, and a later startup that verifies the
+launch stopped is what releases it.
 
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,

@@ -1386,6 +1386,28 @@ implemented behavior makes `AgentTaskScreen` materially harder to read.
 Purpose: join the independently reviewed runtime and desktop work into one
 complete vertical slice.
 
+**Status: implementation items landed; the live acceptance journey below is
+still open.** The product route now runs on the real bridge.
+Recovery became a real path rather than a card: startup settles a turn that
+was mid-flight by its process verdict (verified stop releases the checkout, an
+unverifiable launch reserves it under a `RECOVERY` claim that a later verified
+startup releases), a Codex session close returns only once its process tree is
+verified stopped and interrupts its turn with that verdict, and the supervised
+per-task stop and mark-failed operations build on that. What remains is
+running the packaged journey against a real Codex CLI.
+
+Running the reference shell against codex-cli 0.152.1 on the development host
+stopped at the first turn: the CP4 isolation guard refused to
+start it because `~/.codex/rules/default.rules` exists, which is the designed
+fail-closed outcome for an inherited exec-policy source. The readiness probe now
+makes the same check against the Codex home, so such a machine reports the lane
+unavailable with the fix in the New task dialog and Workspace Settings instead of
+failing at Send. That run also exposed and fixed two gaps: a turn that fails before a provider run exists could not be
+stopped or cancelled, and is now settled by the supervised stop once the
+process is verified gone; and a thread reference was persisted before any turn
+had run on it, which left nothing to resume after a restart (`no rollout found`)
+and is now persisted only once a turn has started on the thread.
+
 Implementation:
 
 - [x] Gate task creation on fresh typed provider readiness before task resources
@@ -1393,12 +1415,10 @@ Implementation:
 - [x] Promote the existing cherry-pick-specific provider-status IPC into one
   shared typed agent-provider readiness operation; update its existing consumer
   instead of maintaining two status paths.
-- [ ] Add typed Electron/preload operations to refresh provider readiness,
+- [x] Add typed Electron/preload operations to refresh provider readiness,
   update task defaults, read effective turn settings, cancel active execution,
   call `POST /agent/tasks/{taskId}/mark-failed`, and invoke the confirmed
-  per-task Codex server stop operation. Readiness, defaults, effective
-  settings, and cancellation are wired; mark-failed and the per-task stop
-  arrive with the checkpoint items that add their endpoints.
+  per-task Codex server stop operation.
 - [x] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
 - [x] Make this milestone Codex-only. Show Claude as unavailable or
@@ -1410,54 +1430,63 @@ Implementation:
   control states the policy rather than offering a choice of one.
 - [ ] Persist defaults and display the effective settings actually snapshotted
   for each turn. Defaults persist and the next turn's effective settings are
-  shown; a per-turn footer still needs a way to read a finished turn's
-  snapshot, which no route exposes today.
+  shown; the durable turn response carries its snapshot, and a per-turn footer
+  rendering it is CP8 transcript work.
 - [x] Map **Auto** through the typed backend policy; React never sends provider
   wire strings.
 - [x] Render complete typed approval cards with source, kind, reason,
   command/directory or scope, and only offered choices. The canonical event
   now carries the requested scope, which the provider supplied and the event
   had been dropping.
-- [ ] Render live command, output, file, tool, plan, usage, lifecycle, and error
+- [x] Render live command, output, file, tool, plan, usage, lifecycle, and error
   rows from canonical events.
-- [ ] Keep mutation controls disabled during recovery or unproven quiescence.
-- [ ] Render a **Recovering agent execution** card with bounded diagnostics.
-  **Stop execution** invokes normal turn cancellation/reconciliation while work
+- [x] Keep mutation controls disabled during recovery or unproven quiescence.
+  The task response now carries its mutation claim and checkout-removal fact;
+  the renderer derives idle, running, closing, and recovery required from the
+  claim plus the turn, and reads the active turn from the event stream so a
+  reload mid-turn does not reopen the composer.
+- [x] Render a **Recovering agent execution** card with bounded diagnostics.
+  **Stop this turn** invokes normal turn cancellation/reconciliation while work
   may still be active; it does not release the claim or clean the task worktree.
-- [ ] After every provider-visible item/background terminal is terminal and all
+- [x] After every provider-visible item/background terminal is terminal and all
   directly owned processes are verified stopped, expose **Mark task failed**.
   It calls `POST /agent/tasks/{taskId}/mark-failed`, marks the whole task
   `FAILED`, releases the claim, retains history, and requests safe worktree
   cleanup. Dirty work remains until it is committed or explicitly discarded.
-  The backend rejects the action before that barrier.
-- [ ] Add supervised `GET /agent/tasks/{taskId}/runtime/stop-impact` and
+  The backend rejects the action while a turn is active or while the task's own
+  process cannot be verified stopped, and never cleans a worktree whose
+  pre-restart process is unverified.
+- [x] Add supervised `GET /agent/tasks/{taskId}/runtime/stop-impact` and
   `POST /agent/tasks/{taskId}/runtime/stop` operations plus typed
   Electron/preload methods. The first returns the task's current runtime
   generation and what stopping would interrupt; the second requires that
   generation so a turn started since the confirmation cannot be stopped by a
   stale one.
-- [ ] The confirmed **Stop this task's Codex server** action marks that task's
-  live Codex turn `INTERRUPTED`, durably denies its pending approvals, pauses
-  its queued work, retains its mutation claim and task worktree, and blocks
-  replacement until the old process tree is verified stopped. It reaches no
-  other task. Resumption is an explicit later user action; the renderer never
-  kills a process directly.
-- [ ] After the recovery barrier, re-enable the composer. A **Retry** shortcut
+- [x] The confirmed **Stop this task's Codex server** action marks that task's
+  live Codex turn `INTERRUPTED`, durably denies its pending approvals, retains
+  its mutation claim and task worktree until the old process tree is verified
+  stopped, and releases them once it is. It reaches no other task. Resumption
+  is an explicit later user action; the renderer never kills a process
+  directly. Queued work arrives with CP10.
+- [x] After the recovery barrier, re-enable the composer. A **Retry** shortcut
   is the existing start-turn operation with a fresh idempotency key and an
   explicit confirmation to resend the prior message; it is never offered for
-  `UNKNOWN` delivery and never runs automatically.
-- [ ] Label the composer, model/effort/permission controls, approval actions,
+  `UNKNOWN` delivery, which the turn response now exposes as `delivered`, and
+  never runs automatically.
+- [x] Label the composer, model/effort/permission controls, approval actions,
   and activity disclosure; support keyboard operation, restore focus after an
   approval action, and announce only bounded state changes rather than every
   streamed token.
-- [ ] Complete only while idle/quiescent and the generated branch is clean;
+- [x] Complete only while idle/quiescent and the generated branch is clean;
   close the provider session, stop the task executor, retain history, remove
-  the worktree, and preserve the generated result branch.
-- [ ] Adapt the shell reference client to the workspace-safe contract through a
+  the worktree, and preserve the generated result branch. The closed screen
+  shows the retained branch and HEAD.
+- [x] Adapt the shell reference client to the workspace-safe contract through a
   temporary test workspace; do not preserve a raw-path public API for it.
-- [ ] Replace the CP6 mock-bridge implementation with the real bridge for the
-  product route. Packaged builds cannot create/open fixture tasks or import the
-  fixture runtime; fixtures remain test inputs only.
+  Done in CP3: the shell seeds a workspace row and submits only `workspaceId`.
+- [x] Replace the CP6 mock-bridge implementation with the real bridge for the
+  product route. The preview bridge is imported by tests only; the product
+  route uses the Electron bridge behind the development gate.
 
 End-to-end acceptance:
 

@@ -23,13 +23,28 @@ startup self-update remains enabled and no reported version text, including
 unparseable output, makes the lane unavailable. ByteQuay uses documented stdio
 and does not adopt the experimental WebSocket transport.
 
-The approved first-release visual and state reference is the
-[Agent Task UI prototype](Agent%20Task%20UI.html), accepted in commit
-`84af81c73cea7ae2cf7a53681827f550c598b706` on 2026-08-31. Its 13 static
-fixture states define the intended layout, hierarchy, and principal
-interactions. This document remains authoritative for behavior, capability
-gates, persistence, security, and acceptance criteria. The prototype is not
-production code and does not claim backend or provider integration.
+Two HTML design files accompany this document, and when the UI is being
+built they are the source of truth for what the screens look like and how
+they respond:
+
+- [Agent Task UI.html](Agent%20Task%20UI.html) is the user-facing
+  prototype: the accepted visual reference (commit
+  `84af81c73cea7ae2cf7a53681827f550c598b706`) whose 13 static fixture states
+  show the intended layout, hierarchy, and principal interactions as a user
+  would see them.
+- [Agent Task UI - full design.html](Agent%20Task%20UI%20-%20full%20design.html)
+  is the full clickable design for development: every screen (task list,
+  idle, running, approval, completed, subagents, queue and steer, image
+  message, recovery, connecting, empty, expired, and the tab overview) with
+  the exact markup, spacing, colours, states, and fixture data an
+  implementation must reproduce. Anyone implementing or changing the agent
+  task UI refers to this file first and treats it as authoritative for
+  presentation.
+
+Where the HTML and this document disagree about appearance or interaction,
+the HTML wins; this document remains authoritative for behavior, capability
+gates, persistence, security, and acceptance criteria. Neither file is
+production code and neither claims backend or provider integration.
 
 ## 1. Decision summary
 

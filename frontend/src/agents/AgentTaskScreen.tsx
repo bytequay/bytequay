@@ -172,7 +172,6 @@ function CommandRows({ member, live }: { member: CommandMember; live: boolean })
               ? `${action.query ?? member.command}${action.path === null ? '' : ` in ${action.path}`}`
               : action.path ?? '.'}
           </span>
-          <span className="agt-spacer" />
           {index === 0 && !verbatim && <Duration ms={member.durationMs} />}
         </div>
       ))}
@@ -217,7 +216,6 @@ function CommandCells({ member, state, chevron = false }: {
         <span className={`agt-exit ${member.exitCode === 0 ? 'is-ok' : 'is-failed'}`}>exit {member.exitCode}</span>
       )}
       {member.cwd !== null && member.cwd !== '.' && <span className="agt-mono agt-muted">in {member.cwd}</span>}
-      <span className="agt-spacer" />
       <Duration ms={member.durationMs} />
     </>
   );
@@ -258,7 +256,6 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
             <StateIcon state={memberState(member)} />
             <span className="agt-muted">{member.name}</span>
             {member.summary !== '' && member.summary !== member.name && <span className="agt-mono">{member.summary}</span>}
-            <span className="agt-spacer" />
             <Duration ms={member.durationMs} />
           </div>
         );
@@ -285,7 +282,6 @@ function ActivityView({ block, now, expanded, onToggle }: {
           <Spinner />
           <span className="agt-act__title">Working</span>
           <span className="agt-muted">— {activityPhrase(block.members)}</span>
-          <span className="agt-spacer" />
           <span className="agt-mono agt-muted">{elapsed}</span>
         </div>
         <MemberRows members={block.members} live />
@@ -297,7 +293,6 @@ function ActivityView({ block, now, expanded, onToggle }: {
       <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle}>
         <Chevron open={expanded} />
         <span>{activitySummary(block.members)}</span>
-        <span className="agt-spacer" />
         <span className="agt-mono agt-muted">{elapsed}</span>
       </button>
       {expanded && <div className="agt-act__body"><MemberRows members={block.members} live={false} /></div>}
@@ -1107,6 +1102,15 @@ export function AgentTaskBody({
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  // Stuck to the bottom like a terminal until the user scrolls up, and stuck again once they return;
+  // a task with no events yet is a fresh one, so it starts stuck.
+  const follow = useRef(true);
+  useEffect(() => {
+    if (state.events.length === 0) follow.current = true;
+    const transcript = transcriptRef.current;
+    if (transcript !== null && follow.current) transcript.scrollTop = transcript.scrollHeight;
+  });
   const turns = projectTranscript(state.events);
   const agents = projectAgents(state.events);
   const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
@@ -1194,7 +1198,16 @@ export function AgentTaskBody({
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <div className="agt-body">
-      <div className="agt-transcript" role="log" aria-label="Task transcript">
+      <div
+        className="agt-transcript"
+        role="log"
+        aria-label="Task transcript"
+        ref={transcriptRef}
+        onScroll={(event) => {
+          const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
+          follow.current = scrollHeight - scrollTop - clientHeight <= 32;
+        }}
+      >
         {turns.length === 0 && state.connection === 'connecting' && (
           <div className="agt-skeleton" role="status">
             <div className="agt-skeleton__note">Connecting — loading task history…</div>

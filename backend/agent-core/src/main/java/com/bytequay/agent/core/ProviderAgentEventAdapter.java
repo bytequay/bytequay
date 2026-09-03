@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -42,7 +43,7 @@ public final class ProviderAgentEventAdapter
                 event.providerTimestamp());
         AgentEventPayload payload = switch (event) {
             case ProviderAgentEvent.Message message -> new AgentEventPayload.AssistantMessage(
-                    AgentEventPayload.MessageKind.ANSWER,
+                    AgentEventPayload.MessageKind.valueOf(message.messageKind().name()),
                     AgentEventPayload.MessagePhase.valueOf(message.phase().name()),
                     message.text());
             case ProviderAgentEvent.Plan plan -> new AgentEventPayload.PlanUpdated(plan.items().stream()
@@ -53,13 +54,22 @@ public final class ProviderAgentEventAdapter
             case ProviderAgentEvent.Tool tool -> new AgentEventPayload.ToolActivity(
                     tool.name(),
                     AgentEventPayload.ActivityState.valueOf(tool.state().name()),
-                    tool.summary());
+                    tool.summary(),
+                    tool.duration().map(Duration::toMillis));
             case ProviderAgentEvent.Command command -> new AgentEventPayload.CommandActivity(
                     AgentEventPayload.ActivityState.valueOf(command.state().name()),
                     command.argv(),
                     command.output(),
                     command.exitCode(),
-                    command.truncated());
+                    command.truncated(),
+                    command.cwd(),
+                    command.duration().map(Duration::toMillis),
+                    command.actions().stream()
+                            .map(action -> new AgentEventPayload.CommandAction(
+                                    AgentEventPayload.CommandActionKind.valueOf(action.kind().name()),
+                                    action.path(),
+                                    action.query()))
+                            .collect(toImmutableList()));
             case ProviderAgentEvent.FileChange file -> new AgentEventPayload.FileActivity(
                     AgentEventPayload.ActivityState.COMPLETED,
                     file.relativePath(),

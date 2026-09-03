@@ -91,6 +91,9 @@ const referenceRecordBindings = [
   recordBinding("AgentMessageDeltaNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/agentMessage/delta"),
   ], [component("params"), component("emittedAtMs")]),
+  recordBinding("PlanDeltaNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/plan/delta"),
+  ], [component("params"), component("emittedAtMs")]),
   recordBinding("PlanUpdatedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/plan/updated"),
   ], [component("params"), component("emittedAtMs")]),
@@ -111,6 +114,7 @@ const referenceRecordBindings = [
   recordBinding("ItemDeltaParams", "decode", [
     schemaSource("v2", "CommandExecutionOutputDeltaNotification"),
     schemaSource("v2", "AgentMessageDeltaNotification"),
+    schemaSource("v2", "PlanDeltaNotification"),
   ], [
     component("threadId"),
     component("turnId"),
@@ -140,13 +144,31 @@ const referenceRecordBindings = [
     component("status"),
     component("aggregatedOutput"),
     component("exitCode"),
+    component("cwd"),
+    component("durationMs"),
+    component("commandActions"),
+  ]),
+  recordBinding("CommandAction", "decode", [
+    mergedSchemaSource("v2", "CommandAction", "type"),
+  ], [
+    component("type"),
+    component("command"),
+    component("name"),
+    component("path"),
+    component("query"),
   ]),
   recordBinding("FileChangeItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "fileChange"),
   ], [component("id"), component("changes"), component("status")]),
   recordBinding("McpToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "mcpToolCall"),
-  ], [component("id"), component("server"), component("tool"), component("status")]),
+  ], [
+    component("id"),
+    component("server"),
+    component("tool"),
+    component("status"),
+    component("durationMs"),
+  ]),
   recordBinding("DynamicToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "dynamicToolCall"),
   ], [component("id"), component("tool"), component("status")]),
@@ -173,6 +195,21 @@ const referenceRecordBindings = [
     component("agentPath"),
     component("kind"),
   ]),
+  recordBinding("ReasoningItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "reasoning"),
+  ], [component("id"), component("summary")]),
+  recordBinding("PlanTextItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "plan"),
+  ], [component("id"), component("text")]),
+  recordBinding("WebSearchItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "webSearch"),
+  ], [component("id"), component("query")]),
+  recordBinding("ImageViewItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "imageView"),
+  ], [component("id"), component("path")]),
+  recordBinding("ContextCompactionItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "contextCompaction"),
+  ], [component("id")]),
   recordBinding("FileUpdateChange", "decode", [schemaSource("v2", "FileUpdateChange")], [
     component("path"),
     component("kind"),

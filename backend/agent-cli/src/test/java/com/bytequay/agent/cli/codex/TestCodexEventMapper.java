@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,7 +40,7 @@ class TestCodexEventMapper
     void mapsRealAppServerCommandMessageUsageAndCompletionFixtures()
     {
         ProviderAgentEvent.Command started = only("""
-                {"method":"item/started","params":{"item":{"type":"commandExecution",
+                {"method":"item/started","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
                 "id":"exec-1","command":"rg --files | wc -l","status":"inProgress",
                 "aggregatedOutput":null,"exitCode":null},"threadId":"thread-1","turnId":"turn-1"},
                 "emittedAtMs":1786884869335}
@@ -227,6 +228,109 @@ class TestCodexEventMapper
     }
 
     @Test
+    void mapsReadableReasoningSummariesAndPlanTextButNeverHiddenReasoning()
+    {
+        ProviderAgentEvent.Message summary = only("""
+                {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-1",
+                "summary":["Looked at the failing test","Chose the smaller fix"],
+                "content":["hidden chain of thought"]},"threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(summary.messageKind()).isEqualTo(ProviderAgentEvent.MessageKind.REASONING_SUMMARY);
+        assertThat(summary.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(summary.text()).isEqualTo("Looked at the failing test\n\nChose the smaller fix");
+        assertThat(summary.text()).doesNotContain("hidden");
+
+        // Reasoning that starts, or completes with nothing readable, is not a transcript row.
+        assertThat(mapper.map(codec.decodeNotification("""
+                {"method":"item/started","params":{"item":{"type":"reasoning","id":"reasoning-2",
+                "summary":[],"content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
+                """), true)).isEmpty();
+        assertThat(mapper.map(codec.decodeNotification("""
+                {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-2",
+                "content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
+                """), true)).isEmpty();
+
+        ProviderAgentEvent.Message planDelta = only("""
+                {"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-1",
+                "itemId":"plan-1","delta":"1. Reproduce"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(planDelta.messageKind()).isEqualTo(ProviderAgentEvent.MessageKind.PLAN_TEXT);
+        assertThat(planDelta.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
+        assertThat(planDelta.source().providerItemId()).contains("plan-1");
+
+        ProviderAgentEvent.Message planText = only("""
+                {"method":"item/completed","params":{"item":{"type":"plan","id":"plan-1",
+                "text":"1. Reproduce\\n2. Fix"},"threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(planText.messageKind()).isEqualTo(ProviderAgentEvent.MessageKind.PLAN_TEXT);
+        assertThat(planText.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(planText.text()).isEqualTo("1. Reproduce\n2. Fix");
+    }
+
+    @Test
+    void mapsCommandFactsAndBuiltInToolsIntoActivity()
+    {
+        CodexEventMapper worktreeMapper = new CodexEventMapper(
+                worktree,
+                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        String cwd = worktree.resolve("backend").toString();
+        String file = worktree.resolve("backend/App.java").toString();
+        List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
+                {"method":"item/completed","params":{"item":{"type":"commandExecution","id":"exec-2",
+                "command":"sed -n 1,40p App.java && rg TODO","status":"completed",
+                "aggregatedOutput":"ok","exitCode":0,"cwd":"%s","durationMs":1450,
+                "commandActions":[
+                  {"type":"read","command":"sed -n 1,40p App.java","name":"App.java","path":"%s"},
+                  {"type":"search","command":"rg TODO","query":"TODO","path":null},
+                  {"type":"listFiles","command":"ls","path":"/elsewhere"},
+                  {"type":"somethingNew","command":"x"}]},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(cwd, file)), true);
+        assertThat(events).hasSize(1);
+        ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
+        assertThat(command.cwd()).contains("backend");
+        assertThat(command.duration()).contains(Duration.ofMillis(1450));
+        assertThat(command.actions()).extracting(ProviderAgentEvent.CommandAction::kind).containsExactly(
+                ProviderAgentEvent.CommandActionKind.READ,
+                ProviderAgentEvent.CommandActionKind.SEARCH,
+                ProviderAgentEvent.CommandActionKind.LIST_FILES,
+                ProviderAgentEvent.CommandActionKind.OTHER);
+        assertThat(command.actions().get(0).path()).contains("backend/App.java");
+        assertThat(command.actions().get(1).query()).contains("TODO");
+        // A path outside the worktree is dropped rather than shown.
+        assertThat(command.actions().get(2).path()).isEmpty();
+
+        ProviderAgentEvent.Tool search = only("""
+                {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-1",
+                "query":"trino release notes","action":null},"threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(search.name()).isEqualTo("Web search");
+        assertThat(search.summary()).isEqualTo("trino release notes");
+        assertThat(search.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
+
+        ProviderAgentEvent.Tool view = (ProviderAgentEvent.Tool) worktreeMapper.map(codec.decodeNotification("""
+                {"method":"item/started","params":{"item":{"type":"imageView","id":"view-1",
+                "path":"%s"},"threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(worktree.resolve("docs/shot.png"))), true).getFirst();
+        assertThat(view.name()).isEqualTo("Image view");
+        assertThat(view.summary()).isEqualTo("docs/shot.png");
+        assertThat(view.state()).isEqualTo(ProviderAgentEvent.ActivityState.STARTED);
+
+        ProviderAgentEvent.Tool compaction = only("""
+                {"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"compact-1"},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(compaction.name()).isEqualTo("Context compaction");
+
+        ProviderAgentEvent.Tool mcp = only("""
+                {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"mcp-1",
+                "server":"docs","tool":"lookup","status":"completed","durationMs":20},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(mcp.duration()).contains(Duration.ofMillis(20));
+    }
+
+    @Test
     void mapsCompletedFileChangesInsideTheWorktree()
     {
         CodexEventMapper worktreeMapper = new CodexEventMapper(
@@ -262,7 +366,7 @@ class TestCodexEventMapper
                 worktree,
                 SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
         List<ProviderAgentEvent> events = redactingMapper.map(codec.decodeNotification("""
-                {"method":"item/completed","params":{"item":{"type":"commandExecution",
+                {"method":"item/completed","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
                 "id":"exec-1","command":"echo known-secret","status":"completed",
                 "aggregatedOutput":"known-secret","exitCode":0},
                 "threadId":"thread-1","turnId":"turn-1"}}

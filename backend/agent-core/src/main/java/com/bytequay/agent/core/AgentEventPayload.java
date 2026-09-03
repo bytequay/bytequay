@@ -90,9 +90,23 @@ public sealed interface AgentEventPayload
             List<String> argv,
             Optional<String> output,
             Optional<Integer> exitCode,
-            boolean truncated)
+            boolean truncated,
+            Optional<String> cwd,
+            Optional<Long> durationMs,
+            List<CommandAction> actions)
             implements AgentEventPayload
     {
+        /** The shape stored before the working directory, duration, and parsed actions were carried. */
+        public CommandActivity(
+                ActivityState state,
+                List<String> argv,
+                Optional<String> output,
+                Optional<Integer> exitCode,
+                boolean truncated)
+        {
+            this(state, argv, output, exitCode, truncated, Optional.empty(), Optional.empty(), ImmutableList.of());
+        }
+
         public CommandActivity
         {
             requireNonNull(state, "state is null");
@@ -100,6 +114,11 @@ public sealed interface AgentEventPayload
             checkOptionalText(output, "output");
             requireNonNull(exitCode, "exitCode is null");
             checkArgument(argv.stream().noneMatch(String::isBlank), "argv contains a blank value");
+            checkOptionalText(cwd, "cwd");
+            requireNonNull(durationMs, "durationMs is null");
+            durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
+            // A row stored before actions were carried has no field for them, which reads as none.
+            actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
         }
 
         @Override
@@ -133,14 +152,22 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record ToolActivity(String name, ActivityState state, String summary)
+    record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
             implements AgentEventPayload
     {
+        /** The shape stored before a tool's duration was carried. */
+        public ToolActivity(String name, ActivityState state, String summary)
+        {
+            this(name, state, summary, Optional.empty());
+        }
+
         public ToolActivity
         {
             checkNotBlank(name, "name");
             requireNonNull(state, "state is null");
             requireNonNull(summary, "summary is null");
+            requireNonNull(durationMs, "durationMs is null");
+            durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
         }
 
         @Override
@@ -253,6 +280,25 @@ public sealed interface AgentEventPayload
         {
             return Kind.ERROR;
         }
+    }
+
+    /** What a shell command did to one worktree-relative path, as the provider parsed it. */
+    record CommandAction(CommandActionKind kind, Optional<String> path, Optional<String> query)
+    {
+        public CommandAction
+        {
+            requireNonNull(kind, "kind is null");
+            checkOptionalText(path, "path");
+            checkOptionalText(query, "query");
+        }
+    }
+
+    enum CommandActionKind
+    {
+        READ,
+        LIST_FILES,
+        SEARCH,
+        OTHER
     }
 
     record PlanItem(String text, PlanItemState state)

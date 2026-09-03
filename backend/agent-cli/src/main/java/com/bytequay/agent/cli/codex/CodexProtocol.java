@@ -48,6 +48,7 @@ final class CodexProtocol
             @JsonSubTypes.Type(
                     name = "item/agentMessage/delta",
                     value = AgentMessageDeltaNotification.class),
+            @JsonSubTypes.Type(name = "item/plan/delta", value = PlanDeltaNotification.class),
             @JsonSubTypes.Type(name = "turn/plan/updated", value = PlanUpdatedNotification.class),
             @JsonSubTypes.Type(
                     name = "thread/tokenUsage/updated",
@@ -57,8 +58,9 @@ final class CodexProtocol
     sealed interface Notification
             permits TurnStartedNotification, TurnCompletedNotification,
             ItemStartedNotification, ItemCompletedNotification,
-            CommandOutputNotification, AgentMessageDeltaNotification, PlanUpdatedNotification,
-            TokenUsageUpdatedNotification, ErrorNotification, UnknownNotification
+            CommandOutputNotification, AgentMessageDeltaNotification, PlanDeltaNotification,
+            PlanUpdatedNotification, TokenUsageUpdatedNotification, ErrorNotification,
+            UnknownNotification
     {
         Params params();
 
@@ -148,6 +150,17 @@ final class CodexProtocol
             implements Notification
     {
         AgentMessageDeltaNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+    }
+
+    /** Free-form Plan-mode text streamed a piece at a time; the structured steps arrive as turn/plan/updated. */
+    record PlanDeltaNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        PlanDeltaNotification
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
@@ -319,17 +332,20 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "dynamicToolCall", value = DynamicToolCallItem.class),
             @JsonSubTypes.Type(name = "collabAgentToolCall", value = CollabAgentToolCallItem.class),
             @JsonSubTypes.Type(name = "subAgentActivity", value = SubAgentActivityItem.class),
-            @JsonSubTypes.Type(name = "reasoning", value = ModelOutputItem.class),
-            @JsonSubTypes.Type(name = "plan", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "reasoning", value = ReasoningItem.class),
+            @JsonSubTypes.Type(name = "plan", value = PlanTextItem.class),
+            @JsonSubTypes.Type(name = "webSearch", value = WebSearchItem.class),
+            @JsonSubTypes.Type(name = "imageView", value = ImageViewItem.class),
+            @JsonSubTypes.Type(name = "contextCompaction", value = ContextCompactionItem.class),
             @JsonSubTypes.Type(name = "userMessage", value = ModelOutputItem.class),
             @JsonSubTypes.Type(name = "functionCallOutput", value = ModelOutputItem.class),
             @JsonSubTypes.Type(name = "enteredReviewMode", value = ModelOutputItem.class),
             @JsonSubTypes.Type(name = "exitedReviewMode", value = ModelOutputItem.class),
-            @JsonSubTypes.Type(name = "contextCompaction", value = ModelOutputItem.class),
     })
     sealed interface ThreadItem
             permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
-            DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, ModelOutputItem,
+            DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, ReasoningItem,
+            PlanTextItem, WebSearchItem, ImageViewItem, ContextCompactionItem, ModelOutputItem,
             UnknownThreadItem
     {
         String id();
@@ -368,7 +384,10 @@ final class CodexProtocol
             String command,
             ActivityStatus status,
             Optional<String> aggregatedOutput,
-            Optional<Integer> exitCode)
+            Optional<Integer> exitCode,
+            String cwd,
+            Optional<Long> durationMs,
+            List<CommandAction> commandActions)
             implements ThreadItem
     {
         CommandExecutionItem
@@ -378,6 +397,10 @@ final class CodexProtocol
             requireNonNull(status, "status is null");
             requireNonNull(aggregatedOutput, "aggregatedOutput is null");
             requireNonNull(exitCode, "exitCode is null");
+            checkIdentifier(cwd, "cwd");
+            requireNonNull(durationMs, "durationMs is null");
+            durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
+            commandActions = ImmutableList.copyOf(commandActions);
         }
 
         @Override
@@ -426,7 +449,12 @@ final class CodexProtocol
         }
     }
 
-    record McpToolCallItem(String id, String server, String tool, ActivityStatus status)
+    record McpToolCallItem(
+            String id,
+            String server,
+            String tool,
+            ActivityStatus status,
+            Optional<Long> durationMs)
             implements ThreadItem
     {
         McpToolCallItem
@@ -435,6 +463,8 @@ final class CodexProtocol
             checkIdentifier(server, "server");
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");
+            requireNonNull(durationMs, "durationMs is null");
+            durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
         }
 
         @Override
@@ -515,9 +545,85 @@ final class CodexProtocol
     }
 
     /**
-     * An item that is model output or a record of it: reasoning, a plan update, the user's own
-     * message, a tool's returned output, a review-mode marker, or a context compaction. Nothing
-     * of this kind runs a process or changes a file, so one left open holds nothing.
+     * App Server's best-effort reading of what a shell command does. One command can carry
+     * several actions; the variants share {@code command} and differ only in which other fields
+     * they fill, so one record with optional fields decodes every variant, known or not.
+     */
+    record CommandAction(
+            String type,
+            String command,
+            Optional<String> name,
+            Optional<String> path,
+            Optional<String> query)
+    {
+        CommandAction
+        {
+            checkIdentifier(type, "type");
+            requireNonNull(command, "command is null");
+            requireNonNull(name, "name is null");
+            requireNonNull(path, "path is null");
+            requireNonNull(query, "query is null");
+        }
+    }
+
+    /**
+     * Readable reasoning summaries only. The wire item also carries hidden reasoning text under
+     * {@code content}; it is never decoded, so it cannot reach a log or a screen.
+     */
+    record ReasoningItem(String id, Optional<List<String>> summary)
+            implements ThreadItem
+    {
+        ReasoningItem
+        {
+            checkIdentifier(id, "id");
+            summary = requireNonNull(summary, "summary is null").map(ImmutableList::copyOf);
+        }
+    }
+
+    /** Free-form Plan-mode text; the structured steps arrive separately as turn/plan/updated. */
+    record PlanTextItem(String id, String text)
+            implements ThreadItem
+    {
+        PlanTextItem
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(text, "text is null");
+        }
+    }
+
+    record WebSearchItem(String id, String query)
+            implements ThreadItem
+    {
+        WebSearchItem
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(query, "query is null");
+        }
+    }
+
+    record ImageViewItem(String id, String path)
+            implements ThreadItem
+    {
+        ImageViewItem
+        {
+            checkIdentifier(id, "id");
+            requireNonNull(path, "path is null");
+        }
+    }
+
+    record ContextCompactionItem(String id)
+            implements ThreadItem
+    {
+        ContextCompactionItem
+        {
+            checkIdentifier(id, "id");
+        }
+    }
+
+    /**
+     * An item that is model output or a record of it: the user's own message, a tool's returned
+     * output, or a review-mode marker. Nothing of this kind runs a process or changes a file, so
+     * one left open holds nothing.
      */
     record ModelOutputItem(String id)
             implements ThreadItem

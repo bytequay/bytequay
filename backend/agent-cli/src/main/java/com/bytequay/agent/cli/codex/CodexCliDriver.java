@@ -765,6 +765,9 @@ public final class CodexCliDriver
         private static boolean canTouchWorktree(CodexProtocol.ThreadItem item)
         {
             return !(item instanceof CodexProtocol.AgentMessageItem
+                    || item instanceof CodexProtocol.ReasoningItem
+                    || item instanceof CodexProtocol.PlanTextItem
+                    || item instanceof CodexProtocol.ContextCompactionItem
                     || item instanceof CodexProtocol.ModelOutputItem);
         }
 

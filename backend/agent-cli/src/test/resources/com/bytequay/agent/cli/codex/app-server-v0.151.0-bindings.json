@@ -219,6 +219,38 @@
       ]
     },
     {
+      "javaType": "PlanDeltaNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/plan/delta]"
+      ],
+      "context": {
+        "method": "item/plan/delta"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "delta": "value",
+            "itemId": "value",
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
       "javaType": "PlanUpdatedNotification",
       "mode": "decode",
       "sources": [
@@ -400,7 +432,8 @@
       "mode": "decode",
       "sources": [
         "v2#CommandExecutionOutputDeltaNotification",
-        "v2#AgentMessageDeltaNotification"
+        "v2#AgentMessageDeltaNotification",
+        "v2#PlanDeltaNotification"
       ],
       "components": [
         {
@@ -626,6 +659,77 @@
           "required": false,
           "nullable": true,
           "sample": 1
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "durationMs",
+          "wireName": "durationMs",
+          "required": false,
+          "nullable": true,
+          "sample": 1
+        },
+        {
+          "javaName": "commandActions",
+          "wireName": "commandActions",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "CommandAction",
+      "mode": "decode",
+      "sources": [
+        "v2#CommandAction[all variants]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "unknown",
+          "samples": [
+            "listFiles",
+            "read",
+            "search",
+            "unknown"
+          ]
+        },
+        {
+          "javaName": "command",
+          "wireName": "command",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "name",
+          "wireName": "name",
+          "required": false,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "path",
+          "wireName": "path",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "query",
+          "wireName": "query",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
         }
       ]
     },
@@ -701,6 +805,13 @@
           "required": true,
           "nullable": false,
           "sample": "inProgress"
+        },
+        {
+          "javaName": "durationMs",
+          "wireName": "durationMs",
+          "required": false,
+          "nullable": true,
+          "sample": 1
         }
       ]
     },
@@ -860,6 +971,134 @@
           "required": true,
           "nullable": false,
           "sample": "started"
+        }
+      ]
+    },
+    {
+      "javaType": "ReasoningItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=reasoning]"
+      ],
+      "context": {
+        "type": "reasoning"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "summary",
+          "wireName": "summary",
+          "required": false,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "PlanTextItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=plan]"
+      ],
+      "context": {
+        "type": "plan"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "text",
+          "wireName": "text",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "WebSearchItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=webSearch]"
+      ],
+      "context": {
+        "type": "webSearch"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "query",
+          "wireName": "query",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ImageViewItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=imageView]"
+      ],
+      "context": {
+        "type": "imageView"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "path",
+          "wireName": "path",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ContextCompactionItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=contextCompaction]"
+      ],
+      "context": {
+        "type": "contextCompaction"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
         }
       ]
     },

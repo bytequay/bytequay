@@ -1044,14 +1044,14 @@ class TestCodexCliDriver
         private void reportUnfinishedHistoryItem()
         {
             historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
-                    + "\"type\":\"commandExecution\",\"id\":\"exec-missed\","
+                    + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"exec-missed\","
                     + "\"command\":\"sleep 600\",\"status\":\"inProgress\"}}],\"nextCursor\":null}";
         }
 
         private void reportSettledHistory()
         {
             historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
-                    + "\"type\":\"commandExecution\",\"id\":\"exec-missed\","
+                    + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"exec-missed\","
                     + "\"command\":\"sleep 600\",\"status\":\"completed\"}}],\"nextCursor\":null}";
         }
         private final AtomicInteger updateRuns = new AtomicInteger();
@@ -1453,7 +1453,7 @@ class TestCodexCliDriver
         private void emitUnfinishedItem(String itemId)
         {
             emit("{\"method\":\"item/started\",\"params\":{\"item\":{"
-                    + "\"type\":\"commandExecution\",\"id\":\"" + itemId + "\","
+                    + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"" + itemId + "\","
                     + "\"command\":\"sleep 600\",\"status\":\"inProgress\"},"
                     + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
         }

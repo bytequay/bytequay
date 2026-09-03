@@ -16,6 +16,7 @@ package com.bytequay.agent.spi;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -73,6 +74,7 @@ public sealed interface ProviderAgentEvent
     record Message(
             Optional<String> providerEventId,
             Optional<Instant> providerTimestamp,
+            MessageKind messageKind,
             MessagePhase phase,
             String text,
             Optional<String> parentToolUseId,
@@ -86,13 +88,27 @@ public sealed interface ProviderAgentEvent
                 String text,
                 Optional<String> parentToolUseId)
         {
-            this(providerEventId, providerTimestamp, phase, text, parentToolUseId, root());
+            this(providerEventId, providerTimestamp, MessageKind.ANSWER, phase, text, parentToolUseId, root());
+        }
+
+        /** An answer, which is what every message was before reasoning summaries and plan text were mapped. */
+        public Message(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                MessagePhase phase,
+                String text,
+                Optional<String> parentToolUseId,
+                ProviderAgentEventSource source)
+        {
+            this(providerEventId, providerTimestamp, MessageKind.ANSWER, phase, text, parentToolUseId, source);
         }
 
         public Message
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
+            // A record written before message kinds existed carries none, and every one was an answer.
+            messageKind = messageKind == null ? MessageKind.ANSWER : messageKind;
             requireNonNull(phase, "phase is null");
             requireNonNull(text, "text is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
@@ -144,7 +160,8 @@ public sealed interface ProviderAgentEvent
             ActivityState state,
             String summary,
             Optional<String> parentToolUseId,
-            ProviderAgentEventSource source)
+            ProviderAgentEventSource source,
+            Optional<Duration> duration)
             implements ProviderAgentEvent
     {
         public Tool(
@@ -159,6 +176,19 @@ public sealed interface ProviderAgentEvent
             this(providerEventId, providerTimestamp, toolCallId, name, state, summary, parentToolUseId, ProviderAgentEventSource.item(toolCallId));
         }
 
+        public Tool(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String toolCallId,
+                String name,
+                ActivityState state,
+                String summary,
+                Optional<String> parentToolUseId,
+                ProviderAgentEventSource source)
+        {
+            this(providerEventId, providerTimestamp, toolCallId, name, state, summary, parentToolUseId, source, Optional.empty());
+        }
+
         public Tool
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -169,6 +199,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(summary, "summary is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
             source = source == null ? ProviderAgentEventSource.item(toolCallId) : source;
+            requireNonNull(duration, "duration is null");
         }
 
         @Override
@@ -187,7 +218,10 @@ public sealed interface ProviderAgentEvent
             Optional<String> output,
             Optional<Integer> exitCode,
             boolean truncated,
-            ProviderAgentEventSource source)
+            ProviderAgentEventSource source,
+            Optional<String> cwd,
+            Optional<Duration> duration,
+            List<CommandAction> actions)
             implements ProviderAgentEvent
     {
         public Command(
@@ -203,6 +237,21 @@ public sealed interface ProviderAgentEvent
             this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, ProviderAgentEventSource.item(commandId));
         }
 
+        public Command(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String commandId,
+                ActivityState state,
+                List<String> argv,
+                Optional<String> output,
+                Optional<Integer> exitCode,
+                boolean truncated,
+                ProviderAgentEventSource source)
+        {
+            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source,
+                    Optional.empty(), Optional.empty(), ImmutableList.of());
+        }
+
         public Command
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -214,6 +263,10 @@ public sealed interface ProviderAgentEvent
             requireNonNull(exitCode, "exitCode is null");
             checkArgument(argv.stream().noneMatch(String::isBlank), "argv contains a blank value");
             source = source == null ? ProviderAgentEventSource.item(commandId) : source;
+            checkOptionalText(cwd, "cwd");
+            requireNonNull(duration, "duration is null");
+            // A record written before actions were carried has no field for them, which reads as none.
+            actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
         }
 
         @Override
@@ -424,6 +477,32 @@ public sealed interface ProviderAgentEvent
     {
         PARTIAL,
         FINAL
+    }
+
+    enum MessageKind
+    {
+        ANSWER,
+        REASONING_SUMMARY,
+        PLAN_TEXT
+    }
+
+    /** What a shell command did to one worktree-relative path, as the provider parsed it. */
+    record CommandAction(CommandActionKind kind, Optional<String> path, Optional<String> query)
+    {
+        public CommandAction
+        {
+            requireNonNull(kind, "kind is null");
+            checkOptionalText(path, "path");
+            checkOptionalText(query, "query");
+        }
+    }
+
+    enum CommandActionKind
+    {
+        READ,
+        LIST_FILES,
+        SEARCH,
+        OTHER
     }
 
     enum ActivityState

@@ -22,10 +22,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 final class CodexEventMapper
@@ -96,6 +98,15 @@ final class CodexEventMapper
                             redactor.redact(message.params().delta()),
                             Optional.empty(),
                             source(message, Optional.of(message.params().itemId()))));
+            case CodexProtocol.PlanDeltaNotification plan -> ImmutableList.of(
+                    new ProviderAgentEvent.Message(
+                            Optional.empty(),
+                            timestamp,
+                            ProviderAgentEvent.MessageKind.PLAN_TEXT,
+                            ProviderAgentEvent.MessagePhase.PARTIAL,
+                            redactor.redact(plan.params().delta()),
+                            Optional.empty(),
+                            source(plan, Optional.of(plan.params().itemId()))));
             case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), timestamp, source(plan, Optional.empty()));
             case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), timestamp, source(usage, Optional.empty()));
             case CodexProtocol.ErrorNotification error -> ImmutableList.of(new ProviderAgentEvent.Error(
@@ -144,7 +155,8 @@ final class CodexEventMapper
                     eventId,
                     timestamp,
                     started,
-                    source));
+                    source,
+                    tool.durationMs()));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.tool(),
@@ -152,7 +164,8 @@ final class CodexEventMapper
                     eventId,
                     timestamp,
                     started,
-                    source));
+                    source,
+                    Optional.empty()));
             case CodexProtocol.CollabAgentToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.tool(),
@@ -160,7 +173,38 @@ final class CodexEventMapper
                     eventId,
                     timestamp,
                     started,
-                    source));
+                    source,
+                    Optional.empty()));
+            case CodexProtocol.ReasoningItem reasoning -> {
+                // Only the readable summary is mapped; the hidden reasoning text was never decoded.
+                List<String> summary = reasoning.summary().orElse(ImmutableList.of());
+                yield started || summary.isEmpty()
+                        ? ImmutableList.of()
+                        : ImmutableList.of(new ProviderAgentEvent.Message(
+                                Optional.of(eventId),
+                                timestamp,
+                                ProviderAgentEvent.MessageKind.REASONING_SUMMARY,
+                                ProviderAgentEvent.MessagePhase.FINAL,
+                                redactor.redact(String.join("\n\n", summary)),
+                                Optional.empty(),
+                                source));
+            }
+            case CodexProtocol.PlanTextItem plan -> started
+                    ? ImmutableList.of()
+                    : ImmutableList.of(new ProviderAgentEvent.Message(
+                            Optional.of(eventId),
+                            timestamp,
+                            ProviderAgentEvent.MessageKind.PLAN_TEXT,
+                            ProviderAgentEvent.MessagePhase.FINAL,
+                            redactor.redact(plan.text()),
+                            Optional.empty(),
+                            source));
+            case CodexProtocol.WebSearchItem search -> ImmutableList.of(builtIn(
+                    search.id(), "Web search", search.query(), eventId, timestamp, started, source));
+            case CodexProtocol.ImageViewItem view -> ImmutableList.of(builtIn(
+                    view.id(), "Image view", displayPath(view.path()), eventId, timestamp, started, source));
+            case CodexProtocol.ContextCompactionItem compaction -> ImmutableList.of(builtIn(
+                    compaction.id(), "Context compaction", "", eventId, timestamp, started, source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
             case CodexProtocol.ModelOutputItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
@@ -189,7 +233,24 @@ final class CodexEventMapper
                                 .flatMap(CodexEventMapper::optionalText),
                 item.exitCode(),
                 false,
-                source);
+                source,
+                relativeDirectory(item.cwd()),
+                item.durationMs().map(Duration::ofMillis),
+                item.commandActions().stream().map(this::action).collect(toImmutableList()));
+    }
+
+    private ProviderAgentEvent.CommandAction action(CodexProtocol.CommandAction action)
+    {
+        ProviderAgentEvent.CommandActionKind kind = switch (action.type()) {
+            case "read" -> ProviderAgentEvent.CommandActionKind.READ;
+            case "listFiles" -> ProviderAgentEvent.CommandActionKind.LIST_FILES;
+            case "search" -> ProviderAgentEvent.CommandActionKind.SEARCH;
+            default -> ProviderAgentEvent.CommandActionKind.OTHER;
+        };
+        return new ProviderAgentEvent.CommandAction(
+                kind,
+                action.path().flatMap(this::relativePath),
+                action.query().map(redactor::redact).flatMap(CodexEventMapper::optionalText));
     }
 
     private ProviderAgentEvent tool(
@@ -199,7 +260,8 @@ final class CodexEventMapper
             String eventId,
             Optional<Instant> timestamp,
             boolean started,
-            ProviderAgentEventSource source)
+            ProviderAgentEventSource source,
+            Optional<Long> durationMs)
     {
         return new ProviderAgentEvent.Tool(
                 Optional.of(eventId),
@@ -211,7 +273,41 @@ final class CodexEventMapper
                         : activityState(status),
                 redactor.redact(name),
                 Optional.empty(),
-                source);
+                source,
+                durationMs.map(Duration::ofMillis));
+    }
+
+    /** A built-in App Server tool has no status of its own: it runs until its item completes. */
+    private ProviderAgentEvent builtIn(
+            String itemId,
+            String name,
+            String summary,
+            String eventId,
+            Optional<Instant> timestamp,
+            boolean started,
+            ProviderAgentEventSource source)
+    {
+        return new ProviderAgentEvent.Tool(
+                Optional.of(eventId),
+                timestamp,
+                itemId,
+                name,
+                started
+                        ? ProviderAgentEvent.ActivityState.STARTED
+                        : ProviderAgentEvent.ActivityState.COMPLETED,
+                redactor.redact(summary),
+                Optional.empty(),
+                source,
+                Optional.empty());
+    }
+
+    /** A worktree-relative path when the image is inside the worktree, otherwise just its file name. */
+    private String displayPath(String path)
+    {
+        return relativePath(path).orElseGet(() -> {
+            Path name = Path.of(path).getFileName();
+            return name == null ? "" : name.toString();
+        });
     }
 
     private List<ProviderAgentEvent> mapFileChanges(
@@ -243,7 +339,23 @@ final class CodexEventMapper
 
     private Optional<String> relativePath(CodexProtocol.FileUpdateChange change)
     {
-        String value = change.kind().movePath().orElse(change.path());
+        return relativePath(change.kind().movePath().orElse(change.path()));
+    }
+
+    /** A path inside the worktree, made relative to it; anything else is dropped rather than shown. */
+    private Optional<String> relativePath(String value)
+    {
+        return insideWorktree(value).map(Path::toString).filter(text -> !text.isBlank());
+    }
+
+    /** Like {@link #relativePath(String)}, except the worktree itself reads as the current directory. */
+    private Optional<String> relativeDirectory(String value)
+    {
+        return insideWorktree(value).map(path -> path.toString().isBlank() ? "." : path.toString());
+    }
+
+    private Optional<Path> insideWorktree(String value)
+    {
         Path path = Path.of(value).normalize();
         if (path.isAbsolute()) {
             if (!path.startsWith(worktree)) {
@@ -251,10 +363,10 @@ final class CodexEventMapper
             }
             path = worktree.relativize(path);
         }
-        if (path.toString().isBlank() || path.startsWith("..")) {
+        if (path.startsWith("..")) {
             return Optional.empty();
         }
-        return Optional.of(path.toString());
+        return Optional.of(path);
     }
 
     private static Optional<ProviderAgentEvent.ChangeKind> changeKind(CodexProtocol.FileChangeKind kind)

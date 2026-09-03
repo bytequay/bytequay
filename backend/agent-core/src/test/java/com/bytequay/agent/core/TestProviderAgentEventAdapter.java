@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,6 +95,59 @@ class TestProviderAgentEventAdapter
         assertThat(source.providerTurnId()).isEmpty();
         assertThat(source.providerItemId()).isEmpty();
         assertThat(source.providerEventId()).contains("event-1");
+    }
+
+    @Test
+    void carriesMessageKindCommandFactsAndToolDuration()
+    {
+        ProviderAgentEvent.Message summary = new ProviderAgentEvent.Message(
+                Optional.of("event-1"),
+                Optional.empty(),
+                ProviderAgentEvent.MessageKind.REASONING_SUMMARY,
+                ProviderAgentEvent.MessagePhase.FINAL,
+                "why",
+                Optional.empty(),
+                ProviderAgentEventSource.root());
+        assertThat(((AgentEventPayload.AssistantMessage) ProviderAgentEventAdapter.adapt(summary).payload()).messageKind())
+                .isEqualTo(AgentEventPayload.MessageKind.REASONING_SUMMARY);
+
+        ProviderAgentEvent.Command command = new ProviderAgentEvent.Command(
+                Optional.of("event-2"),
+                Optional.empty(),
+                "exec-1",
+                ProviderAgentEvent.ActivityState.COMPLETED,
+                ImmutableList.of("rg TODO"),
+                Optional.empty(),
+                Optional.of(0),
+                false,
+                ProviderAgentEventSource.item("exec-1"),
+                Optional.of("backend"),
+                Optional.of(Duration.ofMillis(1450)),
+                ImmutableList.of(new ProviderAgentEvent.CommandAction(
+                        ProviderAgentEvent.CommandActionKind.SEARCH,
+                        Optional.empty(),
+                        Optional.of("TODO"))));
+        AgentEventPayload.CommandActivity activity =
+                (AgentEventPayload.CommandActivity) ProviderAgentEventAdapter.adapt(command).payload();
+        assertThat(activity.cwd()).contains("backend");
+        assertThat(activity.durationMs()).contains(1450L);
+        assertThat(activity.actions()).containsExactly(new AgentEventPayload.CommandAction(
+                AgentEventPayload.CommandActionKind.SEARCH,
+                Optional.empty(),
+                Optional.of("TODO")));
+
+        ProviderAgentEvent.Tool tool = new ProviderAgentEvent.Tool(
+                Optional.empty(),
+                Optional.empty(),
+                "tool-1",
+                "Web search",
+                ProviderAgentEvent.ActivityState.COMPLETED,
+                "trino",
+                Optional.empty(),
+                ProviderAgentEventSource.item("tool-1"),
+                Optional.of(Duration.ofMillis(20)));
+        assertThat(((AgentEventPayload.ToolActivity) ProviderAgentEventAdapter.adapt(tool).payload()).durationMs())
+                .contains(20L);
     }
 
     @Test

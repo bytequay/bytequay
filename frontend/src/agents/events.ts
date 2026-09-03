@@ -38,6 +38,7 @@ const APPROVAL_OPTIONS = ['ALLOW_ONCE', 'DENY'] as const;
 const APPROVAL_OUTCOMES = ['ALLOWED', 'DENIED', 'EXPIRED', 'CANCELLED'] as const;
 const USAGE_SEMANTICS = ['CUMULATIVE', 'DELTA', 'FINAL_FOR_INVOCATION'] as const;
 const COST_PROVENANCE = ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const;
+const COMMAND_ACTION_KINDS = ['READ', 'LIST_FILES', 'SEARCH', 'OTHER'] as const;
 const LIFECYCLE_PHASES = [
   'SESSION_OPENED',
   'TURN_STARTED',
@@ -91,6 +92,11 @@ export type AgentEventEnvelope =
     output: string | null;
     exitCode: number | null;
     truncated: boolean;
+    /** Worktree-relative working directory; null when unknown or outside the worktree. */
+    cwd: string | null;
+    durationMs: number | null;
+    /** What the provider parsed the command as doing; empty on events stored before this existed. */
+    actions: Array<{ kind: typeof COMMAND_ACTION_KINDS[number]; path: string | null; query: string | null }>;
   }>
   | AgentEvent<'file_change', {
     state: typeof ACTIVITY_STATES[number];
@@ -102,6 +108,7 @@ export type AgentEventEnvelope =
     name: string;
     state: typeof ACTIVITY_STATES[number];
     summary: string;
+    durationMs: number | null;
   }>
   | AgentEvent<'approval_requested', {
     approvalId: string;
@@ -218,6 +225,18 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       nullableString(payload.output, 'command.output');
       nullableInteger(payload.exitCode, 'command.exitCode');
       booleanValue(payload.truncated, 'command.truncated');
+      // Absent on events stored before these facts were carried; absent reads as unknown or none.
+      if (payload.cwd === undefined) payload.cwd = null;
+      if (payload.durationMs === undefined) payload.durationMs = null;
+      if (payload.actions === undefined) payload.actions = [];
+      nullableString(payload.cwd, 'command.cwd');
+      nullableInteger(payload.durationMs, 'command.durationMs');
+      arrayValue(payload.actions, 'command.actions').forEach((action, actionIndex) => {
+        const item = objectValue(action, `command.actions[${actionIndex}]`);
+        enumValue(item.kind, COMMAND_ACTION_KINDS, 'commandAction.kind');
+        nullableString(item.path, 'commandAction.path');
+        nullableString(item.query, 'commandAction.query');
+      });
       break;
     case 'file_change':
       enumValue(payload.state, ACTIVITY_STATES, 'fileChange.state');
@@ -229,6 +248,8 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       stringValue(payload.name, 'tool.name');
       enumValue(payload.state, ACTIVITY_STATES, 'tool.state');
       stringValue(payload.summary, 'tool.summary');
+      if (payload.durationMs === undefined) payload.durationMs = null;
+      nullableInteger(payload.durationMs, 'tool.durationMs');
       break;
     case 'approval_requested': {
       stringValue(payload.approvalId, 'approvalRequested.approvalId');

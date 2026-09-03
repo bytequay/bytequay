@@ -1002,3 +1002,139 @@
   color: #c6ccd2;
   cursor: not-allowed;
 }
+
+/* Subagents: chips in the parent transcript, and the panel that inspects one. */
+.agt-body {
+  display: flex;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.agt-agents {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.agt-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid #e3e3e6;
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #24292f;
+  cursor: pointer;
+}
+
+.agt-agent-mark {
+  color: #8250df;
+  font-size: 12px;
+  flex: none;
+}
+
+.agt-agent-mark.is-muted {
+  color: #8c959f;
+}
+
+.agt-barrier {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #9a6700;
+  line-height: 1.5;
+}
+
+.agt-panel {
+  width: 300px;
+  flex: none;
+  border-left: 1px solid #e3e3e6;
+  background: #ffffff;
+  padding: 10px 12px 14px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.agt-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.agt-panel__section {
+  margin-top: 12px;
+  display: block;
+}
+
+.agt-panel__empty {
+  padding: 8px 2px;
+}
+
+.agt-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #f6f6f8;
+  background: none;
+  padding: 8px 6px 8px 2px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.agt-panel__name {
+  min-width: 0;
+  flex: 1;
+}
+
+.agt-panel__label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.agt-panel__label.is-muted {
+  color: #57606a;
+}
+
+.agt-panel__purpose {
+  display: block;
+  font-size: 11px;
+  color: #8c959f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-panel__prompt {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #57606a;
+  line-height: 1.5;
+}
+
+.agt-panel__expired {
+  margin-top: 12px;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+.agt-panel__expired-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.agt-panel__result {
+  font-size: 12px;
+  line-height: 1.55;
+  margin-top: 5px;
+}

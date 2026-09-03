@@ -28,7 +28,7 @@ const EVENT_TYPES = [
   'error',
 ] as const;
 const DELIVERY_KINDS = ['TURN', 'STEER', 'QUEUED'] as const;
-const MESSAGE_KINDS = ['ANSWER', 'REASONING_SUMMARY', 'PLAN_TEXT'] as const;
+const MESSAGE_KINDS = ['ANSWER', 'REASONING_SUMMARY', 'PLAN_TEXT', 'PROMPT'] as const;
 const MESSAGE_PHASES = ['PARTIAL', 'FINAL'] as const;
 const ACTIVITY_STATES = ['STARTED', 'PROGRESS', 'COMPLETED', 'FAILED'] as const;
 const CHANGE_KINDS = ['ADDED', 'MODIFIED', 'DELETED', 'RENAMED'] as const;
@@ -48,6 +48,11 @@ const LIFECYCLE_PHASES = [
   'RETRYING',
   'RATE_LIMITED',
   'INTERRUPTED',
+  'AGENT_STARTED',
+  'AGENT_COMPLETED',
+  'AGENT_FAILED',
+  'BACKFILL_STARTED',
+  'BACKFILL_COMPLETED',
 ] as const;
 
 type AgentEventSource = {

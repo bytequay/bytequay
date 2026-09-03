@@ -506,6 +506,19 @@ export type AgentTaskSummaryDto = {
   metrics: AgentMetricsDto;
   learnings: string[];
   notes: string | null;
+  /** What is kept about each subagent once the transcript that held its steps is gone. */
+  children: AgentChildSummaryDto[];
+};
+
+export type AgentChildSummaryDto = {
+  threadId: string;
+  parentThreadId: string | null;
+  label: string;
+  purpose: string | null;
+  outcome: string;
+  result: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
 };
 
 /**

@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import {
+  activeAgents,
   activityExpanded,
   activityPhrase,
   activityRunning,
@@ -23,6 +24,7 @@ import {
   formatDuration,
   planChip,
   planSummary,
+  projectAgents,
   projectTranscript,
   turnElapsedMs,
   turnLabel,
@@ -65,6 +67,21 @@ function event(
     occurredAt: options.at ?? `2026-08-20T10:00:${String(sequence).padStart(2, '0')}Z`,
     type,
     payload,
+  } as AgentEventEnvelope;
+}
+
+/** An event from a subagent's thread: it names the child and the parent that spawned it. */
+function childEvent(
+  type: AgentEventEnvelope['type'],
+  payload: Record<string, unknown>,
+  child: string,
+  label: string | null = 'History tests',
+  parent = 'thread-root',
+): AgentEventEnvelope {
+  const base = event(type, payload);
+  return {
+    ...base,
+    source: { ...base.source, providerThreadId: child, parentProviderThreadId: parent, logicalAgentPath: label },
   } as AgentEventEnvelope;
 }
 
@@ -237,6 +254,75 @@ describe('projecting the transcript', () => {
     expect(activityExpanded(running, false)).toBe(true);
     expect(activityExpanded(finished, undefined)).toBe(false);
     expect(activityExpanded(finished, true)).toBe(true);
+  });
+
+  it('keeps a child out of its parent transcript and shows it as a chip instead', () => {
+    const events = [
+      event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'Delegating.' }, { itemId: 'm-1' }),
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'History tests' }, 'child-1'),
+      childEvent('assistant_message', { messageKind: 'PROMPT', phase: 'FINAL', text: 'run the persistence tests' }, 'child-1'),
+      childEvent('command', {
+        state: 'COMPLETED', argv: ['mvn test'], output: 'ok', exitCode: 0, truncated: false,
+        cwd: null, durationMs: 1000, actions: [],
+      }, 'child-1'),
+      childEvent('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: '3 tests failed' }, 'child-1'),
+      childEvent('lifecycle', { phase: 'AGENT_COMPLETED', message: 'Agent completed' }, 'child-1'),
+      event('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: 'The suite is green now.' }, { itemId: 'm-2' }),
+    ];
+
+    const root = projectTranscript(events);
+    // The child's command and its answer stay in the child's transcript.
+    expect(root[0].blocks.map((block) => block.kind)).toEqual(['text', 'agents', 'agents']);
+    expect(root[0].answer?.text).toBe('The suite is green now.');
+    const chips = root[0].blocks.filter((block) => block.kind === 'agents');
+    expect(chips.map((block) => block.kind === 'agents' ? [block.phase, block.threadIds] : null)).toEqual([
+      ['started', ['child-1']],
+      ['finished', ['child-1']],
+    ]);
+
+    // Opening the child reads the same events, filtered; it is not a second transcript.
+    const child = projectTranscript(events, 'child-1');
+    expect(child[0].blocks.map((block) => block.kind)).toEqual(['text', 'activity']);
+    expect(child[0].answer?.text).toBe('3 tests failed');
+  });
+
+  it('builds the agent tree with lineage, purpose, outcome and result', () => {
+    const events = [
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'History tests' }, 'child-1'),
+      childEvent('assistant_message', { messageKind: 'PROMPT', phase: 'FINAL', text: 'run the persistence tests' }, 'child-1'),
+      childEvent('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: '3 tests failed' }, 'child-1'),
+      childEvent('lifecycle', { phase: 'AGENT_COMPLETED', message: 'done' }, 'child-1'),
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'Renderer range' }, 'child-2', 'Renderer range'),
+      // A grandchild names its own parent, not the root.
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'Range probe' }, 'child-3', 'Range probe', 'child-2'),
+    ];
+
+    const agents = projectAgents(events);
+
+    expect(agents.map((agent) => [agent.threadId, agent.parentThreadId, agent.label, agent.status])).toEqual([
+      ['child-1', 'thread-root', 'History tests', 'completed'],
+      ['child-2', 'thread-root', 'Renderer range', 'running'],
+      ['child-3', 'child-2', 'Range probe', 'running'],
+    ]);
+    expect(agents[0].purpose).toBe('run the persistence tests');
+    expect(agents[0].result).toBe('3 tests failed');
+    // What is still working is what the completion barrier waits for.
+    expect(activeAgents(agents).map((agent) => agent.threadId)).toEqual(['child-2', 'child-3']);
+  });
+
+  it('marks a child whose history is being recovered, then clears it', () => {
+    const recovering = projectAgents([
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'Range probe' }, 'child-9'),
+      childEvent('lifecycle', { phase: 'BACKFILL_STARTED', message: 'Recovering' }, 'child-9'),
+    ]);
+    expect(recovering[0].backfilling).toBe(true);
+
+    const recovered = projectAgents([
+      childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'Range probe' }, 'child-9'),
+      childEvent('lifecycle', { phase: 'BACKFILL_STARTED', message: 'Recovering' }, 'child-9'),
+      childEvent('lifecycle', { phase: 'BACKFILL_COMPLETED', message: 'Recovered' }, 'child-9'),
+    ]);
+    expect(recovered[0].backfilling).toBe(false);
   });
 
   it('orders turns by first appearance and folds approvals into their requests', () => {

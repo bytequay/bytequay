@@ -33,6 +33,7 @@ import {
   type AgentTaskState,
 } from './model';
 import {
+  activeAgents,
   activityElapsedMs,
   activityExpanded,
   activityPhrase,
@@ -42,19 +43,21 @@ import {
   formatDuration,
   planChip,
   planSummary,
+  projectAgents,
   projectTranscript,
   turnElapsedMs,
   turnLabel,
   usageText,
   type ActivityBlock,
   type ActivityMember,
+  type AgentNode,
   type ApprovalBlock,
   type CommandMember,
   type PlanStep,
   type TranscriptTurn,
   type TurnBlock,
 } from './transcript';
-import type { AgentApprovalDecision, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
+import type { AgentApprovalDecision, AgentChildSummaryDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
@@ -343,12 +346,14 @@ function ApprovalView({ block, onDecide }: {
   );
 }
 
-function BlockView({ block, now, activityChoice, onToggleActivity, onDecide }: {
+function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
   block: TurnBlock;
   now: number;
   activityChoice: Record<string, boolean>;
+  agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onOpenAgent?: (threadId: string) => void;
 }): React.JSX.Element {
   switch (block.kind) {
     case 'text':
@@ -380,6 +385,24 @@ function BlockView({ block, now, activityChoice, onToggleActivity, onDecide }: {
     }
     case 'approval':
       return <ApprovalView block={block} onDecide={onDecide} />;
+    case 'agents':
+      return (
+        <div className="agt-agents">
+          {block.threadIds.map((threadId) => (
+            <button
+              type="button"
+              className="agt-agent-chip"
+              key={threadId}
+              onClick={() => onOpenAgent?.(threadId)}
+              title="Open this agent"
+            >
+              <span className="agt-agent-mark" aria-hidden="true">❋</span>
+              {agentLabels[threadId] ?? 'Agent'}
+            </button>
+          ))}
+          <span className="agt-muted">{block.phase === 'started' ? 'started working' : 'finished'}</span>
+        </div>
+      );
     case 'error':
       return <div className="agt-error" role="alert">{block.message}{block.retryable ? ' — retrying' : ''}</div>;
     case 'note':
@@ -412,7 +435,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, onToggle, onToggleActivity, onDecide }: {
+function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent }: {
   turn: TranscriptTurn;
   first: boolean;
   open: boolean;
@@ -421,9 +444,11 @@ function TurnView({ turn, first, open, now, models, durableTurns, activityChoice
   durableTurns: Record<string, AgentTurnDto>;
   activityChoice: Record<string, boolean>;
   previews: Record<string, AttachmentPreview>;
+  agentLabels: Record<string, string>;
   onToggle: () => void;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onOpenAgent?: (threadId: string) => void;
 }): React.JSX.Element {
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
@@ -461,8 +486,10 @@ function TurnView({ turn, first, open, now, models, durableTurns, activityChoice
           block={block}
           now={now}
           activityChoice={activityChoice}
+          agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}
           onDecide={onDecide}
+          onOpenAgent={onOpenAgent}
         />
       ))}
       {turn.answer !== null && (
@@ -635,6 +662,143 @@ function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean;
   );
 }
 
+/** How long an agent worked, live while it runs and fixed once it ends. */
+function agentElapsed(agent: AgentNode, now: number): string | null {
+  if (agent.startedAt === null) return null;
+  const end = agent.endedAt === null ? now : Date.parse(agent.endedAt);
+  return formatDuration(Math.max(0, end - Date.parse(agent.startedAt)));
+}
+
+function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpen: () => void }): React.JSX.Element {
+  return (
+    <button type="button" className="agt-panel__row" onClick={onOpen} title="Open this agent">
+      <span className="agt-agent-mark" aria-hidden="true">❋</span>
+      <span className="agt-panel__name">
+        <span className="agt-panel__label">{agent.label}</span>
+        {agent.purpose !== null && <span className="agt-panel__purpose">{agent.purpose}</span>}
+      </span>
+      {agent.status === 'running' ? <Spinner /> : <span className="agt-spacer" />}
+      {agent.status === 'failed' && <span className="agt-chip is-warn">failed</span>}
+      <span className="agt-mono agt-muted">{agentElapsed(agent, now) ?? ''}</span>
+      <span className="agt-muted" aria-hidden="true">›</span>
+    </button>
+  );
+}
+
+/**
+ * The subagents this task delegated to, and one agent's own transcript when it is opened.
+ *
+ * Opening an agent filters the task's existing events by its thread; it is not another route and
+ * not a second subscription. Once retention has removed the transcript the agent is still listed
+ * from the task's kept summary, and opening it says its activity expired rather than inventing it.
+ */
+function AgentsPanel({
+  agents, openAgent, expiredChildren, deleteAfter, transcript, now,
+  activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide,
+}: {
+  agents: AgentNode[];
+  openAgent: string | null;
+  expiredChildren: AgentChildSummaryDto[];
+  deleteAfter: string | null;
+  transcript: TranscriptTurn[];
+  now: number;
+  activityChoice: Record<string, boolean>;
+  onOpenAgent: (threadId: string) => void;
+  onCloseAgent: () => void;
+  onToggleActivity: (id: string, open: boolean) => void;
+  onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+}): React.JSX.Element {
+  const active = activeAgents(agents);
+  const done = agents.filter((agent) => agent.status !== 'running');
+  const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
+  if (openAgent !== null) {
+    const agent = agents.find((node) => node.threadId === openAgent);
+    const expired = expiredChildren.find((child) => child.threadId === openAgent);
+    const blocks = transcript.flatMap((turn) => turn.blocks);
+    const label = agent?.label ?? expired?.label ?? 'Agent';
+    const result = agent?.result ?? expired?.result ?? null;
+    const purpose = agent?.purpose ?? expired?.purpose ?? null;
+    return (
+      <aside className="agt-panel" aria-label={`Agent: ${label}`}>
+        <div className="agt-panel__head">
+          <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
+          <span className="agt-agent-mark" aria-hidden="true">❋</span>
+          <strong className="agt-panel__label">{label}</strong>
+          {agent?.status === 'running'
+            ? <Spinner />
+            : <span className="agt-chip">{agent?.status === 'failed' ? 'Failed' : 'Done'}</span>}
+        </div>
+        {purpose !== null && (
+          <div className="agt-panel__prompt"><span className="agt-label">From its parent</span> {purpose}</div>
+        )}
+        {agent?.backfilling === true && (
+          <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
+        )}
+        {blocks.length === 0
+          ? (
+            <div className="agt-panel__expired">
+              <div className="agt-panel__expired-title">Activity expired</div>
+              <div className="agt-muted">
+                {deleteAfter === null
+                  ? 'The detailed steps were removed at the end of the retention window. The result is kept.'
+                  : `The detailed steps were removed ${relativeTime(deleteAfter)} at the end of the retention window. The result is kept.`}
+              </div>
+            </div>
+          )
+          : blocks.map((block) => (
+            <BlockView
+              key={block.id}
+              block={block}
+              now={now}
+              activityChoice={activityChoice}
+              agentLabels={labels}
+              onToggleActivity={onToggleActivity}
+              onDecide={onDecide}
+            />
+          ))}
+        {result !== null && (
+          <>
+            <div className="agt-label agt-panel__section">Result{blocks.length === 0 ? ' — kept' : ''}</div>
+            <div className="agt-panel__result">{result}</div>
+          </>
+        )}
+      </aside>
+    );
+  }
+  return (
+    <aside className="agt-panel" aria-label="Subagents">
+      <div className="agt-panel__head"><strong>Subagents</strong></div>
+      <div className="agt-label agt-panel__section">Active · {active.length}</div>
+      {active.length === 0
+        ? <div className="agt-muted agt-panel__empty">No active subagents</div>
+        : active.map((agent) => (
+          <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
+        ))}
+      {(done.length > 0 || expiredChildren.length > 0) && (
+        <div className="agt-label agt-panel__section">Done · {done.length + expiredChildren.length}</div>
+      )}
+      {done.map((agent) => (
+        <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
+      ))}
+      {expiredChildren.map((child) => (
+        <button
+          type="button"
+          className="agt-panel__row"
+          key={child.threadId}
+          onClick={() => onOpenAgent(child.threadId)}
+          title="Open this agent"
+        >
+          <span className="agt-agent-mark is-muted" aria-hidden="true">❋</span>
+          <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
+          <span className="agt-chip">expired</span>
+          <span className="agt-spacer" />
+          <span className="agt-muted" aria-hidden="true">›</span>
+        </button>
+      ))}
+    </aside>
+  );
+}
+
 /**
  * The whole screen as a function of state, so every visual state can be rendered on its own.
  *
@@ -649,11 +813,16 @@ export function AgentTaskBody({
   turnChoice = {},
   planOpen = true,
   previews = {},
+  panelOpen = false,
+  openAgent = null,
   onToggleActivity = () => {},
   onToggleTurn = () => {},
   onTogglePlan = () => {},
   onAttach = () => {},
   onRemoveAttachment = () => {},
+  onTogglePanel = () => {},
+  onOpenAgent = () => {},
+  onCloseAgent = () => {},
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
@@ -676,13 +845,26 @@ export function AgentTaskBody({
   planOpen?: boolean;
   /** Object URLs for stored images, by attachment id; owned and revoked by the wrapper. */
   previews?: Record<string, AttachmentPreview>;
+  panelOpen?: boolean;
+  /** Which subagent the panel is showing, by thread id; null lists them all. */
+  openAgent?: string | null;
   onToggleActivity?: (id: string, open: boolean) => void;
   onToggleTurn?: (id: string, open: boolean) => void;
   onTogglePlan?: () => void;
   onAttach?: () => void;
   onRemoveAttachment?: (attachmentId: string) => void;
+  onTogglePanel?: () => void;
+  onOpenAgent?: (threadId: string) => void;
+  onCloseAgent?: () => void;
 }): React.JSX.Element {
   const turns = projectTranscript(state.events);
+  const agents = projectAgents(state.events);
+  const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
+  const working = activeAgents(agents);
+  // A child the summary names but the events no longer hold: its steps were cleaned up.
+  const expiredChildren = (state.task?.summary?.children ?? [])
+    .filter((child) => !agents.some((agent) => agent.threadId === child.threadId));
+  const hasAgents = agents.length > 0 || expiredChildren.length > 0;
   const status = runtimeStatus(state);
   const terminal = status === 'completed' || status === 'failed';
   const retry = retryableMessage(state);
@@ -713,6 +895,18 @@ export function AgentTaskBody({
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
+        {hasAgents && (
+          <button
+            type="button"
+            className="agt-action"
+            aria-label="Show or hide the subagents panel"
+            aria-pressed={panelOpen}
+            title="Subagents"
+            onClick={onTogglePanel}
+          >
+            Subagents · {agents.length + expiredChildren.length}
+          </button>
+        )}
         {!terminal && (
           <button
             type="button"
@@ -735,6 +929,7 @@ export function AgentTaskBody({
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
+      <div className="agt-body">
       <div className="agt-transcript" role="log" aria-label="Task transcript">
         {turns.length === 0
           ? <div className="agt-empty">No activity yet.</div>
@@ -753,12 +948,36 @@ export function AgentTaskBody({
                 durableTurns={state.turns}
                 activityChoice={activityChoice}
                 previews={previews}
+                agentLabels={agentLabels}
                 onToggle={() => onToggleTurn(id, !open)}
                 onToggleActivity={onToggleActivity}
                 onDecide={onDecide}
+                onOpenAgent={onOpenAgent}
               />
             );
           })}
+        {working.length > 0 && (
+          <div className="agt-barrier">
+            {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
+            {' — Send and Complete unlock when every agent and command finishes.'}
+          </div>
+        )}
+      </div>
+      {panelOpen && hasAgents && (
+        <AgentsPanel
+          agents={agents}
+          openAgent={openAgent}
+          expiredChildren={expiredChildren}
+          deleteAfter={state.task?.deleteAfter ?? null}
+          transcript={openAgent === null ? [] : projectTranscript(state.events, openAgent)}
+          now={now}
+          activityChoice={activityChoice}
+          onOpenAgent={onOpenAgent}
+          onCloseAgent={onCloseAgent}
+          onToggleActivity={onToggleActivity}
+          onDecide={onDecide}
+        />
+      )}
       </div>
 
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
@@ -887,6 +1106,8 @@ export default function AgentTaskScreen({
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
   // screen goes away or a draft is dropped, never left for the garbage collector to find.
@@ -1142,6 +1363,11 @@ export default function AgentTaskScreen({
       onTogglePlan={() => setPlanOpen((open) => !open)}
       onAttach={() => { void attach(); }}
       onRemoveAttachment={(attachmentId) => { void removeAttachment(attachmentId); }}
+      panelOpen={panelOpen}
+      openAgent={openAgent}
+      onTogglePanel={() => setPanelOpen((open) => !open)}
+      onOpenAgent={(threadId) => { setPanelOpen(true); setOpenAgent(threadId); }}
+      onCloseAgent={() => setOpenAgent(null)}
     />
   );
 }

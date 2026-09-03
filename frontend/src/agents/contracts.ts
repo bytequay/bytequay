@@ -63,6 +63,13 @@ function optionalCount(value: unknown, path: string): number | null {
   return value === null || value === undefined ? null : count(value, path);
 }
 
+function list(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} is not an array`);
+  }
+  return value;
+}
+
 function textList(value: unknown, path: string): string[] {
   if (!Array.isArray(value)) {
     throw new Error(`${path} is not an array`);
@@ -110,6 +117,20 @@ function summary(value: unknown, path: string): AgentTaskSummaryDto {
     metrics: metrics(source.metrics, `${path}.metrics`),
     learnings: textList(source.learnings ?? [], `${path}.learnings`),
     notes: optionalText(source.notes, `${path}.notes`),
+    // Absent on summaries stored before subagents were indexed, which read as none.
+    children: list(source.children ?? [], `${path}.children`).map((child, index) => {
+      const item = object(child, `${path}.children[${index}]`);
+      return {
+        threadId: text(item.threadId, `${path}.children[${index}].threadId`),
+        parentThreadId: optionalText(item.parentThreadId, `${path}.children[${index}].parentThreadId`),
+        label: text(item.label, `${path}.children[${index}].label`),
+        purpose: optionalText(item.purpose, `${path}.children[${index}].purpose`),
+        outcome: text(item.outcome, `${path}.children[${index}].outcome`),
+        result: optionalText(item.result, `${path}.children[${index}].result`),
+        startedAt: optionalText(item.startedAt, `${path}.children[${index}].startedAt`),
+        endedAt: optionalText(item.endedAt, `${path}.children[${index}].endedAt`),
+      };
+    }),
   };
 }
 

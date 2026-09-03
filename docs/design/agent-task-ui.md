@@ -219,6 +219,11 @@ this closure keeps the `OPEN` task blocked and projects recovery required.
 Task close
 unsubscribes the root and every known subscribed child only after that barrier.
 
+Every thread in a task's process belongs to that task, so a thread that is not
+the root is one of its subagents even before a spawn item names it. Its lineage
+is recorded on sight, which is what keeps a child's final answer from being
+read back as the task's own recorded final response.
+
 For Codex, collaboration items provide the child relationship as the child is
 created, but not the child's final result. ByteQuay records that relationship
 immediately, begins routing the known child's live activity, and derives its
@@ -414,7 +419,7 @@ One React reducer owns the open screen state; no new state library is needed.
 | Activity groups | Contiguous typed items and their start/completion state |
 | Current plan | Latest structured plan update for the selected agent thread |
 | Pending approvals | Approval requests minus matching resolution events |
-| Agent tree | Child relationship and lifecycle events keyed by agent thread ID |
+| Agent tree | Child relationship and lifecycle events keyed by agent thread ID, plus the task summary's kept child index once the transcript is cleaned up |
 | Queue | Durable queue responses and queue-change events |
 | Metrics | Turn/task timestamps, usage events, and a renderer-local live clock |
 | Connection state | SSE open, reconnecting, or failed state plus last received sequence |

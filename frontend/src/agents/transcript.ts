@@ -98,7 +98,25 @@ export type ErrorBlock = { kind: 'error'; id: string; code: string; message: str
 
 export type NoteBlock = { kind: 'note'; id: string; text: string };
 
-export type TurnBlock = TextBlock | PlanBlock | ActivityBlock | ApprovalBlock | ErrorBlock | NoteBlock;
+/** Subagents that started or finished together, shown as one row of chips in the parent. */
+export type AgentsBlock = { kind: 'agents'; id: string; phase: 'started' | 'finished'; threadIds: string[] };
+
+export type TurnBlock = TextBlock | PlanBlock | ActivityBlock | ApprovalBlock | ErrorBlock | NoteBlock | AgentsBlock;
+
+/** One subagent in the task's agent tree, derived from its lifecycle events. */
+export type AgentNode = {
+  threadId: string;
+  parentThreadId: string | null;
+  label: string;
+  /** What its parent asked it to do, when the provider recorded the prompt it was spawned with. */
+  purpose: string | null;
+  status: 'running' | 'completed' | 'failed';
+  result: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** True while its history is being recovered rather than streamed live. */
+  backfilling: boolean;
+};
 
 export type UserBlock = {
   id: string;
@@ -132,6 +150,88 @@ type Message = AgentEventEnvelope & { type: 'assistant_message' };
 
 function itemKey(event: AgentEventEnvelope): string {
   return event.source.providerItemId ?? event.eventId;
+}
+
+/** The thread an event came from: null for the task's own root thread. */
+export function agentThreadOf(event: AgentEventEnvelope): string | null {
+  return event.source.parentProviderThreadId === null ? null : event.source.providerThreadId;
+}
+
+const AGENT_PHASES = ['AGENT_STARTED', 'AGENT_COMPLETED', 'AGENT_FAILED'] as const;
+
+function agentPhase(event: AgentEventEnvelope): typeof AGENT_PHASES[number] | null {
+  if (event.type !== 'lifecycle') return null;
+  const phase = event.payload.phase;
+  return (AGENT_PHASES as readonly string[]).includes(phase) ? phase as typeof AGENT_PHASES[number] : null;
+}
+
+/**
+ * Every subagent the task's events name, in discovery order, with its lineage and outcome.
+ *
+ * Derived on every render from the one task event stream; there is no second transcript and no
+ * child table. A child with no terminal event of its own is still running as far as this knows.
+ */
+export function projectAgents(events: AgentEventEnvelope[]): AgentNode[] {
+  const agents = new Map<string, AgentNode>();
+  const upsert = (event: AgentEventEnvelope): AgentNode | null => {
+    const threadId = agentThreadOf(event);
+    if (threadId === null) return null;
+    let node = agents.get(threadId);
+    if (node === undefined) {
+      node = {
+        threadId,
+        parentThreadId: event.source.parentProviderThreadId,
+        label: event.source.logicalAgentPath ?? 'Agent',
+        purpose: null,
+        status: 'running',
+        result: null,
+        startedAt: null,
+        endedAt: null,
+        backfilling: false,
+      };
+      agents.set(threadId, node);
+    }
+    if (event.source.logicalAgentPath !== null) node.label = event.source.logicalAgentPath;
+    return node;
+  };
+  for (const event of events) {
+    const node = upsert(event);
+    if (node === null) continue;
+    if (event.type === 'lifecycle') {
+      switch (event.payload.phase) {
+        case 'AGENT_STARTED':
+          node.startedAt = event.occurredAt;
+          break;
+        case 'AGENT_COMPLETED':
+          node.status = 'completed';
+          node.endedAt = event.occurredAt;
+          break;
+        case 'AGENT_FAILED':
+          node.status = 'failed';
+          node.endedAt = event.occurredAt;
+          break;
+        case 'BACKFILL_STARTED':
+          node.backfilling = true;
+          break;
+        case 'BACKFILL_COMPLETED':
+          node.backfilling = false;
+          break;
+        default:
+          break;
+      }
+      continue;
+    }
+    if (event.type === 'assistant_message' && event.payload.phase === 'FINAL') {
+      if (event.payload.messageKind === 'PROMPT') node.purpose = event.payload.text;
+      else if (event.payload.messageKind === 'ANSWER') node.result = event.payload.text;
+    }
+  }
+  return [...agents.values()];
+}
+
+/** Agents still working, which is what the completion barrier is waiting for. */
+export function activeAgents(agents: AgentNode[]): AgentNode[] {
+  return agents.filter((agent) => agent.status === 'running');
 }
 
 /** A delta carries no provider event id; only an item's completion does. */
@@ -301,6 +401,18 @@ class TurnBuilder {
     }
   }
 
+  /** A subagent that started or finished, shown in its parent's transcript as one row of chips. */
+  applyAgent(event: AgentEventEnvelope, phase: 'started' | 'finished'): void {
+    const threadId = agentThreadOf(event);
+    if (threadId === null) return;
+    const last = this.turn.blocks[this.turn.blocks.length - 1];
+    if (last !== undefined && last.kind === 'agents' && last.phase === phase) {
+      if (!last.threadIds.includes(threadId)) last.threadIds = [...last.threadIds, threadId];
+      return;
+    }
+    this.turn.blocks.push({ kind: 'agents', id: event.eventId, phase, threadIds: [threadId] });
+  }
+
   private message(event: Message): void {
     const key = itemKey(event);
     const complete = completesItem(event);
@@ -387,21 +499,48 @@ class TurnBuilder {
 }
 
 /** Groups the applied events into turns, in the order the turns first appeared. */
-export function projectTranscript(events: AgentEventEnvelope[]): TranscriptTurn[] {
+/**
+ * Groups the applied events into turns, in the order the turns first appeared.
+ *
+ * `agentThread` selects whose transcript this is: the task's own root thread by default, or one
+ * subagent by its thread id. Both read the same task event stream, which is why inspecting a
+ * child needs no second route and no second subscription. In the root's transcript a child's
+ * work is not inlined; it appears as the chip row that names the agents doing it.
+ */
+export function projectTranscript(
+  events: AgentEventEnvelope[],
+  agentThread: string | null = null,
+): TranscriptTurn[] {
   const builders = new Map<string | null, TurnBuilder>();
   const order: TurnBuilder[] = [];
+  const builderFor = (turnId: string | null): TurnBuilder => {
+    let builder = builders.get(turnId);
+    if (builder === undefined) {
+      builder = new TurnBuilder(turnId, order.length + 1);
+      builders.set(turnId, builder);
+      order.push(builder);
+    }
+    return builder;
+  };
   for (const event of events) {
     if (event.turnId === null && event.type === 'lifecycle') {
       // Task-level lifecycle belongs to the task's own summary, not to a turn.
       continue;
     }
-    let builder = builders.get(event.turnId);
-    if (builder === undefined) {
-      builder = new TurnBuilder(event.turnId, order.length + 1);
-      builders.set(event.turnId, builder);
-      order.push(builder);
+    const thread = agentThreadOf(event);
+    if (agentThread !== null) {
+      if (thread === agentThread) builderFor(event.turnId).apply(event);
+      continue;
     }
-    builder.apply(event);
+    if (thread === null) {
+      builderFor(event.turnId).apply(event);
+      continue;
+    }
+    // A child's own work belongs to its transcript. In its parent's, only the fact that it
+    // started or finished appears, as a chip.
+    const phase = agentPhase(event);
+    if (phase === 'AGENT_STARTED') builderFor(event.turnId).applyAgent(event, 'started');
+    else if (phase !== null) builderFor(event.turnId).applyAgent(event, 'finished');
   }
   return order.map((builder) => builder.turn);
 }

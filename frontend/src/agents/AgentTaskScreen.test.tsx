@@ -373,6 +373,7 @@ describe('agent task detail', () => {
         metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
         learnings: [],
         notes: null,
+        children: [],
       },
     };
     const markup = body({ task: completed, connection: 'open' });
@@ -494,6 +495,140 @@ describe('agent task detail', () => {
         onRetry={() => {}}
       />);
     expect(gone).toContain('flow.png · unavailable');
+  });
+
+  it('shows subagents as chips, lists them in the panel, and inspects one without a second route', () => {
+    const child = (
+      type: string,
+      payload: Record<string, unknown>,
+      threadId = 'child-1',
+      label: string | null = 'History tests',
+    ) => ({
+      ...events[1],
+      eventId: `child-${type}-${threadId}-${JSON.stringify(payload).length}`,
+      type,
+      payload,
+      source: {
+        ...events[1].source,
+        providerThreadId: threadId,
+        parentProviderThreadId: 'thread-root',
+        logicalAgentPath: label,
+      },
+    });
+    const withAgents = [
+      ...events,
+      child('lifecycle', { phase: 'AGENT_STARTED', message: 'History tests' }),
+      child('assistant_message', { messageKind: 'PROMPT', phase: 'FINAL', text: 'run the persistence tests' }),
+      child('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: '3 tests failed' }),
+      child('lifecycle', { phase: 'AGENT_STARTED', message: 'Renderer range' }, 'child-2', 'Renderer range'),
+    ] as typeof events;
+    const state = { task: task('t-1', 'OPEN', 'x'), events: withAgents, connection: 'open' as const };
+
+    const closed = body(state);
+    // The parent transcript names the agents; their work is not inlined into it.
+    expect(closed).toContain('History tests');
+    expect(closed).toContain('started working');
+    expect(closed).not.toContain('3 tests failed');
+    expect(closed).toContain('Subagents · 2');
+    // Two agents are still working, so the barrier says what Send and Complete are waiting for.
+    expect(closed).toContain('2 subagents are still working');
+
+    const panel = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), ...state }}
+        panelOpen
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onRetry={() => {}}
+      />);
+    expect(panel).toContain('aria-label="Subagents"');
+    expect(panel).toContain('Active · 2');
+    expect(panel).toContain('run the persistence tests');
+
+    const opened = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), ...state }}
+        panelOpen
+        openAgent="child-1"
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onRetry={() => {}}
+      />);
+    // The child's own answer is inspectable, and getting there is a filter, not a route.
+    expect(opened).toContain('aria-label="Agent: History tests"');
+    expect(opened).toContain('3 tests failed');
+    expect(opened).toContain('Back to all subagents');
+  });
+
+  it('keeps a cleaned-up agent listed from the summary and says its activity expired', () => {
+    const completed: AgentTaskDto = {
+      ...task('t-1', 'COMPLETED', 'Shipped'),
+      deleteAfter: '2026-08-27T10:05:00Z',
+      summary: {
+        finalResponse: 'All done.',
+        resultBranch: 'bytequay/task/t-1',
+        resultHead: 'abc123',
+        tests: [],
+        metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
+        learnings: [],
+        notes: null,
+        children: [{
+          threadId: 'child-gone',
+          parentThreadId: 'thread-root',
+          label: 'Range probe',
+          purpose: 'check the selected range',
+          outcome: 'COMPLETED',
+          result: 'the selection is correct',
+          startedAt: '2026-08-20T10:00:00Z',
+          endedAt: '2026-08-20T10:02:08Z',
+        }],
+      },
+    };
+    const props = {
+      models: MODELS,
+      onSelectModel: () => {},
+      onBack: () => {},
+      onSend: () => {},
+      onCancel: () => {},
+      onComplete: () => {},
+      onDecide: () => {},
+      onCompose: () => {},
+      onStopServer: () => {},
+      onMarkFailed: () => {},
+      onRetry: () => {},
+    };
+    const listed = renderToStaticMarkup(
+      <AgentTaskBody state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }} panelOpen {...props} />);
+    expect(listed).toContain('Range probe');
+    expect(listed).toContain('expired');
+
+    const opened = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }}
+        panelOpen
+        openAgent="child-gone"
+        {...props}
+      />);
+    // The steps are gone; what was kept is still shown, and nothing is reconstructed.
+    expect(opened).toContain('Activity expired');
+    expect(opened).toContain('Result — kept');
+    expect(opened).toContain('the selection is correct');
   });
 
   it('says Connecting in the composer until the stream is open', () => {

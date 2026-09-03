@@ -318,6 +318,18 @@ public final class CodexCliDriver
                         Optional.of(version),
                         "Codex CLI " + version + " is not ready: " + login.output());
             }
+            // The same check every turn start makes, so a home whose exec-policy rules would be
+            // inherited by every task blocks creation here rather than failing at Send.
+            try {
+                CodexIsolationGuard.rejectRuleFiles(codexHome());
+            }
+            catch (AgentUnavailableException rules) {
+                return status(
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
+                        Optional.of(version),
+                        "Codex CLI " + version + " is signed in, but " + rules.getMessage()
+                                + ". ByteQuay tasks refuse inherited exec-policy rules; move that rules folder aside, then check again.");
+            }
             return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.output());
         }
         catch (InterruptedException e) {
@@ -469,6 +481,16 @@ public final class CodexCliDriver
         }
         appServerVersion.compareAndSet(null, version);
         return appServerVersion.get();
+    }
+
+    /** The Codex home the App Server will use: {@code CODEX_HOME} when set, else {@code ~/.codex}. */
+    private Path codexHome()
+    {
+        String configured = environment.get("CODEX_HOME");
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        return Path.of(environment.getOrDefault("HOME", System.getProperty("user.home"))).resolve(".codex");
     }
 
     private CommandResult run(String... command)

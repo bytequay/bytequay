@@ -120,7 +120,13 @@ final class CodexIsolationGuard
         };
     }
 
-    private static void rejectRuleFiles(Path folder)
+    /**
+     * Refuses a config source that carries exec-policy rules.
+     *
+     * <p>Also run by the readiness probe against the user's Codex home, so a machine whose rules
+     * would make every task refuse to start is reported before a task is created.
+     */
+    static void rejectRuleFiles(Path folder)
     {
         Path rules = folder.resolve("rules");
         try (Stream<Path> entries = Files.list(rules)) {

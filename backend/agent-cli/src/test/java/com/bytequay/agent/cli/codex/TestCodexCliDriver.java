@@ -247,6 +247,25 @@ class TestCodexCliDriver
     }
 
     @Test
+    void reportsAmbientExecPolicyRulesAsUnavailableBeforeAnyTaskExists()
+            throws IOException
+    {
+        Path rules = worktree.resolve(".codex").resolve("rules");
+        Files.createDirectories(rules);
+        Files.writeString(rules.resolve("default.rules"), "prefix_rule(pattern=[\"git\"], decision=\"allow\")\n");
+        CodexCliDriver driver = driver(new ScriptedProcessSupervisor(objectMapper));
+
+        AgentProviderStatus status = driver.probe();
+
+        // Every turn start refuses inherited rules, so readiness must say so first, with the fix.
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+        assertThat(status.available()).isFalse();
+        assertThat(status.version()).contains("0.151.0");
+        assertThat(status.diagnostic()).contains("exec-policy rules").contains("move that rules folder aside");
+        driver.close();
+    }
+
+    @Test
     void reportsTheInstalledVersionWhenAppServerIsIncompatible()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "future-build", true);

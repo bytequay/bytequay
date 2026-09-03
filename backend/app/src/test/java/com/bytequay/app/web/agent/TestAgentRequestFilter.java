@@ -122,6 +122,6 @@ class TestAgentRequestFilter
 
     private static AgentProperties properties(String desktopSessionToken)
     {
-        return new AgentProperties(Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), desktopSessionToken, "codex", false, "claude", false);
+        return new AgentProperties(Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), desktopSessionToken, "codex", false, Path.of("/tmp/agent-codex-home"), "claude", false);
     }
 }

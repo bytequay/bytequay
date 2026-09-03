@@ -44,6 +44,7 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -173,6 +174,7 @@ public final class CodexCliDriver
 
     private final String executable;
     private final ProcessSupervisor supervisor;
+    private final Path codexHome;
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
@@ -180,18 +182,13 @@ public final class CodexCliDriver
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
     private volatile String detectedVersion = "unknown";
 
-    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor)
+    /**
+     * @param codexHome ByteQuay's own Codex home; every Codex process this driver starts runs with
+     * {@code CODEX_HOME} set to it, so the user's {@code ~/.codex} never reaches a task
+     */
+    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome)
     {
-        this(executable, objectMapper, supervisor, inheritedEnvironment());
-    }
-
-    CodexCliDriver(
-            String executable,
-            ObjectMapper objectMapper,
-            ProcessSupervisor supervisor,
-            Map<String, String> environment)
-    {
-        this(executable, objectMapper, supervisor, environment, DEFAULT_QUIESCENCE_TIMEOUT);
+        this(executable, objectMapper, supervisor, inheritedEnvironment(), codexHome);
     }
 
     CodexCliDriver(
@@ -199,11 +196,28 @@ public final class CodexCliDriver
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
             Map<String, String> environment,
+            Path codexHome)
+    {
+        this(executable, objectMapper, supervisor, environment, codexHome, DEFAULT_QUIESCENCE_TIMEOUT);
+    }
+
+    CodexCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            Map<String, String> environment,
+            Path codexHome,
             Duration quiescenceTimeout)
     {
         this.executable = requireNonNull(executable, "executable is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
-        this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
+        this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath();
+        // Overrides any inherited value: a shell that exports CODEX_HOME must not redirect ByteQuay's
+        // processes into the user's own Codex setup, and the model-facing shell never sees it.
+        this.environment = ImmutableMap.<String, String>builder()
+                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CODEX_HOME")))
+                .put("CODEX_HOME", this.codexHome.toString())
+                .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.quiescenceTimeout = requireNonNull(quiescenceTimeout, "quiescenceTimeout is null");
@@ -313,15 +327,20 @@ public final class CodexCliDriver
             detectedVersion = version;
             CommandResult login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
-                return status(
+                // ByteQuay's home is signed in separately from the user's, so the generic login
+                // command would land in the wrong place; readiness carries the exact one.
+                return new AgentProviderStatus(
+                        LANE_ID,
                         AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                         Optional.of(version),
-                        "Codex CLI " + version + " is not ready: " + login.output());
+                        "Codex CLI " + version + " is not signed in for ByteQuay: " + login.output(),
+                        capabilities(),
+                        Optional.of(signInCommand()));
             }
             // The same check every turn start makes, so a home whose exec-policy rules would be
             // inherited by every task blocks creation here rather than failing at Send.
             try {
-                CodexIsolationGuard.rejectRuleFiles(codexHome());
+                CodexIsolationGuard.rejectRuleFiles(codexHome);
             }
             catch (AgentUnavailableException rules) {
                 return status(
@@ -483,14 +502,10 @@ public final class CodexCliDriver
         return appServerVersion.get();
     }
 
-    /** The Codex home the App Server will use: {@code CODEX_HOME} when set, else {@code ~/.codex}. */
-    private Path codexHome()
+    /** The one command that signs ByteQuay's Codex home in; a plain {@code codex login} would not. */
+    private String signInCommand()
     {
-        String configured = environment.get("CODEX_HOME");
-        if (configured != null && !configured.isBlank()) {
-            return Path.of(configured);
-        }
-        return Path.of(environment.getOrDefault("HOME", System.getProperty("user.home"))).resolve(".codex");
+        return "CODEX_HOME=\"" + codexHome + "\" " + executable + " login";
     }
 
     private CommandResult run(String... command)

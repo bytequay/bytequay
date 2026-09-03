@@ -62,7 +62,8 @@ final class AgentHttpModels
                 status.readiness(),
                 status.version(),
                 status.diagnostic(),
-                status.capabilities());
+                status.capabilities(),
+                status.signInCommand());
     }
 
     static CompletionResponse completion(TaskCompletion completion)
@@ -115,7 +116,8 @@ final class AgentHttpModels
             AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic,
-            AgentCapabilities capabilities) {}
+            AgentCapabilities capabilities,
+            Optional<String> signInCommand) {}
 
     record CompletionResponse(
             String taskId,

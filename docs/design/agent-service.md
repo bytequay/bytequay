@@ -1569,6 +1569,25 @@ implements `AutoCloseable` and is wired as the bean's destroy method, so a
 backend shutdown with open tasks does not strand their processes until the next
 start.
 
+#### ByteQuay-owned Codex home
+
+Every Codex process ByteQuay starts, the per-task App Server, the model-catalog
+App Server, and the probe commands, runs with `CODEX_HOME` set to ByteQuay's
+own directory, `~/Library/Application Support/ByteQuay/codex-home`, created
+owner-only with an empty user config. Nothing in the user's `~/.codex` reaches
+a task: not its exec-policy rules, hooks, plugins, MCP servers, or login. The
+variable is set on those processes alone, so the user's own Codex desktop and
+terminal sessions keep `~/.codex` untouched, and the model-facing shell still
+never sees `CODEX_HOME`.
+
+The home is signed in separately, once, with the exact command readiness
+reports, `CODEX_HOME="…/ByteQuay/codex-home" codex login`, which stores that
+login in ByteQuay's home only. ByteQuay never reads, copies, or links the user's
+credentials. The isolation guard keeps running against ByteQuay's home as the
+safety net; with an empty home it passes by construction, which is what makes
+the Codex lane usable on a machine whose own Codex setup carries inherited
+capabilities.
+
 ### 5.4 Turn quiescence
 
 A turn completes when its process is quiet, not when its root thread reports

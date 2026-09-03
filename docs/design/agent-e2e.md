@@ -21,6 +21,11 @@ authenticated. The script also requires `curl`, `git`, `java`, `jq`, Maven,
 ./scripts/agent-e2e.sh --interactive
 ```
 
+Codex runs from ByteQuay's own Codex home, `~/Library/Application
+Support/ByteQuay/codex-home` unless `BYTEQUAY_AGENT_E2E_CODEX_HOME` names
+another, so the shell needs the login ByteQuay holds there rather than the one
+in `~/.codex`.
+
 By default, the script copies the current checkout into a temporary Git
 repository under an isolated ByteQuay workspace. The backend creates a second,
 task-owned worktree from that managed repository. Use a minimal repository when

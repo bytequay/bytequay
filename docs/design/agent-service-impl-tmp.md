@@ -1397,16 +1397,19 @@ per-task stop and mark-failed operations build on that. What remains is
 running the packaged journey against a real Codex CLI.
 
 Running the reference shell against codex-cli 0.152.1 on the development host
-stopped at the first turn: the CP4 isolation guard refused to
-start it because `~/.codex/rules/default.rules` exists, which is the designed
-fail-closed outcome for an inherited exec-policy source. The readiness probe now
-makes the same check against the Codex home, so such a machine reports the lane
-unavailable with the fix in the New task dialog and Workspace Settings instead of
-failing at Send. That run also exposed and fixed two gaps: a turn that fails before a provider run exists could not be
-stopped or cancelled, and is now settled by the supervised stop once the
-process is verified gone; and a thread reference was persisted before any turn
-had run on it, which left nothing to resume after a restart (`no rollout found`)
-and is now persisted only once a turn has started on the thread.
+stopped at the first turn: the CP4 isolation guard refused to start it because
+`~/.codex/rules/default.rules` exists, which is the designed fail-closed
+outcome for an inherited exec-policy source, and one every user who ever chose
+"always allow" in Codex would hit. The lane therefore runs from a
+ByteQuay-owned Codex home instead of the user's `~/.codex`, signed in once with
+the exact command readiness now reports; see the task process boundary in
+[Agent Service Design](agent-service.md). The readiness probe still makes the
+rules check, against ByteQuay's own home. That run also exposed and fixed two
+gaps: a turn that fails before a provider run exists could not be stopped or
+cancelled, and is now settled by the supervised stop once the process is
+verified gone; and a thread reference was persisted before any turn had run on
+it, which left nothing to resume after a restart (`no rollout found`) and is
+now persisted only once a turn has started on the thread.
 
 Implementation:
 

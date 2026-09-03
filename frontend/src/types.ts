@@ -628,6 +628,8 @@ export type AgentProviderStatus = {
   readiness: AgentProviderReadiness;
   version?: string | null;
   diagnostic: string;
+  /** The exact command that signs this lane in, when a generic login would land elsewhere. */
+  signInCommand?: string | null;
 };
 
 export type CherryPickExecutionItem = {
@@ -804,6 +806,8 @@ export type ModelProviderDto = {
   readiness: AgentProviderReadiness;
   version?: string | null;
   diagnostic: string;
+  /** The exact command that signs this lane in, when a generic login would land elsewhere. */
+  signInCommand?: string | null;
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort: string;

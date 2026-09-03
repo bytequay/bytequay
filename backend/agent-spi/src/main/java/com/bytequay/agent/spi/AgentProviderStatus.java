@@ -24,8 +24,23 @@ public record AgentProviderStatus(
         Readiness readiness,
         Optional<String> version,
         String diagnostic,
-        AgentCapabilities capabilities)
+        AgentCapabilities capabilities,
+        Optional<String> signInCommand)
 {
+    public AgentProviderStatus(
+            AgentLaneId laneId,
+            Readiness readiness,
+            Optional<String> version,
+            String diagnostic,
+            AgentCapabilities capabilities)
+    {
+        this(laneId, readiness, version, diagnostic, capabilities, Optional.empty());
+    }
+
+    /**
+     * @param signInCommand the exact command that signs this lane in, when the lane keeps its own
+     * provider home and a generic login would land somewhere else
+     */
     public AgentProviderStatus
     {
         requireNonNull(laneId, "laneId is null");
@@ -33,6 +48,7 @@ public record AgentProviderStatus(
         checkOptionalText(version, "version");
         checkNotBlank(diagnostic, "diagnostic");
         requireNonNull(capabilities, "capabilities is null");
+        checkOptionalText(signInCommand, "signInCommand");
     }
 
     public boolean available()

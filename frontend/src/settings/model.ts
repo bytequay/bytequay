@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { AgentProviderReadiness } from '../types';
+import type { AgentProviderReadiness, AgentProviderStatus } from '../types';
 
 /** Half-hour steps across the day, as minutes of day, for the quiet-hours pickers. */
 export const MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => index * 30);
@@ -85,6 +85,20 @@ export function providerRemedy(readiness: AgentProviderReadiness): ProviderRemed
         command: null,
       };
   }
+}
+
+/**
+ * The command to show for a provider that is not ready.
+ *
+ * A lane that keeps its own provider home names its exact sign-in command, because the generic
+ * one would sign the user's own home in instead.
+ */
+export function remedyCommand(
+  provider: Pick<AgentProviderStatus, 'signInCommand'>,
+  remedy: ProviderRemedy,
+): string | null {
+  if (remedy.kind === 'login' && provider.signInCommand) return provider.signInCommand;
+  return remedy.command;
 }
 
 /** Maps backend provider readiness to the settings badge; checking wins over any probe result. */

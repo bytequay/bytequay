@@ -51,6 +51,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -244,6 +245,39 @@ class TestCodexCliDriver
         assertThat(executable.readiness()).isEqualTo(AgentProviderStatus.Readiness.CLI_MISSING);
         assertThat(executable.available()).isFalse();
         missingDriver.close();
+    }
+
+    @Test
+    void runsEveryCodexProcessInByteQuaysOwnHome()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+
+        driver.probe();
+        driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}).close();
+
+        // Probe commands and the task's App Server alike: nothing from ~/.codex may reach a task,
+        // and a shell that exports CODEX_HOME must not redirect them either.
+        assertThat(supervisor.environments()).isNotEmpty();
+        assertThat(supervisor.environments())
+                .allSatisfy(environment -> assertThat(environment).containsEntry("CODEX_HOME", codexHome().toString()));
+        driver.close();
+    }
+
+    @Test
+    void namesTheCommandThatSignsByteQuaysHomeIn()
+    {
+        ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor(objectMapper);
+        loggedOut.loggedOut();
+        CodexCliDriver driver = driver(loggedOut);
+
+        AgentProviderStatus status = driver.probe();
+
+        // A plain "codex login" would sign the user's own home in, not ByteQuay's.
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        assertThat(status.signInCommand()).contains("CODEX_HOME=\"" + codexHome() + "\" /fake/codex login");
+        assertThat(status.diagnostic()).contains("not signed in for ByteQuay");
+        driver.close();
     }
 
     @Test
@@ -872,8 +906,17 @@ class TestCodexCliDriver
                 supervisor,
                 ImmutableMap.of(
                         "HOME", worktree.toString(),
+                        // A shell that exports its own home must not redirect ByteQuay's processes.
+                        "CODEX_HOME", "/Users/someone/.codex",
                         "OPENAI_API_KEY", "known-secret"),
+                codexHome(),
                 quiescenceTimeout);
+    }
+
+    /** ByteQuay's own Codex home for this test, beside the worktree. */
+    private Path codexHome()
+    {
+        return worktree.resolve(".codex");
     }
 
     private AgentSessionContext context(
@@ -937,6 +980,8 @@ class TestCodexCliDriver
         private final List<AppServerProcess> servers = new CopyOnWriteArrayList<>();
         private final List<Path> serverCwds = new CopyOnWriteArrayList<>();
         private final List<ProcessOwner> serverOwners = new CopyOnWriteArrayList<>();
+        /** The environment of every process launched, App Server and probe alike, in launch order. */
+        private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
         private volatile String hooks = "[]";
         private volatile String configLayers = "[]";
@@ -1063,6 +1108,7 @@ class TestCodexCliDriver
 
         private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
+            environments.add(spec.environment());
             if (executableMissing) {
                 throw new AgentUnavailableException("Unable to start process: /fake/codex", new IOException("missing"));
             }
@@ -1111,6 +1157,11 @@ class TestCodexCliDriver
         private List<AppServerProcess> servers()
         {
             return servers;
+        }
+
+        private List<Map<String, String>> environments()
+        {
+            return environments;
         }
 
         private List<Path> serverCwds()

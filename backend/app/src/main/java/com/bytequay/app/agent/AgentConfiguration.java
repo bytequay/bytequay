@@ -16,6 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
+import com.bytequay.agent.cli.codex.CodexHome;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
@@ -56,6 +57,7 @@ import org.springframework.boot.web.servlet.context.ServletWebServerApplicationC
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Clock;
 import java.util.List;
@@ -78,8 +80,13 @@ public class AgentConfiguration
             AgentProperties properties,
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor)
+            throws IOException
     {
-        return new CodexCliDriver(properties.codexExecutable(), objectMapper, supervisor);
+        return new CodexCliDriver(
+                properties.codexExecutable(),
+                objectMapper,
+                supervisor,
+                CodexHome.prepare(properties.codexHome()));
     }
 
     @Bean

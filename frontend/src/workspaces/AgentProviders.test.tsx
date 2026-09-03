@@ -40,6 +40,13 @@ describe('agent provider rows', () => {
     expect(login).toContain('Sign in required');
     expect(login).toContain('codex login');
     expect(login).toContain('your own terminal');
+
+    // ByteQuay keeps its own Codex home, so the generic login would sign in the wrong one.
+    const own = row('AUTHENTICATION_REQUIRED', {
+      signInCommand: 'CODEX_HOME="/Users/me/Library/Application Support/ByteQuay/codex-home" codex login',
+    });
+    expect(own).toContain('CODEX_HOME=');
+    expect(own).toContain('ByteQuay/codex-home');
   });
 
   it('offers a report only for a CLI it cannot drive', () => {

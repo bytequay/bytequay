@@ -91,6 +91,7 @@ class TestCherryPickPreviewHttpApi
                 SESSION,
                 "codex",
                 false,
+                Path.of("/tmp/agent-codex-home"),
                 "claude",
                 false);
         AgentServingGate servingGate = readyAgentServingGate();

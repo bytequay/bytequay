@@ -28,6 +28,7 @@ public record AgentProperties(
         String desktopSessionToken,
         String codexExecutable,
         boolean codexEnabled,
+        Path codexHome,
         String claudeExecutable,
         boolean claudeEnabled)
 {
@@ -37,6 +38,7 @@ public record AgentProperties(
         requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         requireNonNull(desktopSessionToken, "desktopSessionToken is null");
         requireNonNull(codexExecutable, "codexExecutable is null");
+        requireNonNull(codexHome, "codexHome is null");
         requireNonNull(claudeExecutable, "claudeExecutable is null");
         checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
         checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");

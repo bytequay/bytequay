@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
-import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy } from '../settings/model';
+import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
 import type { AgentBridgePort } from './model';
@@ -74,9 +74,10 @@ export function creationBlocker(
   }
   if (!providerAvailable(provider.readiness)) {
     const remedy = providerRemedy(provider.readiness);
+    const command = remedyCommand(provider, remedy);
     // The probe's own diagnostic names the actual obstacle; the remedy alone can be generic.
     return `${laneLabel(laneId)} is not ready — ${remedy.title}. ${remedy.detail}`
-      + (remedy.command === null ? '' : ` Run: ${remedy.command}`)
+      + (command === null ? '' : ` Run: ${command}`)
       + (provider.diagnostic === '' ? '' : ` ${provider.diagnostic}`);
   }
   if (selection === null || !provider.models.some((model) => model.id === selection.model)) {

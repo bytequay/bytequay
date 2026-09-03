@@ -202,6 +202,13 @@ describe('agent task list', () => {
     expect(blocker).toContain('Codex is not ready');
     expect(blocker).toContain('Sign in');
     expect(blocker).toContain('codex login');
+    // A lane with its own home names the exact command, path included.
+    const ownHome: ModelSettingsDto = {
+      ...catalog,
+      providers: [{ ...catalog.providers[0], signInCommand: 'CODEX_HOME="/x/codex-home" codex login' }],
+    };
+    expect(creationBlocker(ownHome, 'codex', { model: 'gpt-5.6-codex', effort: 'high' }))
+      .toContain('CODEX_HOME="/x/codex-home" codex login');
 
     // A probe that names its obstacle is repeated verbatim, because the remedy alone is generic.
     const unavailable: ModelSettingsDto = {

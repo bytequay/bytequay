@@ -17,6 +17,7 @@ import {
   INTERACTIVE_LANE_ID,
   laneLabel,
   providerRemedy,
+  remedyCommand,
   providerStatusLabel,
 } from '../settings/model';
 import type {
@@ -604,8 +605,8 @@ export function AgentProviderRow({ provider, checking }: {
             <strong>{remedy.title}</strong>{' \u2014 '}{remedy.detail}
           </div>
         )}
-        {remedy.command !== null && (
-          <div className="sets-row-sub sets-mono">{remedy.command}</div>
+        {remedyCommand(provider, remedy) !== null && (
+          <div className="sets-row-sub sets-mono">{remedyCommand(provider, remedy)}</div>
         )}
         {provider.diagnostic !== '' && (
           <div className="sets-row-sub sets-mono">{provider.diagnostic}</div>

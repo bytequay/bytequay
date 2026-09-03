@@ -240,6 +240,8 @@ if [[ "$minimal_worktree" == false ]]; then
 fi
 codex_executable=codex
 codex_enabled=false
+# The app's own Codex home, so the shell reuses the login ByteQuay already holds.
+codex_home="${BYTEQUAY_AGENT_E2E_CODEX_HOME:-$HOME/Library/Application Support/ByteQuay/codex-home}"
 if [[ "$provider" == codex ]]; then
     codex_executable="$(command -v codex)"
     codex_enabled=true
@@ -279,6 +281,7 @@ java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-
     --bytequay.workspace.root="$workspace_root" \
     --bytequay.agent.codex-enabled="$codex_enabled" \
     --bytequay.agent.codex-executable="$codex_executable" \
+    --bytequay.agent.codex-home="$codex_home" \
     --bytequay.agent.claude-enabled=false \
     > "$temporary_directory/process.log" 2>&1 &
 backend_pid=$!

@@ -219,7 +219,8 @@ class TestSqliteAgentApprovalStore
 
     private static ApprovalDecision decision(ApprovalId approvalId, ApprovalDecision.Decision decision, Instant resolvedAt)
     {
-        return new ApprovalDecision(approvalId, decision, Optional.empty(), resolvedAt, false);
+        // Every allow here covers the task, so the round trip exercises the flag.
+        return new ApprovalDecision(approvalId, decision, Optional.empty(), decision == ApprovalDecision.Decision.ALLOW, resolvedAt, false);
     }
 
     private static AgentEventOutboxEntry requestEvent(AgentApproval approval, EventId eventId)

@@ -91,6 +91,7 @@ export type ApprovalBlock = {
   decisions: string[];
   actionable: boolean;
   outcome: string | null;
+  forTask: boolean;
   at: string;
 };
 
@@ -360,6 +361,7 @@ class TurnBuilder {
           decisions: [...event.payload.availableDecisions],
           actionable: event.payload.actionable,
           outcome: null,
+          forTask: false,
           at: event.occurredAt,
         };
         this.approvals.set(block.approvalId, block);
@@ -370,6 +372,7 @@ class TurnBuilder {
         const block = this.approvals.get(event.payload.approvalId);
         if (block !== undefined) {
           block.outcome = event.payload.outcome;
+          block.forTask = event.payload.forTask;
           block.actionable = false;
           block.at = event.occurredAt;
         }

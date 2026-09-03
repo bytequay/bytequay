@@ -108,7 +108,8 @@ class TestFileTaskLogStore
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
                 new AgentEventPayload.ApprovalResolved(
                         "request-1",
-                        AgentEventPayload.ApprovalOutcome.ALLOWED),
+                        AgentEventPayload.ApprovalOutcome.ALLOWED,
+                        false),
                 new AgentEventPayload.UsageUpdated(
                         AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION,
                         10,

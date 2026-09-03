@@ -69,6 +69,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -1278,6 +1279,7 @@ public final class CodexCliDriver
             String detail;
             String itemId;
             List<ProviderApprovalRequest.Decision> availableDecisions;
+            Optional<String> taskScope;
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
                 if (approval.params().additionalPermissions().isPresent()
@@ -1298,6 +1300,7 @@ public final class CodexCliDriver
                 title = "Allow Codex command";
                 detail = redactor.redact(command.orElseThrow());
                 itemId = approval.params().itemId();
+                taskScope = Optional.of(TaskAllowScope.of(detail));
                 availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
                 if (availableDecisions.isEmpty()) {
                     return CompletableFuture.failedFuture(
@@ -1320,6 +1323,7 @@ public final class CodexCliDriver
                 availableDecisions = ImmutableList.of(
                         ALLOW_ONCE,
                         DENY);
+                taskScope = Optional.empty();
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
@@ -1334,6 +1338,7 @@ public final class CodexCliDriver
                     detail,
                     ImmutableList.of(detail),
                     availableDecisions,
+                    taskScope,
                     new ProviderAgentEventSource(
                             Optional.of(serverRequest.threadId()),
                             lineage.parentOf(serverRequest.threadId()),
@@ -1348,8 +1353,10 @@ public final class CodexCliDriver
         /**
          * The product-permitted decisions for a command approval.
          *
-         * <p>Allowing needs the provider to have offered a plain one-time {@code accept}; the
-         * amendment and session-scoped variants are never product-permitted. Denying is always
+         * <p>Allowing needs the provider to have offered a plain one-time {@code accept}. The
+         * task-wide allow is ByteQuay's own: it is answered with that same {@code accept} and
+         * remembered by agent-core for the task's later commands, while the provider's amendment
+         * and session-scoped variants are never product-permitted. Denying is always
          * available: it can widen nothing, {@code decline} is part of the protocol's decision
          * union, and codex-cli 0.152.1 was measured to honour it while omitting it from
          * {@code availableDecisions} for an escalated command, offering only {@code accept},
@@ -1362,7 +1369,7 @@ public final class CodexCliDriver
             boolean allowOnce = offeredDecisions
                     .map(decisions -> decisions.stream().anyMatch(CodexSession::isPlainAccept))
                     .orElse(true);
-            return allowOnce ? ImmutableList.of(ALLOW_ONCE, DENY) : ImmutableList.of(DENY);
+            return allowOnce ? ImmutableList.of(ALLOW_ONCE, ALLOW_FOR_TASK, DENY) : ImmutableList.of(DENY);
         }
 
         private static boolean isPlainAccept(JsonNode decision)

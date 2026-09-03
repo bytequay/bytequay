@@ -228,12 +228,19 @@ describe('projecting rows', () => {
       decisions: ['ALLOW_ONCE', 'DENY'],
       actionable: true,
       outcome: null,
+      forTask: false,
       at: '2026-08-20T10:00:07Z',
     };
 
     // Each offered decision keeps the answer the bridge actually accepts for it.
     expect(approvalDecisions(open)).toEqual([
       { offered: 'ALLOW_ONCE', decision: 'ALLOW', label: 'Allow once' },
+      { offered: 'DENY', decision: 'DENY', label: 'Deny' },
+    ]);
+    // The task-wide allow is a third answer, drawn between once and deny as the design does.
+    expect(approvalDecisions({ ...open, decisions: ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'] })).toEqual([
+      { offered: 'ALLOW_ONCE', decision: 'ALLOW', label: 'Allow once' },
+      { offered: 'ALLOW_FOR_TASK', decision: 'ALLOW_FOR_TASK', label: 'Allow for this task' },
       { offered: 'DENY', decision: 'DENY', label: 'Deny' },
     ]);
     // Fails closed rather than collapsing to an allow/deny guess nobody offered.

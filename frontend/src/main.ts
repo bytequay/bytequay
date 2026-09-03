@@ -474,7 +474,11 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/approvals/${encodeURIComponent(approvalId)}`, {
       method: 'POST',
       headers: agentHeaders(true),
-      body: JSON.stringify({ decision, scopedPermission: scopedPermission ?? null }),
+      body: JSON.stringify({
+        decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
+        forTask: decision === 'ALLOW_FOR_TASK',
+        scopedPermission: scopedPermission ?? null,
+      }),
     }).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/complete`

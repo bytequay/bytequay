@@ -221,6 +221,7 @@ export function parseAgentApproval(value: unknown, path = 'approval'): AgentAppr
     approvalId: text(source.approvalId, `${path}.approvalId`),
     decision,
     scopedPermission: optionalText(source.scopedPermission, `${path}.scopedPermission`),
+    forTask: source.forTask === true,
     resolvedAt: text(source.resolvedAt, `${path}.resolvedAt`),
     timedOut: source.timedOut === true,
   };

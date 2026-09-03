@@ -177,9 +177,18 @@ cards show the requested destination or scope rather than pretending every
 request is a shell command.
 
 The card renders only the product-permitted subset of decisions offered for
-that request kind. Command/file requests may offer one-time or session-scoped
-choices; permission requests show the grantable subset. The renderer sends a
-tagged response, not a generic boolean. When a command request omits its
+that request kind. Command requests offer Allow once, Allow for this task and
+Deny; file requests offer Allow once and Deny; permission requests show the
+grantable subset. Allow for this task answers, without a card, every later
+command in the same task with the same first three words, none of them an
+option (`gh issue list`); a command with fewer such words (`git status`,
+`sed -n 1,220p`) or a compound script is covered only when the identical
+command line comes back, because a shorter prefix (`gh api`) would also cover
+commands that do something else. Every command an allow answers is still
+recorded and shown as approved for the task. The allow reaches the provider
+as a plain one-time accept and is remembered by ByteQuay for the task, never
+as a provider rule, and it does not outlive a restart of the app. The renderer
+sends a tagged response, not a generic boolean. When a command request omits its
 optional `availableDecisions`, the driver supplies the legal command defaults
 defined by its protocol mapping and then intersects them with ByteQuay's
 immutable safety ceiling; file and permission requests use the same ceiling.

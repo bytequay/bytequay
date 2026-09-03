@@ -57,6 +57,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,7 +121,8 @@ class TestDefaultAgentApprovalService
         ResolveApprovalCommand command = new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty());
+                Optional.empty(),
+                false);
 
         ApprovalDecision decision = service.resolve(command);
 
@@ -151,7 +153,8 @@ class TestDefaultAgentApprovalService
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.DENY,
-                Optional.empty())))
+                Optional.empty(),
+                false)))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -174,7 +177,8 @@ class TestDefaultAgentApprovalService
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty())))
+                Optional.empty(),
+                false)))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -207,15 +211,75 @@ class TestDefaultAgentApprovalService
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty())))
+                Optional.empty(),
+                false)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("not offered");
 
         assertThat(service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.DENY,
-                Optional.empty())).decision())
+                Optional.empty(),
+                false)).decision())
                 .isEqualTo(ApprovalDecision.Decision.DENY);
+    }
+
+    @Test
+    void allowForTaskAnswersTheTasksLaterRequestsWithTheSameScope()
+    {
+        List<ProviderApprovalRequest.Decision> decisions = ImmutableList.of(ALLOW_ONCE, ALLOW_FOR_TASK, DENY);
+        ApprovalRequest first = request(TurnId.random(), decisions, Optional.of("gh issue list"));
+        service.request(first, Duration.ofMinutes(1));
+        assertThat(eventService.events.getFirst().payload()).isInstanceOfSatisfying(
+                AgentEventPayload.ApprovalRequested.class,
+                approval -> assertThat(approval.availableDecisions()).containsExactly(
+                        AgentEventPayload.ApprovalOption.ALLOW_ONCE,
+                        AgentEventPayload.ApprovalOption.ALLOW_FOR_TASK,
+                        AgentEventPayload.ApprovalOption.DENY));
+
+        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(
+                first.id(),
+                ApprovalDecision.Decision.ALLOW,
+                Optional.empty(),
+                true));
+        assertThat(decision.forTask()).isTrue();
+        assertThat(eventService.events.getLast().payload()).isEqualTo(new AgentEventPayload.ApprovalResolved(
+                first.id().toString(),
+                AgentEventPayload.ApprovalOutcome.ALLOWED,
+                true));
+
+        // The same scope in the same task needs no card decision, and is recorded as allowed for the task.
+        ApprovalRequest second = request(first.turnId(), decisions, Optional.of("gh issue list"));
+        assertThat(service.request(second, Duration.ofMinutes(1)).toCompletableFuture())
+                .isCompletedWithValueMatching(ApprovalDecision::forTask);
+        assertThat(eventService.events.getLast().payload()).isEqualTo(new AgentEventPayload.ApprovalResolved(
+                second.id().toString(),
+                AgentEventPayload.ApprovalOutcome.ALLOWED,
+                true));
+
+        // Another scope, or another task, still waits on the user.
+        ApprovalRequest other = request(first.turnId(), decisions, Optional.of("gh pr create"));
+        assertThat(service.request(other, Duration.ofMinutes(1)).toCompletableFuture()).isNotDone();
+        ApprovalRequest elsewhere = request(TurnId.random(), decisions, Optional.of("gh issue list"));
+        assertThat(service.request(elsewhere, Duration.ofMinutes(1)).toCompletableFuture()).isNotDone();
+        service.denyPending(first.turnId());
+        service.denyPending(elsewhere.turnId());
+    }
+
+    @Test
+    void rejectsAllowForTaskThatWasNotOffered()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        service.request(request, Duration.ofMinutes(1));
+
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
+                request.id(),
+                ApprovalDecision.Decision.ALLOW,
+                Optional.empty(),
+                true)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("not offered");
+        service.denyPending(request.turnId());
     }
 
     @Test
@@ -227,7 +291,8 @@ class TestDefaultAgentApprovalService
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.of("session"))))
+                Optional.of("session"),
+                false)))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("Scoped approval");
         service.denyPending(request.turnId());
@@ -245,7 +310,8 @@ class TestDefaultAgentApprovalService
         assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty())))
+                Optional.empty(),
+                false)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("no longer accepts decisions");
 
@@ -345,7 +411,8 @@ class TestDefaultAgentApprovalService
                 new ResolveApprovalCommand(
                         request.id(),
                         ApprovalDecision.Decision.ALLOW,
-                        Optional.empty())));
+                        Optional.empty(),
+                        false)));
 
         eventService.awaitResolutionAppend();
         assertThat(stores.find(request.id()).orElseThrow().decision())
@@ -395,7 +462,8 @@ class TestDefaultAgentApprovalService
         ResolveApprovalCommand command = new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty());
+                Optional.empty(),
+                false);
         eventService.failNextResolutionDrain();
 
         assertThatThrownBy(() -> service.resolve(command))
@@ -436,7 +504,8 @@ class TestDefaultAgentApprovalService
         ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(
                 request.id(),
                 ApprovalDecision.Decision.ALLOW,
-                Optional.empty()));
+                Optional.empty(),
+                false));
 
         assertThat(provider).isCompletedWithValue(decision);
         stores.clearApprovalFindFailure();
@@ -473,7 +542,8 @@ class TestDefaultAgentApprovalService
             service.resolve(new ResolveApprovalCommand(
                     request.id(),
                     ApprovalDecision.Decision.ALLOW,
-                    Optional.empty()));
+                    Optional.empty(),
+                    false));
         });
 
         ApprovalDecision decision = service.request(request, Duration.ofMinutes(1))
@@ -501,6 +571,14 @@ class TestDefaultAgentApprovalService
             TurnId turnId,
             List<ProviderApprovalRequest.Decision> availableDecisions)
     {
+        return request(turnId, availableDecisions, Optional.empty());
+    }
+
+    private ApprovalRequest request(
+            TurnId turnId,
+            List<ProviderApprovalRequest.Decision> availableDecisions,
+            Optional<String> taskScope)
+    {
         Optional<AgentTurn> existingTurn = stores.find(turnId);
         TaskId taskId = existingTurn.map(AgentTurn::taskId).orElseGet(TaskId::random);
         ApprovalRequest request = new ApprovalRequest(
@@ -514,6 +592,7 @@ class TestDefaultAgentApprovalService
                         "git status",
                         ImmutableList.of("command:git status"),
                         availableDecisions,
+                        taskScope,
                         new ProviderAgentEventSource(
                                 Optional.of("provider-thread"),
                                 Optional.empty(),

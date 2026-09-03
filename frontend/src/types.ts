@@ -620,12 +620,15 @@ export type AgentAttachmentBytesDto = {
   bytes: Uint8Array;
 };
 
-export type AgentApprovalDecision = 'ALLOW' | 'DENY';
+/** What the user chose on a card; a task-wide allow reaches the backend as an allow that covers the task. */
+export type AgentApprovalDecision = 'ALLOW' | 'ALLOW_FOR_TASK' | 'DENY';
 
 export type AgentApprovalDto = {
   approvalId: string;
-  decision: AgentApprovalDecision;
+  decision: 'ALLOW' | 'DENY';
   scopedPermission: string | null;
+  /** Whether the allow also answers the task's later commands with the same leading words. */
+  forTask: boolean;
   resolvedAt: string;
   timedOut: boolean;
 };

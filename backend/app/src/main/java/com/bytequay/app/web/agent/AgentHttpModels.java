@@ -52,6 +52,7 @@ final class AgentHttpModels
                 decision.approvalId().toString(),
                 decision.decision().name(),
                 decision.scopedPermission(),
+                decision.forTask(),
                 decision.resolvedAt(),
                 decision.timedOut());
     }
@@ -118,6 +119,7 @@ final class AgentHttpModels
             String approvalId,
             String decision,
             Optional<String> scopedPermission,
+            boolean forTask,
             Instant resolvedAt,
             boolean timedOut) {}
 

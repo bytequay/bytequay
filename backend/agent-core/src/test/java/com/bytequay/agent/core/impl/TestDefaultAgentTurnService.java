@@ -1202,6 +1202,7 @@ class TestDefaultAgentTurnService
                     request.id(),
                     ApprovalDecision.Decision.ALLOW,
                     Optional.of("command:run"),
+                    false,
                     NOW,
                     false));
         }

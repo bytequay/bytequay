@@ -59,6 +59,8 @@ public class AgentApprovalEntity
 
     private String scopedPermission;
 
+    private Boolean forTask;
+
     @Convert(converter = InstantToTextConverter.class)
     private Instant resolvedAt;
 
@@ -84,6 +86,7 @@ public class AgentApprovalEntity
         approval.decision().ifPresent(value -> {
             entity.decision = value.decision();
             entity.scopedPermission = value.scopedPermission().orElse(null);
+            entity.forTask = value.forTask();
             entity.resolvedAt = value.resolvedAt();
             entity.timedOut = value.timedOut();
         });
@@ -99,6 +102,7 @@ public class AgentApprovalEntity
                         request.id(),
                         value,
                         Optional.ofNullable(scopedPermission),
+                        Boolean.TRUE.equals(forTask),
                         resolvedAt,
                         timedOut));
         return new AgentApproval(request, approvalDecision, Optional.ofNullable(outcome));

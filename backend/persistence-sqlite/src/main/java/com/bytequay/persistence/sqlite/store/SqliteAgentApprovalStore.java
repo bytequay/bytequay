@@ -87,6 +87,7 @@ public class SqliteAgentApprovalStore
                     approvalId.toString(),
                     decision.decision(),
                     decision.scopedPermission().orElse(null),
+                    decision.forTask(),
                     decision.resolvedAt(),
                     decision.timedOut(),
                     outcome) == 1;

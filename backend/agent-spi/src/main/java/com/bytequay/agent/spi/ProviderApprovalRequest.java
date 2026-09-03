@@ -17,8 +17,10 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -29,6 +31,8 @@ public record ProviderApprovalRequest(
         String detail,
         List<String> requestedPermissions,
         List<Decision> availableDecisions,
+        /** The words a task-wide allow covers; present whenever {@link Decision#ALLOW_FOR_TASK} is offered. */
+        Optional<String> taskScope,
         ProviderAgentEventSource source,
         Instant requestedAt)
 {
@@ -40,11 +44,27 @@ public record ProviderApprovalRequest(
         requireNonNull(detail, "detail is null");
         requestedPermissions = ImmutableList.copyOf(requestedPermissions);
         availableDecisions = ImmutableList.copyOf(availableDecisions);
+        checkOptionalText(taskScope, "taskScope");
         requireNonNull(source, "source is null");
         requireNonNull(requestedAt, "requestedAt is null");
         checkArgument(requestedPermissions.stream().noneMatch(String::isBlank), "requestedPermissions contains a blank value");
         checkArgument(!availableDecisions.isEmpty(), "availableDecisions is empty");
         checkArgument(availableDecisions.contains(Decision.DENY), "availableDecisions does not contain DENY");
+        checkArgument(!availableDecisions.contains(Decision.ALLOW_FOR_TASK) || taskScope.isPresent(), "ALLOW_FOR_TASK is offered without a taskScope");
+    }
+
+    /** A request nothing task-wide can cover, such as one from a provider that names no scope. */
+    public ProviderApprovalRequest(
+            String providerRequestId,
+            Kind kind,
+            String title,
+            String detail,
+            List<String> requestedPermissions,
+            List<Decision> availableDecisions,
+            ProviderAgentEventSource source,
+            Instant requestedAt)
+    {
+        this(providerRequestId, kind, title, detail, requestedPermissions, availableDecisions, Optional.empty(), source, requestedAt);
     }
 
     public enum Kind
@@ -58,6 +78,8 @@ public record ProviderApprovalRequest(
     public enum Decision
     {
         ALLOW_ONCE,
+        /** Allows this command and every later one in the task with the same {@code taskScope}. */
+        ALLOW_FOR_TASK,
         DENY
     }
 }

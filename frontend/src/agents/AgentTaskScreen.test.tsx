@@ -611,6 +611,21 @@ describe('agent task detail', () => {
     expect(markup).toContain('aria-label="Allow once: ');
   });
 
+  it('offers the task-wide allow the design draws, and shows an allow that covered the task', () => {
+    const decisions: Array<'ALLOW_ONCE' | 'ALLOW_FOR_TASK' | 'DENY'> = ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'];
+    const offered = events.map((event) => {
+      if (event.type === 'approval_requested' && event.payload.approvalId === 'approval-2') {
+        return { ...event, payload: { ...event.payload, availableDecisions: decisions } };
+      }
+      return event.type === 'approval_resolved' ? { ...event, payload: { ...event.payload, forTask: true } } : event;
+    });
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: offered, connection: 'open' });
+
+    // Drawn between Allow once and Deny as a plain button, the way the design draws it.
+    expect(markup).toMatch(/Allow once<\/button><button type="button" class="agt-decision" aria-label="Allow for this task: Run a command in this workspace">Allow for this task<\/button><button type="button" class="agt-decision is-deny"/);
+    expect(markup).toContain('Approved for this task —');
+  });
+
   it('offers the image control only for a model that accepts images, and shows drafts and previews', () => {
     const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
     const withImages = body({ task: vision, connection: 'open', attachments: [

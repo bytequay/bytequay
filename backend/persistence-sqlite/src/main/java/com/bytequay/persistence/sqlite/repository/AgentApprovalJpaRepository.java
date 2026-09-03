@@ -31,6 +31,7 @@ public interface AgentApprovalJpaRepository
             UPDATE AgentApprovalEntity approval
             SET approval.decision = :decision,
                 approval.scopedPermission = :scopedPermission,
+                approval.forTask = :forTask,
                 approval.resolvedAt = :resolvedAt,
                 approval.timedOut = :timedOut,
                 approval.outcome = :outcome
@@ -41,6 +42,7 @@ public interface AgentApprovalJpaRepository
             String id,
             ApprovalDecision.Decision decision,
             String scopedPermission,
+            boolean forTask,
             Instant resolvedAt,
             boolean timedOut,
             AgentEventPayload.ApprovalOutcome outcome);

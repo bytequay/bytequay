@@ -193,7 +193,8 @@ export function createPreviewBridge(
       record('resolveAgentApproval', approvalId, decision, scopedPermission);
       return {
         approvalId,
-        decision,
+        decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
+        forTask: decision === 'ALLOW_FOR_TASK',
         scopedPermission: scopedPermission ?? null,
         resolvedAt: '2026-08-20T10:00:05Z',
         timedOut: false,

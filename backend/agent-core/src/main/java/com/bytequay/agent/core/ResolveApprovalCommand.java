@@ -22,7 +22,8 @@ import static java.util.Objects.requireNonNull;
 public record ResolveApprovalCommand(
         ApprovalId approvalId,
         ApprovalDecision.Decision decision,
-        Optional<String> scopedPermission)
+        Optional<String> scopedPermission,
+        boolean forTask)
 {
     public ResolveApprovalCommand
     {
@@ -30,5 +31,6 @@ public record ResolveApprovalCommand(
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
         checkArgument(decision != ApprovalDecision.Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
+        checkArgument(!forTask || decision == ApprovalDecision.Decision.ALLOW, "only an allow can cover the task");
     }
 }

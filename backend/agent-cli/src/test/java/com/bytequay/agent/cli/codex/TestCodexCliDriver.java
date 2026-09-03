@@ -506,8 +506,8 @@ class TestCodexCliDriver
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
 
         // Measured on codex-cli 0.152.1: an escalated command offers accept, the amendment variant
-        // and cancel, but no decline. The card still offers Allow once and Deny, the amendment is
-        // never offered, and a deny is sent as decline, which the server honours.
+        // and cancel, but no decline. The card offers Allow once, ByteQuay's own Allow for this task
+        // and Deny; the amendment is never offered, and a deny is sent as decline, which the server honours.
         decision.set(ProviderApprovalDecision.deny());
         server.emit("""
                 {"id":98,"method":"item/commandExecution/requestApproval","params":{
@@ -518,7 +518,12 @@ class TestCodexCliDriver
         awaitCondition(() -> server.result(98) != null);
         assertThat(server.result(98).path("decision").asText()).isEqualTo("decline");
         assertThat(approval.get().availableDecisions())
-                .containsExactly(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY);
+                .containsExactly(
+                        ProviderApprovalRequest.Decision.ALLOW_ONCE,
+                        ProviderApprovalRequest.Decision.ALLOW_FOR_TASK,
+                        ProviderApprovalRequest.Decision.DENY);
+        // A redirect makes the script compound, so only this exact command line is covered.
+        assertThat(approval.get().taskScope()).contains("/bin/zsh -lc 'printf hello > /Users/me/probe.txt'");
         driver.close();
     }
 

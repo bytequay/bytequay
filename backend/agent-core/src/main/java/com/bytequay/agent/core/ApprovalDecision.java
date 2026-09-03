@@ -24,6 +24,8 @@ public record ApprovalDecision(
         ApprovalId approvalId,
         Decision decision,
         Optional<String> scopedPermission,
+        /** Whether this allow also answers the task's later requests with the same scope. */
+        boolean forTask,
         Instant resolvedAt,
         boolean timedOut)
 {
@@ -34,6 +36,7 @@ public record ApprovalDecision(
         checkOptionalText(scopedPermission, "scopedPermission");
         requireNonNull(resolvedAt, "resolvedAt is null");
         checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
+        checkArgument(!forTask || decision == Decision.ALLOW, "only an allow can cover the task");
         checkArgument(!timedOut || decision == Decision.DENY, "an approval timeout must deny");
     }
 

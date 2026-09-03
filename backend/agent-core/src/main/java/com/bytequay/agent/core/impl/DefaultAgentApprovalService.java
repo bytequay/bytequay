@@ -41,6 +41,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +53,7 @@ import java.util.concurrent.TimeUnit;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -70,6 +72,8 @@ public final class DefaultAgentApprovalService
     private final Clock clock;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final ConcurrentMap<ApprovalId, PendingApproval> pending = new ConcurrentHashMap<>();
+    // ponytail: task-wide allows live with the process, so a restart asks once more; keep them on the task if that bites.
+    private final ConcurrentMap<TaskId, Set<String>> taskAllows = new ConcurrentHashMap<>();
 
     public DefaultAgentApprovalService(
             AgentApprovalStore approvalStore,
@@ -103,6 +107,7 @@ public final class DefaultAgentApprovalService
             throw new AgentConflictException("Approval identifier is already pending: " + request.id());
         }
         AgentApproval stored = AgentApproval.pending(request);
+        boolean covered = covered(request);
         EventId requestEventId = EventId.random();
         boolean persisted = false;
         boolean requestEventDrained = false;
@@ -120,6 +125,10 @@ public final class DefaultAgentApprovalService
                     Math.max(1, timeout.toMillis()),
                     TimeUnit.MILLISECONDS);
             live.setTimeoutFuture(timeoutFuture);
+            if (covered) {
+                // An earlier "allow for this task" answers it; the transcript still shows the command and the allow.
+                resolveAndPublish(stored, taskAllow(request.id()), AgentEventPayload.ApprovalOutcome.ALLOWED);
+            }
             return live.future();
         }
         catch (RuntimeException failure) {
@@ -176,12 +185,16 @@ public final class DefaultAgentApprovalService
                     command.approvalId(),
                     command.decision(),
                     command.scopedPermission(),
+                    command.forTask(),
                     Instant.now(clock),
                     false);
             resolution = prepareResolution(approval, decision, outcome(decision));
         }
         ApprovalDecision recorded = publishResolution(resolution);
         if (sameDecision(recorded, command)) {
+            if (recorded.forTask()) {
+                rememberTaskAllow(discovered.request());
+            }
             return recorded;
         }
         throw new AgentConflictException("Approval was already resolved differently: " + command.approvalId());
@@ -248,8 +261,29 @@ public final class DefaultAgentApprovalService
                 approvalId,
                 ApprovalDecision.Decision.DENY,
                 Optional.empty(),
+                false,
                 Instant.now(clock),
                 timedOut);
+    }
+
+    private ApprovalDecision taskAllow(ApprovalId approvalId)
+    {
+        return new ApprovalDecision(approvalId, ApprovalDecision.Decision.ALLOW, Optional.empty(), true, Instant.now(clock), false);
+    }
+
+    private boolean covered(ApprovalRequest request)
+    {
+        ProviderApprovalRequest providerRequest = request.providerRequest();
+        return providerRequest.availableDecisions().contains(ALLOW_FOR_TASK)
+                && providerRequest.taskScope()
+                        .map(scope -> taskAllows.getOrDefault(request.taskId(), Set.of()).contains(scope))
+                        .orElse(false);
+    }
+
+    private void rememberTaskAllow(ApprovalRequest request)
+    {
+        request.providerRequest().taskScope().ifPresent(scope ->
+                taskAllows.computeIfAbsent(request.taskId(), ignored -> ConcurrentHashMap.newKeySet()).add(scope));
     }
 
     private void resolveAndPublish(
@@ -372,7 +406,7 @@ public final class DefaultAgentApprovalService
     private static void checkOfferedDecision(AgentApproval approval, ResolveApprovalCommand command)
     {
         ProviderApprovalRequest.Decision requestedDecision = switch (command.decision()) {
-            case ALLOW -> ALLOW_ONCE;
+            case ALLOW -> command.forTask() ? ALLOW_FOR_TASK : ALLOW_ONCE;
             case DENY -> DENY;
         };
         if (!approval.request().providerRequest().availableDecisions().contains(requestedDecision)) {
@@ -421,7 +455,8 @@ public final class DefaultAgentApprovalService
                 source(request.providerRequest(), Optional.empty()),
                 new AgentEventPayload.ApprovalResolved(
                         request.id().toString(),
-                        outcome),
+                        outcome,
+                        decision.forTask()),
                 decision.resolvedAt());
     }
 
@@ -430,6 +465,7 @@ public final class DefaultAgentApprovalService
         return request.availableDecisions().stream()
                 .map(decision -> switch (decision) {
                     case ALLOW_ONCE -> AgentEventPayload.ApprovalOption.ALLOW_ONCE;
+                    case ALLOW_FOR_TASK -> AgentEventPayload.ApprovalOption.ALLOW_FOR_TASK;
                     case DENY -> AgentEventPayload.ApprovalOption.DENY;
                 })
                 .collect(toImmutableList());
@@ -462,7 +498,8 @@ public final class DefaultAgentApprovalService
     private static boolean sameDecision(ApprovalDecision previous, ResolveApprovalCommand command)
     {
         return previous.decision() == command.decision()
-                && previous.scopedPermission().equals(command.scopedPermission());
+                && previous.scopedPermission().equals(command.scopedPermission())
+                && previous.forTask() == command.forTask();
     }
 
     private record PreparedResolution(

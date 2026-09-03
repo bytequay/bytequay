@@ -215,6 +215,7 @@ export interface AgentApprovalChoice {
 
 const PRODUCT_DECISIONS: Record<string, { decision: AgentApprovalDecision; label: string }> = {
   ALLOW_ONCE: { decision: 'ALLOW', label: 'Allow once' },
+  ALLOW_FOR_TASK: { decision: 'ALLOW_FOR_TASK', label: 'Allow for this task' },
   DENY: { decision: 'DENY', label: 'Deny' },
 };
 

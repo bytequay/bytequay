@@ -56,6 +56,21 @@ describe('agent event contract', () => {
     expect(approval?.payload.availableDecisions).toEqual(['ALLOW_ONCE', 'DENY']);
   });
 
+  it('reads a task-wide allow, and defaults it off on resolutions stored before it existed', () => {
+    const stored = parseAgentEventSequence(fixture.events).find(event => event.type === 'approval_resolved');
+    expect(stored?.payload.forTask).toBe(false);
+    const offered = structuredClone(fixture.events).map(event => {
+      if (event.type === 'approval_requested') {
+        return { ...event, payload: { ...event.payload, availableDecisions: ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'] } };
+      }
+      return event.type === 'approval_resolved' ? { ...event, payload: { ...event.payload, forTask: true } } : event;
+    });
+    const parsed = parseAgentEventSequence(offered);
+    expect(parsed.find(event => event.type === 'approval_resolved')?.payload.forTask).toBe(true);
+    expect(parsed.find(event => event.type === 'approval_requested')?.payload.availableDecisions)
+      .toEqual(['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY']);
+  });
+
   it('rejects a duplicate sequence', () => {
     const duplicate = structuredClone(fixture.events);
     duplicate[5].sequence = duplicate[4].sequence;

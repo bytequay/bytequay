@@ -34,7 +34,7 @@ const ACTIVITY_STATES = ['STARTED', 'PROGRESS', 'COMPLETED', 'FAILED'] as const;
 const CHANGE_KINDS = ['ADDED', 'MODIFIED', 'DELETED', 'RENAMED'] as const;
 const PLAN_ITEM_STATES = ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const;
 const APPROVAL_KINDS = ['COMMAND', 'FILE_CHANGE', 'OTHER'] as const;
-const APPROVAL_OPTIONS = ['ALLOW_ONCE', 'DENY'] as const;
+const APPROVAL_OPTIONS = ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'] as const;
 const APPROVAL_OUTCOMES = ['ALLOWED', 'DENIED', 'EXPIRED', 'CANCELLED'] as const;
 const USAGE_SEMANTICS = ['CUMULATIVE', 'DELTA', 'FINAL_FOR_INVOCATION'] as const;
 const COST_PROVENANCE = ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const;
@@ -128,6 +128,8 @@ export type AgentEventEnvelope =
   | AgentEvent<'approval_resolved', {
     approvalId: string;
     outcome: typeof APPROVAL_OUTCOMES[number];
+    /** Whether the allow covers the task's later commands too. False on events stored before it existed. */
+    forTask: boolean;
   }>
   | AgentEvent<'usage', {
     semantics: typeof USAGE_SEMANTICS[number];
@@ -277,6 +279,8 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
     case 'approval_resolved':
       stringValue(payload.approvalId, 'approvalResolved.approvalId');
       enumValue(payload.outcome, APPROVAL_OUTCOMES, 'approvalResolved.outcome');
+      if (payload.forTask === undefined) payload.forTask = false;
+      booleanValue(payload.forTask, 'approvalResolved.forTask');
       break;
     case 'usage':
       enumValue(payload.semantics, USAGE_SEMANTICS, 'usage.semantics');

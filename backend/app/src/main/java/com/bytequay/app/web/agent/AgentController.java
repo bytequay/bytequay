@@ -359,7 +359,8 @@ public class AgentController
         return AgentHttpModels.approval(approvalService.resolve(new ResolveApprovalCommand(
                 ApprovalId.valueOf(approvalId),
                 request.decision(),
-                Optional.ofNullable(request.scopedPermission()))));
+                Optional.ofNullable(request.scopedPermission()),
+                Boolean.TRUE.equals(request.forTask()))));
     }
 
     @PostMapping("/tasks/{taskId}/complete")
@@ -473,7 +474,8 @@ public class AgentController
 
     public record ResolveApprovalRequest(
             ApprovalDecision.Decision decision,
-            String scopedPermission) {}
+            String scopedPermission,
+            Boolean forTask) {}
 
     public record CompleteTaskRequest(String notes) {}
 

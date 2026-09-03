@@ -331,7 +331,7 @@ function ApprovalView({ block, onDecide }: {
     return (
       <div className="agt-appr-done" role="group" aria-label={`Approval: ${block.title}`}>
         <span className={`agt-icon ${block.outcome === 'ALLOWED' ? 'is-ok' : 'is-failed'}`} aria-hidden="true">{block.outcome === 'ALLOWED' ? '✓' : '✕'}</span>
-        <span>{OUTCOME_LABELS[block.outcome] ?? block.outcome} —</span>
+        <span>{block.outcome === 'ALLOWED' && block.forTask ? 'Approved for this task' : OUTCOME_LABELS[block.outcome] ?? block.outcome} —</span>
         <span className="agt-mono">{block.detail}</span>
         <span>· {clock(block.at)}</span>
       </div>
@@ -357,7 +357,7 @@ function ApprovalView({ block, onDecide }: {
             <button
               key={choice.offered}
               type="button"
-              className={`agt-decision${choice.decision === 'ALLOW' ? ' is-allow' : ' is-deny'}`}
+              className={`agt-decision${choice.decision === 'ALLOW' ? ' is-allow' : choice.decision === 'DENY' ? ' is-deny' : ''}`}
               aria-label={`${choice.label}: ${block.title}`}
               onClick={() => onDecide?.(block.approvalId, choice.decision)}
             >

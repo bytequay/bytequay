@@ -1733,9 +1733,10 @@ Each commit passed `mvn verify` in a scratch worktree (1050 tests) where it
 touched the backend, and lint, `tsc` and 359 renderer tests otherwise. What
 differs from the HTML, and why: the composer has no Retry text button because
 the design has none — a failed turn is retried by typing again, and the
-recovery card keeps its disabled Retry; Approval offers only the decisions the
-provider actually offers, so the design's "Allow for this task" appears only
-when Codex offers it; a window's ✕ completes an idle task after confirmation
+recovery card keeps its disabled Retry; "Allow for this task" is ByteQuay's own
+task-scoped allow (§2.4 of the UI design), answered to Codex as a plain accept
+and remembered per task, because Codex 0.152.1 proposes the whole command line
+as its rule for a shell-wrapped command; a window's ✕ completes an idle task after confirmation
 and is disabled while a turn holds the checkout; and the provider chip, the
 permission chip, Steer and Run next are the `data-fake` placeholders left for
 CP11 and CP10, drawn as the design draws them. In

@@ -208,13 +208,14 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record ApprovalResolved(String approvalId, ApprovalOutcome outcome)
+    record ApprovalResolved(String approvalId, ApprovalOutcome outcome, boolean forTask)
             implements AgentEventPayload
     {
         public ApprovalResolved
         {
             checkNotBlank(approvalId, "approvalId");
             requireNonNull(outcome, "outcome is null");
+            checkArgument(!forTask || outcome == ApprovalOutcome.ALLOWED, "only an allowed approval can cover the task");
         }
 
         @Override
@@ -379,6 +380,7 @@ public sealed interface AgentEventPayload
     enum ApprovalOption
     {
         ALLOW_ONCE,
+        ALLOW_FOR_TASK,
         DENY
     }
 

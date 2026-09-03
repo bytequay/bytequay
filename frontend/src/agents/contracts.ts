@@ -180,7 +180,14 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
     sandboxPolicy: text(source.sandboxPolicy, `${path}.sandboxPolicy`),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
     // Attachment contents and their paths stay in the backend; only their ids may cross.
-    attachments: textList(source.attachments ?? [], `${path}.attachments`),
+    attachments: list(source.attachments ?? [], `${path}.attachments`).map((entry, index) => {
+      const item = object(entry, `${path}.attachments[${index}]`);
+      return {
+        id: text(item.id, `${path}.attachments[${index}].id`),
+        name: text(item.name, `${path}.attachments[${index}].name`),
+        mediaType: text(item.mediaType, `${path}.attachments[${index}].mediaType`),
+      };
+    }),
   };
 }
 

@@ -556,13 +556,20 @@ export type AgentTaskDto = {
   checkoutRemovedAt: string | null;
 };
 
+/** An image the turn ran with, as the backend names it: an opaque id, its name and type, never bytes or a path. */
+export type AgentAttachmentReferenceDto = {
+  id: string;
+  name: string;
+  mediaType: string;
+};
+
 export type AgentTurnSettingsDto = {
   model: string | null;
   effort: string | null;
   permissionPolicy: string;
   sandboxPolicy: string;
   maximumRuntimeMillis: number;
-  attachments: string[];
+  attachments: AgentAttachmentReferenceDto[];
 };
 
 export type AgentTurnDto = {

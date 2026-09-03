@@ -61,6 +61,13 @@ describe('agent contract parsing', () => {
     expect(turn.id).toBe(fixture.turn.id);
     expect(turn.settings?.sandboxPolicy).toBe('WORKSPACE_WRITE');
     expect(turn.settings?.attachments).toEqual([]);
+
+    // A turn that ran with an image names it the way the backend does: a reference, not a bare id.
+    const reference = { id: 'attachment-1', name: 'red-square.png', mediaType: 'image/png' };
+    const withImage = parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, attachments: [reference] } });
+    expect(withImage.settings?.attachments).toEqual([reference]);
+    expect(() => parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, attachments: ['attachment-1'] } }))
+      .toThrow(/attachments\[0\]/);
   });
 
   it('reads a completion', () => {

@@ -244,13 +244,6 @@
   color: #cf222e;
 }
 
-/* What the next turn will use, stated where the message that starts it is typed. */
-.agt-next {
-  font-size: 11.5px;
-  color: #57606a;
-  padding: 0 2px;
-}
-
 .agt-transcript {
   display: flex;
   flex-direction: column;
@@ -265,8 +258,7 @@
  * A reading column, centred inside a full-width scroller so the scrollbar stays at the pane edge.
  * Transcript prose is unreadable stretched across a wide window.
  */
-.agt-transcript > *,
-.agt-composer {
+.agt-transcript > * {
   width: 100%;
   max-width: 760px;
   margin-left: auto;
@@ -334,27 +326,6 @@
   font-weight: 600;
   padding: 3px 10px;
   cursor: pointer;
-}
-
-.agt-composer {
-  box-sizing: border-box;
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  border: 1px solid #d0d7de;
-  border-radius: 10px;
-  padding: 8px;
-  background: #ffffff;
-}
-
-.agt-composer textarea {
-  flex: 1;
-  border: 0;
-  outline: none;
-  resize: none;
-  font: inherit;
-  font-size: 13px;
-  min-height: 38px;
 }
 
 .agt-action {
@@ -516,6 +487,41 @@
   cursor: default;
 }
 
+.agt-stop-square {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #ffffff;
+}
+
+/* Inside the task screen the dock inherits the screen's padding; the drafts sit above the card. */
+.agt-compose-dock.is-task {
+  padding: 0;
+}
+
+.agt-compose-dock.is-task .agt-drafts {
+  margin-bottom: 8px;
+}
+
+.agt-steer {
+  padding: 4px 12px;
+  border: 1px solid rgba(31, 35, 40, 0.15);
+  border-radius: 6px;
+  background: #1f883d;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agt-steer:disabled {
+  background: #f6f8fa;
+  color: #8c959f;
+  border-color: #e3e3e6;
+  cursor: default;
+}
+
 /*
  * A control standing in for a backend that does not exist yet. Striped and labelled with the
  * checkpoint that retires it, so it is obvious in the app and in any screenshot; deleted with
@@ -617,6 +623,25 @@
   color: #57606a;
   line-height: 1.5;
   margin-top: 6px;
+}
+
+.agt-recovery__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 0;
+  margin-top: 7px;
+  font-size: 12.5px;
+}
+
+.agt-recovery__key {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agt-spin.is-warn {
+  border-color: #eed888;
+  border-top-color: #9a6700;
 }
 
 .agt-recovery__actions {

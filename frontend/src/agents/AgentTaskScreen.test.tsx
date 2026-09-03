@@ -102,7 +102,6 @@ function body(state: Partial<AgentTaskState>, activityChoice: Record<string, boo
       onCompose={() => {}}
       onStopServer={() => {}}
       onMarkFailed={() => {}}
-      onRetry={() => {}}
     />);
 }
 
@@ -289,7 +288,6 @@ describe('agent task side panel', () => {
     onCompose: () => {},
     onStopServer: () => {},
     onMarkFailed: () => {},
-    onRetry: () => {},
   };
   const state = { ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open' as const };
 
@@ -345,7 +343,6 @@ describe('agent task detail', () => {
         onCompose={() => {}}
         onStopServer={() => {}}
         onMarkFailed={() => {}}
-        onRetry={() => {}}
       />);
     expect(renamable).toMatch(/<button[^>]*class="agt-title is-provisional"[^>]*>Investigate the flaky preview</);
     expect(renamable).toContain('until the agent proposes a name');
@@ -389,31 +386,38 @@ describe('agent task detail', () => {
     expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
 
-  it('anchors a composer with Send, Stop this turn and idle-only Complete', () => {
+  it('anchors the composer card with one round button that sends, or stops while a turn runs', () => {
     const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
     const idle = body({ task: vision, connection: 'open', composer: 'go' });
 
     expect(idle).toContain('Message the agent');
-    expect(idle).toContain('>Send<');
-    expect(idle).toContain('Complete');
-    // Idle with no turn: Send is live, and only Stop is disabled because there is nothing to stop.
-    expect(idle.match(/disabled/g)).toHaveLength(1);
-    expect(idle).toMatch(/<button[^>]*disabled[^>]*>Stop this turn</);
-    // A disabled Complete has to say why it is disabled.
-    expect(body({ connection: 'open' })).toContain('Available when the task is idle');
+    expect(idle).toMatch(/<button[^>]*class="agt-send"[^>]*aria-label="Send message"/);
+    expect(idle).not.toMatch(/class="agt-send"[^>]*disabled/);
+    expect(idle).not.toContain('agt-send is-stop');
+    // Complete is live while idle, and the header names the state.
+    expect(idle).toMatch(/<button[^>]*class="agt-headbtn is-labelled"(?![^>]*disabled)/);
+    expect(idle).toContain('>Ready<');
     // The bounded status line is what assistive technology hears; it names the state, not tokens.
     expect(idle).toContain('aria-live="polite"');
-    expect(idle).toContain('>Ready<');
-  });
+    // The settings the next turn runs with are the chips, in prose rather than enum names.
+    expect(idle).toContain('5.6 Terra');
+    expect(idle).toContain('Auto');
+    expect(idle).not.toContain('AUTO');
+    // A disabled Complete has to say why it is disabled.
+    expect(body({ connection: 'open' })).toContain('Available when the task is idle');
 
-  it('offers the last-resort server stop only while a turn runs', () => {
-    const running = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open' });
-
-    expect(running).toContain('Stop server');
-    expect(running).toMatch(/<button[^>]*>Stop this turn</);
-    expect(running).not.toMatch(/<button[^>]*disabled[^>]*>Stop this turn</);
+    const running = body({ task: vision, turn: turn('RUNNING'), connection: 'open' });
+    expect(running).toMatch(/<button[^>]*class="agt-send is-stop"[^>]*aria-label="Stop this turn"/);
+    expect(running).not.toContain('aria-label="Send message"');
     expect(running).toContain('>Running<');
-    expect(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open' })).not.toContain('Stop server');
+    // The last-resort server stop lives on the recovery card, not beside a running turn.
+    expect(running).not.toContain('Stop server');
+    expect(running).not.toContain('data-fake');
+
+    // Steering and queueing are placeholders until their checkpoint, and say so on the control.
+    const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests' });
+    expect(drafting).toMatch(/<button[^>]*class="agt-steer agt-fake"[^>]*data-fake="CP10 · steer"[^>]*disabled/);
+    expect(drafting).toMatch(/<button[^>]*class="agt-compose__chip agt-fake"[^>]*data-fake="CP10 · queue"[^>]*disabled/);
   });
 
   it('replaces the mutation controls with the recovery card while the checkout is reserved', () => {
@@ -435,12 +439,13 @@ describe('agent task detail', () => {
     expect(markup).toContain('Mark task failed');
     expect(markup).toContain('Only this task');
     expect(markup).not.toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
-    // Nothing may send, retry or complete until the process is verified gone.
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>Send</);
+    // Nothing may send, retry or complete until the process is verified gone: the card replaces the composer.
+    expect(markup).not.toContain('agt-compose');
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Retry last message</);
     expect(markup).toMatch(/<button[^>]*class="agt-headbtn is-labelled"[^>]*disabled/);
     expect(markup).toContain('Unlocks after recovery');
     expect(markup).toContain('>Recovering<');
+    expect(markup).toContain('workspace reserved');
   });
 
   it('cannot stop a process that predates this run, and says so', () => {
@@ -453,21 +458,6 @@ describe('agent task detail', () => {
     expect(markup).toContain('from before the restart');
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
     expect(markup).toContain('restart ByteQuay');
-  });
-
-  it('offers Retry only for an idle task whose last message was delivered and did not complete', () => {
-    const failedTurn: Partial<AgentTaskState> = {
-      task: task('t-1', 'OPEN', 'x'),
-      events,
-      connection: 'open',
-      turn: turn('FAILED', { terminalReason: 'boom' }),
-    };
-
-    expect(body(failedTurn)).toMatch(/<button[^>]*>Retry last message</);
-    // Delivery started but was never acknowledged: resending could run the message twice.
-    expect(body({ ...failedTurn, turn: turn('INTERRUPTED', { delivered: false, terminalReason: 'lost' }) }))
-      .not.toContain('Retry last message');
-    expect(body({ ...failedTurn, turn: turn('COMPLETED') })).not.toContain('Retry last message');
   });
 
   it('shows the kept result instead of a composer once the task is closed', () => {
@@ -531,31 +521,6 @@ describe('agent task detail', () => {
     expect(markup).toContain('aria-label="Allow once: ');
   });
 
-  it('names the model and policy the next turn will use, not the raw slug', () => {
-    const markup = body({
-      task: task('t-1', 'OPEN', 'x'),
-      connection: 'open',
-      effective: {
-        model: 'gpt-5.6-codex',
-        effort: 'high',
-        permissionPolicy: 'AUTO',
-        sandboxPolicy: 'WORKSPACE_WRITE',
-        maximumRuntimeMillis: 3600000,
-        attachments: [],
-      },
-    });
-
-    expect(markup).toContain('Next turn: 5.6 Terra');
-    expect(markup).toContain('high');
-    // The backend policy enum is shown as prose; the enum name is not user-facing copy.
-    expect(markup).toContain('Auto');
-    expect(markup).not.toContain('AUTO');
-    // A change lands on the next turn, so the wording must not promise it affects this one.
-    const nextTurnLine = markup.slice(markup.indexOf('agt-next'), markup.indexOf('agt-composer'));
-    expect(nextTurnLine).toContain('Next turn');
-    expect(nextTurnLine).not.toContain('this turn');
-  });
-
   it('offers the image control only for a model that accepts images, and shows drafts and previews', () => {
     const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
     const withImages = body({ task: vision, connection: 'open', attachments: [
@@ -585,7 +550,6 @@ describe('agent task detail', () => {
         onCompose={() => {}}
         onStopServer={() => {}}
         onMarkFailed={() => {}}
-        onRetry={() => {}}
       />);
     expect(ready).toContain('<img class="agt-image" src="blob:preview" alt="flow.png"');
     const gone = renderToStaticMarkup(
@@ -602,7 +566,6 @@ describe('agent task detail', () => {
         onCompose={() => {}}
         onStopServer={() => {}}
         onMarkFailed={() => {}}
-        onRetry={() => {}}
       />);
     expect(gone).toContain('flow.png · unavailable');
   });
@@ -657,7 +620,6 @@ describe('agent task detail', () => {
         onCompose={() => {}}
         onStopServer={() => {}}
         onMarkFailed={() => {}}
-        onRetry={() => {}}
       />);
     expect(panel).toContain('aria-label="Subagents"');
     expect(panel).toContain('Active · 2');
@@ -678,7 +640,6 @@ describe('agent task detail', () => {
         onCompose={() => {}}
         onStopServer={() => {}}
         onMarkFailed={() => {}}
-        onRetry={() => {}}
       />);
     // The child's own answer is inspectable, and getting there is a filter, not a route.
     expect(opened).toContain('aria-label="Agent: History tests"');
@@ -721,7 +682,6 @@ describe('agent task detail', () => {
       onCompose: () => {},
       onStopServer: () => {},
       onMarkFailed: () => {},
-      onRetry: () => {},
     };
     const listed = renderToStaticMarkup(
       <AgentTaskBody state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }} panelOpen {...props} />);

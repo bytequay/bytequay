@@ -25,7 +25,6 @@ import {
   approvalDecisions,
   canSend,
   initialAgentTaskState,
-  retryableMessage,
   runtimeStatus,
   startAgentTaskSession,
   unloadedTurnIds,
@@ -608,6 +607,10 @@ function completeTitle(status: AgentRuntimeStatus): string {
 /** The header's second line: where the task is, in the fewest words that are still facts. */
 function headerMeta(turns: TranscriptTurn[], status: AgentRuntimeStatus, waiting: boolean, now: number, state: AgentTaskState, models: ModelOptionDto[]): string {
   const last = turns[turns.length - 1];
+  if (status === 'recovery') {
+    return `${last === undefined ? '' : `Turn ${last.ordinal} interrupted · `}workspace reserved`;
+  }
+  if (status === 'closing') return 'Closing…';
   if (status === 'running' && last !== undefined) {
     if (waiting) return `Turn ${last.ordinal} · waiting on you`;
     const elapsed = turnElapsedMs(last, now);
@@ -631,9 +634,10 @@ function headerMeta(turns: TranscriptTurn[], status: AgentRuntimeStatus, waiting
  * claim means the process predates this ByteQuay, so nothing here can stop it: the checkout stays
  * reserved until that process is gone and a restart verifies it.
  */
-function RecoveryCard({ task, turn, onStopServer, onMarkFailed }: {
+function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
   task: AgentTaskDto;
   turn: AgentTurnDto | null;
+  working: AgentNode[];
   onStopServer: () => void;
   onMarkFailed: () => void;
 }): React.JSX.Element {
@@ -641,6 +645,7 @@ function RecoveryCard({ task, turn, onStopServer, onMarkFailed }: {
   return (
     <section className="agt-recovery" aria-labelledby="agt-recovery-title">
       <div className="agt-recovery__head">
+        <span className="agt-spin is-warn" aria-hidden="true" />
         <span id="agt-recovery-title">Recovering agent execution</span>
         <span className="agt-spacer" />
         <button
@@ -665,6 +670,13 @@ function RecoveryCard({ task, turn, onStopServer, onMarkFailed }: {
             + 'change files.'}
         {turn?.terminalReason && <div className="agt-row-meta">{turn.terminalReason}</div>}
       </div>
+      {working.length > 0 && (
+        <div className="agt-recovery__row">
+          <span className="agt-spin is-warn" aria-hidden="true" />
+          <span className="agt-recovery__key">Still working:</span>
+          <span className="agt-ellipsis">{working.map((agent) => agent.label).join(', ')}</span>
+        </div>
+      )}
       <div className="agt-recovery__actions">
         <button
           type="button"
@@ -881,8 +893,8 @@ function SidePanel({
               <div className="agt-panel__expired-title">Activity expired</div>
               <div className="agt-muted">
                 {deleteAfter === null
-                  ? 'The detailed steps were removed at the end of the retention window. The result is kept.'
-                  : `The detailed steps were removed ${relativeTime(deleteAfter)} at the end of the retention window. The result is kept.`}
+                  ? 'Detailed steps were removed at the end of the retention window. The result is kept.'
+                  : `Detailed steps were removed on ${new Date(deleteAfter).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} at the end of the retention window. The result is kept.`}
               </div>
             </div>
           )
@@ -948,7 +960,7 @@ function SidePanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
-  onStopServer, onMarkFailed, onRetry, onRename, composerRef,
+  onStopServer, onMarkFailed, onRename, composerRef,
   now = Date.now(),
   activityChoice = {},
   turnChoice = {},
@@ -980,7 +992,6 @@ export function AgentTaskBody({
   onSelectModel: (model: string, effort: string | null) => void;
   onStopServer: () => void;
   onMarkFailed: () => void;
-  onRetry: () => void;
   /** A person's name for the task; absent while the task is still loading or in a static render. */
   onRename?: (title: string) => void;
   composerRef?: React.Ref<HTMLTextAreaElement>;
@@ -1019,7 +1030,6 @@ export function AgentTaskBody({
   const hasAgents = agents.length > 0 || expiredChildren.length > 0;
   const status = runtimeStatus(state);
   const terminal = status === 'completed' || status === 'failed';
-  const retry = retryableMessage(state);
   const waiting = turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
   const statusLabel = status === 'running' && waiting ? 'Needs approval' : STATUS_LABELS[status];
   const statusText = state.turn === null
@@ -1162,102 +1172,110 @@ export function AgentTaskBody({
       {terminal && state.task !== null && <TerminalSummary task={state.task} />}
 
       {status === 'recovery' && state.task !== null && (
-        <RecoveryCard task={state.task} turn={state.turn} onStopServer={onStopServer} onMarkFailed={onMarkFailed} />
-      )}
-
-      {!terminal && state.effective !== null && (
-        <div className="agt-next">
-          {/* Settings are snapshotted when a turn is accepted, so a change lands on the next one. */}
-          Next turn: {modelName(models, state.effective.model)}
-          {state.effective.effort === null ? '' : ` · ${state.effective.effort}`}
-          {' · '}{permissionLabel(state.effective.permissionPolicy)}
-        </div>
+        <RecoveryCard task={state.task} turn={state.turn} working={working} onStopServer={onStopServer} onMarkFailed={onMarkFailed} />
       )}
 
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
-      {!terminal && state.attachments.length > 0 && (
-        <div className="agt-drafts" aria-label="Images to send">
-          {state.attachments.map((attachment) => (
-            <span className="agt-draft" key={attachment.id}>
-              <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
-              <span className="agt-mono agt-muted">{attachment.name} · {sizeText(attachment.byteSize)}</span>
+      {/* The design's composer: the message above one row of controls, and one round button. */}
+      {!terminal && status !== 'recovery' && (
+        <div className="agt-compose-dock is-task">
+          {state.attachments.length > 0 && (
+            <div className="agt-drafts" aria-label="Images to send">
+              {state.attachments.map((attachment) => (
+                <span className="agt-draft" key={attachment.id}>
+                  <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
+                  <span className="agt-mono agt-muted">{attachment.name} · {sizeText(attachment.byteSize)}</span>
+                  <button
+                    type="button"
+                    className="agt-draft__remove"
+                    aria-label={`Remove image ${attachment.name}`}
+                    onClick={() => onRemoveAttachment(attachment.id)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="agt-compose">
+            <textarea
+              ref={composerRef}
+              className="agt-compose__input"
+              rows={1}
+              value={state.composer}
+              aria-label="Message the agent"
+              placeholder={state.connection === 'connecting' ? 'Connecting…' : status === 'closing' ? 'Closing…' : 'Message the agent'}
+              disabled={status === 'closing' || state.connection === 'connecting'}
+              onChange={(event) => onCompose(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  if (canSend(state)) onSend();
+                }
+              }}
+            />
+            <div className="agt-compose__row">
               <button
                 type="button"
-                className="agt-draft__remove"
-                aria-label={`Remove image ${attachment.name}`}
-                onClick={() => onRemoveAttachment(attachment.id)}
+                className="agt-attach"
+                aria-label="Attach an image"
+                title={attachTitle}
+                disabled={!imagesAccepted || status === 'closing'}
+                onClick={onAttach}
               >
-                ✕
+                +
               </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {!terminal && (
-        <div className="agt-composer">
-          <button
-            type="button"
-            className="agt-attach"
-            aria-label="Attach an image"
-            title={attachTitle}
-            disabled={!imagesAccepted || status === 'closing' || status === 'recovery'}
-            onClick={onAttach}
-          >
-            +
-          </button>
-          <textarea
-            ref={composerRef}
-            value={state.composer}
-            aria-label="Message the agent"
-            placeholder={state.connection === 'connecting' ? 'Connecting…' : status === 'closing' ? 'Closing…' : 'Message the agent'}
-            disabled={status === 'closing' || status === 'recovery'}
-            onChange={(event) => onCompose(event.target.value)}
-          />
-          <span className="agt-lane" title="Permission policy for the next turn" aria-label="Permission policy">
-            {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
-          </span>
-          <ModelChip
-            ariaLabel="Model and effort for the next message"
-            label={modelName(models, state.task?.defaults.model ?? null)}
-            detail={state.task?.defaults.effort ?? undefined}
-            disabled={models.length === 0 || terminal}
-            models={models}
-            selectedModel={state.task?.defaults.model ?? ''}
-            selectedEffort={state.task?.defaults.effort ?? undefined}
-            onSelect={onSelectModel}
-          />
-          {retry !== null && (
-            <button
-              type="button"
-              className="agt-action"
-              onClick={onRetry}
-              title="Sends the last message again as a new turn, after confirmation"
-            >
-              Retry last message
-            </button>
-          )}
-          <button type="button" className="agt-action" onClick={onSend} disabled={!canSend(state)}>Send</button>
-          <button
-            type="button"
-            className="agt-action"
-            onClick={onCancel}
-            disabled={status !== 'running'}
-            title="Interrupts the running turn and waits for its work to stop"
-          >
-            Stop this turn
-          </button>
-          {status === 'running' && (
-            <button
-              type="button"
-              className="agt-action is-danger"
-              onClick={onStopServer}
-              title="Last resort: kills only this task’s Codex server, after confirmation"
-            >
-              Stop server…
-            </button>
-          )}
+              <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">
+                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
+              </span>
+              <span className="agt-spacer" />
+              <span className="agt-compose__model">
+                <span className="agt-bolt" aria-hidden="true">⚡</span>
+                <ModelChip
+                  ariaLabel="Model and effort for the next message"
+                  label={modelName(models, state.task?.defaults.model ?? null)}
+                  detail={state.task?.defaults.effort ?? undefined}
+                  disabled={models.length === 0}
+                  models={models}
+                  selectedModel={state.task?.defaults.model ?? ''}
+                  selectedEffort={state.task?.defaults.effort ?? undefined}
+                  onSelect={onSelectModel}
+                />
+              </span>
+              {/* Steering and queueing arrive with their own checkpoint; until then the shell shows where they go. */}
+              {status === 'running' && state.composer.trim() !== '' && (
+                <>
+                  <button type="button" className="agt-steer agt-fake" data-fake="CP10 · steer" disabled title="Steering arrives with the queue checkpoint">Steer</button>
+                  <button type="button" className="agt-compose__chip agt-fake" data-fake="CP10 · queue" disabled title="Run next arrives with the queue checkpoint">Run next</button>
+                </>
+              )}
+              {status === 'running'
+                ? (
+                  <button
+                    type="button"
+                    className="agt-send is-stop"
+                    aria-label="Stop this turn"
+                    title="Interrupts the running turn and waits for its work to stop"
+                    onClick={onCancel}
+                  >
+                    <span className="agt-stop-square" aria-hidden="true" />
+                  </button>
+                )
+                : (
+                  <button
+                    type="button"
+                    className="agt-send"
+                    aria-label="Send message"
+                    title="Send"
+                    onClick={onSend}
+                    disabled={!canSend(state)}
+                  >
+                    ↑
+                  </button>
+                )}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1491,14 +1509,6 @@ export default function AgentTaskScreen({
     }
   }, []);
 
-  const retry = useCallback(() => run(async () => {
-    const message = retryableMessage(state);
-    if (message === null) return;
-    // Never automatic: the user confirms the exact text that will run again as a new turn.
-    if (!window.confirm(`Send this message again as a new turn?\n\n${message}`)) return;
-    await startTurn(message);
-  }), [run, startTurn, state]);
-
   const cancel = useCallback(() => run(async () => {
     if (state.turn === null) return;
     dispatch({ type: 'turn/changed', turn: await live().cancelAgentTurn(state.turn.id) });
@@ -1550,7 +1560,6 @@ export default function AgentTaskScreen({
       onSelectModel={(model, effort) => { void selectModel(model, effort); }}
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
-      onRetry={() => { void retry(); }}
       onRename={(title) => { void rename(title); }}
       now={now}
       activityChoice={activityChoice}

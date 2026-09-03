@@ -1092,9 +1092,9 @@ export function AgentTaskBody({
               : 'Subagents and pull requests'}
             onClick={onTogglePanel}
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M10 3v10" stroke="currentColor" strokeWidth="1.3" />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="3" width="12" height="10" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M9.5 3v10" stroke="currentColor" strokeWidth="1.3" />
             </svg>
           </button>
         )}
@@ -1107,7 +1107,8 @@ export function AgentTaskBody({
             disabled={status !== 'idle'}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5.3 8.2 7.1 10 10.7 6.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Complete
           </button>

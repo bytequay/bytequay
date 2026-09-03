@@ -47,7 +47,8 @@ function readyCatalog(models: ModelOptionDto[]): ModelSettingsDto {
 }
 
 const MODELS: ModelOptionDto[] = [
-  { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high' },
+  { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high', inputModalities: ['text', 'image'] },
+  { id: 'text-only', name: 'Text only', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: ['text'] },
 ];
 
 /** Everything the list needs beyond its rows, so each test states only what it varies. */
@@ -279,7 +280,8 @@ describe('agent task detail', () => {
   });
 
   it('anchors a composer with Send, Stop this turn and idle-only Complete', () => {
-    const idle = body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'go' });
+    const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
+    const idle = body({ task: vision, connection: 'open', composer: 'go' });
 
     expect(idle).toContain('Message the agent');
     expect(idle).toContain('>Send<');
@@ -441,6 +443,57 @@ describe('agent task detail', () => {
     const nextTurnLine = markup.slice(markup.indexOf('agt-next'), markup.indexOf('agt-composer'));
     expect(nextTurnLine).toContain('Next turn');
     expect(nextTurnLine).not.toContain('this turn');
+  });
+
+  it('offers the image control only for a model that accepts images, and shows drafts and previews', () => {
+    const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
+    const withImages = body({ task: vision, connection: 'open', attachments: [
+      { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 },
+    ] });
+    expect(withImages).toMatch(/<button[^>]*class="agt-attach"[^>]*title="5.6 Terra accepts images"[^>]*>/);
+    expect(withImages).not.toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
+    expect(withImages).toContain('stack-trace.png · 212 KB');
+    expect(withImages).toContain('aria-label="Remove image stack-trace.png"');
+
+    const textOnly = { ...vision, defaults: { ...vision.defaults, model: 'text-only' } };
+    const noImages = body({ task: textOnly, connection: 'open' });
+    expect(noImages).toMatch(/<button[^>]*class="agt-attach"[^>]*title="Text only does not accept images"[^>]*disabled/);
+
+    // A sent message shows its image once the bytes arrived, and says so when they never will.
+    const ready = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
+        previews={{ 'attachment-1': { status: 'ready', url: 'blob:preview' } }}
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onRetry={() => {}}
+      />);
+    expect(ready).toContain('<img class="agt-image" src="blob:preview" alt="flow.png"');
+    const gone = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
+        previews={{ 'attachment-1': { status: 'unavailable' } }}
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onRetry={() => {}}
+      />);
+    expect(gone).toContain('flow.png · unavailable');
   });
 
   it('says Connecting in the composer until the stream is open', () => {

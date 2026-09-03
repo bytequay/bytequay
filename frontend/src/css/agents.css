@@ -931,3 +931,74 @@
   font-weight: 600;
   color: #1f2328;
 }
+
+/* Images: previews in the user's bubble, drafts above the composer, and the attach control. */
+.agt-image {
+  max-width: 220px;
+  max-height: 160px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  display: block;
+}
+
+.agt-thumb {
+  width: 32px;
+  height: 24px;
+  object-fit: cover;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  flex: none;
+}
+
+.agt-file.is-unavailable {
+  color: #cf222e;
+  background: #ffebe9;
+}
+
+.agt-file.is-compact {
+  padding: 2px 6px;
+}
+
+.agt-drafts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.agt-draft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #ffffff;
+  font-size: 11px;
+}
+
+.agt-draft__remove {
+  border: 0;
+  background: none;
+  color: #8c959f;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 1px 3px;
+}
+
+.agt-attach {
+  border: 0;
+  background: none;
+  font-size: 16px;
+  color: #57606a;
+  cursor: pointer;
+  padding: 2px 6px;
+  align-self: flex-end;
+}
+
+.agt-attach:disabled {
+  color: #c6ccd2;
+  cursor: not-allowed;
+}

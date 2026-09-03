@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseAgentApproval,
+  parseAgentAttachment,
   parseAgentCompletion,
   parseAgentRuntimeStopImpact,
   parseAgentTask,
@@ -27,6 +28,7 @@ import { parseAgentEventSequence } from './agents/events';
 import { AgentSubscriptions } from './agents/subscriptions';
 import type {
   AgentApprovalDecision,
+  AgentAttachmentDto,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
@@ -57,6 +59,16 @@ app.setName('ByteQuay');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 
 let mainWindow: BrowserWindow | null = null;
+
+// The backend enforces the same bound; checking here spares reading a file that cannot be sent.
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function imageMediaType(filePath: string): string {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.png') return 'image/png';
+  if (extension === '.gif') return 'image/gif';
+  return 'image/jpeg';
+}
 let browserView: WebContentsView | null = null;
 let pendingWindow: Promise<void> | null = null;
 
@@ -381,8 +393,54 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
-      body: JSON.stringify({ message: request.message, attachments: [] }),
+      body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
     }).then((turn) => parseAgentTurn(turn)));
+  // Main owns the file paths: it picks, reads and uploads; the renderer receives facts and references.
+  ipcMain.handle('agent:attachments:pick', async (_event, taskId: string, workspaceId: string) => {
+    if (mainWindow === null) return [];
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Attach images',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif'] }],
+    });
+    const stored: AgentAttachmentDto[] = [];
+    for (const filePath of picked.filePaths) {
+      const stat = await fs.promises.stat(filePath);
+      if (stat.size > MAX_ATTACHMENT_BYTES) {
+        throw new Error(`${path.basename(filePath)} is larger than 10 MiB`);
+      }
+      const bytes = await fs.promises.readFile(filePath);
+      const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
+      url.searchParams.set('workspaceId', workspaceId);
+      stored.push(parseAgentAttachment(await backendJson(url, {
+        method: 'POST',
+        headers: {
+          ...agentHeaders(),
+          'Content-Type': imageMediaType(filePath),
+          'X-Attachment-Name': encodeURIComponent(path.basename(filePath)),
+        },
+        body: bytes,
+      })));
+    }
+    return stored;
+  });
+  ipcMain.handle('agent:attachments:read', async (_event, taskId: string, workspaceId: string, attachmentId: string) => {
+    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    url.searchParams.set('workspaceId', workspaceId);
+    const response = await fetch(url, { headers: agentHeaders(), signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) {
+      throw new Error(response.status === 404 ? 'Attachment is no longer available' : `GET attachment returned ${response.status}`);
+    }
+    return {
+      mediaType: response.headers.get('content-type') ?? 'application/octet-stream',
+      bytes: new Uint8Array(await response.arrayBuffer()),
+    };
+  });
+  ipcMain.handle('agent:attachments:remove', (_event, taskId: string, workspaceId: string, attachmentId: string) => {
+    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    url.searchParams.set('workspaceId', workspaceId);
+    return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
+  });
   ipcMain.handle('agent:turns:get', (_event, turnId: string) =>
     backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));

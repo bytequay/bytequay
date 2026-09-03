@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-contracts-v1.json';
 import {
   parseAgentApproval,
+  parseAgentAttachment,
   parseAgentCompletion,
   parseAgentTask,
   parseAgentTasks,
@@ -105,5 +106,15 @@ describe('agent contract parsing', () => {
   it('reads a list of tasks and names the offending entry', () => {
     expect(parseAgentTasks([fixture.task, fixture.finalTask])).toHaveLength(2);
     expect(() => parseAgentTasks([fixture.task, { id: 'broken' }])).toThrow(/tasks\[1\]/);
+  });
+});
+
+describe('attachment contract', () => {
+  it('accepts the facts the backend issues and rejects a reference without them', () => {
+    const stored = { id: 'att-1', name: 'shot.png', mediaType: 'image/png', byteSize: 2048, width: 12, height: 7 };
+    expect(parseAgentAttachment(stored)).toEqual(stored);
+    expect(() => parseAgentAttachment({ ...stored, width: 0 })).toThrow('width');
+    expect(() => parseAgentAttachment({ ...stored, byteSize: '2048' })).toThrow('byteSize');
+    expect(() => parseAgentAttachment({ id: 'att-1' })).toThrow();
   });
 });

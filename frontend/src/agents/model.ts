@@ -16,11 +16,13 @@ import type { AgentEventEnvelope } from './events';
 import type { ApprovalBlock } from './transcript';
 import type {
   AgentApprovalDecision,
+  AgentAttachmentDto,
   AgentStreamConnectionState,
   AgentTaskDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
   Bridge,
+  ModelOptionDto,
 } from '../types';
 
 /** The slice of the bridge an agent screen uses, so a screen can be driven by a test double. */
@@ -37,6 +39,9 @@ export type AgentBridgePort = Pick<Bridge,
   | 'markAgentTaskFailed'
   | 'getAgentRuntimeStopImpact'
   | 'stopAgentRuntime'
+  | 'pickAgentAttachments'
+  | 'readAgentAttachment'
+  | 'removeAgentAttachment'
   | 'subscribeAgentTask'
   | 'getModelSettings'
   | 'updateAgentTaskDefaults'
@@ -58,6 +63,8 @@ export interface AgentTaskState {
   connection: AgentStreamConnectionState;
   connectionDetail: string | null;
   composer: string;
+  /** Images uploaded for the next message, by the references the backend issued. */
+  attachments: AgentAttachmentDto[];
   /** True while a command is in flight, so the composer cannot send twice. */
   sending: boolean;
   /** What the next turn would run with, read from the server rather than assembled here. */
@@ -78,6 +85,9 @@ export type AgentTaskAction =
   | { type: 'events/applied'; events: AgentEventEnvelope[] }
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
+  | { type: 'attachments/added'; attachments: AgentAttachmentDto[] }
+  | { type: 'attachments/removed'; attachmentId: string }
+  | { type: 'attachments/cleared' }
   | { type: 'composer/sending'; sending: boolean }
   | { type: 'settings/loaded'; settings: AgentTurnSettingsDto }
   | { type: 'notice/changed'; notice: string | null };
@@ -94,6 +104,7 @@ export function initialAgentTaskState(): AgentTaskState {
     connection: 'connecting',
     connectionDetail: null,
     composer: '',
+    attachments: [],
     sending: false,
     effective: null,
     latestTurnId: null,
@@ -119,6 +130,12 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, connection: action.state, connectionDetail: action.detail ?? null };
     case 'composer/changed':
       return { ...state, composer: action.text };
+    case 'attachments/added':
+      return { ...state, attachments: [...state.attachments, ...action.attachments] };
+    case 'attachments/removed':
+      return { ...state, attachments: state.attachments.filter((attachment) => attachment.id !== action.attachmentId) };
+    case 'attachments/cleared':
+      return { ...state, attachments: [] };
     case 'composer/sending':
       return { ...state, sending: action.sending };
     case 'notice/changed':
@@ -297,6 +314,15 @@ export function runtimeStatus(state: AgentTaskState): AgentRuntimeStatus {
 /** Whether the task is idle, which is the only time sending or completing is offered. */
 export function isIdle(state: AgentTaskState): boolean {
   return runtimeStatus(state) === 'idle';
+}
+
+/**
+ * Whether the selected model advertises image input. A catalog entry recorded before modalities
+ * were carried says nothing, and nothing is not permission.
+ */
+export function acceptsImages(models: ModelOptionDto[], modelId: string | null | undefined): boolean {
+  if (modelId === null || modelId === undefined) return false;
+  return models.find((model) => model.id === modelId)?.inputModalities?.includes('image') ?? false;
 }
 
 /** Whether Send may fire: idle, connected, not already sending, and with something to say. */

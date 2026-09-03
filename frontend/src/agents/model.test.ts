@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import {
+  acceptsImages,
   agentTaskReducer,
   approvalDecisions,
   canSend,
@@ -28,7 +29,7 @@ import {
   type AgentTaskState,
 } from './model';
 import { projectTranscript, type ApprovalBlock } from './transcript';
-import type { AgentTaskDto, AgentTurnDto } from '../types';
+import type { AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 const all = parseAgentEventSequence(fixture.events);
 
@@ -275,6 +276,31 @@ describe('projecting rows', () => {
     expect(turns[0].answer).not.toBeNull();
     // The streamed partial answer is gone: the final answer replaced it rather than sitting beside it.
     expect(new Set(turns[0].blocks.map((block) => block.kind))).toEqual(new Set(['plan', 'activity', 'approval', 'error']));
+  });
+});
+
+describe('image attachments', () => {
+  it('keeps uploaded drafts by reference until they are sent or removed', () => {
+    const one = { id: 'att-1', name: 'a.png', mediaType: 'image/png', byteSize: 10, width: 1, height: 1 };
+    const two = { ...one, id: 'att-2', name: 'b.png' };
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'attachments/added', attachments: [one, two] });
+    expect(state.attachments.map((attachment) => attachment.id)).toEqual(['att-1', 'att-2']);
+    state = agentTaskReducer(state, { type: 'attachments/removed', attachmentId: 'att-1' });
+    expect(state.attachments.map((attachment) => attachment.id)).toEqual(['att-2']);
+    expect(agentTaskReducer(state, { type: 'attachments/cleared' }).attachments).toEqual([]);
+  });
+
+  it('lets only a model that advertises image input attach one', () => {
+    const models: ModelOptionDto[] = [
+      { id: 'vision', name: 'Vision', description: '', efforts: [], inputModalities: ['text', 'image'] },
+      { id: 'text', name: 'Text', description: '', efforts: [], inputModalities: ['text'] },
+      { id: 'old', name: 'Old', description: '', efforts: [] },
+    ];
+    expect(acceptsImages(models, 'vision')).toBe(true);
+    expect(acceptsImages(models, 'text')).toBe(false);
+    // A catalog entry that says nothing about modalities is not permission.
+    expect(acceptsImages(models, 'old')).toBe(false);
+    expect(acceptsImages(models, null)).toBe(false);
   });
 });
 

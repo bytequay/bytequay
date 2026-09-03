@@ -14,15 +14,16 @@
 
 import type {
   AgentApprovalDto,
+  AgentAttachmentDto,
   AgentCompletionDto,
   AgentMetricsDto,
+  AgentMutationClaimDto,
+  AgentRuntimeStopImpactDto,
   AgentTaskDefaultsDto,
   AgentTaskDto,
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
-  AgentMutationClaimDto,
-  AgentRuntimeStopImpactDto,
 } from '../types';
 
 /**
@@ -203,6 +204,25 @@ export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact')
     generation: text(source.generation, `${path}.generation`),
     activeTurnId: optionalText(source.activeTurnId, `${path}.activeTurnId`),
     liveProcess: source.liveProcess === true,
+  };
+}
+
+export function parseAgentAttachment(value: unknown, path = 'attachment'): AgentAttachmentDto {
+  const source = object(value, path);
+  const size = (field: string): number => {
+    const number = source[field];
+    if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0) {
+      throw new Error(`${path}.${field} must be a positive integer`);
+    }
+    return number;
+  };
+  return {
+    id: text(source.id, `${path}.id`),
+    name: text(source.name, `${path}.name`),
+    mediaType: text(source.mediaType, `${path}.mediaType`),
+    byteSize: size('byteSize'),
+    width: size('width'),
+    height: size('height'),
   };
 }
 

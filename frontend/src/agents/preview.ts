@@ -196,6 +196,17 @@ export function createPreviewBridge(
         deleteAfter: '2026-08-27T10:05:00Z',
       };
     },
+    pickAgentAttachments: async (taskId, id) => {
+      record('pickAgentAttachments', taskId, id);
+      return [{ id: 'attachment-preview', name: 'preview.png', mediaType: 'image/png', byteSize: 1024, width: 16, height: 16 }];
+    },
+    readAgentAttachment: async (taskId, id, attachmentId) => {
+      record('readAgentAttachment', taskId, id, attachmentId);
+      return { mediaType: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) };
+    },
+    removeAgentAttachment: async (taskId, id, attachmentId) => {
+      record('removeAgentAttachment', taskId, id, attachmentId);
+    },
     markAgentTaskFailed: async (taskId, id, reason) => {
       record('markAgentTaskFailed', taskId, id, reason);
       return {

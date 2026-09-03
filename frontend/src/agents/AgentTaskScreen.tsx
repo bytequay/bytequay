@@ -18,6 +18,7 @@ import { INTERACTIVE_LANE_ID } from '../settings/model';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
 import {
+  acceptsImages,
   agentIdempotencyKey,
   agentTaskReducer,
   approvalDecisions,
@@ -54,6 +55,30 @@ import {
   type TurnBlock,
 } from './transcript';
 import type { AgentApprovalDecision, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
+
+/** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
+export type AttachmentPreview = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
+
+function sizeText(bytes: number): string {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** A stored image as a tile: the picture when its bytes arrived, otherwise its name and state. */
+function AttachmentTile({ attachment, preview, compact = false }: {
+  attachment: { id: string; name: string; mediaType: string };
+  preview: AttachmentPreview | undefined;
+  compact?: boolean;
+}): React.JSX.Element {
+  const state = preview?.status ?? 'loading';
+  if (state === 'ready' && preview?.status === 'ready') {
+    return <img className={compact ? 'agt-thumb' : 'agt-image'} src={preview.url} alt={attachment.name} title={attachment.name} />;
+  }
+  return (
+    <span className={`agt-file${compact ? ' is-compact' : ''} is-${state}`} title={attachment.mediaType}>
+      {attachment.name}{state === 'unavailable' ? ' · unavailable' : ''}
+    </span>
+  );
+}
 
 export interface AgentTaskScreenProps {
   workspaceId: string;
@@ -387,7 +412,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, onToggle, onToggleActivity, onDecide }: {
+function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, onToggle, onToggleActivity, onDecide }: {
   turn: TranscriptTurn;
   first: boolean;
   open: boolean;
@@ -395,6 +420,7 @@ function TurnView({ turn, first, open, now, models, durableTurns, activityChoice
   models: ModelOptionDto[];
   durableTurns: Record<string, AgentTurnDto>;
   activityChoice: Record<string, boolean>;
+  previews: Record<string, AttachmentPreview>;
   onToggle: () => void;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
@@ -412,7 +438,7 @@ function TurnView({ turn, first, open, now, models, durableTurns, activityChoice
               {turn.user.attachments.length > 0 && (
                 <div className="agt-user__files">
                   {turn.user.attachments.map((attachment) => (
-                    <span className="agt-file" key={attachment.id} title={attachment.mediaType}>{attachment.name}</span>
+                    <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
                   ))}
                 </div>
               )}
@@ -622,9 +648,12 @@ export function AgentTaskBody({
   activityChoice = {},
   turnChoice = {},
   planOpen = true,
+  previews = {},
   onToggleActivity = () => {},
   onToggleTurn = () => {},
   onTogglePlan = () => {},
+  onAttach = () => {},
+  onRemoveAttachment = () => {},
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
@@ -645,9 +674,13 @@ export function AgentTaskBody({
   activityChoice?: Record<string, boolean>;
   turnChoice?: Record<string, boolean>;
   planOpen?: boolean;
+  /** Object URLs for stored images, by attachment id; owned and revoked by the wrapper. */
+  previews?: Record<string, AttachmentPreview>;
   onToggleActivity?: (id: string, open: boolean) => void;
   onToggleTurn?: (id: string, open: boolean) => void;
   onTogglePlan?: () => void;
+  onAttach?: () => void;
+  onRemoveAttachment?: (attachmentId: string) => void;
 }): React.JSX.Element {
   const turns = projectTranscript(state.events);
   const status = runtimeStatus(state);
@@ -659,6 +692,10 @@ export function AgentTaskBody({
     ? STATUS_LABELS[status]
     : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
   const plan = status === 'running' ? currentPlan(turns) : null;
+  const imagesAccepted = acceptsImages(models, state.task?.defaults.model);
+  const attachTitle = imagesAccepted
+    ? `${modelName(models, state.task?.defaults.model ?? null)} accepts images`
+    : `${modelName(models, state.task?.defaults.model ?? null)} does not accept images`;
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
@@ -715,6 +752,7 @@ export function AgentTaskBody({
                 models={models}
                 durableTurns={state.turns}
                 activityChoice={activityChoice}
+                previews={previews}
                 onToggle={() => onToggleTurn(id, !open)}
                 onToggleActivity={onToggleActivity}
                 onDecide={onDecide}
@@ -743,8 +781,37 @@ export function AgentTaskBody({
 
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
+      {!terminal && state.attachments.length > 0 && (
+        <div className="agt-drafts" aria-label="Images to send">
+          {state.attachments.map((attachment) => (
+            <span className="agt-draft" key={attachment.id}>
+              <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
+              <span className="agt-mono agt-muted">{attachment.name} · {sizeText(attachment.byteSize)}</span>
+              <button
+                type="button"
+                className="agt-draft__remove"
+                aria-label={`Remove image ${attachment.name}`}
+                onClick={() => onRemoveAttachment(attachment.id)}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {!terminal && (
         <div className="agt-composer">
+          <button
+            type="button"
+            className="agt-attach"
+            aria-label="Attach an image"
+            title={attachTitle}
+            disabled={!imagesAccepted || status === 'closing' || status === 'recovery'}
+            onClick={onAttach}
+          >
+            +
+          </button>
           <textarea
             ref={composerRef}
             value={state.composer}
@@ -821,6 +888,11 @@ export default function AgentTaskScreen({
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
   const [now, setNow] = useState(() => Date.now());
+  // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
+  // screen goes away or a draft is dropped, never left for the garbage collector to find.
+  const [previews, setPreviews] = useState<Record<string, AttachmentPreview>>({});
+  const previewsRef = useRef<Record<string, AttachmentPreview>>({});
+  previewsRef.current = previews;
   const running = runtimeStatus(state) === 'running';
   // The clock only ticks while a turn runs; a finished turn's elapsed time is fixed by its events.
   useEffect(() => {
@@ -924,13 +996,14 @@ export default function AgentTaskScreen({
     });
   }), [live, run, state.task, taskId, workspaceId]);
 
-  const startTurn = useCallback(async (message: string) => {
+  const startTurn = useCallback(async (message: string, attachments: string[] = []) => {
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const turn = await live().startAgentTurn({
         taskId,
         message,
         idempotencyKey: agentIdempotencyKey(taskId, state.lastSequence),
+        attachments,
       });
       dispatch({ type: 'turn/changed', turn });
     }
@@ -942,10 +1015,62 @@ export default function AgentTaskScreen({
   const send = useCallback(() => run(async () => {
     const message = state.composer.trim();
     if (message.length === 0) return;
-    await startTurn(message);
+    await startTurn(message, state.attachments.map((attachment) => attachment.id));
     // The transcript still waits for the durable user-message event rather than inventing it.
     dispatch({ type: 'composer/changed', text: '' });
-  }), [run, startTurn, state.composer]);
+    dispatch({ type: 'attachments/cleared' });
+  }), [run, startTurn, state.attachments, state.composer]);
+
+  const attach = useCallback(() => run(async () => {
+    const stored = await live().pickAgentAttachments(taskId, workspaceId);
+    if (stored.length > 0) dispatch({ type: 'attachments/added', attachments: stored });
+  }), [live, run, taskId, workspaceId]);
+
+  const removeAttachment = useCallback((attachmentId: string) => run(async () => {
+    dispatch({ type: 'attachments/removed', attachmentId });
+    const preview = previewsRef.current[attachmentId];
+    if (preview?.status === 'ready') URL.revokeObjectURL(preview.url);
+    setPreviews((current) => {
+      const next = { ...current };
+      delete next[attachmentId];
+      return next;
+    });
+    await live().removeAgentAttachment(taskId, workspaceId, attachmentId);
+  }), [live, run, taskId, workspaceId]);
+
+  // Every stored image the screen shows, drafts and sent messages alike, is read once by reference.
+  const wanted = [
+    ...state.attachments.map((attachment) => attachment.id),
+    ...state.events.flatMap((event) => (event.type === 'user_message' ? event.payload.attachments.map((attachment) => attachment.id) : [])),
+  ].filter((id, index, ids) => ids.indexOf(id) === index && previews[id] === undefined).join(',');
+  useEffect(() => {
+    if (wanted === '') return;
+    let active = true;
+    const ids = wanted.split(',');
+    setPreviews((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, { status: 'loading' as const }])) }));
+    for (const id of ids) {
+      void live().readAgentAttachment(taskId, workspaceId, id).then(
+        (image) => {
+          const url = URL.createObjectURL(new Blob([image.bytes as BlobPart], { type: image.mediaType }));
+          if (!active) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          setPreviews((current) => ({ ...current, [id]: { status: 'ready', url } }));
+        },
+        () => {
+          if (active) setPreviews((current) => ({ ...current, [id]: { status: 'unavailable' } }));
+        },
+      );
+    }
+    return () => { active = false; };
+  }, [live, taskId, workspaceId, wanted]);
+
+  useEffect(() => () => {
+    for (const preview of Object.values(previewsRef.current)) {
+      if (preview.status === 'ready') URL.revokeObjectURL(preview.url);
+    }
+  }, []);
 
   const retry = useCallback(() => run(async () => {
     const message = retryableMessage(state);
@@ -1011,9 +1136,12 @@ export default function AgentTaskScreen({
       activityChoice={activityChoice}
       turnChoice={turnChoice}
       planOpen={planOpen}
+      previews={previews}
       onToggleActivity={(id, open) => setActivityChoice((choices) => ({ ...choices, [id]: open }))}
       onToggleTurn={(id, open) => setTurnChoice((choices) => ({ ...choices, [id]: open }))}
       onTogglePlan={() => setPlanOpen((open) => !open)}
+      onAttach={() => { void attach(); }}
+      onRemoveAttachment={(attachmentId) => { void removeAttachment(attachmentId); }}
     />
   );
 }

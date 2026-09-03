@@ -578,6 +578,23 @@ export type StartAgentTurnRequest = {
   message: string;
   /** Makes a retried start return the original turn instead of creating a second one. */
   idempotencyKey: string;
+  /** Opaque references the backend issued for images stored on this task; never paths. */
+  attachments?: string[];
+};
+
+/** A stored, verified image the task owns; the renderer only ever sees these facts. */
+export type AgentAttachmentDto = {
+  id: string;
+  name: string;
+  mediaType: string;
+  byteSize: number;
+  width: number;
+  height: number;
+};
+
+export type AgentAttachmentBytesDto = {
+  mediaType: string;
+  bytes: Uint8Array;
 };
 
 export type AgentApprovalDecision = 'ALLOW' | 'DENY';
@@ -798,6 +815,8 @@ export type ModelOptionDto = {
   description: string;
   efforts: string[];
   defaultEffort?: string | null;
+  /** What the model accepts as input; absent on catalogs recorded before this was carried. */
+  inputModalities?: string[];
 };
 
 export type ModelProviderDto = {
@@ -1219,6 +1238,10 @@ export type Bridge = {
   getAgentRuntimeStopImpact: (taskId: string, workspaceId: string) => Promise<AgentRuntimeStopImpactDto>;
   /** Stops only this task's Codex server; the generation is the one the user confirmed. */
   stopAgentRuntime: (taskId: string, workspaceId: string, generation: string) => Promise<AgentTaskDto>;
+  /** Opens the native image picker; Electron main reads the files and uploads them, the renderer sees facts only. */
+  pickAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
+  readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
+  removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
   /** Streams one task's events; the returned function stops the subscription. */
   subscribeAgentTask: (
     taskId: string,

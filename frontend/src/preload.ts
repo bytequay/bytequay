@@ -235,6 +235,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
+  pickAgentAttachments: (taskId, workspaceId) => ipcRenderer.invoke('agent:attachments:pick', taskId, workspaceId),
+  readAgentAttachment: (taskId, workspaceId, attachmentId) =>
+    ipcRenderer.invoke('agent:attachments:read', taskId, workspaceId, attachmentId),
+  removeAgentAttachment: (taskId, workspaceId, attachmentId) =>
+    ipcRenderer.invoke('agent:attachments:remove', taskId, workspaceId, attachmentId),
   markAgentTaskFailed: (taskId, workspaceId, reason) =>
     ipcRenderer.invoke('agent:task:mark-failed', taskId, workspaceId, reason),
   getAgentRuntimeStopImpact: (taskId, workspaceId) =>

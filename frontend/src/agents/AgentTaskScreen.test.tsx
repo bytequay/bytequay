@@ -323,6 +323,19 @@ describe('one arrow', () => {
   });
 });
 
+describe('agent prose', () => {
+  it('renders an answer as the Markdown the agent wrote it in', () => {
+    const answered = events.map((event) => (event.type === 'assistant_message' && event.payload.messageKind === 'ANSWER' && event.payload.phase === 'FINAL'
+      ? { ...event, payload: { ...event.payload, text: 'The project has **109 Maven modules** in [pom.xml](/w/pom.xml:30).\n\n- 3 client\n- 8 core' } }
+      : event));
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: answered, connection: 'open' });
+    expect(markup).toContain('<strong>109 Maven modules</strong>');
+    expect(markup).toContain('<code title="/w/pom.xml:30">pom.xml</code>');
+    expect(markup).toContain('<ul><li>3 client</li><li>8 core</li></ul>');
+    expect(markup).not.toContain('**109');
+  });
+});
+
 describe('placeholders for later checkpoints', () => {
   const fakes = (markup: string): string[] =>
     (markup.match(/data-fake="([^"]+)"/g) ?? []).map((match) => match.replace(/^data-fake="|"$/g, ''));

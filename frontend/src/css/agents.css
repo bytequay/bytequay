@@ -1112,7 +1112,55 @@
   font-size: 13.5px;
   line-height: 1.6;
   margin-top: 14px;
-  white-space: pre-wrap;
+}
+
+/* Rendered Markdown, as the design draws an answer: plain paragraphs, lists, and inline code. */
+.agt-md p,
+.agt-md blockquote {
+  margin: 0;
+}
+
+.agt-md p + p,
+.agt-md p + ul,
+.agt-md p + ol,
+.agt-md ul + p,
+.agt-md ol + p,
+.agt-md pre + p,
+.agt-md p + pre,
+.agt-md p + blockquote {
+  margin-top: 10px;
+}
+
+.agt-md ul,
+.agt-md ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.agt-md code {
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 12px;
+  background: #f6f8fa;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.agt-md pre {
+  margin: 10px 0 0;
+}
+
+.agt-md blockquote {
+  padding-left: 12px;
+  border-left: 3px solid #d0d7de;
+  color: #57606a;
+}
+
+.agt-md a {
+  color: #0969da;
+}
+
+.agt-md strong {
+  font-weight: 600;
 }
 
 .agt-answer {
@@ -1124,7 +1172,6 @@
   line-height: 1.55;
   color: #57606a;
   margin-top: 12px;
-  white-space: pre-wrap;
 }
 
 .agt-label {

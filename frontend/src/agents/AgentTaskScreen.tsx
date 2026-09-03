@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { INTERACTIVE_LANE_ID, displayModelName } from '../settings/model';
 import { AgentMark } from './AgentMark';
 import { ModelPicker } from './ModelPicker';
+import { renderMarkdown } from './markdown';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
@@ -387,17 +388,17 @@ function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, 
   switch (block.kind) {
     case 'text':
       if (block.role === 'reasoning') {
-        return <div className="agt-reasoning">{block.text}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
+        return <div className="agt-reasoning">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
       }
       if (block.role === 'planText') {
         return (
           <div className="agt-plan">
             <div className="agt-plan__head"><span className="agt-label">Plan</span></div>
-            <div className="agt-text agt-pre-wrap">{block.text}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
+            <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
           </div>
         );
       }
-      return <div className="agt-text">{block.text}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
+      return <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
     case 'plan':
       return (
         <div className="agt-plan">
@@ -522,7 +523,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         />
       ))}
       {turn.answer !== null && (
-        <div className="agt-answer">{turn.answer.text}{!turn.answer.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
+        <div className="agt-answer">{renderMarkdown(turn.answer.text)}{!turn.answer.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
       )}
       {turn.endedAt !== null && <TurnFooter turn={turn} durable={turn.turnId === null ? undefined : durableTurns[turn.turnId]} models={models} />}
     </section>
@@ -730,7 +731,7 @@ function TerminalSummary({ task }: { task: AgentTaskDto }): React.JSX.Element {
         {completed ? 'Completed' : 'Failed'}{task.terminalAt === null ? '' : ` · ${relativeTime(task.terminalAt)}`}
       </div>
       {task.terminalReason !== null && <div>{task.terminalReason}</div>}
-      {task.summary?.finalResponse && <div>{task.summary.finalResponse}</div>}
+      {task.summary?.finalResponse && <div className="agt-terminal__response">{renderMarkdown(task.summary.finalResponse)}</div>}
       <dl>
         {task.summary?.resultBranch && <><dt>Result branch</dt><dd>{task.summary.resultBranch}</dd></>}
         {task.summary?.resultHead && <><dt>HEAD</dt><dd>{task.summary.resultHead}</dd></>}
@@ -988,7 +989,7 @@ function SidePanel({
         {result !== null && (
           <>
             <div className="agt-label agt-panel__section">Result{blocks.length === 0 ? ' — kept' : ''}</div>
-            <div className="agt-panel__result">{result}</div>
+            <div className="agt-panel__result">{renderMarkdown(result)}</div>
           </>
         )}
         {!running && worked !== null && (

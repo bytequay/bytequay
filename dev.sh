@@ -17,6 +17,14 @@ set -m
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT=53123
 
+reset_data=false
+for arg in "$@"; do
+  case "$arg" in
+    --reset-data) reset_data=true ;;
+    *) echo "[dev] unknown option: $arg (supported: --reset-data)"; exit 1 ;;
+  esac
+done
+
 pids=()
 
 process_group_alive() {
@@ -117,6 +125,16 @@ if [[ -z "$session_token" ]]; then
   session_token="$(/usr/bin/uuidgen | tr -d '-')$(/usr/bin/uuidgen | tr -d '-')"
 fi
 mkdir -p "$SESSION_DIRECTORY"
+# --reset-data parks the runtime database in a timestamped backup directory and
+# lets Hibernate create a fresh one; Hibernate's schema update never rewrites an
+# existing CHECK constraint, so an incompatible model change needs this. Cloned
+# repositories and the Codex home are kept.
+if [[ "$reset_data" == true ]]; then
+  backup="$SESSION_DIRECTORY/database-backup-$(date +%Y%m%dT%H%M%S)"
+  mkdir -p "$backup"
+  mv "$SESSION_DIRECTORY"/bytequay-*.db* "$backup"/ 2>/dev/null || true
+  echo "[dev] runtime database moved to $backup"
+fi
 (umask 077 && printf '%s\n' "$session_token" > "$SESSION_TOKEN_FILE")
 chmod 600 "$SESSION_TOKEN_FILE"
 export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"

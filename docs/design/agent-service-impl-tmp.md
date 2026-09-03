@@ -1375,7 +1375,7 @@ frontend/src/css/agents.css
 Extract composer, approval, activity, or subagent components only when their
 implemented behavior makes `AgentTaskScreen` materially harder to read.
 
-## [ ] CP7 — Converge on the first usable Codex task
+## [x] CP7 — Converge on the first usable Codex task
 
 **Owners:** runtime, service/storage, and desktop owners
 
@@ -1386,15 +1386,32 @@ implemented behavior makes `AgentTaskScreen` materially harder to read.
 Purpose: join the independently reviewed runtime and desktop work into one
 complete vertical slice.
 
-**Status: implementation items landed; the live acceptance journey below is
-still open.** The product route now runs on the real bridge.
-Recovery became a real path rather than a card: startup settles a turn that
-was mid-flight by its process verdict (verified stop releases the checkout, an
-unverifiable launch reserves it under a `RECOVERY` claim that a later verified
-startup releases), a Codex session close returns only once its process tree is
-verified stopped and interrupts its turn with that verdict, and the supervised
-per-task stop and mark-failed operations build on that. What remains is
-running the packaged journey against a real Codex CLI.
+**Status: complete.** The product route runs on the real bridge, and the
+live acceptance journey below passed twice: first through the reference shell
+and direct API calls against codex-cli 0.152.1 from ByteQuay's own Codex home,
+then through the Electron development build driven screen by screen over its
+DevTools port against the same CLI. Recovery became a real path rather than a
+card: startup settles a turn that was mid-flight by its process verdict
+(verified stop releases the checkout, an unverifiable launch reserves it under
+a `RECOVERY` claim that a later verified startup releases), a Codex session
+close returns only once its process tree is verified stopped and interrupts
+its turn with that verdict, and the supervised per-task stop and mark-failed
+operations build on that. The desktop pass found four defects the API pass
+could not. A development database whose `agent_task` CHECK constraint predated
+the current task states rejected every new task while the store reported
+"Task already exists": Hibernate's schema update never rewrites a CHECK
+constraint, so the store now reports SQLite's own reason and the documented
+`./dev.sh --reset-data` exists. And the task event stream never committed its
+response for a task with no events, which left a freshly created task on
+"Connecting" until its first message; the stream now sends an SSE comment as
+soon as a client subscribes. And cancelling a turn while Codex was streaming a
+message left that message item open, which the stop verification counted as
+work that "could not be shown stopped", so the cancel ended in recovery
+instead of idle; message, reasoning, and plan items are model output and no
+longer hold the turn. And moving from one open task's screen to another
+changed the screen's task without unmounting it, so the previous task's
+transcript and sequence cursor stayed and the next task's early events were
+dropped as duplicates; the screen is now keyed by task.
 
 Running the reference shell against codex-cli 0.152.1 on the development host
 stopped at the first turn: the CP4 isolation guard refused to start it because
@@ -1530,12 +1547,17 @@ End-to-end acceptance:
 - [x] Run two tasks concurrently without event/approval/filesystem cross-talk.
   A second task's turn completed while the first task's turn was running, and
   its replay carried none of the first task's turns.
-- [ ] The desktop app, not only unit fixtures, passes this journey. Every
-  step above was proven through the reference shell and direct API calls
-  against the real Codex CLI; the same journey through the Electron screens
-  over the real bridge is the one remaining check. The agent surface stays
-  behind the development gate until CP11, so this runs in the development
-  build; the packaged build proves only that it builds.
+- [x] The desktop app, not only unit fixtures, passes this journey. Every
+  step above was proven first through the reference shell and direct API
+  calls against the real Codex CLI, then through the Electron development
+  build over the real bridge, driven screen by screen through its DevTools
+  port: create, a first turn with live activity and a final answer, a reload
+  mid-turn, deny and allow approvals with a reload between them, thread
+  recall, cancel, a backend restart mid-turn with the turn interrupted and
+  Retry confirmed, two concurrent tasks without cross-talk, and completion
+  with the checkout removed and the result branch kept. The agent surface
+  stays behind the development gate until CP11, so this runs in the
+  development build; the packaged build proves only that it builds.
 
 **Checkpoint result:** this is the first usable Codex task surface. Do not call
 CP2, CP5, or CP6 alone “agent UI complete.”

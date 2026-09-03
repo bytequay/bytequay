@@ -313,6 +313,15 @@ only `title` in the v0.151.0 reference bindings is the client's
 `clientInfo.title` handshake field — so this naming is ByteQuay's own and
 costs no extra provider turn.
 
+The workspace Home is the design's idle screen: the question "What should the
+agent do in {repo}?", three starting points that fill the composer, the same
+composer, and the open tasks drawn as windows — each a scaled copy of its own
+screen showing the task's first events, read once and bounded. A Tab Overview
+lays every open task out as such a window over whichever agent screen is
+showing; `⇧⌘\` or its pinned control opens it, Escape closes it, a window
+opens its task, its ✕ completes an idle task after confirmation, and a dashed
+card starts a new one. Nothing in a window is interactive but the window.
+
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,
 unsupported, and unavailable lanes are disabled with an actionable link to

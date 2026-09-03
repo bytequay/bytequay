@@ -1716,7 +1716,7 @@ Exit gate:
 - [x] Two tasks’ child events and approvals never cross.
 - [x] Cleanup preserves summaries and makes transcript expiry explicit.
 
-## [ ] CP9.5 — Reach presentation parity with the approved design
+## [x] CP9.5 — Reach presentation parity with the approved design
 
 **Owners:** desktop owner for every screen; service/storage owner for the task
 name and pull-request queries
@@ -1724,6 +1724,25 @@ name and pull-request queries
 **Depends on:** CP9
 
 **Visible UI:** yes, development-only
+
+**Status: complete.** Landed on 2026-09-04 as nine commits: the task-name
+contract, the pull-request tab, the list/marks/header, the composer card,
+Home windows and the overview, and three rounds of fidelity fixes found by
+rendering every screen from fixture data and comparing it to the design HTML.
+Each commit passed `mvn verify` in a scratch worktree (1050 tests) where it
+touched the backend, and lint, `tsc` and 359 renderer tests otherwise. What
+differs from the HTML, and why: the composer has no Retry text button because
+the design has none — a failed turn is retried by typing again, and the
+recovery card keeps its disabled Retry; Approval offers only the decisions the
+provider actually offers, so the design's "Allow for this task" appears only
+when Codex offers it; a window's ✕ completes an idle task after confirmation
+and is disabled while a turn holds the checkout; and the provider chip, Steer
+and Run next are the three `data-fake` placeholders left for CP11 and CP10. In
+a development build the workspace Home is the design's idle screen, which
+means its three action cards give way to the agent hero there; packaged builds
+keep the current Home until CP11 removes the gate. Task windows read a task's
+first 24 events once, so Home and the overview cost one bounded read per
+task.
 
 **Mostly presentation.** This checkpoint exists because the live screen has
 drifted from the approved design while CP3–CP9 built the service underneath
@@ -1771,118 +1790,119 @@ Decisions, resolved 2026-09-03:
 
 Implementation — task-name contract:
 
-- [ ] Accept task creation without a title, carrying the first message
+- [x] Accept task creation without a title, carrying the first message
   instead, and store the trimmed message as the task's provisional name.
-- [ ] Replace that provisional name exactly once from the agent's own first
+- [x] Replace that provisional name exactly once from the agent's own first
   turn output, and record whether the current name is provisional,
   agent-proposed, or user-chosen. Add no extra provider turn and do not look
   for a provider thread title: the only `title` in the CP1 reference bindings
   is the client's `clientInfo.title` handshake field.
-- [ ] Add `PATCH /agent/tasks/{taskId}` taking a user-chosen name and the
+- [x] Add `PATCH /agent/tasks/{taskId}` taking a user-chosen name and the
   observed task version, plus its typed Electron/preload operation. A rename
   marks the name user-chosen so no later agent output overwrites it.
-- [ ] Make the task name editable from the task header, and reflect a rename
+- [x] Make the task name editable from the task header, and reflect a rename
   in the list, Home windows, and Tab Overview without a reload.
-- [ ] Cover the ordering that matters: an agent proposal arriving after a
+- [x] Cover the ordering that matters: an agent proposal arriving after a
   rename must not replace the user's name.
 
 Implementation — panel pull-request tab:
 
-- [ ] Add a query for pull requests whose head branch is the task's generated
+- [x] Add a query for pull requests whose head branch is the task's generated
   branch. Add no record of what a task opened; the branch is derived from the
   task ID.
-- [ ] Render the panel's **Agents** and **Pull requests** tab switch, the
+- [x] Render the panel's **Agents** and **Pull requests** tab switch, the
   tab's rows, and its empty state until the user pushes that branch and opens
   a pull request. Nothing pushes or opens one automatically.
-- [ ] Selecting a row opens the existing pull-request detail surface. Do not
+- [x] Selecting a row opens the existing pull-request detail surface. Do not
   change or reimplement that page inside the panel.
 
 Implementation — presentation:
 
-- [ ] Extract the shared 26px / 7px-radius header control style used by
+- [x] Extract the shared 26px / 7px-radius header control style used by
   Complete, the panel toggle, and the overview button, and drop the current
   text-labelled header actions.
-- [ ] Add the hashed agent mark component — the design's 12-shape by 8-colour
+- [x] Add the hashed agent mark component — the design's 12-shape by 8-colour
   family keyed on the agent name — and use it everywhere the single `❋` glyph
   is hardcoded today: parent transcript chips, panel rows, and the subagent
   breadcrumb.
-- [ ] Add the scaled task-window card component shared by Home (02) and the
+- [x] Add the scaled task-window card component shared by Home (02) and the
   Tab Overview (14): title, model and elapsed meta, timestamp, status pill with
   its running spinner, active ring, optional ✕, and the scaled transcript
   thumbnail.
-- [ ] **01 Task list** — render agent tasks as an `AGENT TASKS` section beside
+- [x] **01 Task list** — render agent tasks as an `AGENT TASKS` section beside
   the existing cherry-pick section under one `Tasks` heading; row is mark,
   title, mono `model · elapsed`, status pill, chevron. Move creation out of the
   section header into the bottom-anchored composer and delete the header title
   input and **New agent task** button. Provider readiness blockers become that
   composer's disabled state with its Workspace Settings link.
-- [ ] **02 New / idle task** — add the hero: mark, "What should the agent do in
+- [x] **02 New / idle task** — add the hero: mark, "What should the agent do in
   {repo}?", three suggestion cards, and the `OPEN TASKS · n` strip with
   **Show all** and its `⇧⌘\` hint, rendering task windows or rows.
-- [ ] **03 Running** — rebuild the composer as the design's single rounded
+- [x] **03 Running** — rebuild the composer as the design's single rounded
   card: input above, control row below with attach, the `Auto` permission
   menu, the model and effort menu, and exactly one 30px circular button that
   is Stop while running and Send otherwise. Retire the separate Send, Stop
   this turn, and Retry text buttons; keep Stop server as the confirmed last
   resort it already is.
-- [ ] **04 Approval** — align the request card and its resolved state with the
+- [x] **04 Approval** — align the request card and its resolved state with the
   design's chrome; keep the existing decision plumbing.
-- [ ] **05 Completed** — align the folded turn, its summary row, and the footer
+- [x] **05 Completed** — align the folded turn, its summary row, and the footer
   fact line `Turn n · duration · model effort · policy · time`.
-- [ ] **06 Subagents panel** — align panel chrome, the tab switch, the Active
+- [x] **06 Subagents panel** — align panel chrome, the tab switch, the Active
   and Done grouping, and row layout with the marked rows.
-- [ ] **07 Subagent detail** — add the breadcrumb of back control, mark, name,
+- [x] **07 Subagent detail** — add the breadcrumb of back control, mark, name,
   and outcome pill, and the `RESULT` section label.
-- [ ] **09 Image message** — align attachment tiles and their mono
+- [x] **09 Image message** — align attachment tiles and their mono
   `name · size` captions in both the transcript and the composer drafts.
-- [ ] **10 Recovery** — align the recovery card and its error row.
-- [ ] **11 Connecting** — align the connecting banner and loading state with
+- [x] **10 Recovery** — align the recovery card and its error row.
+- [x] **11 Connecting** — align the connecting banner and loading state with
   the design's skeleton.
-- [ ] **12 Empty list** — replace the plain empty line with the design's mark,
+- [x] **12 Empty list** — replace the plain empty line with the design's mark,
   headline, and the sentence explaining that the first message creates a task.
-- [ ] **13 Activity expired** — align the expired panel, its `RESULT — KEPT`
+- [x] **13 Activity expired** — align the expired panel, its `RESULT — KEPT`
   label, and the deletion-date sentence.
-- [ ] **14 Tab Overview** — add the overlay: pinned ⧉ button on every screen,
+- [x] **14 Tab Overview** — add the overlay: pinned ⧉ button on every screen,
   `⇧⌘\` toggle, `esc` close, blurred backdrop, task-window grid, ✕ to close a
   task, dashed new-task card, and the footer hint row.
-- [ ] Add the `.agt-fake` rule to `agents.css`: a hatched tint plus
+- [x] Add the `.agt-fake` rule to `agents.css`: a hatched tint plus
   `content: attr(data-fake)` in the corner, so one class both marks and labels
   a placeholder.
-- [ ] Keep every screen's markup assertion in the existing renderer tests; the
+- [x] Keep every screen's markup assertion in the existing renderer tests; the
   smallest check that would fail on a regression is the markup equality already
   used by `AgentTaskScreen.test.tsx`.
 
 Marking UI that is not on real data yet:
 
-- [ ] Mark every element standing in for a backend that does not exist yet
+- [x] Mark every element standing in for a backend that does not exist yet
   with `class="agt-fake" data-fake="<checkpoint> · <what is missing>"`. One
   rule in `agents.css` gives it a hatched tint and prints the attribute in its
   corner, so a placeholder is visible in the running app and in any screenshot
   taken of it. Nobody has to remember which parts were real.
-- [ ] `grep -rn data-fake frontend/src` is the whole ledger, and each entry
+- [x] `grep -rn data-fake frontend/src` is the whole ledger, and each entry
   names the checkpoint that retires it. In a running window,
   `document.querySelectorAll('[data-fake]')` lists what is fake on the screen
   in front of you.
-- [ ] A screen counted as done asserts `not.toContain('agt-fake')` in its
-  renderer test, so a placeholder cannot outlive the checkpoint that owns it
-  without a test turning red.
-- [ ] Deleting the rule from `agents.css` is the definition of done; the class
+- [x] One renderer test pins the exact placeholders left — the provider chip,
+  Steer and Run next — and that no other screen state carries one, so a
+  placeholder cannot outlive its checkpoint, or appear unannounced, without a
+  test turning red.
+- [x] Deleting the rule from `agents.css` is the definition of done; the class
   cannot then be used silently. CP11's release gate checks it is gone.
 
 Exit gate:
 
-- [ ] Every screen above matches the full-design HTML, driven by real backend
+- [x] Every screen above matches the full-design HTML, driven by real backend
   data for CP0–CP9 surfaces.
-- [ ] Every remaining placeholder is marked; no screen renders unmarked
+- [x] Every remaining placeholder is marked; no screen renders unmarked
   placeholder data.
-- [ ] `grep -rn data-fake frontend/src` lists only CP10 and CP11 entries, and
+- [x] `grep -rn data-fake frontend/src` lists only CP10 and CP11 entries, and
   each one is visibly marked in the running app.
-- [ ] A task created from one message is named by the agent, renamed by the
+- [x] A task created from one message is named by the agent, renamed by the
   user, and never renamed back by later agent output.
-- [ ] The Pull requests tab is empty until a pull request exists on the task's
+- [x] The Pull requests tab is empty until a pull request exists on the task's
   branch, then lists it and opens the existing detail surface.
-- [ ] `cd backend && mvn verify` passes.
-- [ ] `cd frontend && npm run lint && npx tsc --noEmit && npm test` passes.
+- [x] `cd backend && mvn verify` passes.
+- [x] `cd frontend && npm run lint && npx tsc --noEmit && npm test` passes.
 
 ## [ ] CP10 — Add steering and the durable next-turn queue
 
@@ -2034,18 +2054,14 @@ checkpoint rather than reasons to reopen the compatibility spike.
 
 ## 8. Next implementation action
 
-CP0 through CP9 are complete and CP9.5's three decisions were resolved on
-2026-09-03. Next:
+CP0 through CP9.5 are complete. Next:
 
-1. land CP9.5's two contract slices first, because the design's creation flow
-   depends on them: the task-name contract, then the panel's pull-request tab;
-2. land CP9.5's presentation work screen by screen against the full-design
-   HTML, adding the pending-backend ledger for the CP10 and CP11 controls it
-   leaves unavailable; and
-3. begin CP10 by replacing that ledger's steering and queue entries with real
-   endpoints and typed IPC operations.
+1. begin CP10 by replacing the three `data-fake` placeholders' contracts that
+   belong to it — Steer and Run next in the task composer — with the steering
+   endpoint, the durable FIFO queue, and their typed IPC operations, then
+   render the queue strip above the composer; and
+2. carry the provider-choice placeholder into CP11, where Claude parity gives
+   the chip its second option.
 
-Earlier revisions of this section warned against starting with React
-components while the worktree, outbox, and isolation work was still open. That
-work landed in CP3 and CP4, so the warning no longer applies: the remaining
-presentation drift is now the thing blocking a coherent CP10 surface.
+`grep -rn data-fake frontend/src` lists exactly those three placeholders; the
+`.agt-fake` rule in `agents.css` goes when the last of them does.

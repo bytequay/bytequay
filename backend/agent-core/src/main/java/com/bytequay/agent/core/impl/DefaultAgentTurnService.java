@@ -589,7 +589,9 @@ public final class DefaultAgentTurnService
     {
         return switch (phase) {
             case SESSION_OPENED, TURN_STARTED, TURN_COMPLETED, INTERRUPTED -> true;
-            case RETRYING, RATE_LIMITED -> false;
+            // Subagent and backfill phases are display-only; they change no task or turn state.
+            case RETRYING, RATE_LIMITED, AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED,
+                    BACKFILL_STARTED, BACKFILL_COMPLETED -> false;
         };
     }
 

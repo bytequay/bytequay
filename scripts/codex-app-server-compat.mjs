@@ -94,6 +94,12 @@ const referenceRecordBindings = [
   recordBinding("PlanDeltaNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/plan/delta"),
   ], [component("params"), component("emittedAtMs")]),
+  recordBinding("ThreadStartedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "thread/started"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("ThreadStartedParams", "decode", [
+    schemaSource("v2", "ThreadStartedNotification"),
+  ], [component("thread")]),
   recordBinding("PlanUpdatedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/plan/updated"),
   ], [component("params"), component("emittedAtMs")]),
@@ -195,6 +201,9 @@ const referenceRecordBindings = [
     component("agentPath"),
     component("kind"),
   ]),
+  recordBinding("UserMessageItem", "decode", [
+    schemaSource("v2", "ThreadItem", "type", "userMessage"),
+  ], [component("id"), component("content")]),
   recordBinding("ReasoningItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "reasoning"),
   ], [component("id"), component("summary")]),
@@ -366,6 +375,8 @@ const referenceRecordBindings = [
     component("sessionId"),
     component("parentThreadId"),
     component("turns"),
+    component("agentNickname"),
+    component("agentRole"),
   ]),
   recordBinding("TurnStartResponse", "decode", [
     schemaSource("v2", "TurnStartResponse"),

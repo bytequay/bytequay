@@ -119,7 +119,8 @@ class TestInteractiveAgentHttpContract
                         "tests",
                         "metrics",
                         "learnings",
-                        "notes");
+                        "notes",
+                        "children");
         assertThat(InteractiveAgentHttpContract.TurnSettings.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(

@@ -33,6 +33,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -585,6 +586,9 @@ public final class CodexCliDriver
 
     private record CommandResult(int exitCode, String output) {}
 
+    /** A subagent's place in the task: the thread that spawned it and the name it is shown under. */
+    private record ChildFacts(String parent, String label) {}
+
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
     {
@@ -596,6 +600,27 @@ public final class CodexCliDriver
         private final AgentSessionRef reference;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
+        /** Every subagent this process has named, by thread, with its parent and label. */
+        private final Map<String, ChildFacts> children = new ConcurrentHashMap<>();
+        private final Set<String> announcedChildren = ConcurrentHashMap.newKeySet();
+        private final Set<String> terminalChildren = ConcurrentHashMap.newKeySet();
+        private final Set<String> backfilledChildren = ConcurrentHashMap.newKeySet();
+        /** Item ids seen live, so a history read never appends an item the stream already delivered. */
+        private final Set<String> seenItems = ConcurrentHashMap.newKeySet();
+        private final CodexEventMapper.ThreadLineage lineage = new CodexEventMapper.ThreadLineage()
+        {
+            @Override
+            public Optional<String> parentOf(String threadId)
+            {
+                return Optional.ofNullable(children.get(threadId)).map(ChildFacts::parent);
+            }
+
+            @Override
+            public Optional<String> labelOf(String threadId)
+            {
+                return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
+            }
+        };
         /** Items reported started and not yet reported terminal, by the thread that owns them. */
         private final ConcurrentMap<String, Set<String>> liveItems = new ConcurrentHashMap<>();
         private CodexRunningTurn running;
@@ -729,6 +754,12 @@ public final class CodexCliDriver
                 return;
             }
             observe(notification);
+            // Routing is in place before a discovery event is published: the child is already in
+            // the lineage and the thread set when anything about it reaches the log.
+            announceChildren(notification.emittedAtMs().map(Instant::ofEpochMilli));
+            if (!rootThread && notification instanceof CodexProtocol.TurnCompletedNotification) {
+                terminalChildren.add(notification.threadId());
+            }
             try {
                 if (rootThread
                         && notification instanceof CodexProtocol.ItemCompletedNotification completed
@@ -736,7 +767,7 @@ public final class CodexCliDriver
                     // Only the root thread speaks for the turn; a subagent's message is activity.
                     running.observeMessage(message.phase(), redactor.redact(message.text()));
                 }
-                eventMapper.map(notification, rootThread).forEach(events::emit);
+                eventMapper.map(notification, rootThread, lineage).forEach(events::emit);
                 if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
                     // The root saying it is done is necessary but not sufficient: an item or a
                     // yielded command can still be running. The turn stays live until the process
@@ -770,6 +801,7 @@ public final class CodexCliDriver
         private static boolean canTouchWorktree(CodexProtocol.ThreadItem item)
         {
             return !(item instanceof CodexProtocol.AgentMessageItem
+                    || item instanceof CodexProtocol.UserMessageItem
                     || item instanceof CodexProtocol.ReasoningItem
                     || item instanceof CodexProtocol.PlanTextItem
                     || item instanceof CodexProtocol.ContextCompactionItem
@@ -794,7 +826,21 @@ public final class CodexCliDriver
         private void observe(CodexProtocol.Notification notification)
         {
             observedThreads.add(notification.threadId());
+            // Every thread in this process belongs to this task, so one that is not the root is a
+            // subagent even before a spawn item names it. Registering it here is what keeps its
+            // answer from ever being read back as the task's own.
+            register(notification.threadId(), reference.providerValue(), Optional.empty());
+            if (notification instanceof CodexProtocol.ThreadStartedNotification started) {
+                CodexProtocol.HistoryThread thread = started.params().thread();
+                if (!thread.id().equals(reference.providerValue())) {
+                    register(thread.id(), thread.parentThreadId().orElse(reference.providerValue()),
+                            thread.agentNickname().or(thread::agentRole));
+                }
+                return;
+            }
             if (notification instanceof CodexProtocol.ItemStartedNotification started) {
+                seenItems.add(started.params().item().id());
+                registerSpawned(started.params().item(), started.threadId());
                 if (!canTouchWorktree(started.params().item())) {
                     return;
                 }
@@ -803,9 +849,117 @@ public final class CodexCliDriver
                         .add(started.params().item().id());
             }
             else if (notification instanceof CodexProtocol.ItemCompletedNotification completed) {
+                seenItems.add(completed.params().item().id());
+                registerSpawned(completed.params().item(), completed.threadId());
                 Set<String> items = liveItems.get(completed.threadId());
                 if (items != null) {
                     items.remove(completed.params().item().id());
+                }
+            }
+        }
+
+        /** A child named by a spawn or a V2 activity item joins the tree under the thread that named it. */
+        private void registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
+        {
+            if (item instanceof CodexProtocol.CollabAgentToolCallItem collab && collab.tool().equals("spawnAgent")) {
+                collab.receiverThreadIds().forEach(receiver -> register(receiver, collab.senderThreadId(), Optional.empty()));
+            }
+            else if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
+                Path path = Path.of(activity.agentPath()).getFileName();
+                register(activity.agentThreadId(), namingThread, Optional.ofNullable(path).map(Path::toString));
+            }
+        }
+
+        private void register(String threadId, String parentThreadId, Optional<String> label)
+        {
+            if (threadId.equals(reference.providerValue())) {
+                return;
+            }
+            observedThreads.add(threadId);
+            children.compute(threadId, (thread, existing) -> {
+                if (existing == null) {
+                    return new ChildFacts(parentThreadId, label.orElse("Agent " + (children.size() + 1)));
+                }
+                // A nickname that arrives after a placeholder replaces it; a parent never changes.
+                return label.map(known -> new ChildFacts(existing.parent(), known)).orElse(existing);
+            });
+        }
+
+        /** Publishes one discovery event per child, after its lineage is in place. */
+        private void announceChildren(Optional<Instant> timestamp)
+        {
+            for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
+                if (announcedChildren.add(child.getKey())) {
+                    events.emit(new ProviderAgentEvent.Lifecycle(
+                            Optional.of(child.getKey() + ":agent-started"),
+                            timestamp,
+                            ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
+                            child.getValue().label(),
+                            childSource(child.getKey())));
+                }
+            }
+        }
+
+        private ProviderAgentEventSource childSource(String threadId)
+        {
+            return new ProviderAgentEventSource(
+                    Optional.of(threadId),
+                    lineage.parentOf(threadId),
+                    lineage.labelOf(threadId),
+                    Optional.empty(),
+                    Optional.empty());
+        }
+
+        /**
+         * Appends what a child's history holds that the live stream never delivered, between
+         * explicit markers so recovered activity is never mistaken for new work.
+         */
+        private void backfill(String threadId)
+        {
+            if (!backfilledChildren.add(threadId)) {
+                return;
+            }
+            events.emit(new ProviderAgentEvent.Lifecycle(
+                    Optional.of(threadId + ":backfill-started"),
+                    Optional.empty(),
+                    ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED,
+                    "Recovering this agent's activity from its history",
+                    childSource(threadId)));
+            Optional<String> cursor = Optional.empty();
+            do {
+                CodexProtocol.ThreadItemsListResponse page = client.request(
+                        "thread/items/list",
+                        new CodexProtocol.ThreadItemsListParams(threadId, cursor),
+                        CodexProtocol.ThreadItemsListResponse.class,
+                        REQUEST_TIMEOUT);
+                for (CodexProtocol.ThreadItemEntry entry : page.data()) {
+                    if (seenItems.add(entry.item().id())) {
+                        eventMapper.mapHistoryItem(entry.item(), threadId, entry.turnId(), false, lineage)
+                                .forEach(events::emit);
+                    }
+                }
+                cursor = page.nextCursor();
+            }
+            while (cursor.isPresent());
+            events.emit(new ProviderAgentEvent.Lifecycle(
+                    Optional.of(threadId + ":backfill-completed"),
+                    Optional.empty(),
+                    ProviderAgentEvent.LifecyclePhase.BACKFILL_COMPLETED,
+                    "Recovered this agent's activity from its history",
+                    childSource(threadId)));
+        }
+
+        /** A child the quiescence proof found finished without a terminal event of its own. */
+        private void settleChildren()
+        {
+            for (String child : announcedChildren) {
+                if (terminalChildren.add(child)) {
+                    events.emit(new ProviderAgentEvent.Lifecycle(
+                            Optional.of(child + ":agent-settled"),
+                            Optional.empty(),
+                            ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED,
+                            "Agent finished before ByteQuay observed its completion",
+                            childSource(child)));
                 }
             }
         }
@@ -829,6 +983,7 @@ public final class CodexCliDriver
                 running = null;
             }
             if (unsettled.isEmpty()) {
+                settleChildren();
                 turn.complete(reported);
                 return;
             }
@@ -946,6 +1101,13 @@ public final class CodexCliDriver
                         // bounded to one, so a child has no children of its own to look for.
                         if (entry.item() instanceof CodexProtocol.SubAgentActivityItem subagent) {
                             observedThreads.add(subagent.agentThreadId());
+                            if (!children.containsKey(subagent.agentThreadId())) {
+                                // History named a child the stream never did: it joins the tree,
+                                // is announced, and what it did is recovered rather than lost.
+                                registerSpawned(subagent, thread);
+                                announceChildren(Optional.empty());
+                                backfill(subagent.agentThreadId());
+                            }
                         }
                         if (!entry.item().terminal()) {
                             return Optional.of("item " + entry.item().id()
@@ -1030,9 +1192,13 @@ public final class CodexCliDriver
          */
         private boolean subagentActivity(CodexProtocol.Notification notification)
         {
-            return notification instanceof CodexProtocol.ItemStartedNotification
+            return notification instanceof CodexProtocol.ThreadStartedNotification
+                    || notification instanceof CodexProtocol.TurnCompletedNotification
+                    || notification instanceof CodexProtocol.ItemStartedNotification
                     || notification instanceof CodexProtocol.ItemCompletedNotification
                     || notification instanceof CodexProtocol.AgentMessageDeltaNotification
+                    || notification instanceof CodexProtocol.PlanDeltaNotification
+                    || notification instanceof CodexProtocol.PlanUpdatedNotification
                     || notification instanceof CodexProtocol.CommandOutputNotification
                     || notification instanceof CodexProtocol.ErrorNotification;
         }
@@ -1139,8 +1305,8 @@ public final class CodexCliDriver
                     availableDecisions,
                     new ProviderAgentEventSource(
                             Optional.of(serverRequest.threadId()),
-                            Optional.empty(),
-                            Optional.empty(),
+                            lineage.parentOf(serverRequest.threadId()),
+                            lineage.labelOf(serverRequest.threadId()),
                             serverRequest.turnId(),
                             Optional.of(itemId)),
                     Instant.ofEpochMilli(startedAtMs));

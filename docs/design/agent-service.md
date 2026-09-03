@@ -2886,8 +2886,11 @@ Required payload families are:
   duration when supplied;
 - approval requested, resolved, and expired events with kind, requested scope,
   decision, source child, and resolution time;
-- subagent discovered, running, completed, and failed events with direct
-  parent and stable child thread identity;
+- subagent discovered, completed, and failed events with direct parent and
+  stable child thread identity; a child is running from the moment it is
+  discovered, so discovery is its start rather than a separate event;
+- backfill started and completed events bracketing activity recovered from a
+  thread's history rather than seen live;
 - usage, queue, turn/task lifecycle, and error events.
 
 The renderer keys identified streamed activity by

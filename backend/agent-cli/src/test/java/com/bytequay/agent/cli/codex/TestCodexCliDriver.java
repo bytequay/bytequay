@@ -867,16 +867,121 @@ class TestCodexCliDriver
         // A subagent keeps its own cumulative token counter. Feeding it to the task's turn would
         // overwrite the task's real usage with a second, unrelated running total.
         assertThat(events).noneMatch(event -> event instanceof ProviderAgentEvent.Usage);
-        // Its final answer is its own. Published as FINAL it could be read back as the task's
-        // recorded final response.
+        // Its final answer is its own. It is FINAL for that agent, and every event it produces
+        // names a parent thread, which is what keeps it out of the task's recorded final response.
         assertThat(events)
                 .filteredOn(event -> event instanceof ProviderAgentEvent.Message)
-                .allSatisfy(event -> assertThat(((ProviderAgentEvent.Message) event).phase())
-                        .isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL));
+                .allSatisfy(event -> assertThat(event.source().parentProviderThreadId()).isPresent());
 
         supervisor.server().completeTurn();
         assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
+        session.close();
+    }
+
+    @Test
+    void discoversASubagentWithItsLineageBeforeAnythingItDidIsPublished()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("delegate"));
+
+        supervisor.server().emitThreadStarted("child-1", "History tests");
+        supervisor.server().emitSubagentActivity("child-1");
+
+        awaitCondition(() -> events.stream().anyMatch(event -> event.toString().contains("from a child thread")));
+        List<ProviderAgentEvent> discovery = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .toList();
+        assertThat(discovery).hasSize(1);
+        assertThat(((ProviderAgentEvent.Lifecycle) discovery.getFirst()).message()).isEqualTo("History tests");
+        assertThat(discovery.getFirst().source().providerThreadId()).contains("child-1");
+        assertThat(discovery.getFirst().source().parentProviderThreadId()).contains("thread-1");
+        // Routing is in place before discovery is published: nothing about the child reaches the
+        // log before the event that announced it.
+        assertThat(events.indexOf(discovery.getFirst()))
+                .isLessThan(events.stream()
+                        .filter(event -> event.source().providerThreadId().filter("child-1"::equals).isPresent())
+                        .filter(event -> !(event instanceof ProviderAgentEvent.Lifecycle))
+                        .findFirst()
+                        .map(events::indexOf)
+                        .orElse(Integer.MAX_VALUE));
+        // Every child event carries the same lineage as its discovery.
+        assertThat(events)
+                .filteredOn(event -> event.source().providerThreadId().filter("child-1"::equals).isPresent())
+                .allSatisfy(event -> {
+                    assertThat(event.source().parentProviderThreadId()).contains("thread-1");
+                    assertThat(event.source().logicalAgentPath()).contains("History tests");
+                });
+
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        session.close();
+    }
+
+    @Test
+    void recordsTheSubagentsPromptAndItsTerminalOutcome()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("delegate"));
+
+        supervisor.server().emitThreadStarted("child-2", "Preview backend");
+        supervisor.server().emitChildPrompt("child-2", "trace the preview request path");
+        supervisor.server().emitChildTurnCompleted("child-2", "completed");
+
+        awaitCondition(() -> events.stream().anyMatch(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED));
+        // What the parent asked the child to do is the only record of its purpose.
+        ProviderAgentEvent.Message prompt = (ProviderAgentEvent.Message) events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Message message
+                        && message.messageKind() == ProviderAgentEvent.MessageKind.PROMPT)
+                .findFirst()
+                .orElseThrow();
+        assertThat(prompt.text()).isEqualTo("trace the preview request path");
+        assertThat(prompt.source().providerThreadId()).contains("child-2");
+        // A child's turn completing ends that agent, never the task's turn.
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        session.close();
+    }
+
+    @Test
+    void recoversAChildOnlyHistoryNamesBetweenExplicitBackfillMarkers()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("delegate"));
+        supervisor.reportUnannouncedSubagent();
+
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        // A child the live stream never mentioned is still discovered, and what history holds is
+        // recovered between markers that say it is recovered rather than new.
+        List<ProviderAgentEvent.LifecyclePhase> phases = events.stream()
+                .filter(event -> event.source().providerThreadId().filter("child-unannounced"::equals).isPresent())
+                .filter(ProviderAgentEvent.Lifecycle.class::isInstance)
+                .map(event -> ((ProviderAgentEvent.Lifecycle) event).phase())
+                .toList();
+        assertThat(phases).containsSubsequence(
+                ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
+                ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED,
+                ProviderAgentEvent.LifecyclePhase.BACKFILL_COMPLETED);
+        // The child finished without a terminal event of its own, so quiescence settles it.
+        assertThat(phases).contains(ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED);
         session.close();
     }
 
@@ -1488,6 +1593,31 @@ class TestCodexCliDriver
                     + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\"}}");
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"" + threadId + "\","
                     + "\"turn\":{\"id\":\"subagent-turn\",\"status\":\"completed\","
+                    + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
+        }
+
+        /** Announces a subagent thread the way App Server does when one is spawned. */
+        private void emitThreadStarted(String threadId, String nickname)
+        {
+            emit("{\"method\":\"thread/started\",\"params\":{\"thread\":{"
+                    + "\"id\":\"" + threadId + "\",\"sessionId\":\"session-1\","
+                    + "\"parentThreadId\":\"thread-1\",\"turns\":[],"
+                    + "\"agentNickname\":\"" + nickname + "\",\"agentRole\":null}}}");
+        }
+
+        /** The prompt a subagent was spawned with, which arrives as its own first user message. */
+        private void emitChildPrompt(String threadId, String text)
+        {
+            emit("{\"method\":\"item/completed\",\"params\":{\"item\":{"
+                    + "\"type\":\"userMessage\",\"id\":\"prompt-1\","
+                    + "\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]},"
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"child-turn\"}}");
+        }
+
+        private void emitChildTurnCompleted(String threadId, String status)
+        {
+            emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"" + threadId + "\","
+                    + "\"turn\":{\"id\":\"child-turn\",\"status\":\"" + status + "\","
                     + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
         }
 

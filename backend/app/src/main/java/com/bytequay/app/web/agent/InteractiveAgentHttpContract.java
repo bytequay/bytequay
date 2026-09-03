@@ -117,7 +117,18 @@ final class InteractiveAgentHttpContract
                 summary.tests(),
                 summary.metrics(),
                 summary.learnings(),
-                summary.notes());
+                summary.notes(),
+                summary.children().stream()
+                        .map(child -> new ChildSummaryResponse(
+                                child.threadId(),
+                                child.parentThreadId(),
+                                child.label(),
+                                child.purpose(),
+                                child.outcome().name(),
+                                child.result(),
+                                child.startedAt(),
+                                child.endedAt()))
+                        .collect(toImmutableList()));
     }
 
     private static TaskDefaults defaults(AgentTaskDefaults defaults)
@@ -232,7 +243,19 @@ final class InteractiveAgentHttpContract
             List<TestFact> tests,
             TaskMetrics metrics,
             List<String> learnings,
-            Optional<String> notes) {}
+            Optional<String> notes,
+            List<ChildSummaryResponse> children) {}
+
+    /** What is kept about one subagent once its transcript is gone. */
+    record ChildSummaryResponse(
+            String threadId,
+            Optional<String> parentThreadId,
+            String label,
+            Optional<String> purpose,
+            String outcome,
+            Optional<String> result,
+            Optional<Instant> startedAt,
+            Optional<Instant> endedAt) {}
 
     record TurnResponse(
             String id,

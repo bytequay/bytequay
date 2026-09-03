@@ -251,6 +251,89 @@
       ]
     },
     {
+      "javaType": "ThreadStartedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=thread/started]"
+      ],
+      "context": {
+        "method": "thread/started"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "thread": {
+              "cliVersion": "value",
+              "createdAt": 1,
+              "cwd": "value",
+              "ephemeral": false,
+              "id": "value",
+              "modelProvider": "value",
+              "preview": "value",
+              "projectId": "value",
+              "sessionId": "value",
+              "source": {
+                "custom": "value"
+              },
+              "status": {
+                "activeFlags": [],
+                "type": "active"
+              },
+              "turns": [],
+              "updatedAt": 1
+            }
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadStartedParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadStartedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "thread",
+          "wireName": "thread",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cliVersion": "value",
+            "createdAt": 1,
+            "cwd": "value",
+            "ephemeral": false,
+            "id": "value",
+            "modelProvider": "value",
+            "preview": "value",
+            "projectId": "value",
+            "sessionId": "value",
+            "source": {
+              "custom": "value"
+            },
+            "status": {
+              "activeFlags": [],
+              "type": "active"
+            },
+            "turns": [],
+            "updatedAt": 1
+          }
+        }
+      ]
+    },
+    {
       "javaType": "PlanUpdatedNotification",
       "mode": "decode",
       "sources": [
@@ -971,6 +1054,33 @@
           "required": true,
           "nullable": false,
           "sample": "started"
+        }
+      ]
+    },
+    {
+      "javaType": "UserMessageItem",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadItem[type=userMessage]"
+      ],
+      "context": {
+        "type": "userMessage"
+      },
+      "decodeAs": "ThreadItem",
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "content",
+          "wireName": "content",
+          "required": true,
+          "nullable": false,
+          "sample": []
         }
       ]
     },
@@ -2168,6 +2278,20 @@
           "required": true,
           "nullable": false,
           "sample": []
+        },
+        {
+          "javaName": "agentNickname",
+          "wireName": "agentNickname",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "agentRole",
+          "wireName": "agentRole",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
         }
       ]
     },

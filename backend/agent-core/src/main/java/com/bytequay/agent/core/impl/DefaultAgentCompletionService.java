@@ -157,7 +157,8 @@ public final class DefaultAgentCompletionService
                 ImmutableList.of(),
                 metrics,
                 ImmutableList.of(),
-                notes);
+                notes,
+                finalResponseReader.children(task.id()));
     }
 
     private AgentTask persistCompletion(TaskId taskId, WorktreeMutationClaim claim, TaskSummary summary)

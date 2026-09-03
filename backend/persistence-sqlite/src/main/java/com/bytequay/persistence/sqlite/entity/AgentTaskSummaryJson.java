@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.agent.core.ChildSummary;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
@@ -26,6 +27,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,7 +35,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentTaskSummaryJson
 {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
 
     private AgentTaskSummaryJson() {}
 
@@ -59,7 +61,18 @@ final class AgentTaskSummaryJson
                 metrics.costProvenance(),
                 metrics.elapsed().toMillis(),
                 summary.learnings(),
-                summary.notes().orElse(null));
+                summary.notes().orElse(null),
+                summary.children().stream()
+                        .map(child -> new ChildValue(
+                                child.threadId(),
+                                child.parentThreadId().orElse(null),
+                                child.label(),
+                                child.purpose().orElse(null),
+                                child.outcome(),
+                                child.result().orElse(null),
+                                child.startedAt().orElse(null),
+                                child.endedAt().orElse(null)))
+                        .collect(toImmutableList()));
         try {
             return OBJECT_MAPPER.writeValueAsString(value);
         }
@@ -93,7 +106,19 @@ final class AgentTaskSummaryJson
                             .collect(toImmutableList()),
                     metrics,
                     ImmutableList.copyOf(value.learnings()),
-                    Optional.ofNullable(value.notes()));
+                    Optional.ofNullable(value.notes()),
+                    // A summary stored before subagents were indexed has no field for them.
+                    (value.children() == null ? ImmutableList.<ChildValue>of() : value.children()).stream()
+                            .map(child -> new ChildSummary(
+                                    child.threadId(),
+                                    Optional.ofNullable(child.parentThreadId()),
+                                    child.label(),
+                                    Optional.ofNullable(child.purpose()),
+                                    child.outcome(),
+                                    Optional.ofNullable(child.result()),
+                                    Optional.ofNullable(child.startedAt()),
+                                    Optional.ofNullable(child.endedAt())))
+                            .collect(toImmutableList()));
         }
         catch (JsonProcessingException | RuntimeException e) {
             if (e instanceof AgentStorageException storageException) {
@@ -119,7 +144,18 @@ final class AgentTaskSummaryJson
             CostProvenance costProvenance,
             long elapsedMillis,
             List<String> learnings,
-            String notes) {}
+            String notes,
+            List<ChildValue> children) {}
+
+    private record ChildValue(
+            String threadId,
+            String parentThreadId,
+            String label,
+            String purpose,
+            ChildSummary.Outcome outcome,
+            String result,
+            Instant startedAt,
+            Instant endedAt) {}
 
     private record TestValue(String name, TestFact.Status status, String detail) {}
 }

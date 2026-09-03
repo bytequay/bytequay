@@ -28,10 +28,24 @@ public record TaskSummary(
         List<TestFact> tests,
         TaskMetrics metrics,
         List<String> learnings,
-        Optional<String> notes)
+        Optional<String> notes,
+        List<ChildSummary> children)
 {
+    /** A summary of a task that delegated nothing, which is what every task was before subagents. */
+    public TaskSummary(
+            String finalResponse,
+            Optional<WorktreeSnapshot> worktree,
+            List<TestFact> tests,
+            TaskMetrics metrics,
+            List<String> learnings,
+            Optional<String> notes)
+    {
+        this(finalResponse, worktree, tests, metrics, learnings, notes, ImmutableList.of());
+    }
+
     public TaskSummary
     {
+        children = ImmutableList.copyOf(children);
         requireNonNull(finalResponse, "finalResponse is null");
         requireNonNull(worktree, "worktree is null");
         tests = ImmutableList.copyOf(tests);

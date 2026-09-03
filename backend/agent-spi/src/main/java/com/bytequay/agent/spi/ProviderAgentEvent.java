@@ -483,7 +483,9 @@ public sealed interface ProviderAgentEvent
     {
         ANSWER,
         REASONING_SUMMARY,
-        PLAN_TEXT
+        PLAN_TEXT,
+        /** The message an agent was given; on a subagent, the prompt its parent spawned it with. */
+        PROMPT
     }
 
     /** What a shell command did to one worktree-relative path, as the provider parsed it. */
@@ -535,7 +537,14 @@ public sealed interface ProviderAgentEvent
         TURN_COMPLETED,
         RETRYING,
         RATE_LIMITED,
-        INTERRUPTED
+        INTERRUPTED,
+        /** A subagent became known; the source names it and its parent, the message is its label. */
+        AGENT_STARTED,
+        AGENT_COMPLETED,
+        AGENT_FAILED,
+        /** Brackets events recovered from a thread's history rather than seen live. */
+        BACKFILL_STARTED,
+        BACKFILL_COMPLETED
     }
 
     private static ProviderAgentEventSource legacySource(ProviderAgentEventSource source)

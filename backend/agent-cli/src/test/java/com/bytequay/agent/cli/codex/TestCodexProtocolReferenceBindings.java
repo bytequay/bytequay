@@ -49,6 +49,7 @@ class TestCodexProtocolReferenceBindings
             "UnknownParams",
             "UnknownThreadItem",
             "ModelOutputItem",
+            "OtherUserInput",
             "UnknownServerRequest",
             "EmptyParams",
             "EmptyResponse");

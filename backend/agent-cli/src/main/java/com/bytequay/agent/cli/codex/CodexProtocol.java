@@ -49,6 +49,7 @@ final class CodexProtocol
                     name = "item/agentMessage/delta",
                     value = AgentMessageDeltaNotification.class),
             @JsonSubTypes.Type(name = "item/plan/delta", value = PlanDeltaNotification.class),
+            @JsonSubTypes.Type(name = "thread/started", value = ThreadStartedNotification.class),
             @JsonSubTypes.Type(name = "turn/plan/updated", value = PlanUpdatedNotification.class),
             @JsonSubTypes.Type(
                     name = "thread/tokenUsage/updated",
@@ -60,7 +61,7 @@ final class CodexProtocol
             ItemStartedNotification, ItemCompletedNotification,
             CommandOutputNotification, AgentMessageDeltaNotification, PlanDeltaNotification,
             PlanUpdatedNotification, TokenUsageUpdatedNotification, ErrorNotification,
-            UnknownNotification
+            ThreadStartedNotification, UnknownNotification
     {
         Params params();
 
@@ -84,8 +85,8 @@ final class CodexProtocol
      */
     sealed interface Params
             permits TurnNotificationParams, ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams,
-            TokenUsageParams, ErrorParams, UnknownParams, CommandApprovalParams, FileChangeApprovalParams,
-            PermissionsApprovalParams
+            TokenUsageParams, ErrorParams, ThreadStartedParams, UnknownParams, CommandApprovalParams,
+            FileChangeApprovalParams, PermissionsApprovalParams
     {
         String threadId();
 
@@ -167,6 +168,17 @@ final class CodexProtocol
         }
     }
 
+    /** A thread came into being in this process; for a subagent it names its parent and nickname. */
+    record ThreadStartedNotification(ThreadStartedParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        ThreadStartedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+    }
+
     record PlanUpdatedNotification(PlanUpdatedParams params, Optional<Long> emittedAtMs)
             implements Notification
     {
@@ -237,6 +249,21 @@ final class CodexProtocol
         public Optional<String> owningTurnId()
         {
             return Optional.of(turnId);
+        }
+    }
+
+    record ThreadStartedParams(HistoryThread thread)
+            implements Params
+    {
+        ThreadStartedParams
+        {
+            requireNonNull(thread, "thread is null");
+        }
+
+        @Override
+        public String threadId()
+        {
+            return thread.id();
         }
     }
 
@@ -337,7 +364,7 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "webSearch", value = WebSearchItem.class),
             @JsonSubTypes.Type(name = "imageView", value = ImageViewItem.class),
             @JsonSubTypes.Type(name = "contextCompaction", value = ContextCompactionItem.class),
-            @JsonSubTypes.Type(name = "userMessage", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "userMessage", value = UserMessageItem.class),
             @JsonSubTypes.Type(name = "functionCallOutput", value = ModelOutputItem.class),
             @JsonSubTypes.Type(name = "enteredReviewMode", value = ModelOutputItem.class),
             @JsonSubTypes.Type(name = "exitedReviewMode", value = ModelOutputItem.class),
@@ -345,8 +372,8 @@ final class CodexProtocol
     sealed interface ThreadItem
             permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
             DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, ReasoningItem,
-            PlanTextItem, WebSearchItem, ImageViewItem, ContextCompactionItem, ModelOutputItem,
-            UnknownThreadItem
+            PlanTextItem, WebSearchItem, ImageViewItem, ContextCompactionItem, UserMessageItem,
+            ModelOutputItem, UnknownThreadItem
     {
         String id();
 
@@ -621,9 +648,9 @@ final class CodexProtocol
     }
 
     /**
-     * An item that is model output or a record of it: the user's own message, a tool's returned
-     * output, or a review-mode marker. Nothing of this kind runs a process or changes a file, so
-     * one left open holds nothing.
+     * An item that is model output or a record of it: a tool's returned output or a review-mode
+     * marker. Nothing of this kind runs a process or changes a file, so one left open holds
+     * nothing.
      */
     record ModelOutputItem(String id)
             implements ThreadItem
@@ -1323,7 +1350,9 @@ final class CodexProtocol
             String id,
             String sessionId,
             Optional<String> parentThreadId,
-            List<Turn> turns)
+            List<Turn> turns,
+            Optional<String> agentNickname,
+            Optional<String> agentRole)
     {
         HistoryThread
         {
@@ -1332,6 +1361,8 @@ final class CodexProtocol
             requireNonNull(parentThreadId, "parentThreadId is null");
             parentThreadId.ifPresent(parent -> checkIdentifier(parent, "parentThreadId"));
             turns = ImmutableList.copyOf(turns);
+            requireNonNull(agentNickname, "agentNickname is null");
+            requireNonNull(agentRole, "agentRole is null");
         }
     }
 
@@ -1348,19 +1379,53 @@ final class CodexProtocol
     /**
      * Starts a turn, carrying the model settings snapshotted when it was accepted.
      */
-    /** One item of a turn's input: the prompt text, or a validated task-owned image by path. */
+    /**
+     * One item of a turn's input: the prompt text, or a validated task-owned image by path.
+     * Decoding also meets the inputs a subagent's own prompt was given, which may be of kinds
+     * this product never sends; those decode to their type alone.
+     */
     @JsonTypeInfo(
             use = JsonTypeInfo.Id.NAME,
             include = JsonTypeInfo.As.EXISTING_PROPERTY,
             property = "type",
-            visible = true)
+            visible = true,
+            defaultImpl = OtherUserInput.class)
     @JsonSubTypes({
             @JsonSubTypes.Type(name = "text", value = TextInput.class),
             @JsonSubTypes.Type(name = "localImage", value = LocalImageInput.class),
     })
     sealed interface UserInput
-            permits TextInput, LocalImageInput
+            permits TextInput, LocalImageInput, OtherUserInput
     {
+    }
+
+    record OtherUserInput(String type)
+            implements UserInput
+    {
+        OtherUserInput
+        {
+            checkIdentifier(type, "type");
+        }
+    }
+
+    /** The message a thread was given; on a subagent it is the prompt its parent spawned it with. */
+    record UserMessageItem(String id, List<UserInput> content)
+            implements ThreadItem
+    {
+        UserMessageItem
+        {
+            checkIdentifier(id, "id");
+            content = ImmutableList.copyOf(content);
+        }
+
+        /** The prompt's text parts, in order; images and other inputs are not text. */
+        public String text()
+        {
+            return content.stream()
+                    .filter(TextInput.class::isInstance)
+                    .map(input -> ((TextInput) input).text())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+        }
     }
 
     record LocalImageInput(String type, String path)

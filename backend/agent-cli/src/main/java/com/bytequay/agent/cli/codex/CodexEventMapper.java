@@ -55,30 +55,76 @@ final class CodexEventMapper
      *     answer, because that is what the task's recorded final response is read from.
      * @return the mapped events, possibly empty
      */
-    List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean answersForTheTurn)
+    /**
+     * Where a thread sits in the task's agent tree: its direct parent and the label it is known by.
+     * The driver keeps the tree; the mapper only reads it, so every event a subagent produces
+     * carries the same lineage as the discovery event that announced it.
+     */
+    interface ThreadLineage
+    {
+        ThreadLineage NONE = new ThreadLineage()
+        {
+            @Override
+            public Optional<String> parentOf(String threadId)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<String> labelOf(String threadId)
+            {
+                return Optional.empty();
+            }
+        };
+
+        Optional<String> parentOf(String threadId);
+
+        Optional<String> labelOf(String threadId);
+    }
+
+    List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread)
+    {
+        return map(notification, rootThread, ThreadLineage.NONE);
+    }
+
+    List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread, ThreadLineage lineage)
     {
         Optional<Instant> timestamp = notification.emittedAtMs().map(Instant::ofEpochMilli);
         return switch (notification) {
-            case CodexProtocol.TurnStartedNotification started -> ImmutableList.of(lifecycle(
-                    started.params().turn().id() + ":started",
-                    timestamp,
-                    ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
-                    "Codex turn started",
-                    source(started, Optional.empty())));
-            case CodexProtocol.TurnCompletedNotification completed -> ImmutableList.of(lifecycle(
-                    completed.params().turn().id() + ":completed",
-                    timestamp,
-                    completed.params().turn().status() == CodexProtocol.TurnStatus.INTERRUPTED
-                            ? ProviderAgentEvent.LifecyclePhase.INTERRUPTED
-                            : ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
-                    "Codex turn " + statusText(completed.params().turn().status()),
-                    source(completed, Optional.empty())));
+            case CodexProtocol.TurnStartedNotification started -> rootThread
+                    ? ImmutableList.of(lifecycle(
+                            started.params().turn().id() + ":started",
+                            timestamp,
+                            ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
+                            "Codex turn started",
+                            source(started, Optional.empty(), lineage)))
+                    // A subagent's turn starting is not a task turn; its discovery already said it began.
+                    : ImmutableList.of();
+            case CodexProtocol.TurnCompletedNotification completed -> ImmutableList.of(rootThread
+                    ? lifecycle(
+                            completed.params().turn().id() + ":completed",
+                            timestamp,
+                            completed.params().turn().status() == CodexProtocol.TurnStatus.INTERRUPTED
+                                    ? ProviderAgentEvent.LifecyclePhase.INTERRUPTED
+                                    : ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
+                            "Codex turn " + statusText(completed.params().turn().status()),
+                            source(completed, Optional.empty(), lineage))
+                    : lifecycle(
+                            completed.params().turn().id() + ":agent-completed",
+                            timestamp,
+                            completed.params().turn().status() == CodexProtocol.TurnStatus.COMPLETED
+                                    ? ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED
+                                    : ProviderAgentEvent.LifecyclePhase.AGENT_FAILED,
+                            "Agent " + statusText(completed.params().turn().status()),
+                            source(completed, Optional.empty(), lineage)));
             case CodexProtocol.ItemStartedNotification started ->
-                mapItem(started.params().item(), timestamp, true, answersForTheTurn,
-                        source(started, Optional.of(started.params().item().id())));
+                mapItem(started.params().item(), timestamp, true, rootThread,
+                        source(started, Optional.of(started.params().item().id()), lineage));
             case CodexProtocol.ItemCompletedNotification completed ->
-                mapItem(completed.params().item(), timestamp, false, answersForTheTurn,
-                        source(completed, Optional.of(completed.params().item().id())));
+                mapItem(completed.params().item(), timestamp, false, rootThread,
+                        source(completed, Optional.of(completed.params().item().id()), lineage));
+            // The driver announces a new thread once its lineage is known; nothing to show here.
+            case CodexProtocol.ThreadStartedNotification ignored -> ImmutableList.of();
             case CodexProtocol.CommandOutputNotification output -> ImmutableList.of(
                     new ProviderAgentEvent.Command(
                             Optional.empty(),
@@ -89,7 +135,7 @@ final class CodexEventMapper
                             optionalText(redactor.redact(output.params().delta())),
                             Optional.empty(),
                             false,
-                            source(output, Optional.of(output.params().itemId()))));
+                            source(output, Optional.of(output.params().itemId()), lineage)));
             case CodexProtocol.AgentMessageDeltaNotification message -> ImmutableList.of(
                     new ProviderAgentEvent.Message(
                             Optional.empty(),
@@ -97,7 +143,7 @@ final class CodexEventMapper
                             ProviderAgentEvent.MessagePhase.PARTIAL,
                             redactor.redact(message.params().delta()),
                             Optional.empty(),
-                            source(message, Optional.of(message.params().itemId()))));
+                            source(message, Optional.of(message.params().itemId()), lineage)));
             case CodexProtocol.PlanDeltaNotification plan -> ImmutableList.of(
                     new ProviderAgentEvent.Message(
                             Optional.empty(),
@@ -106,25 +152,42 @@ final class CodexEventMapper
                             ProviderAgentEvent.MessagePhase.PARTIAL,
                             redactor.redact(plan.params().delta()),
                             Optional.empty(),
-                            source(plan, Optional.of(plan.params().itemId()))));
-            case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), timestamp, source(plan, Optional.empty()));
-            case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), timestamp, source(usage, Optional.empty()));
+                            source(plan, Optional.of(plan.params().itemId()), lineage)));
+            case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), timestamp, source(plan, Optional.empty(), lineage));
+            case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), timestamp, source(usage, Optional.empty(), lineage));
             case CodexProtocol.ErrorNotification error -> ImmutableList.of(new ProviderAgentEvent.Error(
                     Optional.empty(),
                     timestamp,
                     "codex",
                     redactor.redact(error.params().error().message()),
                     error.params().willRetry(),
-                    source(error, Optional.empty())));
+                    source(error, Optional.empty(), lineage)));
             case CodexProtocol.UnknownNotification ignored -> ImmutableList.of();
         };
+    }
+
+    /** An item read back from a thread's history, mapped as the completed item it now is. */
+    List<ProviderAgentEvent> mapHistoryItem(
+            CodexProtocol.ThreadItem item,
+            String threadId,
+            String turnId,
+            boolean rootThread,
+            ThreadLineage lineage)
+    {
+        ProviderAgentEventSource source = new ProviderAgentEventSource(
+                Optional.of(threadId),
+                lineage.parentOf(threadId),
+                lineage.labelOf(threadId),
+                Optional.of(turnId),
+                Optional.of(item.id()));
+        return mapItem(item, Optional.empty(), false, rootThread, source);
     }
 
     private List<ProviderAgentEvent> mapItem(
             CodexProtocol.ThreadItem item,
             Optional<Instant> timestamp,
             boolean started,
-            boolean answersForTheTurn,
+            boolean rootThread,
             ProviderAgentEventSource source)
     {
         String eventId = item.id() + (started ? ":started" : ":completed");
@@ -134,14 +197,25 @@ final class CodexEventMapper
                     : ImmutableList.of(new ProviderAgentEvent.Message(
                             Optional.of(eventId),
                             timestamp,
-                            // A subagent's final answer is its own, not the turn's. Publishing it
-                            // as FINAL would let it be read back as the task's final response.
-                            answersForTheTurn
-                                    && message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN)
-                                            == CodexProtocol.MessagePhase.FINAL_ANSWER
+                            // A subagent's final answer is FINAL for that agent; its source names
+                            // the parent, which is what keeps it from being read as the task's.
+                            message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN)
+                                    == CodexProtocol.MessagePhase.FINAL_ANSWER
                                     ? ProviderAgentEvent.MessagePhase.FINAL
                                     : ProviderAgentEvent.MessagePhase.PARTIAL,
                             redactor.redact(message.text()),
+                            Optional.empty(),
+                            source));
+            // The root's own prompt is already durable as the user's message; a subagent's prompt
+            // is the only record of what its parent asked it to do.
+            case CodexProtocol.UserMessageItem prompt -> started || rootThread || prompt.text().isBlank()
+                    ? ImmutableList.of()
+                    : ImmutableList.of(new ProviderAgentEvent.Message(
+                            Optional.of(eventId),
+                            timestamp,
+                            ProviderAgentEvent.MessageKind.PROMPT,
+                            ProviderAgentEvent.MessagePhase.FINAL,
+                            redactor.redact(prompt.text()),
                             Optional.empty(),
                             source));
             case CodexProtocol.CommandExecutionItem command ->
@@ -166,15 +240,19 @@ final class CodexEventMapper
                     started,
                     source,
                     Optional.empty()));
-            case CodexProtocol.CollabAgentToolCallItem tool -> ImmutableList.of(tool(
-                    tool.id(),
-                    tool.tool(),
-                    tool.status(),
-                    eventId,
-                    timestamp,
-                    started,
-                    source,
-                    Optional.empty()));
+            // Spawning is shown as the subagent it creates, not as a tool row; the other
+            // collaboration tools are activity like any other.
+            case CodexProtocol.CollabAgentToolCallItem tool -> tool.tool().equals("spawnAgent")
+                    ? ImmutableList.of()
+                    : ImmutableList.of(tool(
+                            tool.id(),
+                            tool.tool(),
+                            tool.status(),
+                            eventId,
+                            timestamp,
+                            started,
+                            source,
+                            Optional.empty()));
             case CodexProtocol.ReasoningItem reasoning -> {
                 // Only the readable summary is mapped; the hidden reasoning text was never decoded.
                 List<String> summary = reasoning.summary().orElse(ImmutableList.of());
@@ -436,12 +514,14 @@ final class CodexEventMapper
 
     private static ProviderAgentEventSource source(
             CodexProtocol.Notification notification,
-            Optional<String> providerItemId)
+            Optional<String> providerItemId,
+            ThreadLineage lineage)
     {
+        String threadId = notification.threadId();
         return new ProviderAgentEventSource(
-                Optional.of(notification.threadId()),
-                Optional.empty(),
-                Optional.empty(),
+                Optional.of(threadId),
+                lineage.parentOf(threadId),
+                lineage.labelOf(threadId),
                 notification.turnId(),
                 providerItemId);
     }

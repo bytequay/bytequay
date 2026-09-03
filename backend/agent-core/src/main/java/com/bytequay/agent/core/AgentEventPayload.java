@@ -336,7 +336,8 @@ public sealed interface AgentEventPayload
     {
         ANSWER,
         REASONING_SUMMARY,
-        PLAN_TEXT
+        PLAN_TEXT,
+        PROMPT
     }
 
     enum MessagePhase
@@ -405,6 +406,11 @@ public sealed interface AgentEventPayload
         TASK_FAILED,
         RETRYING,
         RATE_LIMITED,
-        INTERRUPTED
+        INTERRUPTED,
+        AGENT_STARTED,
+        AGENT_COMPLETED,
+        AGENT_FAILED,
+        BACKFILL_STARTED,
+        BACKFILL_COMPLETED
     }
 }

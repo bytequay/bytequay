@@ -566,7 +566,8 @@
         "elapsed": "<duration>"
       },
       "learnings": [],
-      "notes": "ready for review"
+      "notes": "ready for review",
+      "children": []
     },
     "completedAt": "<timestamp>",
     "deleteAfter": "<timestamp>"
@@ -610,7 +611,8 @@
         "elapsed": "<duration>"
       },
       "learnings": [],
-      "notes": "ready for review"
+      "notes": "ready for review",
+      "children": []
     },
     "cleanupState": "RETAINED",
     "deleteAfter": "<timestamp>",

@@ -246,8 +246,8 @@ export function TaskComposer({
       <div className="agt-compose">
         {branch !== undefined && (
           <div className="agt-compose__bar">
-            <span className="agt-chip" title="Branch the task starts from">
-              <span aria-hidden="true">⑂ </span>{branch}
+            <span className="agt-compose__branch" title="Branch the task starts from">
+              <span className="agt-compose__branch-mark" aria-hidden="true">⑂</span>{branch}
             </span>
           </div>
         )}
@@ -273,7 +273,9 @@ export function TaskComposer({
           >
             {laneLabel(laneId)} <Chevron open size={11} />
           </button>
-          <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
+          <button type="button" className="agt-compose__chip agt-fake" data-fake="CP11 · permission choice" title="Auto asks before anything risky" disabled>
+            Auto <Chevron open size={11} />
+          </button>
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the new task"
@@ -321,7 +323,6 @@ export function AgentTaskList({
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
 }): React.JSX.Element {
-  const openCount = tasks.filter((task) => task.state === 'OPEN').length;
   const now = Date.now();
   return (
     <div className="agt-tasks-page">
@@ -330,8 +331,7 @@ export function AgentTaskList({
         {children}
         <section className="agt-section" aria-label="Agent tasks">
           <div className="agt-head">
-            <span className="agt-label">Agent tasks</span>
-            <span className="agt-sub">{openCount} open · {tasks.length - openCount} finished</span>
+            <span className="agt-section-label">Agent tasks</span>
           </div>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <div className="agt-list">

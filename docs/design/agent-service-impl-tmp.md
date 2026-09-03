@@ -1736,8 +1736,9 @@ the design has none — a failed turn is retried by typing again, and the
 recovery card keeps its disabled Retry; Approval offers only the decisions the
 provider actually offers, so the design's "Allow for this task" appears only
 when Codex offers it; a window's ✕ completes an idle task after confirmation
-and is disabled while a turn holds the checkout; and the provider chip, Steer
-and Run next are the three `data-fake` placeholders left for CP11 and CP10. In
+and is disabled while a turn holds the checkout; and the provider chip, the
+permission chip, Steer and Run next are the `data-fake` placeholders left for
+CP11 and CP10, drawn as the design draws them. In
 a development build the workspace Home is the design's idle screen, which
 means its three action cards give way to the agent hero there; packaged builds
 keep the current Home until CP11 removes the gate. Task windows read a task's
@@ -2063,5 +2064,6 @@ CP0 through CP9.5 are complete. Next:
 2. carry the provider-choice placeholder into CP11, where Claude parity gives
    the chip its second option.
 
-`grep -rn data-fake frontend/src` lists exactly those three placeholders; the
-`.agt-fake` rule in `agents.css` goes when the last of them does.
+`grep -rn data-fake frontend/src` lists exactly those placeholders — the
+provider chip and the permission chip for CP11, Steer and Run next for CP10;
+the `.agt-fake` rule in `agents.css` goes when the last of them does.

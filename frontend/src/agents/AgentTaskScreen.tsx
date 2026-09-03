@@ -113,6 +113,11 @@ function permissionLabel(policy: string): string {
   return policy === 'AUTO' ? 'Auto' : policy;
 }
 
+/** "Aug 16", or "Aug 23, 2026" with the year, as the design dates a finished agent. */
+function shortDate(iso: string, withYear = false): string {
+  return new Date(iso).toLocaleDateString([], withYear ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
+}
+
 function clock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
@@ -170,26 +175,49 @@ function CommandRows({ member, live }: { member: CommandMember; live: boolean })
           {index === 0 && !verbatim && <Duration ms={member.durationMs} />}
         </div>
       ))}
-      {verbatim && (
-        <div className="agt-act__row is-command">
-          <StateIcon state={state} />
-          <span className="agt-mono">$ {member.command}</span>
-          {member.exitCode !== null && (
-            <span className={`agt-exit ${member.exitCode === 0 ? 'is-ok' : 'is-failed'}`}>exit {member.exitCode}</span>
-          )}
-          {member.cwd !== null && member.cwd !== '.' && <span className="agt-mono agt-muted">in {member.cwd}</span>}
-          <span className="agt-spacer" />
-          <Duration ms={member.durationMs} />
-        </div>
-      )}
-      {member.output !== null && member.output !== '' && (
-        // Output folds behind a native disclosure, so it is keyboard-operable for free; a running
-        // command's output stays open because that is what the user is watching.
+      {verbatim && (member.output === null || member.output === ''
+        ? <div className="agt-act__row is-command"><CommandCells member={member} state={state} /></div>
+        : (
+          // The row is the disclosure: keyboard-operable for free, and a running command's output
+          // stays open because that is what the user is watching.
+          <details className="agt-out" open={live && running ? true : undefined}>
+            <summary className="agt-act__row is-command">
+              <CommandCells member={member} state={state} chevron />
+            </summary>
+            <pre className="agt-pre">
+              {member.output}
+              {member.truncated && <span className="agt-muted"> … truncated</span>}
+              {running && <span className="agt-cursor" aria-hidden="true" />}
+            </pre>
+          </details>
+        ))}
+      {!verbatim && member.output !== null && member.output !== '' && (
         <details className="agt-out" open={live && running ? true : undefined}>
           <summary><Chevron />Output{member.truncated ? ' (truncated)' : ''}</summary>
           <pre className="agt-pre">{member.output}{running && <span className="agt-cursor" aria-hidden="true" />}</pre>
         </details>
       )}
+    </>
+  );
+}
+
+/** The cells of a command's row; the chevron sits after the command when the row folds its output. */
+function CommandCells({ member, state, chevron = false }: {
+  member: CommandMember;
+  state: 'running' | 'ok' | 'failed';
+  chevron?: boolean;
+}): React.JSX.Element {
+  return (
+    <>
+      <StateIcon state={state} />
+      <span className="agt-mono">$ {member.command}</span>
+      {chevron && <Chevron size={11} />}
+      {member.exitCode !== null && (
+        <span className={`agt-exit ${member.exitCode === 0 ? 'is-ok' : 'is-failed'}`}>exit {member.exitCode}</span>
+      )}
+      {member.cwd !== null && member.cwd !== '.' && <span className="agt-mono agt-muted">in {member.cwd}</span>}
+      <span className="agt-spacer" />
+      <Duration ms={member.durationMs} />
     </>
   );
 }
@@ -316,10 +344,10 @@ function ApprovalView({ block, onDecide }: {
   return (
     <div className="agt-appr" role="group" aria-label={`Approval: ${block.title}`}>
       <div className="agt-appr__head">
-        <span className="agt-chip is-warn">Approval needed</span>
+        <span className="agt-appr__chip">Approval needed</span>
         <span className="agt-appr__title">{block.title}</span>
         <span className="agt-spacer" />
-        <span className="agt-mono agt-muted">{block.agent}</span>
+        <span className="agt-mono agt-right">{block.agent}</span>
       </div>
       {block.detail !== '' && <pre className="agt-code">{block.detail}</pre>}
       {block.scope.length > 0 && (
@@ -401,7 +429,7 @@ function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, 
               {agentLabels[threadId] ?? 'Agent'}
             </button>
           ))}
-          <span className="agt-muted">{block.phase === 'started' ? 'started working' : 'finished'}</span>
+          <span className="agt-agents__phase">{block.phase === 'started' ? 'started working' : 'finished'}</span>
         </div>
       );
     case 'error':
@@ -722,8 +750,9 @@ function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean;
   return (
     <div className="agt-todos">
       <button type="button" className="agt-todos__head" aria-expanded={open} aria-label="Show or hide the plan" onClick={onToggle}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4.5h1.2M6.4 4.5H13M3 8h1.2M6.4 8H13M3 11.5h1.2M6.4 11.5H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"></path></svg>
         <span className="agt-todos__title">Plan</span>
-        <span className="agt-muted agt-ellipsis">{planSummary(steps)}</span>
+        <span className="agt-todos__summary agt-ellipsis">{planSummary(steps)}</span>
         <span className="agt-spacer" />
         <Chevron open={open} />
       </button>
@@ -847,6 +876,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
+  logChoice = null, onToggleLog = () => {},
 }: {
   agents: AgentNode[];
   openAgent: string | null;
@@ -864,6 +894,9 @@ function SidePanel({
   onSelectTab: (tab: PanelTab) => void;
   onHide: () => void;
   onOpenPullRequest?: (number: number) => void;
+  /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
+  logChoice?: string | null;
+  onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
@@ -884,56 +917,85 @@ function SidePanel({
     const label = agent?.label ?? expired?.label ?? 'Agent';
     const result = agent?.result ?? expired?.result ?? null;
     const purpose = agent?.purpose ?? expired?.purpose ?? null;
+    const parent = agent?.parentThreadId ?? expired?.parentThreadId ?? null;
+    const parentLabel = parent === null ? 'root agent' : labels[parent] ?? 'root agent';
+    const endedAt = agent?.endedAt ?? expired?.endedAt ?? null;
+    const startedAt = agent?.startedAt ?? expired?.startedAt ?? null;
+    const worked = startedAt === null ? null : formatDuration(Math.max(0, (endedAt === null ? now : Date.parse(endedAt)) - Date.parse(startedAt)));
+    const running = agent?.status === 'running';
+    // A live agent's log is what the user came to watch; a finished one folds to its result.
+    const logOpen = logChoice === openAgent ? true : logChoice === `!${openAgent}` ? false : running;
     return (
       <aside className="agt-panel" aria-label={`Agent: ${label}`}>
         {tabs}
         <div className="agt-panel__head">
           <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
           <AgentMark name={label} muted={agent === undefined} />
-          <strong className="agt-panel__label">{label}</strong>
-          {agent?.status === 'running'
+          <strong className={`agt-panel__label${agent === undefined ? ' is-muted' : ''}`}>{label}</strong>
+          {running
             ? <Spinner />
-            : <span className="agt-chip">{agent?.status === 'failed' ? 'Failed' : 'Done'}</span>}
+            : (
+              <span className={`agt-panel__outcome${agent?.status === 'failed' ? ' is-failed' : agent === undefined ? ' is-expired' : ' is-done'}`}>
+                {agent?.status === 'failed' ? '✕ Failed' : agent === undefined ? `Done${endedAt === null ? '' : ` · ${shortDate(endedAt)}`}` : '✓ Done'}
+              </span>
+            )}
         </div>
-        {agent !== undefined && agent.startedAt !== null && (
-          <div className="agt-panel__worked">
-            {agent.endedAt === null ? 'Working for ' : 'Worked for '}{agentElapsed(agent, now)}
-            {agent.endedAt === null ? '' : ` · finished ${clock(agent.endedAt)}`}
+        {worked !== null && blocks.length > 0 && (
+          <button
+            type="button"
+            className="agt-panel__worked"
+            aria-expanded={logOpen}
+            title="Show or hide this agent's log"
+            onClick={() => onToggleLog(logOpen ? `!${openAgent}` : openAgent)}
+          >
+            {running ? 'Working for ' : 'Worked for '}{worked}{endedAt === null ? '' : ` · finished ${clock(endedAt)}`}
+            <Chevron open={logOpen} size={11} />
+          </button>
+        )}
+        {blocks.length === 0 && (
+          <div className="agt-panel__expired">
+            <div className="agt-panel__expired-title">Activity expired</div>
+            <div className="agt-panel__expired-body">
+              {deleteAfter === null
+                ? 'Detailed steps were removed at the end of the retention window. The result is kept.'
+                : `Detailed steps were removed on ${shortDate(deleteAfter, true)} at the end of the retention window. The result is kept.`}
+            </div>
           </div>
         )}
-        {purpose !== null && (
-          <div className="agt-panel__prompt"><span className="agt-label">From its parent</span> {purpose}</div>
-        )}
-        {agent?.backfilling === true && (
-          <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
-        )}
-        {blocks.length === 0
-          ? (
-            <div className="agt-panel__expired">
-              <div className="agt-panel__expired-title">Activity expired</div>
-              <div className="agt-muted">
-                {deleteAfter === null
-                  ? 'Detailed steps were removed at the end of the retention window. The result is kept.'
-                  : `Detailed steps were removed on ${new Date(deleteAfter).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} at the end of the retention window. The result is kept.`}
-              </div>
+        {logOpen && blocks.length > 0 && (
+          <>
+            {purpose !== null && (
+              <div className="agt-panel__prompt"><span className="agt-panel__from">From {parentLabel} —</span> {purpose}</div>
+            )}
+            {agent?.backfilling === true && (
+              <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
+            )}
+            <div className="agt-panel__log">
+              {blocks.map((block) => (
+                <BlockView
+                  key={block.id}
+                  block={block}
+                  now={now}
+                  activityChoice={activityChoice}
+                  agentLabels={labels}
+                  onToggleActivity={onToggleActivity}
+                  onDecide={onDecide}
+                />
+              ))}
             </div>
-          )
-          : blocks.map((block) => (
-            <BlockView
-              key={block.id}
-              block={block}
-              now={now}
-              activityChoice={activityChoice}
-              agentLabels={labels}
-              onToggleActivity={onToggleActivity}
-              onDecide={onDecide}
-            />
-          ))}
+          </>
+        )}
         {result !== null && (
           <>
             <div className="agt-label agt-panel__section">Result{blocks.length === 0 ? ' — kept' : ''}</div>
             <div className="agt-panel__result">{result}</div>
           </>
+        )}
+        {!running && worked !== null && (
+          <div className="agt-panel__finished">
+            <span className="agt-icon is-ok" aria-hidden="true">✓</span>
+            {blocks.length === 0 && endedAt !== null ? `Finished ${shortDate(endedAt)} · ${worked}` : worked}
+          </div>
         )}
       </aside>
     );
@@ -990,6 +1052,8 @@ export function AgentTaskBody({
   openAgent = null,
   panelTab = 'agents',
   pullRequests = [],
+  logChoice = null,
+  onToggleLog = () => {},
   onToggleActivity = () => {},
   onToggleTurn = () => {},
   onTogglePlan = () => {},
@@ -1039,6 +1103,8 @@ export function AgentTaskBody({
   pullRequests?: PullRequestDto[];
   onSelectPanelTab?: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
+  logChoice?: string | null;
+  onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
   const turns = projectTranscript(state.events);
   const agents = projectAgents(state.events);
@@ -1071,9 +1137,10 @@ export function AgentTaskBody({
         />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
           {status === 'running' && !waiting && <Spinner />}
+          {(status === 'recovery' || status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
-        <span className="agt-mono agt-muted agt-meta">{headerMeta(turns, status, waiting, now, state, models)}</span>
+        <span className="agt-mono agt-meta">{headerMeta(turns, status, waiting, now, state, models)}</span>
         <span className="agt-spacer" />
         <span
           className={`agt-conn-dot is-${stateClass(state.connection)}`}
@@ -1081,6 +1148,21 @@ export function AgentTaskBody({
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
+        {!terminal && (
+          <button
+            type="button"
+            className="agt-headbtn is-labelled"
+            title={completeTitle(status)}
+            onClick={onComplete}
+            disabled={status !== 'idle'}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M5.3 8.2 7.1 10 10.7 6.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Complete
+          </button>
+        )}
         {state.task !== null && (
           <button
             type="button"
@@ -1098,26 +1180,12 @@ export function AgentTaskBody({
             </svg>
           </button>
         )}
-        {!terminal && (
-          <button
-            type="button"
-            className="agt-headbtn is-labelled"
-            title={completeTitle(status)}
-            onClick={onComplete}
-            disabled={status !== 'idle'}
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.3" />
-              <path d="M5.3 8.2 7.1 10 10.7 6.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Complete
-          </button>
-        )}
       </div>
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
       {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
         <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
+          {state.connection === 'reconnecting' && <span className="agt-spin is-warn" aria-hidden="true" />}
           {connectionText(state)}
           {state.gap ? ' — waiting for a missing event' : ''}
         </div>
@@ -1183,10 +1251,13 @@ export function AgentTaskBody({
           onSelectTab={onSelectPanelTab}
           onHide={onTogglePanel}
           onOpenPullRequest={onOpenPullRequest}
+          logChoice={logChoice}
+          onToggleLog={onToggleLog}
         />
       )}
       </div>
 
+      <div className="agt-bottom">
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
       <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
 
@@ -1206,7 +1277,7 @@ export function AgentTaskBody({
               {state.attachments.map((attachment) => (
                 <span className="agt-draft" key={attachment.id}>
                   <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
-                  <span className="agt-mono agt-muted">{attachment.name} · {sizeText(attachment.byteSize)}</span>
+                  <span className="agt-mono agt-draft__name">{attachment.name} · {sizeText(attachment.byteSize)}</span>
                   <button
                     type="button"
                     className="agt-draft__remove"
@@ -1247,9 +1318,9 @@ export function AgentTaskBody({
               >
                 +
               </button>
-              <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">
-                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
-              </span>
+              <button type="button" className="agt-compose__chip agt-fake" data-fake="CP11 · permission choice" title="Auto asks before anything risky" disabled>
+                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')} <Chevron open size={11} />
+              </button>
               <span className="agt-spacer" />
               <ModelPicker
                 ariaLabel="Model and effort for the next message"
@@ -1294,6 +1365,7 @@ export function AgentTaskBody({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -1320,6 +1392,7 @@ export default function AgentTaskScreen({
   const [panelOpen, setPanelOpen] = useState(false);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('agents');
+  const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [now, setNow] = useState(() => Date.now());
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
@@ -1595,6 +1668,8 @@ export default function AgentTaskScreen({
       onOpenAgent={(threadId) => { setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
       onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}
+      logChoice={logChoice}
+      onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}
     />
   );

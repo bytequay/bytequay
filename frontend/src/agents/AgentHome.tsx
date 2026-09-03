@@ -21,9 +21,9 @@ import type { AgentTaskDto, ModelOptionDto } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS = [
-  { icon: '⌕', color: '#8250df', text: 'Explore the code and explain how a feature is implemented.' },
-  { icon: '◉', color: '#cf222e', text: 'Investigate a failing test and fix the root cause.' },
-  { icon: '☑', color: '#1a7f37', text: 'Review recent changes for dead code and suggest safe removals.' },
+  { icon: '⌕', color: '#8250df', title: 'Explore and understand code', prompt: 'Explore the code and explain how a feature is implemented.' },
+  { icon: '◉', color: '#cf222e', title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
+  { icon: '☑', color: '#1a7f37', title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
 ] as const;
 
 export interface AgentHomeProps {
@@ -93,9 +93,9 @@ export function AgentHomeView({
           <h1>What should the agent do in {repository}?</h1>
           <div className="agt-suggestions">
             {SUGGESTIONS.map((suggestion) => (
-              <button type="button" className="agt-suggestion" key={suggestion.text} onClick={() => onDraftChange(suggestion.text)}>
+              <button type="button" className="agt-suggestion" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
                 <div className="agt-suggestion__icon" style={{ color: suggestion.color }} aria-hidden="true">{suggestion.icon}</div>
-                <div className="agt-suggestion__text">{suggestion.text}</div>
+                <div className="agt-suggestion__text">{suggestion.title}</div>
               </button>
             ))}
           </div>

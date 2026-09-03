@@ -174,8 +174,8 @@ describe('agent task list', () => {
 
     // Asserting the separator too: a JSX text node does not interpret \\u escapes, so a
     // hand-written one renders literally and only an exact match catches it.
-    expect(markup).toContain('2 open \u00b7 1 finished');
-    expect(markup).not.toContain('u00b7');
+    // The design labels the section and lists the rows; it counts nothing.
+    expect(markup).not.toContain('finished');
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('Describe a task');
     // Wire enums never reach the user.
@@ -332,9 +332,9 @@ describe('placeholders for later checkpoints', () => {
     const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
     // The ledger: grep -rn data-fake frontend/src must list these and only these.
     expect([...new Set([...fakes(list), ...fakes(drafting)])].sort())
-      .toEqual(['CP10 · queue', 'CP10 · steer', 'CP11 · provider choice']);
-    // Every other state ships nothing that stands in for a missing backend.
-    expect(fakes(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'x' }))).toEqual([]);
+      .toEqual(['CP10 · queue', 'CP10 · steer', 'CP11 · permission choice', 'CP11 · provider choice']);
+    // Idle, only the permission chip stands in; a finished task ships nothing that does.
+    expect(fakes(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'x' }))).toEqual(['CP11 · permission choice']);
     expect(fakes(body({ task: task('t-1', 'COMPLETED', 'x'), connection: 'open' }))).toEqual([]);
   });
 });
@@ -486,7 +486,7 @@ describe('agent task detail', () => {
     expect(running).toContain('>Running<');
     // The last-resort server stop lives on the recovery card, not beside a running turn.
     expect(running).not.toContain('Stop server');
-    expect(running).not.toContain('data-fake');
+    expect(running).not.toContain('CP10');
 
     // Steering and queueing are placeholders until their checkpoint, and say so on the control.
     const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests' });
@@ -591,7 +591,9 @@ describe('agent task detail', () => {
 
     expect(markup).toContain('<details class="agt-out">');
     // The disclosure carries the app's one arrow, not the browser's marker.
-    expect(markup).toMatch(/<summary><svg class="chev"[^>]*>.*?<\/svg>Output<\/summary>/);
+    // The command row is the disclosure, its chevron on the row; the output box hangs under it.
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?<svg class="chev"/);
+    expect(markup).not.toContain('<summary>Output');
     // Approval buttons carry the request they answer, not just "Allow once".
     expect(markup).toContain('aria-label="Allow once: ');
   });

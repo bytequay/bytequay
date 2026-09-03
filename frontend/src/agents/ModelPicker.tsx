@@ -141,7 +141,8 @@ export function ModelPickerCard({ view, models, selectedModel, selectedEffort, o
               onChange={(event) => onSelect(current.id, efforts[Number(event.target.value)])}
             />
             <span className="agt-picker__stops" aria-hidden="true">
-              {efforts.map((effort) => <span className="agt-picker__stop" key={effort} />)}
+              {/* The stop under the thumb stays hidden: the thumb is the mark for that level. */}
+              {efforts.map((effort, stop) => <span className={`agt-picker__stop${stop === index ? ' is-under-thumb' : ''}`} key={effort} />)}
             </span>
           </div>
         )

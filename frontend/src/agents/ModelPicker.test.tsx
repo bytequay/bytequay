@@ -49,7 +49,8 @@ describe('model picker', () => {
     expect(mid).toMatch(/<input type="range"[^>]*min="0"[^>]*max="4"[^>]*step="1"[^>]*value="1"/);
     expect(mid).toContain('aria-valuetext="Medium"');
     expect(mid).toContain('--fill:25%');
-    expect(mid.match(/class="agt-picker__stop"/g)).toHaveLength(5);
+    expect(mid.match(/class="agt-picker__stop"/g)).toHaveLength(4);
+    expect(mid.match(/class="agt-picker__stop is-under-thumb"/g)).toHaveLength(1);
     expect(mid).toContain('<span class="agt-picker__level">Medium</span>');
     expect(mid).not.toContain('is-max');
 

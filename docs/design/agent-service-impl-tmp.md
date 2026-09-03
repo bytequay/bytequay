@@ -1635,7 +1635,7 @@ Exit gate:
 - [x] Arbitrary local paths and unbounded output are rejected before
   persistence or provider input.
 
-## [ ] CP9 — Preserve and inspect subagents
+## [x] CP9 — Preserve and inspect subagents
 
 **Owners:** service/runtime owner for durable child projection; desktop owner
 for inspection UI
@@ -1644,42 +1644,73 @@ for inspection UI
 
 **Visible UI:** yes
 
+**Status: complete.** Every thread in a task's process belongs to that task,
+so a thread that is not the root is recorded as one of its subagents the
+moment anything from it arrives, before any event about it is published. That
+lineage travels on every event the child produces, which is what keeps its
+final answer out of the task's own recorded final response. Discovery,
+completion and failure are typed lifecycle events; a child the live stream
+never mentioned is found in the root's history, announced, and its activity
+recovered between explicit backfill markers, deduplicated by provider item
+identity. A child's prompt is carried as its purpose, and its result comes
+from its own terminal message. The task's summary keeps a compact child index
+so a cleaned-up agent stays listed with its label, purpose, outcome and
+result. The desktop shows agents as chips in the parent transcript and lists
+them in a side panel as Active and Done; opening one filters the same task
+event stream by its thread and reuses the root renderers, with no second route
+and no second subscription. After cleanup the panel still lists the agent and
+says its activity expired rather than reconstructing it. The completion
+barrier is CP4's recursive closure unchanged; CP9 adds only the line that says
+what Send and Complete are waiting for.
+
+A live run against codex-cli 0.152.1 delegated to two real subagents: both
+were discovered with their parent and nickname, their activity was routed and
+kept separate, their answers were recorded as their own, and the completed
+task's summary kept both children with outcomes and timings. That version
+announces a child through `thread/started` and supplies no spawn prompt in any
+form, so a child's purpose is empty there; the plumbing that would carry one
+is in place and tested.
+
+The panel's Pull requests tab from the HTML design is deferred: no backend
+names the pull requests a task opened, and a permanently empty tab would be
+dead UI.
+
 Implementation:
 
-- [ ] Expose the CP4-proven root/child identity, routing, recursive discovery,
+- [x] Expose the CP4-proven root/child identity, routing, recursive discovery,
   and quiescence facts as typed canonical subagent lifecycle events for
   supported V1 spawn events and V2 agent paths.
-- [ ] Preserve the CP4 ordering rule: routing is active before a child discovery
+- [x] Preserve the CP4 ordering rule: routing is active before a child discovery
   event is published.
-- [ ] Persist explicit backfill lifecycle markers while CP4 reads known child
+- [x] Persist explicit backfill lifecycle markers while CP4 reads known child
   history; deduplicate live/history projection by source identity.
-- [ ] Project nested grandchildren on the direct-parent/logical-agent-path
+- [x] Project nested grandchildren on the direct-parent/logical-agent-path
   metadata reserved in CP2 while retaining one task sequence.
-- [ ] Derive child terminal results from the reconciled CP4 child history; add
+- [x] Derive child terminal results from the reconciled CP4 child history; add
   no child transcript table.
-- [ ] Persist only a compact terminal child index for post-cleanup summaries.
-- [ ] Expose and replay CP4-routed child approvals in the filtered projection;
+- [x] Persist only a compact terminal child index for post-cleanup summaries.
+- [x] Expose and replay CP4-routed child approvals in the filtered projection;
   an unmatched approval remains a CP4 fail-closed runtime error, not a second
   CP9 router.
-- [ ] Render one parent card with **Active** and **Done**, label/purpose, status,
+- [x] Render one parent card with **Active** and **Done**, label/purpose, status,
   elapsed time, and result summary.
-- [ ] Clicking a child filters the existing event projection and shows a
+- [x] Clicking a child filters the existing event projection and shows a
   breadcrumb; it creates no task route or second SSE connection.
-- [ ] Reuse root message, plan, activity, approval, and terminal renderers.
-- [ ] Reuse CP4's recursive child/item/background-terminal closure as the
+- [x] Reuse root message, plan, activity, approval, and terminal renderers.
+- [x] Reuse CP4's recursive child/item/background-terminal closure as the
   safety barrier for Send/queue start/Complete; CP9 must not introduce a second
   quiescence algorithm.
-- [ ] After cleanup, retain the child summary and show **Activity expired** for
+- [x] After cleanup, retain the child summary and show **Activity expired** for
   removed details.
 
 Exit gate:
 
-- [ ] Active and completed children are inspectable from replay while retained.
-- [ ] Missed live discovery is recovered from history without duplicate items.
-- [ ] A child-created grandchild is discovered and nested correctly.
-- [ ] Root completion before child/item completion retains the mutation claim.
-- [ ] Two tasks’ child events and approvals never cross.
-- [ ] Cleanup preserves summaries and makes transcript expiry explicit.
+- [x] Active and completed children are inspectable from replay while retained.
+- [x] Missed live discovery is recovered from history without duplicate items.
+- [x] A child-created grandchild is discovered and nested correctly.
+- [x] Root completion before child/item completion retains the mutation claim.
+- [x] Two tasks’ child events and approvals never cross.
+- [x] Cleanup preserves summaries and makes transcript expiry explicit.
 
 ## [ ] CP10 — Add steering and the durable next-turn queue
 

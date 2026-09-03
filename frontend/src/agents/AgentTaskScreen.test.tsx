@@ -118,6 +118,19 @@ function declarations(selector: string): string[] {
 }
 
 describe('agent task layout', () => {
+  it('reads a held checkout as loading, not recovery, until the history has arrived', () => {
+    const held = {
+      ...task('t-1', 'OPEN', 'x'),
+      mutationClaim: { kind: 'TURN', ownerId: 'turn-1', acquiredAt: '2026-08-20T10:00:00Z' },
+    };
+    const connecting = body({ task: held, connection: 'connecting' });
+    expect(connecting).toContain('>Connecting<');
+    expect(connecting).toContain('Connecting — loading task history…');
+    expect(connecting).not.toContain('Recovering agent execution');
+    // Once the history is in and shows no live turn, the claim really does mean recovery.
+    expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
+  });
+
   it('scrolls the transcript rather than the screen, so the composer stays reachable', () => {
     // A long transcript must move under a fixed header and composer, not push them off-screen.
     expect(declarations('.agt-screen')).toContain('height: 100%');
@@ -320,6 +333,17 @@ describe('agent task side panel', () => {
     expect(markup).toContain('on this task');
     expect(markup).toContain('>Open<');
     expect(markup).toContain('>Merged<');
+    // Checks show once CI has reported; a pull request nobody has built yet says nothing about them.
+    expect(markup).not.toContain('Checks');
+    const checked = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state}
+        panelOpen
+        panelTab="prs"
+        pullRequests={[{ ...pullRequest(482, 'Fix preview output limit'), ciStatus: 'PENDING' }]}
+        {...props}
+      />);
+    expect(checked).toMatch(/<span class="agt-state is-waiting"><span class="agt-spin"[^>]*><\/span>Checks</);
     // The row is a control: selecting it opens the pull-request page rather than a panel copy of it.
     expect(markup).toMatch(/<button[^>]*class="agt-panel__row"[^>]*title="Open this pull request"/);
     expect(markup).not.toContain('Description');

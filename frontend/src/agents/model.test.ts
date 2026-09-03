@@ -130,13 +130,14 @@ describe('tracking the turn from events', () => {
   });
 
   it('derives running from the events until the durable turn has been read', () => {
-    const mid = { ...apply(initialAgentTaskState(), stream(1, 2, 3)), task: openTask() };
+    // The history has been read, so the connection is open; status then follows the facts.
+    const mid = { ...apply(initialAgentTaskState(), stream(1, 2, 3)), task: openTask(), connection: 'open' as const };
 
     // A reload mid-turn has events but no turn response yet; the composer must not open up.
     expect(runtimeStatus(mid)).toBe('running');
     expect(isIdle(mid)).toBe(false);
 
-    const done = { ...apply(mid, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)), task: openTask() };
+    const done = { ...apply(mid, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)), task: openTask(), connection: 'open' as const };
     expect(runtimeStatus(done)).toBe('idle');
   });
 });
@@ -159,10 +160,12 @@ describe('reading the turns the transcript names', () => {
 });
 
 describe('deriving runtime status', () => {
-  const base = { ...initialAgentTaskState(), task: openTask() };
+  const base = { ...initialAgentTaskState(), task: openTask(), connection: 'open' as const };
 
   it('reads idle, running and terminal from the task and turn', () => {
     expect(runtimeStatus(initialAgentTaskState())).toBe('loading');
+    // A task read before its history says nothing yet, whatever claim it holds.
+    expect(runtimeStatus({ ...base, connection: 'connecting' })).toBe('loading');
     expect(runtimeStatus(base)).toBe('idle');
     expect(runtimeStatus({ ...base, turn: turn('RUNNING') })).toBe('running');
     expect(runtimeStatus({ ...base, turn: turn('ACCEPTED') })).toBe('running');
@@ -248,7 +251,7 @@ describe('projecting rows', () => {
 
     // Cancellation ends the turn, so the task becomes completable again.
     expect(cancelled.turn?.state).toBe('CANCELLED');
-    expect(isIdle({ ...cancelled, task: openTask() })).toBe(true);
+    expect(isIdle({ ...cancelled, task: openTask(), connection: 'open' })).toBe(true);
 
     const errors = projectTranscript(all).flatMap((turn) => turn.blocks).filter((block) => block.kind === 'error');
     expect(errors.length).toBeGreaterThan(0);
@@ -306,7 +309,7 @@ describe('image attachments', () => {
 
 describe('composer and lifecycle', () => {
   it('offers Complete only when no turn is running', () => {
-    const base = { ...initialAgentTaskState(), task: openTask() };
+    const base = { ...initialAgentTaskState(), task: openTask(), connection: 'open' as const };
 
     expect(isIdle({ ...base, turn: turn('RUNNING') })).toBe(false);
     expect(isIdle({ ...base, turn: turn('ACCEPTED') })).toBe(false);

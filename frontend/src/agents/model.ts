@@ -299,7 +299,8 @@ export type AgentRuntimeStatus = 'loading' | 'idle' | 'running' | 'closing' | 'r
 
 export function runtimeStatus(state: AgentTaskState): AgentRuntimeStatus {
   const task = state.task;
-  if (task === null) return 'loading';
+  // A held claim means recovery only once the history that would show a live turn has been read.
+  if (task === null || state.connection === 'connecting') return 'loading';
   if (task.state === 'COMPLETED') return 'completed';
   if (task.state === 'FAILED') return 'failed';
   // Until the durable turn has been read, the events say whether one is still in flight.

@@ -773,6 +773,16 @@ function pullRequestPill(pr: PullRequestDto): { label: string; className: string
   return { label: 'Open', className: 'is-completed' };
 }
 
+/** The checks on an open pull request; absent until CI has reported anything. */
+function checksPill(pr: PullRequestDto): { label: string; className: string; spinning: boolean } | null {
+  switch (pr.ciStatus) {
+    case 'PASSING': return { label: 'Checks passing', className: 'is-completed', spinning: false };
+    case 'FAILING': return { label: 'Checks failing', className: 'is-failed', spinning: false };
+    case 'PENDING': return { label: 'Checks', className: 'is-waiting', spinning: true };
+    default: return null;
+  }
+}
+
 function PanelTabs({ tab, onSelect, onHide }: {
   tab: PanelTab;
   onSelect: (tab: PanelTab) => void;
@@ -807,6 +817,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
     <>
       {pullRequests.map((pr) => {
         const pill = pullRequestPill(pr);
+        const checks = checksPill(pr);
         return (
           <button type="button" className="agt-panel__row" key={pr.id} onClick={() => onOpen?.(pr.number)} title="Open this pull request">
             <span className="agt-pr-mark" aria-hidden="true">⑃</span>
@@ -815,6 +826,12 @@ function PullRequestRows({ pullRequests, onOpen }: {
               <span className="agt-panel__purpose">on this task&apos;s branch</span>
             </span>
             <span className={`agt-state ${pill.className}`}>{pill.label}</span>
+            {checks !== null && (
+              <span className={`agt-state ${checks.className}`}>
+                {checks.spinning && <span className="agt-spin" aria-hidden="true" />}
+                {checks.label}
+              </span>
+            )}
           </button>
         );
       })}

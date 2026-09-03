@@ -22,13 +22,12 @@ import {
   deliveryUncertain,
   initialAgentTaskState,
   isIdle,
-  projectAgentRows,
   retryableMessage,
   runtimeStatus,
   unloadedTurnIds,
-  type AgentRow,
   type AgentTaskState,
 } from './model';
+import { projectTranscript, type ApprovalBlock } from './transcript';
 import type { AgentTaskDto, AgentTurnDto } from '../types';
 
 const all = parseAgentEventSequence(fixture.events);
@@ -147,9 +146,8 @@ describe('reading the turns the transcript names', () => {
     const wanted = unloadedTurnIds(replayed);
 
     expect(wanted).toEqual([all[0].turnId]);
-    // A user message carries its turn so the row can show what that turn ran with.
-    const user = projectAgentRows(replayed.events).find((row) => row.kind === 'user');
-    expect(user?.kind === 'user' && user.turnId).toBe(all[0].turnId);
+    // A user message belongs to its turn, so the transcript can show what that turn ran with.
+    expect(projectTranscript(replayed.events)[0]?.turnId).toBe(all[0].turnId);
 
     const loaded = agentTaskReducer(replayed, { type: 'turn/loaded', turn: turn('COMPLETED', { id: wanted[0] }) });
     expect(unloadedTurnIds(loaded)).toEqual([]);
@@ -200,43 +198,21 @@ describe('deriving runtime status', () => {
 });
 
 describe('projecting rows', () => {
-  it('replaces a streamed partial answer with the authoritative final one', () => {
-    const partial: AgentEventEnvelope = {
-      ...all[0],
-      eventId: 'partial',
-      sequence: 900,
-      type: 'assistant_message',
-      payload: { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'thinking' },
-    } as AgentEventEnvelope;
-    const final: AgentEventEnvelope = {
-      ...partial,
-      eventId: 'final',
-      sequence: 901,
-      payload: { messageKind: 'ANSWER', phase: 'FINAL', text: 'the answer' },
-    } as AgentEventEnvelope;
-
-    const rows = projectAgentRows([partial, final]);
-
-    const answers = rows.filter((row): row is Extract<AgentRow, { kind: 'assistant' }> => row.kind === 'assistant');
-    expect(answers).toHaveLength(1);
-    expect(answers[0].text).toBe('the answer');
-    expect(answers[0].final).toBe(true);
-  });
-
   it('folds an approval outcome into the request it answers', () => {
-    const rows = projectAgentRows(all);
-    const approvals = rows.filter((row): row is Extract<AgentRow, { kind: 'approval' }> => row.kind === 'approval');
+    const approvals = projectTranscript(all)
+      .flatMap((turn) => turn.blocks)
+      .filter((block): block is ApprovalBlock => block.kind === 'approval');
 
     expect(approvals.length).toBeGreaterThan(0);
-    const resolved = approvals.find((row) => row.outcome !== null);
+    const resolved = approvals.find((block) => block.outcome !== null);
     if (resolved) {
-      // A resolved approval reads as one settled row, not a request plus a separate answer.
+      // A resolved approval reads as one settled block, not a request plus a separate answer.
       expect(approvalDecisions(resolved)).toEqual([]);
     }
   });
 
   it('offers only the decisions the provider actually offered', () => {
-    const open: Extract<AgentRow, { kind: 'approval' }> = {
+    const open: ApprovalBlock = {
       kind: 'approval',
       id: 'a',
       approvalId: 'ap-1',
@@ -248,6 +224,7 @@ describe('projecting rows', () => {
       decisions: ['ALLOW_ONCE', 'DENY'],
       actionable: true,
       outcome: null,
+      at: '2026-08-20T10:00:07Z',
     };
 
     // Each offered decision keeps the answer the bridge actually accepts for it.
@@ -272,29 +249,32 @@ describe('projecting rows', () => {
     expect(cancelled.turn?.state).toBe('CANCELLED');
     expect(isIdle({ ...cancelled, task: openTask() })).toBe(true);
 
-    const errors = projectAgentRows(all).filter((row) => row.kind === 'error');
+    const errors = projectTranscript(all).flatMap((turn) => turn.blocks).filter((block) => block.kind === 'error');
     expect(errors.length).toBeGreaterThan(0);
     // A terminal error stays in the transcript rather than being swapped for a connection state.
-    expect(errors.every((row) => row.kind === 'error' && row.message.length > 0)).toBe(true);
+    expect(errors.every((block) => block.kind === 'error' && block.message.length > 0)).toBe(true);
   });
 
-  it('carries the requested scope and the asking agent onto the row', () => {
-    const approvals = projectAgentRows(all)
-      .filter((row): row is Extract<AgentRow, { kind: 'approval' }> => row.kind === 'approval');
+  it('carries the requested scope and the asking agent onto the block', () => {
+    const approvals = projectTranscript(all)
+      .flatMap((turn) => turn.blocks)
+      .filter((block): block is ApprovalBlock => block.kind === 'approval');
 
     // A decision made without seeing what was asked for is a guess.
-    expect(approvals.every((row) => row.scope.length > 0)).toBe(true);
-    expect(approvals.some((row) => row.scope.some((entry) => entry.startsWith('cwd:')))).toBe(true);
+    expect(approvals.every((block) => block.scope.length > 0)).toBe(true);
+    expect(approvals.some((block) => block.scope.some((entry) => entry.startsWith('cwd:')))).toBe(true);
     // A subagent's approval must not read as the root agent's.
-    expect(approvals.every((row) => row.agent === 'root agent')).toBe(true);
+    expect(approvals.every((block) => block.agent === 'root agent')).toBe(true);
   });
 
   it('keeps every kind the shell prints', () => {
-    const kinds = new Set(projectAgentRows(all).map((row) => row.kind));
+    const turns = projectTranscript(all);
 
-    // The preview must not quietly lose a row type the transcript is expected to show.
-    expect(kinds.has('user')).toBe(true);
-    expect(kinds.has('assistant')).toBe(true);
+    // The preview must not quietly lose a part of the transcript it is expected to show.
+    expect(turns[0].user).not.toBeNull();
+    expect(turns[0].answer).not.toBeNull();
+    // The streamed partial answer is gone: the final answer replaced it rather than sitting beside it.
+    expect(new Set(turns[0].blocks.map((block) => block.kind))).toEqual(new Set(['plan', 'activity', 'approval', 'error']));
   });
 });
 

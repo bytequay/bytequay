@@ -455,3 +455,479 @@
   font-size: 11.5px;
   color: #57606a;
 }
+
+/*
+ * Transcript, as the design draws it: the user's message in a bubble on the right, each turn's
+ * log under a collapsible header, and the agent's text flush left without boxes.
+ */
+.agt-title {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.agt-meta {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agt-mono {
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 12px;
+}
+
+.agt-muted {
+  color: #57606a;
+}
+
+.agt-small {
+  font-size: 10.5px;
+  margin-top: 4px;
+}
+
+.agt-right {
+  font-size: 11px;
+  color: #8c959f;
+}
+
+.agt-ellipsis {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes agt-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes agt-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes agt-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.agt-spin {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  box-sizing: border-box;
+  border: 2px solid #b6d4f7;
+  border-top-color: #0969da;
+  border-radius: 50%;
+  display: inline-block;
+  animation: agt-spin 1s linear infinite;
+}
+
+.agt-state .agt-spin {
+  width: 9px;
+  height: 9px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.agt-state.is-waiting {
+  color: #9a6700;
+  background: #fff8c5;
+  animation: agt-pulse 1.2s ease-in-out infinite;
+}
+
+.agt-state.is-idle {
+  color: #1a7f37;
+  background: #dafbe1;
+}
+
+.agt-state.is-loading {
+  color: #57606a;
+  background: #eceff2;
+}
+
+.agt-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  background: #57606a;
+  margin-left: 3px;
+  vertical-align: -2px;
+  animation: agt-blink 1s step-end infinite;
+}
+
+.agt-chevron {
+  flex: none;
+  color: #8c959f;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s;
+}
+
+.agt-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.agt-icon {
+  width: 16px;
+  flex: none;
+  display: inline-flex;
+  justify-content: center;
+  color: #8c959f;
+}
+
+.agt-icon.is-ok {
+  color: #1a7f37;
+}
+
+.agt-icon.is-failed {
+  color: #cf222e;
+}
+
+.agt-icon.is-pending {
+  color: #8c959f;
+}
+
+.agt-stamp {
+  text-align: center;
+  font-size: 11.5px;
+  color: #8c959f;
+  margin-top: 2px;
+}
+
+.agt-user {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.agt-user__bubble {
+  max-width: 76%;
+  background: #f0f1f3;
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.agt-user__files {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.agt-file {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 10px;
+  color: #8c959f;
+  background: repeating-linear-gradient(45deg, #f6f8fa, #f6f8fa 6px, #eef0f3 6px, #eef0f3 12px);
+}
+
+.agt-turn {
+  display: flex;
+  flex-direction: column;
+}
+
+.agt-turn__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0 0 7px;
+  border-bottom: 1px solid #ececef;
+  cursor: pointer;
+}
+
+.agt-turn__label {
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-text,
+.agt-answer {
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin-top: 14px;
+  white-space: pre-wrap;
+}
+
+.agt-answer {
+  margin-top: 16px;
+}
+
+.agt-reasoning {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #57606a;
+  margin-top: 12px;
+  white-space: pre-wrap;
+}
+
+.agt-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #656d76;
+}
+
+.agt-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: #57606a;
+  background: #eceff2;
+  border-radius: 10px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.agt-chip.is-warn {
+  color: #9a6700;
+  background: #fff8c5;
+}
+
+.agt-plan {
+  margin-top: 16px;
+}
+
+.agt-plan__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.agt-plan__step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: #57606a;
+}
+
+.agt-plan__step.is-in-progress {
+  color: #1f2328;
+  font-weight: 600;
+}
+
+.agt-plan__step.is-completed {
+  color: #8c959f;
+}
+
+.agt-plan__steps.is-compact .agt-plan__step {
+  padding: 3px 1px;
+  gap: 9px;
+  font-weight: 400;
+}
+
+.agt-act {
+  margin-top: 14px;
+}
+
+.agt-act__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.agt-act__title {
+  font-weight: 700;
+  color: #0969da;
+}
+
+.agt-act__fold {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-act__body {
+  padding-left: 22px;
+}
+
+.agt-act__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  min-width: 0;
+}
+
+.agt-act__row .agt-mono {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-exit {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.agt-exit.is-ok {
+  color: #1a7f37;
+}
+
+.agt-exit.is-failed {
+  color: #cf222e;
+}
+
+.agt-added {
+  color: #1a7f37;
+  font-size: 11px;
+}
+
+.agt-removed {
+  color: #cf222e;
+  font-size: 11px;
+}
+
+.agt-out {
+  margin: 2px 0 4px 26px;
+}
+
+.agt-out > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #57606a;
+}
+
+.agt-out > .agt-pre {
+  background: #f6f8fa;
+  border: 1px solid #eceff2;
+  border-radius: 6px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  color: #57606a;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.agt-appr {
+  margin-top: 16px;
+}
+
+.agt-appr__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agt-appr__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agt-code {
+  margin: 8px 0 0;
+  background: #f6f8fa;
+  border: 1px solid #eceff2;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 12px/1.5 ui-monospace, Menlo, 'Roboto Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agt-decision.is-allow {
+  background: #1f883d;
+  color: #ffffff;
+  border-color: rgba(31, 35, 40, 0.15);
+}
+
+.agt-decision.is-deny {
+  color: #cf222e;
+  background: #ffffff;
+}
+
+.agt-appr-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: #8c959f;
+  flex-wrap: wrap;
+}
+
+.agt-error {
+  margin-top: 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #cf222e;
+}
+
+.agt-note {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #9a6700;
+}
+
+.agt-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 11.5px;
+  color: #8c959f;
+  flex-wrap: wrap;
+}
+
+.agt-usage__tokens {
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 11px;
+}
+
+/* The running turn's plan, kept in view above the composer. */
+.agt-todos {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  background: #f6f8fa;
+  border-radius: 12px;
+  padding: 9px 12px;
+}
+
+.agt-todos__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.agt-todos__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1f2328;
+}

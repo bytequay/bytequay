@@ -13,6 +13,7 @@
  */
 
 import type { AgentEventEnvelope } from './events';
+import type { ApprovalBlock } from './transcript';
 import type {
   AgentApprovalDecision,
   AgentStreamConnectionState,
@@ -40,19 +41,6 @@ export type AgentBridgePort = Pick<Bridge,
   | 'getModelSettings'
   | 'updateAgentTaskDefaults'
   | 'getEffectiveTurnSettings'>;
-
-/** One entry in the transcript, derived from events and never from local guesses. */
-export type AgentRow =
-  | { kind: 'user'; id: string; turnId: string | null; text: string; delivery: string; attachments: string[] }
-  | { kind: 'assistant'; id: string; text: string; final: boolean; messageKind: string }
-  | { kind: 'plan'; id: string; items: Array<{ text: string; state: string }> }
-  | { kind: 'command'; id: string; argv: string[]; state: string; output: string | null; exitCode: number | null; truncated: boolean }
-  | { kind: 'file'; id: string; path: string; change: string; state: string; diff: string | null }
-  | { kind: 'tool'; id: string; name: string; state: string; summary: string }
-  | { kind: 'approval'; id: string; approvalId: string; title: string; detail: string; approvalKind: string; scope: string[]; agent: string; decisions: string[]; actionable: boolean; outcome: string | null }
-  | { kind: 'usage'; id: string; inputTokens: number; cachedInputTokens: number; outputTokens: number; cost: number | null; semantics: string }
-  | { kind: 'lifecycle'; id: string; phase: string; message: string }
-  | { kind: 'error'; id: string; code: string; message: string; retryable: boolean };
 
 export interface AgentTaskState {
   task: AgentTaskDto | null;
@@ -197,149 +185,7 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
   };
 }
 
-/**
- * Which agent an event came from.
- *
- * A subagent's approval must not read as the root agent's, because the two ask for different work.
- * The logical path names the child when the provider supplies one; a thread with no parent is root.
- */
-function agentName(source: AgentEventEnvelope['source']): string {
-  if (source.logicalAgentPath !== null && source.logicalAgentPath !== '') {
-    return source.logicalAgentPath;
-  }
-  return source.parentProviderThreadId === null ? 'root agent' : 'subagent';
-}
 
-/**
- * Projects applied events into transcript rows.
- *
- * A final assistant message replaces the partial one it completes rather than appending, so the
- * transcript shows the answer once. An approval's outcome is folded into the request it answers,
- * so a resolved approval reads as one settled row instead of two.
- */
-export function projectAgentRows(events: AgentEventEnvelope[]): AgentRow[] {
-  const rows: AgentRow[] = [];
-  const assistantByTurn = new Map<string, number>();
-  const approvalIndex = new Map<string, number>();
-
-  for (const event of events) {
-    const id = event.eventId;
-    switch (event.type) {
-      case 'user_message':
-        rows.push({
-          kind: 'user',
-          id,
-          turnId: event.turnId,
-          text: event.payload.text,
-          delivery: event.payload.deliveryKind,
-          attachments: event.payload.attachments.map((attachment) => attachment.name),
-        });
-        break;
-      case 'assistant_message': {
-        const key = `${event.turnId ?? ''}:${event.payload.messageKind}`;
-        const existing = assistantByTurn.get(key);
-        const row: AgentRow = {
-          kind: 'assistant',
-          id,
-          text: event.payload.text,
-          final: event.payload.phase === 'FINAL',
-          messageKind: event.payload.messageKind,
-        };
-        if (existing !== undefined && !(rows[existing] as { final: boolean }).final) {
-          // The authoritative text replaces what was streamed toward it.
-          rows[existing] = row;
-        } else {
-          assistantByTurn.set(key, rows.length);
-          rows.push(row);
-        }
-        break;
-      }
-      case 'plan_updated':
-        rows.push({ kind: 'plan', id, items: event.payload.items.map((item) => ({ ...item })) });
-        break;
-      case 'command':
-        rows.push({
-          kind: 'command',
-          id,
-          argv: event.payload.argv,
-          state: event.payload.state,
-          output: event.payload.output,
-          exitCode: event.payload.exitCode,
-          truncated: event.payload.truncated,
-        });
-        break;
-      case 'file_change':
-        rows.push({
-          kind: 'file',
-          id,
-          path: event.payload.relativePath,
-          change: event.payload.change,
-          state: event.payload.state,
-          diff: event.payload.diff,
-        });
-        break;
-      case 'tool':
-        rows.push({
-          kind: 'tool',
-          id,
-          name: event.payload.name,
-          state: event.payload.state,
-          summary: event.payload.summary,
-        });
-        break;
-      case 'approval_requested':
-        approvalIndex.set(event.payload.approvalId, rows.length);
-        rows.push({
-          kind: 'approval',
-          id,
-          approvalId: event.payload.approvalId,
-          title: event.payload.title,
-          detail: event.payload.detail,
-          approvalKind: event.payload.approvalKind,
-          scope: [...event.payload.scope],
-          agent: agentName(event.source),
-          decisions: [...event.payload.availableDecisions],
-          actionable: event.payload.actionable,
-          outcome: null,
-        });
-        break;
-      case 'approval_resolved': {
-        const at = approvalIndex.get(event.payload.approvalId);
-        if (at !== undefined) {
-          const row = rows[at] as Extract<AgentRow, { kind: 'approval' }>;
-          rows[at] = { ...row, outcome: event.payload.outcome, actionable: false };
-        }
-        break;
-      }
-      case 'usage':
-        rows.push({
-          kind: 'usage',
-          id,
-          inputTokens: event.payload.inputTokens,
-          cachedInputTokens: event.payload.cachedInputTokens,
-          outputTokens: event.payload.outputTokens,
-          cost: event.payload.cost,
-          semantics: event.payload.semantics,
-        });
-        break;
-      case 'lifecycle':
-        rows.push({ kind: 'lifecycle', id, phase: event.payload.phase, message: event.payload.message });
-        break;
-      case 'error':
-        rows.push({
-          kind: 'error',
-          id,
-          code: event.payload.code,
-          message: event.payload.message,
-          retryable: event.payload.retryable,
-        });
-        break;
-      default:
-        break;
-    }
-  }
-  return rows;
-}
 
 /** A provider decision this product is willing to answer with, and what it resolves to. */
 export interface AgentApprovalChoice {
@@ -360,7 +206,7 @@ const PRODUCT_DECISIONS: Record<string, { decision: AgentApprovalDecision; label
  * than sent as a guess, and an approval left with nothing offerable is shown but unanswerable
  * instead of being collapsed into an allow/deny the provider never offered.
  */
-export function approvalDecisions(row: Extract<AgentRow, { kind: 'approval' }>): AgentApprovalChoice[] {
+export function approvalDecisions(row: Pick<ApprovalBlock, 'actionable' | 'outcome' | 'decisions'>): AgentApprovalChoice[] {
   if (!row.actionable || row.outcome !== null) {
     return [];
   }

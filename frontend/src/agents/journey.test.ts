@@ -18,11 +18,11 @@ import {
   agentIdempotencyKey,
   agentTaskReducer,
   initialAgentTaskState,
-  projectAgentRows,
   startAgentTaskSession,
   type AgentTaskAction,
   type AgentTaskState,
 } from './model';
+import { projectTranscript } from './transcript';
 
 /** Drives one preview screen without a DOM: the same session helper the screen's effect runs. */
 async function open(bridge: ReturnType<typeof createPreviewBridge>, taskId: string) {
@@ -69,7 +69,7 @@ describe('preview journey', () => {
     const session = await open(bridge, 'task-1');
 
     expect(session.state().connection).toBe('open');
-    expect(projectAgentRows(session.state().events).length).toBeGreaterThan(0);
+    expect(projectTranscript(session.state().events).length).toBeGreaterThan(0);
   });
 
   it('runs create, open, send, cancel and complete as exact typed bridge commands', async () => {

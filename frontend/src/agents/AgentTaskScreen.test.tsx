@@ -86,10 +86,11 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
   };
 }
 
-function body(state: Partial<AgentTaskState>): string {
+function body(state: Partial<AgentTaskState>, activityChoice: Record<string, boolean> = {}): string {
   return renderToStaticMarkup(
     <AgentTaskBody
       state={{ ...initialAgentTaskState(), ...state }}
+      activityChoice={activityChoice}
       models={MODELS}
       onSelectModel={() => {}}
       onBack={() => {}}
@@ -260,15 +261,21 @@ describe('agent task detail', () => {
 
 
   it('prints the whole fixture transcript', () => {
-    const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' });
+    const folded = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' });
+    // The fixture's activity group is finished, so it folds to its sentence until it is opened.
+    expect(folded).not.toContain('$ npm test');
+    const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
 
     expect(markup).toContain('Rename the widget');
-    expect(markup).toContain('You ');
+    expect(markup).toContain('Review the authentication change');
     expect(markup).toContain('Plan');
-    expect(markup).toContain('Command');
+    expect(markup).toContain('$ npm test');
     expect(markup).toContain('Approval');
-    expect(markup).toContain('Usage');
+    expect(markup).toContain('in 1200');
+    expect(markup).toContain('cost unavailable');
     expect(markup).toContain('Live');
+    // A finished group folds to a sentence derived from its typed members.
+    expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
 
   it('anchors a composer with Send, Stop this turn and idle-only Complete', () => {
@@ -284,7 +291,7 @@ describe('agent task detail', () => {
     expect(body({ connection: 'open' })).toContain('Available when the task is idle');
     // The bounded status line is what assistive technology hears; it names the state, not tokens.
     expect(idle).toContain('aria-live="polite"');
-    expect(idle).toContain('>Idle<');
+    expect(idle).toContain('>Ready<');
   });
 
   it('offers the last-resort server stop only while a turn runs', () => {
@@ -321,7 +328,7 @@ describe('agent task detail', () => {
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Retry last message</);
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Complete</);
     expect(markup).toContain('Unlocks after recovery');
-    expect(markup).toContain('>Recovery required<');
+    expect(markup).toContain('>Recovering<');
   });
 
   it('cannot stop a process that predates this run, and says so', () => {
@@ -398,14 +405,14 @@ describe('agent task detail', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: ran } });
 
     // The snapshot the turn recorded, not the defaults: a later change must not rewrite history.
-    expect(markup).toContain('Sent with 5.6 Terra \u00b7 medium \u00b7 Auto');
-    expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('Sent with');
+    expect(markup).toContain('5.6 Terra medium \u00b7 Auto');
+    expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
   });
 
   it('folds command output behind a keyboard-operable disclosure', () => {
-    const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' });
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
 
-    expect(markup).toContain('<details>');
+    expect(markup).toContain('<details class="agt-out">');
     expect(markup).toContain('<summary>Output</summary>');
     // Approval buttons carry the request they answer, not just "Allow once".
     expect(markup).toContain('aria-label="Allow once: ');
@@ -465,7 +472,8 @@ describe('agent task detail', () => {
     expect(markup).toContain('Allow once');
     expect(markup).toContain('>Deny<');
     // The asking agent is part of the identity of the request, not decoration.
-    expect(markup).toContain('Approval \u00b7 COMMAND \u00b7 root agent \u00b7 ALLOWED');
+    expect(markup).toContain('root agent');
+    expect(markup).toContain('Approved once');
     expect(markup).toContain('git push origin fix/preview-limit');
     // The scope is what the decision is actually about.
     expect(markup).toContain('cwd: workspaces/jackchen-trino');
@@ -479,7 +487,7 @@ describe('agent task detail', () => {
     expect(failed).toContain('status 404');
 
     const errored = body({ events, connection: 'open' });
-    expect(errored).toContain('agt-item is-error');
+    expect(errored).toContain('agt-error');
     expect(errored).toContain('role="alert"');
   });
 });

@@ -226,15 +226,13 @@ export function modelLabel(models: ModelOptionDto[], id: string): string {
   return models.find(model => model.id === id)?.name ?? id;
 }
 
-export function ModelChip({ label, detail, disabled, ariaLabel, models, selectedModel, selectedEffort, onSelect, nameOf = name => name }: {
+export function ModelChip({ label, detail, disabled, ariaLabel, models, selectedModel, selectedEffort, onSelect }: {
   label: string;
   detail?: string;
   disabled?: boolean;
   /** Names what the chip governs when the visible label alone is ambiguous. */
   ariaLabel?: string;
   models: ModelOptionDto[];
-  /** How a model's catalog name is shown in the menu; the composer shortens Codex's. */
-  nameOf?: (name: string) => string;
   selectedModel: string;
   selectedEffort?: string;
   onSelect: (model: string, effort: string | null) => void;
@@ -280,7 +278,7 @@ export function ModelChip({ label, detail, disabled, ariaLabel, models, selected
               }}
             >
               <span className="sets-menu-name">
-                {nameOf(model.name)}
+                {model.name}
                 {model.id === selectedModel && <span className="sets-check">✓</span>}
               </span>
               {model.description && <span className="sets-menu-desc">{model.description}</span>}

@@ -15,8 +15,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
-import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { ModelPicker } from './ModelPicker';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
 import { agentIdempotencyKey, type AgentBridgePort } from './model';
@@ -230,7 +230,6 @@ export function TaskComposer({
   onCreate: () => void;
   onOpenSettings?: () => void;
 }): React.JSX.Element {
-  const chosen = models.find((model) => model.id === selection?.model);
   return (
     <div className="agt-compose-dock">
       {blocker !== null && (
@@ -276,20 +275,14 @@ export function TaskComposer({
           </button>
           <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
           <span className="agt-spacer" />
-          <span className="agt-compose__model">
-            <span className="agt-bolt" aria-hidden="true">⚡</span>
-            <ModelChip
-              ariaLabel="Model and effort for the new task"
-              label={chosen === undefined ? 'No model' : displayModelName(chosen.name)}
-              detail={selection?.effort ?? undefined}
-              disabled={models.length === 0}
-              models={models}
-              selectedModel={selection?.model ?? ''}
-              selectedEffort={selection?.effort ?? undefined}
-              onSelect={onSelectModel}
-              nameOf={displayModelName}
-            />
-          </span>
+          <ModelPicker
+            ariaLabel="Model and effort for the new task"
+            disabled={models.length === 0}
+            models={models}
+            selectedModel={selection?.model ?? ''}
+            selectedEffort={selection?.effort ?? undefined}
+            onSelect={onSelectModel}
+          />
           <button
             type="button"
             className="agt-send"

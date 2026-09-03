@@ -47,6 +47,20 @@ export function displayModelName(name: string): string {
   return name.startsWith('GPT-') ? name.slice(4).replace(/-/g, ' ') : name;
 }
 
+const EFFORT_LABELS: Record<string, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+};
+
+/** The catalog's effort ids as words; an id the catalog invents later is shown capitalised. */
+export function effortLabel(effort: string): string {
+  return EFFORT_LABELS[effort] ?? effort.charAt(0).toUpperCase() + effort.slice(1);
+}
+
 /**
  * What the user can actually do about a provider that is not ready.
  *

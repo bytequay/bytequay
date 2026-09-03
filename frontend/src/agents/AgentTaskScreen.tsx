@@ -13,9 +13,9 @@
  */
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID, displayModelName } from '../settings/model';
 import { AgentMark } from './AgentMark';
+import { ModelPicker } from './ModelPicker';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
@@ -1251,20 +1251,14 @@ export function AgentTaskBody({
                 {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
               </span>
               <span className="agt-spacer" />
-              <span className="agt-compose__model">
-                <span className="agt-bolt" aria-hidden="true">⚡</span>
-                <ModelChip
-                  ariaLabel="Model and effort for the next message"
-                  label={modelName(models, state.task?.defaults.model ?? null)}
-                  detail={state.task?.defaults.effort ?? undefined}
-                  disabled={models.length === 0}
-                  models={models}
-                  selectedModel={state.task?.defaults.model ?? ''}
-                  selectedEffort={state.task?.defaults.effort ?? undefined}
-                  onSelect={onSelectModel}
-                  nameOf={displayModelName}
-                />
-              </span>
+              <ModelPicker
+                ariaLabel="Model and effort for the next message"
+                disabled={models.length === 0}
+                models={models}
+                selectedModel={state.task?.defaults.model ?? ''}
+                selectedEffort={state.task?.defaults.effort ?? undefined}
+                onSelect={onSelectModel}
+              />
               {/* Steering and queueing arrive with their own checkpoint; until then the shell shows where they go. */}
               {status === 'running' && state.composer.trim() !== '' && (
                 <>

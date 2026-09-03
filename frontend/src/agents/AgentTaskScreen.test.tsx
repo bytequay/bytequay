@@ -133,13 +133,9 @@ describe('agent task layout', () => {
     expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
   });
 
-  it('draws the composer menu as a floating card of short names, opening upward', () => {
-    expect(declarations('.agt-compose .sets-menu')).toContain('top: auto');
-    expect(declarations('.agt-compose .sets-menu')).toContain('bottom: calc(100% + 8px)');
-    expect(declarations('.agt-compose .sets-menu')).toContain('border-radius: 14px');
-    // Codex's list carries no blurb per model; the catalog's descriptions stay in Settings.
-    expect(declarations('.agt-compose .sets-menu-desc')).toContain('display: none');
-    // The chip and its rows show the name Codex itself shows.
+  it('opens the composer picker upward as a floating card, and names models the short way', () => {
+    expect(declarations('.agt-picker__card')).toContain('bottom: calc(100% + 8px)');
+    expect(declarations('.agt-picker__card')).toContain('border-radius: 14px');
     expect(displayModelName('GPT-5.6-Sol')).toBe('5.6 Sol');
     expect(displayModelName('GPT-5.3-Codex-Spark')).toBe('5.3 Codex Spark');
     expect(displayModelName('Claude Opus 4.1')).toBe('Claude Opus 4.1');
@@ -199,9 +195,9 @@ describe('agent task list', () => {
     expect(markup).toContain('Codex');
     expect(markup).toMatch(/<button[^>]*class="agt-compose__chip agt-fake"[^>]*data-fake="CP11 · provider choice"[^>]*disabled/);
     expect(markup).toContain('5.6 Terra');
-    expect(markup).toContain('high');
+    expect(markup).toContain('High');
     // The one real choice, the model, is live.
-    expect(markup).not.toMatch(/class="sets-chip"[^>]*disabled/);
+    expect(markup).not.toMatch(/class="agt-picker__chip"[^>]*disabled/);
     expect(markup).not.toMatch(/class="agt-send"[^>]*disabled/);
   });
 
@@ -319,7 +315,8 @@ describe('one arrow', () => {
       .filter((block) => block.kind === 'activity').map((block) => [block.id, true])));
     expect(opened).toMatch(/class="agt-act__fold"[^>]*>\s*<svg class="chev is-open"/);
     // Menu carets are the same arrow, already turned down; nothing draws a text glyph.
-    expect(folded).toContain('<span class="sets-caret"><svg class="chev is-open"');
+    expect(folded).toContain('<button type="button" class="agt-picker__chip"');
+    expect(folded).toMatch(/agt-picker__chip[^>]*>[^]*?<svg class="chev is-open"/);
     expect(folded).not.toMatch(/[›⌄]/);
     expect(renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[task('t-1', 'OPEN', 'x')]} loading={false} error={null} />))
       .not.toMatch(/[›⌄]/);

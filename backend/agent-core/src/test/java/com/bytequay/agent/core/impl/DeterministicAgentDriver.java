@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -73,6 +74,7 @@ final class DeterministicAgentDriver
     private DeterministicSession currentSession;
     private boolean failNextStart;
     private boolean completeNextStart;
+    private boolean failNextCloseVerification;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
     private Runnable beforeCancel = () -> {};
@@ -144,6 +146,12 @@ final class DeterministicAgentDriver
     synchronized void completeNextStart()
     {
         completeNextStart = true;
+    }
+
+    /** Makes the next session close report a process tree it could not verify stopped. */
+    synchronized void failNextCloseVerification()
+    {
+        failNextCloseVerification = true;
     }
 
     synchronized void failNextSessionReferenceAndClose(RuntimeException failure)
@@ -287,6 +295,16 @@ final class DeterministicAgentDriver
                 if (referenceAndCloseFailure != null) {
                     throw referenceAndCloseFailure;
                 }
+                boolean verified = !failNextCloseVerification;
+                failNextCloseVerification = false;
+                if (running != null && !running.completion.isDone()) {
+                    // Closing kills the process: the turn ends interrupted, and whether the tree
+                    // was shown stopped is what decides its worktree claim.
+                    running.interrupt("session closed", verified);
+                }
+                if (!verified) {
+                    throw new AgentUnavailableException("deterministic process tree could not be verified stopped");
+                }
             }
         }
     }
@@ -385,6 +403,16 @@ final class DeterministicAgentDriver
                     Optional.of(response),
                     Optional.empty(),
                     Duration.ZERO));
+        }
+
+        private void interrupt(String reason, boolean providerQuiescent)
+        {
+            completion.complete(new AgentTurnResult(
+                    AgentTurnResult.State.INTERRUPTED,
+                    Optional.empty(),
+                    Optional.of(reason),
+                    Duration.ZERO,
+                    providerQuiescent));
         }
 
         private void completeUnverified(String response)

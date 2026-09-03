@@ -187,11 +187,14 @@ public final class DefaultAgentCompletionService
             throw new InvalidAgentRequestException("reason must not be blank");
         }
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
-            if (task.state().terminal()) {
-                throw new AgentConflictException("Task is already terminal: " + taskId);
-            }
-            runtimeRegistry.closeSession(taskId);
+            requireAbandonable(taskId);
+        }
+        // Closing the session stops the process this backend runs for the task and returns only
+        // once that process tree is verified stopped. It runs outside the task lock because the
+        // provider's own callbacks take that lock to record what the close interrupted.
+        runtimeRegistry.closeSession(taskId);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            requireAbandonable(taskId);
             Instant failedAt = Instant.now(clock);
             EventId eventId = EventId.random();
             AgentTask failed = unitOfWork.execute(() -> {
@@ -217,6 +220,24 @@ public final class DefaultAgentCompletionService
             eventService.drain(eventId);
             return failed;
         }
+    }
+
+    /**
+     * A task can be given up on only once nothing of its own is still running.
+     *
+     * <p>A live turn is refused rather than interrupted here, because stopping it is a separate
+     * user action with its own confirmation; failing the task underneath a turn would also leave
+     * that turn's completion unable to record itself.
+     */
+    private void requireAbandonable(TaskId taskId)
+    {
+        AgentTask task = requireTask(taskId);
+        if (task.state().terminal()) {
+            throw new AgentConflictException("Task is already terminal: " + taskId);
+        }
+        turnStore.findActive(taskId).ifPresent(turn -> {
+            throw new AgentConflictException("Task has an active turn; stop it before marking the task failed: " + turn.id());
+        });
     }
 
     private void releaseCompletionClaim(TaskId taskId, WorktreeMutationClaim claim, RuntimeException failure)

@@ -15,6 +15,7 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -207,6 +208,18 @@ final class ScriptedCherryPickAgent
     public AgentTurnSettings effectiveSettings(TaskId taskId)
     {
         throw new UnsupportedOperationException("this test never describes a turn before starting it");
+    }
+
+    @Override
+    public AgentRuntimeStopImpact stopImpact(TaskId taskId)
+    {
+        throw new UnsupportedOperationException("this test never stops a task runtime");
+    }
+
+    @Override
+    public AgentTask stopRuntime(TaskId taskId, String generation)
+    {
+        throw new UnsupportedOperationException("this test never stops a task runtime");
     }
 
     @Override

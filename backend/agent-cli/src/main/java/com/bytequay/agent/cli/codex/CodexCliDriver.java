@@ -715,7 +715,8 @@ public final class CodexCliDriver
             catch (RuntimeException failure) {
                 CodexRunningTurn failed = running;
                 running = null;
-                failed.interrupt(failure);
+                // The process is still running; only a verified stop may release the worktree.
+                failed.interrupt(failure, false);
             }
         }
 
@@ -1103,23 +1104,39 @@ public final class CodexCliDriver
             if (running != null) {
                 CodexRunningTurn interrupted = running;
                 running = null;
-                interrupted.interrupt(failure);
+                // A disconnect that follows the process exiting knows whether its tree stopped; one
+                // that precedes it, such as a protocol failure, cannot claim the worktree is quiet.
+                interrupted.interrupt(failure, client.processTreeVerifiedStopped().orElse(false));
             }
         }
 
+        /**
+         * Stops the App Server process serving this task.
+         *
+         * <p>Terminating the process is the stop; asking the turn to interrupt itself first would
+         * race the kill and could report the turn quiet before its process was. The close returns
+         * only once the process tree is verified stopped, and the running turn is interrupted with
+         * that verdict either way, so a turn whose process could not be verified keeps its claim.
+         * Repeated closes re-verify rather than returning early, so a refused stop can be retried.
+         */
         @Override
         public synchronized void close()
         {
-            if (closed) {
-                return;
-            }
             closed = true;
-            if (running != null) {
-                running.cancel();
+            CodexRunningTurn interrupted = running;
+            running = null;
+            try {
+                client.close();
             }
-            // Closing the connection terminates the App Server process serving this task, which
-            // releases every thread it held. There is nothing left to unsubscribe from.
-            client.close();
+            catch (RuntimeException failure) {
+                if (interrupted != null) {
+                    interrupted.interrupt(failure, false);
+                }
+                throw failure;
+            }
+            if (interrupted != null) {
+                interrupted.interrupt(new AgentUnavailableException("Codex App Server stopped"), true);
+            }
         }
 
         private synchronized Object approvalResponse(
@@ -1211,7 +1228,8 @@ public final class CodexCliDriver
                             Duration.ofSeconds(10));
                 }
                 catch (RuntimeException failure) {
-                    interrupt(failure);
+                    // The interrupt never reached the process, so nothing says it stopped working.
+                    interrupt(failure, false);
                 }
             });
         }
@@ -1267,7 +1285,14 @@ public final class CodexCliDriver
             completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn)));
         }
 
-        private void interrupt(Throwable failure)
+        /**
+         * Ends the turn without a completion from App Server.
+         *
+         * @param failure why the turn cannot continue
+         * @param providerQuiescent whether the process tree was verified stopped; anything less
+         * keeps the task's worktree claim, because the process may still be writing there
+         */
+        private void interrupt(Throwable failure, boolean providerQuiescent)
         {
             String message = failure.getMessage();
             completion.complete(new AgentTurnResult(
@@ -1277,7 +1302,8 @@ public final class CodexCliDriver
                             + (message == null || message.isBlank()
                                     ? "Codex disconnected"
                                     : redactor.redact(message))),
-                    Duration.between(startedAt, Instant.now())));
+                    Duration.between(startedAt, Instant.now()),
+                    providerQuiescent));
         }
 
         /**

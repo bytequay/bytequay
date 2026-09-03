@@ -30,6 +30,7 @@ import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -259,22 +260,68 @@ public class AgentController
     }
 
     /**
-     * Fails a task whose turn could not be shown to have stopped touching its worktree.
+     * Fails a task whose provider could not be shown to have stopped touching its worktree.
      *
-     * <p>Such a turn keeps its worktree claim, which deliberately blocks every later turn. This is
-     * the way out, and it retains the worktree rather than cleaning it, so whatever the provider
-     * left behind stays inspectable.
+     * <p>The retained claim deliberately blocks every later turn, and this is the way out. The
+     * task's own provider process is stopped and verified first, so a live turn has to be stopped
+     * before this is accepted. A clean worktree is then removed and its branch kept; dirty work
+     * stays in place for inspection, and a worktree whose old process could never be verified
+     * stopped is not touched at all.
      */
-    @PostMapping("/tasks/{taskId}/abandon")
-    public InteractiveAgentHttpContract.TaskResponse abandonTask(
+    @PostMapping("/tasks/{taskId}/mark-failed")
+    public InteractiveAgentHttpContract.TaskResponse markTaskFailed(
             @PathVariable String taskId,
             @RequestParam String workspaceId,
-            @RequestBody AbandonTaskRequest request)
+            @RequestBody MarkTaskFailedRequest request)
     {
         requireNotBlank(request.reason(), "reason must not be blank");
         TaskId id = TaskId.valueOf(taskId);
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        boolean processUnverified = task.worktreeMutationClaim()
+                .map(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
+                .orElse(false);
+        completionService.abandon(id, request.reason());
+        if (!processUnverified) {
+            try {
+                completionService.cleanupWorktree(id);
+            }
+            catch (RuntimeException failure) {
+                // The response shows the worktree as retained; nothing here discards work.
+                log.warn("Task {} was marked failed but its worktree was retained: {}", taskId, failure.toString());
+            }
+        }
+        return InteractiveAgentHttpContract.task(taskService.get(id));
+    }
+
+    /**
+     * What stopping this task's Codex server would interrupt, and the generation the stop must echo.
+     */
+    @GetMapping("/tasks/{taskId}/runtime/stop-impact")
+    public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        return InteractiveAgentHttpContract.task(completionService.abandon(id, request.reason()));
+        return AgentHttpModels.stopImpact(turnService.stopImpact(id));
+    }
+
+    /**
+     * Stops this task's Codex server, the last resort behind ordinary cancellation.
+     *
+     * <p>Reaches no other task. The generation is the one the user confirmed, so a turn that
+     * started since cannot be stopped by a stale confirmation.
+     */
+    @PostMapping("/tasks/{taskId}/runtime/stop")
+    public InteractiveAgentHttpContract.TaskResponse stopRuntime(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody StopRuntimeRequest request)
+    {
+        requireNotBlank(request.generation(), "generation must not be blank");
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return InteractiveAgentHttpContract.task(turnService.stopRuntime(id, request.generation()));
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")
@@ -312,5 +359,7 @@ public class AgentController
 
     public record CompleteTaskRequest(String notes) {}
 
-    public record AbandonTaskRequest(String reason) {}
+    public record MarkTaskFailedRequest(String reason) {}
+
+    public record StopRuntimeRequest(String generation) {}
 }

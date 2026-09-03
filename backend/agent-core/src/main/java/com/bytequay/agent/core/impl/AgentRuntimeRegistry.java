@@ -38,6 +38,7 @@ public final class AgentRuntimeRegistry
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
 
     Object taskLock(TaskId taskId)
     {
@@ -63,13 +64,37 @@ public final class AgentRuntimeRegistry
         return session;
     }
 
+    /**
+     * Closes a task's session, which stops the provider process it owns.
+     *
+     * <p>A close that fails is one whose process tree could not be verified stopped. The session
+     * then stays registered so the close can be retried, and the task is recorded as refusing new
+     * work until it succeeds: nothing may be handed a worktree that something may still be
+     * writing to.
+     */
     void closeSession(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        AgentSession session = sessions.remove(taskId);
-        if (session != null) {
+        AgentSession session = sessions.get(taskId);
+        if (session == null) {
+            return;
+        }
+        try {
             session.close();
         }
+        catch (RuntimeException failure) {
+            unverifiedCloses.put(taskId, failure);
+            throw failure;
+        }
+        sessions.remove(taskId, session);
+        unverifiedCloses.remove(taskId);
+    }
+
+    /** The failure that left a task's process unverified, while its last close has not succeeded. */
+    Optional<RuntimeException> unverifiedClose(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return Optional.ofNullable(unverifiedCloses.get(taskId));
     }
 
     /**

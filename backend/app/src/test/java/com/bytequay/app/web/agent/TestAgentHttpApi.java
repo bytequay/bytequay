@@ -299,6 +299,84 @@ class TestAgentHttpApi
     }
 
     @Test
+    void marksAnIdleTaskFailedAndRemovesOnlyACleanWorktree()
+            throws Exception
+    {
+        JsonNode clean = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String cleanTaskId = clean.required("id").asText();
+        Path cleanWorktree = tasks.get(TaskId.valueOf(cleanTaskId)).taskWorktree().orElseThrow().canonicalWorktree();
+        assertThat(post(
+                "/agent/tasks/" + cleanTaskId + "/mark-failed?workspaceId=another-workspace",
+                ImmutableMap.of("reason", "wrong workspace"),
+                null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        ResponseEntity<JsonNode> failed = post(
+                "/agent/tasks/" + cleanTaskId + "/mark-failed?workspaceId=" + workspaceId,
+                ImmutableMap.of("reason", "giving up"),
+                null);
+
+        assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(failed.getBody().get("state").asText()).isEqualTo("FAILED");
+        assertThat(failed.getBody().get("terminalReason").asText()).isEqualTo("giving up");
+        assertThat(failed.getBody().get("mutationClaim").isNull()).isTrue();
+        // Nothing was written, so the checkout goes while its branch stays behind as the result.
+        assertThat(failed.getBody().get("checkoutRemovedAt").isTextual()).isTrue();
+        assertThat(cleanWorktree).doesNotExist();
+        assertThat(run("git", "-C", repository.toString(), "branch", "--list", "bytequay/task/" + cleanTaskId))
+                .contains(cleanTaskId);
+
+        JsonNode dirty = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String dirtyTaskId = dirty.required("id").asText();
+        Path dirtyWorktree = tasks.get(TaskId.valueOf(dirtyTaskId)).taskWorktree().orElseThrow().canonicalWorktree();
+        Files.writeString(dirtyWorktree.resolve("notes.txt"), "half-finished\n");
+
+        JsonNode retained = post(
+                "/agent/tasks/" + dirtyTaskId + "/mark-failed?workspaceId=" + workspaceId,
+                ImmutableMap.of("reason", "giving up"),
+                null).getBody();
+
+        // Dirty work is evidence, not garbage: the task fails but its checkout stays for inspection.
+        assertThat(retained.get("state").asText()).isEqualTo("FAILED");
+        assertThat(retained.get("checkoutRemovedAt").isNull()).isTrue();
+        assertThat(dirtyWorktree.resolve("notes.txt")).exists();
+    }
+
+    @Test
+    void stopsATasksRuntimeOnlyWithTheConfirmedGeneration()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String taskId = created.required("id").asText();
+        String impactPath = "/agent/tasks/" + taskId + "/runtime/stop-impact?workspaceId=" + workspaceId;
+        String stopPath = "/agent/tasks/" + taskId + "/runtime/stop?workspaceId=" + workspaceId;
+
+        JsonNode idle = get(impactPath).getBody();
+        assertThat(idle.get("activeTurnId").isNull()).isTrue();
+        assertThat(idle.get("liveProcess").asBoolean()).isFalse();
+        assertThat(post(stopPath, ImmutableMap.of("generation", "task:999"), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        startTurn(taskId, "first", "request-1");
+        JsonNode afterTurn = get(impactPath).getBody();
+        // The deterministic turn completes at once, but its session, and so its process, stays open.
+        assertThat(afterTurn.get("activeTurnId").isNull()).isTrue();
+        assertThat(afterTurn.get("liveProcess").asBoolean()).isTrue();
+        // A confirmation from before the turn is stale: the turn moved the task on.
+        assertThat(post(stopPath, ImmutableMap.of("generation", idle.get("generation").asText()), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        ResponseEntity<JsonNode> stopped = post(
+                stopPath,
+                ImmutableMap.of("generation", afterTurn.get("generation").asText()),
+                null);
+
+        assertThat(stopped.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(stopped.getBody().get("state").asText()).isEqualTo("OPEN");
+        assertThat(stopped.getBody().get("mutationClaim").isNull()).isTrue();
+        assertThat(get(impactPath).getBody().get("liveProcess").asBoolean()).isFalse();
+    }
+
+    @Test
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {

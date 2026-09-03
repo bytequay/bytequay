@@ -22,6 +22,7 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -34,6 +35,7 @@ import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProviderAgentEventAdapter;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -72,8 +74,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
@@ -102,6 +108,9 @@ public final class DefaultAgentTurnService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
+
+    /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
+    private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
 
     public DefaultAgentTurnService(
             AgentTaskStore taskStore,
@@ -170,7 +179,7 @@ public final class DefaultAgentTurnService
                         acceptance.settings().model(),
                         acceptance.settings().effort()));
                 failedRunningTurn = runningTurn;
-                started = registerRunningTurn(accepted, runningTurn);
+                started = registerRunningTurn(accepted, runningTurn, session.reference());
             }
             catch (RuntimeException failure) {
                 if (!deliveryAttempted) {
@@ -226,6 +235,9 @@ public final class DefaultAgentTurnService
         });
         task.worktreeMutationClaim().ifPresent(claim -> {
             throw new AgentConflictException("Task worktree is claimed by " + claim.kind());
+        });
+        runtimeRegistry.unverifiedClose(taskId).ifPresent(failure -> {
+            throw new AgentConflictException("Task provider process is not verified stopped: " + failureMessage(failure));
         });
         AgentProviderStatus status = driverRegistry.require(task.laneId()).probe();
         if (!status.available()) {
@@ -284,12 +296,19 @@ public final class DefaultAgentTurnService
         return new TurnAcceptance(turn, settings, messageEventId);
     }
 
-    private StartedTurn registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn)
+    private StartedTurn registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn, AgentSessionRef reference)
     {
         ProviderTurnRef providerTurnReference = runningTurn.reference();
         AgentTurn running = turnStore.update(requireTurn(accepted.id()).running(
                 providerTurnReference,
                 Optional.empty()));
+        // The thread reference is persisted only now that a turn has run on it. A thread that was
+        // opened but never turned has no rollout, so resuming it after a restart fails forever;
+        // forgetting it means the next turn starts a fresh thread instead.
+        AgentTask task = requireTask(running.taskId());
+        if (task.sessionReference().isEmpty()) {
+            taskStore.update(task.withSessionReference(reference, Instant.now(clock)));
+        }
         runtimeRegistry.registerRunning(running.id(), runningTurn);
         return new StartedTurn(running, runningTurn);
     }
@@ -353,6 +372,127 @@ public final class DefaultAgentTurnService
         return requireTurn(turnId);
     }
 
+    @Override
+    public AgentRuntimeStopImpact stopImpact(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        retryCompletedTurn(taskId);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireTask(taskId);
+            Optional<AgentTurn> active = turnStore.findActive(taskId);
+            return new AgentRuntimeStopImpact(
+                    taskId,
+                    generation(task, active),
+                    active.map(AgentTurn::id),
+                    runtimeRegistry.session(taskId).isPresent());
+        }
+    }
+
+    private static String generation(AgentTask task, Optional<AgentTurn> active)
+    {
+        // A running turn is the thing being stopped, so it names the generation; otherwise the
+        // task version does, and starting a turn bumps it.
+        return active.map(turn -> "turn:" + turn.id()).orElseGet(() -> "task:" + task.version());
+    }
+
+    @Override
+    public AgentTask stopRuntime(TaskId taskId, String generation)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (generation == null || generation.isBlank()) {
+            throw new InvalidAgentRequestException("generation must not be blank");
+        }
+        retryCompletedTurn(taskId);
+        Optional<AgentTurn> active;
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireTask(taskId);
+            if (task.state().terminal()) {
+                throw new AgentConflictException("Task is already terminal: " + taskId);
+            }
+            active = turnStore.findActive(taskId);
+            if (!generation.equals(generation(task, active))) {
+                throw new AgentConflictException("Task runtime changed since the stop was confirmed: " + taskId);
+            }
+            active.ifPresent(turn -> {
+                AgentTurn cancellation = turn.requestCancellation(Instant.now(clock));
+                if (cancellation != turn) {
+                    turnStore.update(cancellation);
+                }
+            });
+        }
+        // Denying approvals and closing the session both complete provider callbacks that take the
+        // task lock, so neither may run under it.
+        active.ifPresent(turn -> approvalService.denyPending(turn.id()));
+        runtimeRegistry.closeSession(taskId);
+        active.ifPresent(this::awaitInterruption);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            releaseStaleTurnClaim(requireTask(taskId));
+            return requireTask(taskId);
+        }
+    }
+
+    /**
+     * Waits for a closed process to report its turn interrupted, then records that.
+     *
+     * <p>The close returns once the process tree is verified stopped, but the turn learns of it
+     * through the provider's own callbacks, so the stop has to wait for them before the task can
+     * be read as settled.
+     */
+    private void awaitInterruption(AgentTurn turn)
+    {
+        Optional<RunningTurn> running = runtimeRegistry.running(turn.id());
+        if (running.isEmpty()) {
+            // Either the close already ran the turn's completion, which drops the handle, or the
+            // turn failed before a provider run existed. In the second case the closed process
+            // was all there was, so the verified stop is what settles it.
+            synchronized (runtimeRegistry.taskLock(turn.taskId())) {
+                AgentTurn current = requireTurn(turn.id());
+                if (current.state().active()) {
+                    persistTerminalTurn(
+                            current,
+                            TurnState.INTERRUPTED,
+                            Optional.of("Provider process stopped before the turn was acknowledged"),
+                            true);
+                }
+            }
+            drainPending(outboxStore, eventService, turn.taskId());
+            approvalService.denyPending(turn.id());
+            return;
+        }
+        try {
+            running.orElseThrow().completion().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Interrupted while stopping turn " + turn.id(), e);
+        }
+        catch (ExecutionException | CancellationException ignored) {
+            // An exceptional completion is still a completion; the terminal transaction records it.
+        }
+        catch (TimeoutException e) {
+            throw new AgentUnavailableException("Turn " + turn.id() + " did not report itself stopped after its process was closed", e);
+        }
+        get(turn.id());
+    }
+
+    /**
+     * Releases a claim left by a finished turn now that the task's process tree is verified gone.
+     *
+     * <p>A turn keeps its claim when its provider could not be shown quiet; the only thing that
+     * could still have been writing was that process, so a verified stop is what makes the
+     * worktree safe again.
+     */
+    private void releaseStaleTurnClaim(AgentTask task)
+    {
+        Optional<WorktreeMutationClaim> claim = task.worktreeMutationClaim()
+                .filter(held -> held.kind() == WorktreeMutationClaim.Kind.TURN);
+        if (claim.isEmpty() || turnStore.findActive(task.id()).isPresent()) {
+            return;
+        }
+        Instant releasedAt = Instant.now(clock);
+        unitOfWork.execute(() -> taskStore.update(requireTask(task.id()).releaseWorktreeMutation(claim.orElseThrow(), releasedAt)));
+    }
+
     private AgentSession session(AgentTask task, TurnId turnId)
     {
         Optional<AgentSession> existing = runtimeRegistry.session(task.id());
@@ -386,7 +526,6 @@ public final class DefaultAgentTurnService
                 Instant openedAt = Instant.now(clock);
                 EventId eventId = EventId.random();
                 unitOfWork.execute(() -> {
-                    taskStore.update(current.withSessionReference(reference, openedAt));
                     outboxStore.insert(pendingLifecycle(
                             eventId,
                             current.id(),

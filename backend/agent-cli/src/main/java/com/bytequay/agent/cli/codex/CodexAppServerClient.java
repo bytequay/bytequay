@@ -81,6 +81,7 @@ final class CodexAppServerClient
     private static final Logger log = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final Duration START_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration WRITE_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
 
@@ -102,6 +103,7 @@ final class CodexAppServerClient
     private volatile Thread readerThread;
     private volatile ManagedProcess process;
     private volatile boolean closed;
+    private volatile ProcessExit.TreeTermination treeTermination;
 
     CodexAppServerClient(
             ProcessSupervisor supervisor,
@@ -285,6 +287,9 @@ final class CodexAppServerClient
 
     private void processExited(ProcessExit result, Throwable failure)
     {
+        if (result != null) {
+            treeTermination = result.treeTermination();
+        }
         try {
             protocolLines.finish();
             diagnosticLines.finish();
@@ -386,22 +391,69 @@ final class CodexAppServerClient
         dispatcher.disconnect(failure);
     }
 
+    /**
+     * Whether the process tree is known to have stopped.
+     *
+     * @return empty until the process has exited, then true only when every owned member was
+     * observed gone
+     */
+    Optional<Boolean> processTreeVerifiedStopped()
+    {
+        ProcessExit.TreeTermination termination = treeTermination;
+        return termination == null
+                ? Optional.empty()
+                : Optional.of(termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
+    }
+
+    /**
+     * Stops the App Server process and returns once its whole process tree is verified stopped.
+     *
+     * <p>Root exit is not enough: a tool the model started can outlive the server, and it is the
+     * task worktree those tools write to. The verification is repeated on every call, so a caller
+     * refused the proof once can ask again rather than being told the process is gone.
+     *
+     * @throws AgentUnavailableException when the tree could not be verified stopped in time
+     */
     @Override
     public void close()
     {
         ManagedProcess current;
         synchronized (lifecycleLock) {
-            if (closed) {
-                return;
-            }
-            closed = true;
             current = process;
+            if (!closed) {
+                closed = true;
+                if (current != null) {
+                    current.close();
+                }
+            }
         }
         if (current != null) {
-            current.close();
+            awaitVerifiedStop(current);
         }
         disconnect(new AgentUnavailableException("Codex App Server closed"));
         dispatcher.close();
+    }
+
+    private static void awaitVerifiedStop(ManagedProcess current)
+    {
+        ProcessExit exit;
+        try {
+            exit = current.exit().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Interrupted while stopping Codex App Server", e);
+        }
+        catch (ExecutionException e) {
+            throw new AgentUnavailableException("Codex App Server did not report its exit", e.getCause());
+        }
+        catch (TimeoutException e) {
+            throw new AgentUnavailableException("Codex App Server did not stop within " + STOP_TIMEOUT.toSeconds()
+                    + " seconds, so its process tree is not verified stopped", e);
+        }
+        if (exit.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+            throw new AgentUnavailableException("Codex App Server exited but its process tree could not be verified stopped");
+        }
     }
 
     private static <T> T await(

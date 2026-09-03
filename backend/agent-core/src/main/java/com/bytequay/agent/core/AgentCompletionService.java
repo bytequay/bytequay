@@ -38,6 +38,23 @@ public interface AgentCompletionService
     TaskCompletion complete(CompleteAgentTaskCommand command);
 
     /**
+     * Fails a task whose provider could not be shown to have stopped touching its worktree.
+     *
+     * <p>A turn that cannot prove the provider went quiet keeps its worktree mutation claim, so no
+     * later turn edits files something may still be writing to. That deliberately leaves the task
+     * stuck, and this is the way out: it stops and verifies the task's own provider process,
+     * releases the held claim, and marks the task failed while retaining the worktree, so whatever
+     * the provider left behind can still be inspected. A task with an active turn is refused; the
+     * turn has to be stopped first.
+     *
+     * @param taskId the stuck task
+     * @param reason why it is being abandoned
+     * @return the failed task
+     * @throws AgentConflictException when the task is terminal or a turn is still active
+     */
+    AgentTask abandon(TaskId taskId, String reason);
+
+    /**
      * Retries removal of a terminal task's verified clean worktree.
      *
      * <p>The generated branch is retained and the operation is idempotent when
@@ -46,20 +63,6 @@ public interface AgentCompletionService
      * @param taskId terminal task whose worktree should be removed
      * @throws AgentConflictException when the task is live or cleanup is unsafe
      */
-    /**
-     * Fails a task whose turn could not be shown to have stopped touching its worktree.
-     *
-     * <p>A turn that cannot prove the provider went quiet keeps its worktree mutation claim, so no
-     * later turn edits files something may still be writing to. That deliberately leaves the task
-     * stuck, and this is the way out: it releases the held claim and marks the task failed while
-     * retaining the worktree, so whatever the provider left behind can still be inspected.
-     *
-     * @param taskId the stuck task
-     * @param reason why it is being abandoned
-     * @return the failed task
-     */
-    AgentTask abandon(TaskId taskId, String reason);
-
     void cleanupWorktree(TaskId taskId);
 
     /**

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -664,6 +665,18 @@ class TestBranchRebaseService
         public AgentTurnSettings effectiveSettings(TaskId taskId)
         {
             throw new UnsupportedOperationException("this test never describes a turn before starting it");
+        }
+
+        @Override
+        public AgentRuntimeStopImpact stopImpact(TaskId taskId)
+        {
+            throw new UnsupportedOperationException("this test never stops a task runtime");
+        }
+
+        @Override
+        public AgentTask stopRuntime(TaskId taskId, String generation)
+        {
+            throw new UnsupportedOperationException("this test never stops a task runtime");
         }
 
         @Override

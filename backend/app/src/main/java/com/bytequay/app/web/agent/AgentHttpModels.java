@@ -16,6 +16,7 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.TaskCompletion;
@@ -73,6 +74,15 @@ final class AgentHttpModels
                 completion.deleteAfter());
     }
 
+    static RuntimeStopImpactResponse stopImpact(AgentRuntimeStopImpact impact)
+    {
+        return new RuntimeStopImpactResponse(
+                impact.taskId().toString(),
+                impact.generation(),
+                impact.activeTurnId().map(Object::toString),
+                impact.liveProcess());
+    }
+
     static CleanupResponse cleanup(CleanupResult result)
     {
         return new CleanupResponse(
@@ -112,6 +122,12 @@ final class AgentHttpModels
             InteractiveAgentHttpContract.TaskSummaryResponse summary,
             Instant completedAt,
             Instant deleteAfter) {}
+
+    record RuntimeStopImpactResponse(
+            String taskId,
+            String generation,
+            Optional<String> activeTurnId,
+            boolean liveProcess) {}
 
     record CleanupResponse(
             String taskId,

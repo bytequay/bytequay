@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
@@ -319,6 +320,113 @@ class TestDefaultAgentTurnService
         assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
         assertThat(service.start(command("second", "key-2"))).isNotNull();
         driver.complete("done again");
+    }
+
+    @Test
+    void stopsTheTasksProcessAndInterruptsItsTurn()
+    {
+        AgentTurn running = service.start(command("first", "key-1"));
+        AgentRuntimeStopImpact impact = service.stopImpact(task.id());
+        assertThat(impact.activeTurnId()).contains(running.id());
+        assertThat(impact.liveProcess()).isTrue();
+
+        AgentTask stopped = service.stopRuntime(task.id(), impact.generation());
+
+        // The process is gone and verified so, which is what releases the worktree.
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        assertThat(service.stopImpact(task.id()).liveProcess()).isFalse();
+        // A later turn opens a fresh process rather than the one that was stopped.
+        assertThat(service.start(command("second", "key-2"))).isNotNull();
+        assertThat(driver.openedReferences()).hasSize(2);
+        driver.complete("done");
+    }
+
+    @Test
+    void refusesToStopARuntimeTheUserDidNotConfirm()
+    {
+        AgentRuntimeStopImpact confirmedEarlier = service.stopImpact(task.id());
+        service.start(command("first", "key-1"));
+
+        // The confirmation predates the turn, so it must not be able to stop it.
+        assertThatThrownBy(() -> service.stopRuntime(task.id(), confirmedEarlier.generation()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("changed");
+        driver.complete("done");
+    }
+
+    @Test
+    void keepsTheClaimWhenTheStoppedProcessTreeCannotBeVerified()
+    {
+        service.start(command("first", "key-1"));
+        driver.failNextCloseVerification();
+        String generation = service.stopImpact(task.id()).generation();
+
+        assertThatThrownBy(() -> service.stopRuntime(task.id(), generation))
+                .isInstanceOf(AgentUnavailableException.class);
+
+        // The turn is over, but something it started may still be writing, so nothing else may.
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
+        assertThatThrownBy(() -> service.start(command("second", "key-2")))
+                .isInstanceOf(AgentConflictException.class);
+
+        // A later close that does verify the tree is what releases the task again.
+        AgentTask released = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        assertThat(released.worktreeMutationClaim()).isEmpty();
+        assertThat(service.start(command("second", "key-2"))).isNotNull();
+        driver.complete("done");
+    }
+
+    @Test
+    void stopReleasesAClaimLeftByATurnWhoseProviderCouldNotBeShownQuiet()
+    {
+        service.start(command("first", "key-1"));
+        driver.completeUnverified("done");
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        // The only thing that could still have been writing was the process, and it is now gone.
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        assertThat(service.start(command("second", "key-2"))).isNotNull();
+        driver.complete("done again");
+    }
+
+    @Test
+    void stopSettlesATurnThatFailedBeforeReachingTheProvider()
+    {
+        driver.failNextStart();
+        assertThatThrownBy(() -> service.start(command("first", "key-1"))).isInstanceOf(IllegalStateException.class);
+        AgentTurn stuck = stores.list(task.id()).getFirst();
+        assertThat(stuck.state()).isEqualTo(TurnState.ACCEPTED);
+        assertThat(stuck.startedAt()).isPresent();
+        // No provider run exists, so ordinary cancellation has nothing to signal.
+        assertThatThrownBy(() -> service.cancel(stuck.id())).isInstanceOf(AgentConflictException.class);
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        // The closed process was all there was, so the verified stop settles the turn and the task.
+        assertThat(stores.find(stuck.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        assertThat(service.start(command("second", "key-2"))).isNotNull();
+        driver.complete("done");
+    }
+
+    @Test
+    void persistsTheThreadReferenceOnlyOnceATurnHasRunOnIt()
+    {
+        driver.failNextStart();
+        assertThatThrownBy(() -> service.start(command("first", "key-1"))).isInstanceOf(IllegalStateException.class);
+
+        // A thread that never ran a turn has nothing to resume after a restart; remembering it
+        // would make every later turn fail at resume.
+        assertThat(stores.find(task.id()).orElseThrow().sessionReference()).isEmpty();
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        service.start(command("second", "key-2"));
+
+        assertThat(stores.find(task.id()).orElseThrow().sessionReference()).isPresent();
+        driver.complete("done");
     }
 
     @Test

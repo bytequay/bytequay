@@ -62,6 +62,38 @@ public interface AgentTurnService
     AgentTurn cancel(TurnId turnId);
 
     /**
+     * Describes what stopping the task's provider process would interrupt.
+     *
+     * <p>The returned generation names the runtime the caller looked at: the active turn when
+     * there is one, otherwise the task version. {@link #stopRuntime} requires it back, so a turn
+     * that started after the caller confirmed cannot be stopped by that confirmation.
+     *
+     * @param taskId task whose runtime is described
+     * @return the impact and the generation a stop must echo
+     * @throws AgentTaskNotFoundException when the task does not exist
+     */
+    AgentRuntimeStopImpact stopImpact(TaskId taskId);
+
+    /**
+     * Stops the task's own provider process, interrupting whatever it was running.
+     *
+     * <p>This is the last resort behind ordinary cancellation and reaches no other task. The active
+     * turn, if any, is interrupted and its pending approvals denied. The task's worktree claim is
+     * released only once the process tree is verified stopped; a process that cannot be verified
+     * keeps the task blocked and this method fails. A claim left by an earlier turn whose provider
+     * could not be shown quiet is released by the same verification, because the process that
+     * might still have been writing is now provably gone.
+     *
+     * @param taskId task whose process should stop
+     * @param generation the value returned by {@link #stopImpact}
+     * @return the task after the stop
+     * @throws AgentTaskNotFoundException when the task does not exist
+     * @throws AgentConflictException when the task is terminal or the generation is stale
+     * @throws AgentUnavailableException when the process tree could not be verified stopped
+     */
+    AgentTask stopRuntime(TaskId taskId, String generation);
+
+    /**
      * Returns the latest durable state and metrics for one turn.
      *
      * @param turnId turn to read

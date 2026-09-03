@@ -51,6 +51,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -190,6 +191,8 @@ class TestDefaultAgentCompletionService
         TurnId turnId = TurnId.random();
         stores.update(stores.find(taskId).orElseThrow()
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW));
+        RecordingSession session = new RecordingSession();
+        runtimeRegistry.registerSession(taskId, session);
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
         AgentTask failed = service.abandon(taskId, "provider activity could not be shown stopped");
@@ -201,6 +204,27 @@ class TestDefaultAgentCompletionService
         assertThat(failed.worktreeMutationClaim()).isEmpty();
         assertThat(failed.terminalReason()).contains("provider activity could not be shown stopped");
         assertThat(worktrees.cleaned).isEmpty();
+        // The task's own process is stopped before the task is given up on.
+        assertThat(session.closed).isTrue();
+    }
+
+    @Test
+    void refusesToAbandonATaskWhileItsTurnIsActive()
+    {
+        AgentTurn active = AgentTurn.accepted(TurnId.random(), taskId, "active", turnSettings(), NOW)
+                .markDeliveryStarted(NOW.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        stores.update(stores.find(taskId).orElseThrow()
+                .claimWorktreeMutation(WorktreeMutationClaim.turn(active.id(), active.createdAt()), NOW));
+        stores.insert(active);
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        // Stopping the turn is its own confirmed action; failing the task under it would leave the
+        // turn's completion with no open task to record itself against.
+        assertThatThrownBy(() -> service.abandon(taskId, "giving up"))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("active turn");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
     }
 
     @Test

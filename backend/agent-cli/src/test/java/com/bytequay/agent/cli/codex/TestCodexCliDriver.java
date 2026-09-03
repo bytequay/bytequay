@@ -542,6 +542,50 @@ class TestCodexCliDriver
     }
 
     @Test
+    void closingASessionInterruptsItsTurnOnceItsProcessTreeIsVerifiedStopped()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("stop"));
+
+        session.close();
+
+        // Killing the process is the stop; the turn reports that, and the verified tree is what
+        // lets the task's worktree be released.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("stopped"));
+        assertThatThrownBy(() -> session.start(command("again")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("closed");
+    }
+
+    @Test
+    void closingASessionFailsAndKeepsItsTurnUnsettledWhenTheProcessTreeCannotBeVerified()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.leaveProcessTreeUnverifiable();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("stop"));
+
+        // Root exit is not quiescence: a tool the model started may have outlived the server, so
+        // the close refuses to claim the worktree is safe and the turn keeps its claim.
+        assertThatThrownBy(session::close)
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("verified stopped");
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.providerQuiescent()).isFalse();
+        // Asking again re-verifies rather than pretending the earlier close succeeded.
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @Test
     void waitsForAYieldedCommandBeforeCompletingATurn()
             throws Exception
     {
@@ -880,6 +924,13 @@ class TestCodexCliDriver
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
         private volatile String historyItems = "{\"data\":[],\"nextCursor\":null}";
+        private volatile ProcessExit.TreeTermination termination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
+
+        /** Makes every App Server exit report a process tree that could not be observed gone. */
+        private void leaveProcessTreeUnverifiable()
+        {
+            termination = ProcessExit.TreeTermination.UNVERIFIABLE;
+        }
 
         /** Names a subagent thread in history that the notification stream never mentioned. */
         private void reportUnannouncedSubagent()
@@ -1025,7 +1076,8 @@ class TestCodexCliDriver
                     () -> skills,
                     () -> backgroundTerminals,
                     this::reportNoBackgroundTerminals,
-                    () -> historyItems);
+                    () -> historyItems,
+                    () -> termination);
             servers.add(server);
             return server;
         }
@@ -1103,6 +1155,7 @@ class TestCodexCliDriver
         }
         private final Runnable clearBackgroundTerminals;
         private final Supplier<String> historyItems;
+        private final Supplier<ProcessExit.TreeTermination> termination;
 
         private List<String> terminated()
         {
@@ -1123,8 +1176,10 @@ class TestCodexCliDriver
                 Supplier<String> skills,
                 Supplier<String> backgroundTerminals,
                 Runnable clearBackgroundTerminals,
-                Supplier<String> historyItems)
+                Supplier<String> historyItems,
+                Supplier<ProcessExit.TreeTermination> termination)
         {
+            this.termination = termination;
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
@@ -1394,7 +1449,7 @@ class TestCodexCliDriver
         @Override
         public void cancel()
         {
-            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
+            exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, termination.get(), Duration.ZERO, false, false));
         }
 
         @Override

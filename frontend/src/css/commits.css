@@ -716,6 +716,13 @@
 
 .cmt-tasks.is-embedded .cmt-tasks-head { padding-top: 24px; }
 
+/* Embedded, the section's controls take the design's sizes rather than the page's own. */
+.cmt-tasks.is-embedded .cmt-tasks-sub,
+.cmt-tasks.is-embedded .cmt-seg button { font-size: 12px; }
+.cmt-tasks.is-embedded .cmt-seg button { padding: 4px 11px; }
+.cmt-tasks.is-embedded .cmt-btn-green { padding: 4px 12px; font-size: 12px; }
+.cmt-tasks.is-embedded .cmt-loading { padding: 12px 14px; font-size: 12.5px; }
+
 .cmt-tasks.is-embedded .cmt-tasks-footnote { margin-bottom: 8px; }
 
 .cmt-tasks-sub { font-size: var(--ui-font-size); color: #8c959f; }

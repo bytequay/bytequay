@@ -52,9 +52,10 @@
   padding: 26px 32px 12px;
 }
 
+/* Page titles take the app's own title size, not the design's 20px, which reads large beside it. */
 .agt-tasks-scroll h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 400;
 }
 
@@ -1661,7 +1662,7 @@
 
 .agt-hero h1 {
   margin: 12px 0 0;
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 400;
 }
 
@@ -1905,7 +1906,7 @@
 
 .agt-overview__head h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 400;
 }
 

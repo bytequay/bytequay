@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
 import { AgentMark } from './AgentMark';
+import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
 import {
@@ -130,10 +131,6 @@ function Spinner(): React.JSX.Element {
   return <span className="agt-spin" aria-hidden="true" />;
 }
 
-function Chevron({ open }: { open: boolean }): React.JSX.Element {
-  return <span className={`agt-chevron${open ? ' is-open' : ''}`} aria-hidden="true">›</span>;
-}
-
 function StateIcon({ state }: { state: 'running' | 'ok' | 'failed' }): React.JSX.Element {
   if (state === 'running') return <span className="agt-icon"><Spinner /></span>;
   return <span className={`agt-icon ${state === 'ok' ? 'is-ok' : 'is-failed'}`} aria-hidden="true">{state === 'ok' ? '✓' : '✕'}</span>;
@@ -189,7 +186,7 @@ function CommandRows({ member, live }: { member: CommandMember; live: boolean })
         // Output folds behind a native disclosure, so it is keyboard-operable for free; a running
         // command's output stays open because that is what the user is watching.
         <details className="agt-out" open={live && running ? true : undefined}>
-          <summary>Output{member.truncated ? ' (truncated)' : ''}</summary>
+          <summary><Chevron />Output{member.truncated ? ' (truncated)' : ''}</summary>
           <pre className="agt-pre">{member.output}{running && <span className="agt-cursor" aria-hidden="true" />}</pre>
         </details>
       )}
@@ -220,7 +217,7 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
               </div>
               {member.diff !== null && (
                 <details className="agt-out">
-                  <summary>Diff</summary>
+                  <summary><Chevron />Diff</summary>
                   <pre className="agt-pre">{member.diff}</pre>
                 </details>
               )}
@@ -753,7 +750,7 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
       {agent.status === 'running' ? <Spinner /> : <span className="agt-spacer" />}
       {agent.status === 'failed' && <span className="agt-chip is-warn">failed</span>}
       <span className="agt-mono agt-muted">{agentElapsed(agent, now) ?? ''}</span>
-      <span className="agt-muted" aria-hidden="true">›</span>
+      <Chevron />
     </button>
   );
 }
@@ -968,7 +965,7 @@ function SidePanel({
           <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
           <span className="agt-chip">expired</span>
           <span className="agt-spacer" />
-          <span className="agt-muted" aria-hidden="true">›</span>
+          <Chevron />
         </button>
       ))}
     </aside>

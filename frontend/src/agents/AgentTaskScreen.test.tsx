@@ -21,6 +21,7 @@ import { AgentTaskBody } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
+import { projectTranscript } from './transcript';
 import { previewTask } from './preview';
 import type { AgentTaskDto, AgentTurnDto, ModelOptionDto, ModelSettingsDto, PullRequestDto } from '../types';
 
@@ -289,6 +290,23 @@ function pullRequest(number: number, title: string, state = 'open', draft = fals
   };
 }
 
+describe('one arrow', () => {
+  it('draws folds, rows and menu carets with the same chevron, turned when open', () => {
+    const state = { task: task('t-1', 'OPEN', 'x'), events, connection: 'open' as const };
+    const folded = body(state);
+    // The activity fold and the turn head carry the arrow pointing right until opened.
+    expect(folded).toMatch(/class="agt-act__fold"[^>]*>\s*<svg class="chev"/);
+    const opened = body(state, Object.fromEntries(projectTranscript(events).flatMap((turn) => turn.blocks)
+      .filter((block) => block.kind === 'activity').map((block) => [block.id, true])));
+    expect(opened).toMatch(/class="agt-act__fold"[^>]*>\s*<svg class="chev is-open"/);
+    // Menu carets are the same arrow, already turned down; nothing draws a text glyph.
+    expect(folded).toContain('<span class="sets-caret"><svg class="chev is-open"');
+    expect(folded).not.toMatch(/[›⌄]/);
+    expect(renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[task('t-1', 'OPEN', 'x')]} loading={false} error={null} />))
+      .not.toMatch(/[›⌄]/);
+  });
+});
+
 describe('placeholders for later checkpoints', () => {
   const fakes = (markup: string): string[] =>
     (markup.match(/data-fake="([^"]+)"/g) ?? []).map((match) => match.replace(/^data-fake="|"$/g, ''));
@@ -556,7 +574,8 @@ describe('agent task detail', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
 
     expect(markup).toContain('<details class="agt-out">');
-    expect(markup).toContain('<summary>Output</summary>');
+    // The disclosure carries the app's one arrow, not the browser's marker.
+    expect(markup).toMatch(/<summary><svg class="chev"[^>]*>.*?<\/svg>Output<\/summary>/);
     // Approval buttons carry the request they answer, not just "Allow once".
     expect(markup).toContain('aria-label="Allow once: ');
   });

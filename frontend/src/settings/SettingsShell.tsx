@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import type {
   GitHubAccountDto,
@@ -257,7 +258,7 @@ export function ModelChip({ label, detail, disabled, ariaLabel, models, selected
       >
         {label}
         {detail && <span className="sets-chip-detail">{detail}</span>}
-        <span className="sets-caret">⌄</span>
+        <span className="sets-caret"><Chevron open size={11} /></span>
       </button>
       {open && (
         <div className="sets-menu">

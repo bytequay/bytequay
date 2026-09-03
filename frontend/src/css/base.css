@@ -820,3 +820,14 @@ samp {
   background: var(--bg-hover);
   color: var(--text-1);
 }
+
+/* The app's one disclosure arrow; it turns down when what it guards is open. */
+.chev {
+  flex: none;
+  color: #8c959f;
+  transition: transform 0.15s;
+}
+
+.chev.is-open {
+  transform: rotate(90deg);
+}

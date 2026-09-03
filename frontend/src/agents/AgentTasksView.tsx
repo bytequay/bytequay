@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
@@ -271,7 +272,7 @@ export function TaskComposer({
             title={`${laneLabel(laneId)} is the only provider until Claude parity lands`}
             disabled
           >
-            {laneLabel(laneId)} <span className="agt-caret" aria-hidden="true">⌄</span>
+            {laneLabel(laneId)} <Chevron open size={11} />
           </button>
           <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
           <span className="agt-spacer" />
@@ -370,7 +371,7 @@ export function AgentTaskList({
                     {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
                     {pill.label}
                   </span>
-                  <span className="agt-muted" aria-hidden="true">›</span>
+                  <Chevron />
                 </button>
               );
             })}

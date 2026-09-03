@@ -202,15 +202,34 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: -26px -32px 0;
+  padding: 12px 62px 11px 20px;
+  border-bottom: 1px solid #e3e3e6;
 }
 
+/* A link back, as the design draws it; the panel's breadcrumb reuses it as a bare arrow. */
 .agt-back {
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #f6f8fa;
-  font-size: 12px;
-  padding: 3px 9px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: #0969da;
+  padding: 0;
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.agt-back:hover {
+  text-decoration: underline;
+}
+
+.agt-panel__head .agt-back {
+  width: 24px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #57606a;
+  text-decoration: none;
 }
 
 .agt-conn {
@@ -402,12 +421,6 @@
 .agt-compose__chip:disabled,
 .agt-compose__chip.is-fact {
   cursor: default;
-}
-
-.agt-caret {
-  color: #8c959f;
-  font-size: 11px;
-  line-height: 1;
 }
 
 .agt-compose__model {
@@ -797,18 +810,6 @@
   animation: agt-blink 1s step-end infinite;
 }
 
-.agt-chevron {
-  flex: none;
-  color: #8c959f;
-  font-size: 14px;
-  line-height: 1;
-  transition: transform 0.15s;
-}
-
-.agt-chevron.is-open {
-  transform: rotate(90deg);
-}
-
 .agt-icon {
   width: 16px;
   flex: none;
@@ -1049,9 +1050,21 @@
 }
 
 .agt-out > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
   cursor: pointer;
   font-size: 11.5px;
   color: #57606a;
+}
+
+.agt-out > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agt-out[open] > summary .chev {
+  transform: rotate(90deg);
 }
 
 .agt-out > .agt-pre {

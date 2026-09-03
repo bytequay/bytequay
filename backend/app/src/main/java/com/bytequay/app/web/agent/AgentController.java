@@ -55,6 +55,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -225,8 +226,12 @@ public class AgentController
     public SseEmitter stream(
             @PathVariable String taskId,
             @RequestParam(defaultValue = "0") long after)
+            throws IOException
     {
         SseEmitter emitter = new SseEmitter(0L);
+        // An idle task may have no event to send for minutes, and until something is written the
+        // response is never committed, so a client cannot tell an open stream from a hanging request.
+        emitter.send(SseEmitter.event().comment("connected"));
         eventService.subscribe(TaskId.valueOf(taskId), after)
                 .subscribe(new AgentSseSubscriber(emitter));
         return emitter;

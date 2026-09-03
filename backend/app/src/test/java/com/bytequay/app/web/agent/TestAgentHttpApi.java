@@ -611,6 +611,26 @@ class TestAgentHttpApi
                 JsonNode.class);
     }
 
+    @Test
+    void commitsTheStreamBeforeTheTaskHasAnyEvent()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url("/agent/tasks/" + taskId + "/stream?after=0")))
+                .header(AgentController.SESSION_HEADER, SESSION_TOKEN)
+                .timeout(Duration.ofSeconds(5))
+                .GET()
+                .build();
+
+        HttpResponse<Stream<String>> response = HttpClient.newHttpClient()
+                .send(request, HttpResponse.BodyHandlers.ofLines());
+
+        assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
+        try (Stream<String> lines = response.body()) {
+            assertThat(lines.findFirst()).contains(":connected");
+        }
+    }
+
     private String firstSseData(String taskId, long after)
             throws IOException, InterruptedException
     {

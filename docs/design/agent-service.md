@@ -38,8 +38,10 @@ agent subsystem as future work.
   ByteQuay-owned task, turn, approval, metrics, retention, and event services.
 - ByteQuay persists normalized user-visible events in the task JSONL log and
   exposes replay through `GET /agent/tasks/{taskId}/events` and SSE through
-  `GET /agent/tasks/{taskId}/stream`. Raw provider payloads and hidden
-  chain-of-thought are outside that contract.
+  `GET /agent/tasks/{taskId}/stream`. The stream commits its response with an
+  SSE comment as soon as a client subscribes, so an idle task that has no
+  event yet still reads as an open stream rather than a hanging request. Raw
+  provider payloads and hidden chain-of-thought are outside that contract.
 - One cherry-pick range owns one agent task. Its durable execution stores
   `agentTaskId` and the active `currentTurnId`, and every conflict-resolution
   attempt emits events correlated to those IDs.

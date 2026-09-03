@@ -67,7 +67,9 @@ public final class TaskTitles
     private static String firstLine(String text)
     {
         for (String raw : text.split("\\R")) {
+            // A Markdown link is its text; the path or address it points at is not a name.
             String line = raw.replaceAll("^[#>*\\-\\s]+", "")
+                    .replaceAll("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
                     .replaceAll("[*_`]+", "")
                     .replaceAll("\\s+", " ")
                     .strip();

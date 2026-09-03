@@ -42,6 +42,9 @@ class TestTaskTitles
         assertThat(TaskTitles.proposed("I traced the failing test to the preview limit. The fix is small."))
                 .isEqualTo("I traced the failing test to the preview limit");
         assertThat(TaskTitles.proposed("**Done.** Everything passes.")).isEqualTo("Done. Everything passes");
+        // A link keeps its text and drops the worktree path it pointed at.
+        assertThat(TaskTitles.proposed("The project has **109 Maven modules**, defined in the root [pom.xml](/Users/me/worktrees/x/pom.xml:30)."))
+                .isEqualTo("The project has 109 Maven modules, defined in the root pom.xml");
         assertThat(TaskTitles.proposed("")).isEmpty();
         assertThat(TaskTitles.proposed("\n\n")).isEmpty();
     }

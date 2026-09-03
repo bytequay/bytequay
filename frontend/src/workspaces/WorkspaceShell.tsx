@@ -121,8 +121,12 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   if (tab === 'tasks') {
     if (developmentBuild && initialAgentTaskId !== null) {
       // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
+      // Keyed by task: moving between two open tasks must not carry one task's transcript and
+      // sequence cursor into the other, which would drop the second task's early events as
+      // duplicates.
       return (
         <AgentTaskScreen
+          key={initialAgentTaskId}
           workspaceId={workspace.id}
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}

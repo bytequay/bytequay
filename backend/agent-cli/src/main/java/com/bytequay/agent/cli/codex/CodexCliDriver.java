@@ -1302,6 +1302,17 @@ public final class CodexCliDriver
                 itemId = approval.params().itemId();
                 taskScope = Optional.of(TaskAllowScope.of(detail));
                 availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
+                if (availableDecisions.contains(ALLOW_ONCE) && ReadOnlyGitHubCommand.isReadOnly(detail)) {
+                    // Reading GitHub changes nothing, so the command needs no card: it is answered as the
+                    // sandbox would have, and appears in the log as any other command.
+                    try {
+                        return CompletableFuture.completedFuture(
+                                approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
+                    }
+                    catch (AgentUnavailableException failure) {
+                        return CompletableFuture.failedFuture(failure);
+                    }
+                }
                 if (availableDecisions.isEmpty()) {
                     return CompletableFuture.failedFuture(
                             new AgentUnavailableException("Codex command approval offers no ByteQuay-supported decision"));

@@ -524,6 +524,18 @@ class TestCodexCliDriver
                         ProviderApprovalRequest.Decision.DENY);
         // A redirect makes the script compound, so only this exact command line is covered.
         assertThat(approval.get().taskScope()).contains("/bin/zsh -lc 'printf hello > /Users/me/probe.txt'");
+
+        // A read of GitHub is answered without a card: nothing reaches the core, and the server gets accept.
+        ProviderApprovalRequest before = approval.get();
+        server.emit("""
+                {"id":99,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],
+                "command":"/bin/zsh -lc \\"gh issue list --repo trinodb/trino --state open --limit 100\\"","itemId":"exec-4",
+                "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.result(99) != null);
+        assertThat(server.result(99).path("decision").asText()).isEqualTo("accept");
+        assertThat(approval.get()).isSameAs(before);
         driver.close();
     }
 

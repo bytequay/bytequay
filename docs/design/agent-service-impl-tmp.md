@@ -1736,7 +1736,8 @@ the design has none — a failed turn is retried by typing again, and the
 recovery card keeps its disabled Retry; "Allow for this task" is ByteQuay's own
 task-scoped allow (§2.4 of the UI design), answered to Codex as a plain accept
 and remembered per task, because Codex 0.152.1 proposes the whole command line
-as its rule for a shell-wrapped command; a window's ✕ completes an idle task after confirmation
+as its rule for a shell-wrapped command, and a read-only `gh` command needs no
+card at all; a window's ✕ completes an idle task after confirmation
 and is disabled while a turn holds the checkout; and the provider chip, the
 permission chip, Steer and Run next are the `data-fake` placeholders left for
 CP11 and CP10, drawn as the design draws them. In

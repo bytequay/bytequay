@@ -188,7 +188,13 @@ commands that do something else. Every command an allow answers is still
 recorded and shown as approved for the task. The allow reaches the provider
 as a plain one-time accept and is remembered by ByteQuay for the task, never
 as a provider rule, and it does not outlive a restart of the app. The renderer
-sends a tagged response, not a generic boolean. When a command request omits its
+sends a tagged response, not a generic boolean.
+
+A command that only reads GitHub needs no card at all: a `gh` list, view,
+status, diff, checks or search (and `gh status`, `gh auth status`) is answered
+as the sandbox would have been and appears in the log as any other command.
+Anything that could write stays a card: every other `gh` subcommand, `gh api`,
+a `--web` flag that opens the browser, and a compound script. When a command request omits its
 optional `availableDecisions`, the driver supplies the legal command defaults
 defined by its protocol mapping and then intersects them with ByteQuay's
 immutable safety ceiling; file and permission requests use the same ceiling.

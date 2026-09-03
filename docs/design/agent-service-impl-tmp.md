@@ -1404,8 +1404,12 @@ outcome for an inherited exec-policy source, and one every user who ever chose
 ByteQuay-owned Codex home instead of the user's `~/.codex`, signed in once with
 the exact command readiness now reports; see the task process boundary in
 [Agent Service Design](agent-service.md). The readiness probe still makes the
-rules check, against ByteQuay's own home. That run also exposed and fixed two
-gaps: a turn that fails before a provider run exists could not be stopped or
+rules check, against ByteQuay's own home. A later escalated-command run showed
+codex-cli 0.152.1 offering `accept`, `acceptWithExecpolicyAmendment`, and
+`cancel` with no `decline`; the driver had required `decline` to be listed and
+rejected the request, so no card appeared. Denying is now always permitted and
+sent as `decline`, which the server honours. That run also exposed and fixed
+two gaps: a turn that fails before a provider run exists could not be stopped or
 cancelled, and is now settled by the supervised stop once the process is
 verified gone; and a thread reference was persisted before any turn had run on
 it, which left nothing to resume after a restart (`no rollout found`) and is
@@ -1494,21 +1498,42 @@ Implementation:
 
 End-to-end acceptance:
 
-- [ ] Create a Codex task from one watched workspace.
-- [ ] Send “Summarize this repository” and see the durable user message, live
-  typed activity, and final answer.
-- [ ] Reload mid-turn; no item is lost or duplicated and the run continues.
-- [ ] Restart the backend mid-turn; the restored turn is visibly
+- [x] Create a Codex task from one watched workspace.
+- [x] Send a message and see the durable user message, live typed activity,
+  and final answer. Proven through the reference shell against codex-cli
+  0.152.1 from ByteQuay's own home: the durable user message, streamed and
+  final answer, command rows, and usage all arrived on the task stream.
+- [x] Reload mid-turn; no item is lost or duplicated and the run continues.
+  A second stream opened from the last delivered sequence during a live turn
+  continued at exactly the next sequence with no gap or repeat while the turn
+  ran on.
+- [x] Restart the backend mid-turn; the restored turn is visibly
   `INTERRUPTED` with recovery required, or reconciled terminal and idle; it is
   never implicitly resumed or resent, and ownership remains held until the
-  barrier passes.
-- [ ] Resolve an approval, reload, and verify it stays resolved.
-- [ ] Send a second message and verify the same root thread is resumed.
-- [ ] Cancel a running turn and reach the quiescence/recovery outcome.
-- [ ] Complete the idle task and prove its worktree is removed while its clean
+  barrier passes. Proven by killing the backend with SIGKILL during a live
+  turn and restarting on the same database: the orphaned App Server was
+  verified stopped, the turn read `INTERRUPTED` with that reason, the task
+  was idle, and nothing was resent.
+- [x] Resolve an approval, reload, and verify it stays resolved. An escalated
+  write produced a card and was denied, and the file never landed; an
+  escalated `id -un` was allowed and its output arrived; replay after both
+  carried the request and its outcome with nothing pending.
+- [x] Send a second message and verify the same root thread is resumed. The
+  second turn recalled the first turn's answer, and a further turn after the
+  backend restart resumed the thread from the rollout in ByteQuay's home.
+- [x] Cancel a running turn and reach the quiescence/recovery outcome. A turn
+  running `sleep 90` was cancelled, settled `CANCELLED` once its command
+  finished, and released the checkout; the supervised server stop then refused
+  a stale generation and stopped the idle task's process.
+- [x] Complete the idle task and prove its worktree is removed while its clean
   generated result branch remains.
-- [ ] Run two tasks concurrently without event/approval/filesystem cross-talk.
-- [ ] The packaged desktop, not only unit fixtures, passes this journey.
+- [x] Run two tasks concurrently without event/approval/filesystem cross-talk.
+  A second task's turn completed while the first task's turn was running, and
+  its replay carried none of the first task's turns.
+- [ ] The packaged desktop, not only unit fixtures, passes this journey. Every
+  step above was proven through the reference shell and direct API calls
+  against the real Codex CLI; the same journey through the packaged Electron
+  screens is the one remaining check.
 
 **Checkpoint result:** this is the first usable Codex task surface. Do not call
 CP2, CP5, or CP6 alone “agent UI complete.”

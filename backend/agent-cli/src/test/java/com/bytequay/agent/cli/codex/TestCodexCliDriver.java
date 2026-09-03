@@ -504,6 +504,21 @@ class TestCodexCliDriver
         awaitCondition(() -> server.error(97) != null);
         assertThat(server.error(97).path("message").asText()).contains("scoped permission");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
+
+        // Measured on codex-cli 0.152.1: an escalated command offers accept, the amendment variant
+        // and cancel, but no decline. The card still offers Allow once and Deny, the amendment is
+        // never offered, and a deny is sent as decline, which the server honours.
+        decision.set(ProviderApprovalDecision.deny());
+        server.emit("""
+                {"id":98,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept",{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["/bin/zsh","-lc","printf hello > /Users/me/probe.txt"]}},"cancel"],
+                "command":"/bin/zsh -lc 'printf hello > /Users/me/probe.txt'","itemId":"exec-3",
+                "startedAtMs":1786884871464,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+        awaitCondition(() -> server.result(98) != null);
+        assertThat(server.result(98).path("decision").asText()).isEqualTo("decline");
+        assertThat(approval.get().availableDecisions())
+                .containsExactly(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY);
         driver.close();
     }
 

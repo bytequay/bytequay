@@ -845,10 +845,19 @@ immutable safety ceiling; an empty set fails closed instead of producing an
 actionable approval. Until then, the bridge fails closed for non-command kinds,
 undisplayable commands,
 additional/network permissions, file-change grant roots, scoped or unoffered
-decisions, and decisions returned after cancellation or turn replacement.
+allow decisions, and decisions returned after cancellation or turn replacement.
 `acceptWithExecpolicyAmendment` remains reference-codec coverage only: the
 first release does not offer or persist it because that would create an allow
 rule and violate the zero-inherited/generated-allow-rule boundary.
+
+Denying is always product-permitted and is never gated on the offered list. A
+deny widens nothing, `decline` is part of the protocol's command decision
+union, and codex-cli 0.152.1 was measured to omit `decline` from
+`availableDecisions` for an escalated command, offering only `accept`,
+`acceptWithExecpolicyAmendment`, and `cancel`, while still honouring a
+`decline` reply and continuing the turn. Requiring `decline` to be listed left
+such a request with no card at all. Only an allow must be offered as a plain
+one-time `accept`.
 
 `ApprovalRequest` is a tagged union for command execution, file change, and
 scoped-permission requests. Each variant carries its provider request ID,

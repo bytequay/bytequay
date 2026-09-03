@@ -1112,27 +1112,29 @@ public final class CodexCliDriver
                     .thenApply(decision -> approvalResponse(serverRequest, decision, expectedTurn));
         }
 
+        /**
+         * The product-permitted decisions for a command approval.
+         *
+         * <p>Allowing needs the provider to have offered a plain one-time {@code accept}; the
+         * amendment and session-scoped variants are never product-permitted. Denying is always
+         * available: it can widen nothing, {@code decline} is part of the protocol's decision
+         * union, and codex-cli 0.152.1 was measured to honour it while omitting it from
+         * {@code availableDecisions} for an escalated command, offering only {@code accept},
+         * {@code acceptWithExecpolicyAmendment} and {@code cancel}. Requiring it to be listed
+         * would leave such a request with no card at all.
+         */
         private static List<ProviderApprovalRequest.Decision> supportedCommandDecisions(
                 Optional<List<JsonNode>> offeredDecisions)
         {
-            if (offeredDecisions.isEmpty()) {
-                return ImmutableList.of(
-                        ALLOW_ONCE,
-                        DENY);
-            }
-            boolean allowOnce = offeredDecisions.orElseThrow().stream()
-                    .anyMatch(decision -> decision.isTextual() && decision.textValue().equals("accept"));
-            boolean deny = offeredDecisions.orElseThrow().stream()
-                    .anyMatch(decision -> decision.isTextual() && decision.textValue().equals("decline"));
-            if (!deny) {
-                return ImmutableList.of();
-            }
-            ImmutableList.Builder<ProviderApprovalRequest.Decision> supported = ImmutableList.builder();
-            if (allowOnce) {
-                supported.add(ALLOW_ONCE);
-            }
-            supported.add(DENY);
-            return supported.build();
+            boolean allowOnce = offeredDecisions
+                    .map(decisions -> decisions.stream().anyMatch(CodexSession::isPlainAccept))
+                    .orElse(true);
+            return allowOnce ? ImmutableList.of(ALLOW_ONCE, DENY) : ImmutableList.of(DENY);
+        }
+
+        private static boolean isPlainAccept(JsonNode decision)
+        {
+            return decision.isTextual() && decision.textValue().equals("accept");
         }
 
         @Override
@@ -1191,10 +1193,11 @@ public final class CodexCliDriver
                 if (decision.scopedPermission().isPresent()) {
                     throw new AgentUnavailableException("Codex approval does not support the requested scoped permission");
                 }
-                JsonNode wireDecision = TextNode.valueOf(
-                        decision.decision() == ProviderApprovalDecision.Decision.ALLOW ? "accept" : "decline");
+                boolean allow = decision.decision() == ProviderApprovalDecision.Decision.ALLOW;
+                JsonNode wireDecision = TextNode.valueOf(allow ? "accept" : "decline");
                 if (serverRequest instanceof CodexProtocol.CommandApprovalRequest command) {
-                    if (command.params().availableDecisions().isPresent()
+                    // Only an allow has to be offered; a decline is always legal and widens nothing.
+                    if (allow && command.params().availableDecisions().isPresent()
                             && !command.params().availableDecisions().orElseThrow().contains(wireDecision)) {
                         throw new AgentUnavailableException(
                                 "Codex command approval did not offer decision " + wireDecision.textValue());

@@ -134,6 +134,7 @@ export function DiffViewer({
   const [treeOpen, setTreeOpen] = useState(false);
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const [allFilesOpen, setAllFilesOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileTreeId = useId();
   const filePane = useResizablePane(260, 160, 480);
@@ -147,11 +148,19 @@ export function DiffViewer({
   const headSha = commitRange === null
     ? commits[commits.length - 1]?.sha
     : commits[commitRange.end]?.sha;
+  const isFileOpen = (filename: string) =>
+    !closed.has(filename) && (allFilesOpen || !singleFileMode || selected === filename);
+  const everyFileOpen = files.length > 0 && files.every(file => isFileOpen(file.filename));
 
   useEffect(() => {
     if (files.length === 0) setSelected(null);
     else if (!files.some(file => file.filename === selected)) setSelected(files[0].filename);
   }, [files, selected]);
+
+  useEffect(() => {
+    setClosed(new Set());
+    setAllFilesOpen(false);
+  }, [files]);
 
   const pick = (filename: string) => {
     setSelected(filename);
@@ -176,7 +185,8 @@ export function DiffViewer({
   const toggle = (filename: string) => {
     setClosed(previous => {
       const next = new Set(previous);
-      const open = !previous.has(filename) && (!singleFileMode || selected === filename);
+      const open = !previous.has(filename)
+        && (allFilesOpen || !singleFileMode || selected === filename);
       if (open) next.add(filename);
       else next.delete(filename);
       return next;
@@ -200,6 +210,22 @@ export function DiffViewer({
         </button>
         {onCommitRangeChange && (
           <CommitPicker commits={commits} range={commitRange} onChange={onCommitRangeChange} />
+        )}
+        {files.length > 0 && (
+          <button
+            type="button"
+            className="pull-changes__bulk-toggle"
+            onClick={() => {
+              setAllFilesOpen(!everyFileOpen);
+              setClosed(everyFileOpen
+                ? new Set(files.map(file => file.filename))
+                : new Set());
+            }}
+            aria-label={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
+            title={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
+          >
+            {everyFileOpen ? 'Collapse all' : 'Expand all'}
+          </button>
         )}
         <span className="pull-changes__totals">
           <span>+{totals.additions}</span>
@@ -239,7 +265,7 @@ export function DiffViewer({
               review={review}
               viewer={viewer}
               loadFileContent={loadFileContent}
-              open={!closed.has(file.filename) && (!singleFileMode || selected === file.filename)}
+              open={isFileOpen(file.filename)}
               onToggle={() => toggle(file.filename)}
             />
           ))}
@@ -369,11 +395,33 @@ function CommitPicker({ commits, range, onChange }: {
   range: CommitRange;
   onChange: (range: CommitRange) => void;
 }) {
+  const pickerRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const picker = pickerRef.current;
+      if (picker?.open && !picker.contains(event.target as Node)) picker.open = false;
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      const picker = pickerRef.current;
+      if (event.key !== 'Escape' || !picker?.open) return;
+      event.preventDefault();
+      picker.open = false;
+      picker.querySelector<HTMLElement>('summary')?.focus();
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+
   if (commits.length === 0) return null;
   const selectedCount = range === null ? commits.length : range.end - range.start + 1;
 
   return (
-    <details className="pull-commit-picker">
+    <details className="pull-commit-picker" ref={pickerRef}>
       <summary aria-label={`Choose commits, ${selectedCount} selected`}>
         <CommitPickerIcon />
         <span>Commits</span>
@@ -384,7 +432,13 @@ function CommitPicker({ commits, range, onChange }: {
           type="button"
           className="pull-commit-picker__all"
           aria-pressed={range === null}
-          onClick={() => { if (range !== null) onChange(null); }}
+          onClick={() => {
+            if (range !== null) onChange(null);
+            if (pickerRef.current) {
+              pickerRef.current.open = false;
+              pickerRef.current.querySelector<HTMLElement>('summary')?.focus();
+            }
+          }}
         >
           <span className="pull-commit-picker__check" aria-hidden="true">
             {range === null && <CheckIcon />}

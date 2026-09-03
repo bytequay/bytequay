@@ -133,7 +133,11 @@ describe('DiffViewer', () => {
 
     expect(largeHtml.match(/<article class="pull-diff-file"/g)).toHaveLength(21);
     expect(largeHtml.match(/<table class="pull-diff-code"/g)).toHaveLength(1);
+    expect(largeHtml).toContain('aria-label="Expand all file diffs"');
+    expect(largeHtml).toContain('>Expand all</button>');
     expect(smallHtml.match(/<table class="pull-diff-code"/g)).toHaveLength(2);
+    expect(smallHtml).toContain('aria-label="Collapse all file diffs"');
+    expect(smallHtml).toContain('>Collapse all</button>');
   });
 
   it('renders foldable pending comments below their referenced side and line', () => {

@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
+import { AgentMark } from './AgentMark';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
 import {
@@ -400,7 +401,7 @@ function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, 
               onClick={() => onOpenAgent?.(threadId)}
               title="Open this agent"
             >
-              <span className="agt-agent-mark" aria-hidden="true">❋</span>
+              <AgentMark name={agentLabels[threadId] ?? 'Agent'} />
               {agentLabels[threadId] ?? 'Agent'}
             </button>
           ))}
@@ -732,7 +733,7 @@ function agentElapsed(agent: AgentNode, now: number): string | null {
 function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpen: () => void }): React.JSX.Element {
   return (
     <button type="button" className="agt-panel__row" onClick={onOpen} title="Open this agent">
-      <span className="agt-agent-mark" aria-hidden="true">❋</span>
+      <AgentMark name={agent.label} />
       <span className="agt-panel__name">
         <span className="agt-panel__label">{agent.label}</span>
         {agent.purpose !== null && <span className="agt-panel__purpose">{agent.purpose}</span>}
@@ -862,7 +863,7 @@ function SidePanel({
         {tabs}
         <div className="agt-panel__head">
           <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
-          <span className="agt-agent-mark" aria-hidden="true">❋</span>
+          <AgentMark name={label} muted={agent === undefined} />
           <strong className="agt-panel__label">{label}</strong>
           {agent?.status === 'running'
             ? <Spinner />
@@ -928,7 +929,7 @@ function SidePanel({
           onClick={() => onOpenAgent(child.threadId)}
           title="Open this agent"
         >
-          <span className="agt-agent-mark is-muted" aria-hidden="true">❋</span>
+          <AgentMark name={child.label} muted />
           <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
           <span className="agt-chip">expired</span>
           <span className="agt-spacer" />
@@ -1070,18 +1071,21 @@ export function AgentTaskBody({
         {!terminal && (
           <button
             type="button"
-            className="agt-action"
+            className="agt-headbtn is-labelled"
             title={completeTitle(status)}
             onClick={onComplete}
             disabled={status !== 'idle'}
           >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
             Complete
           </button>
         )}
       </div>
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
-      {(state.connection !== 'open' || state.gap) && (
+      {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
         <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
           {connectionText(state)}
           {state.gap ? ' — waiting for a missing event' : ''}
@@ -1091,7 +1095,14 @@ export function AgentTaskBody({
 
       <div className="agt-body">
       <div className="agt-transcript" role="log" aria-label="Task transcript">
-        {turns.length === 0
+        {turns.length === 0 && state.connection === 'connecting' && (
+          <div className="agt-skeleton" role="status">
+            <div className="agt-skeleton__note">Connecting — loading task history…</div>
+            <div className="agt-skeleton__bar is-1" /><div className="agt-skeleton__bar is-2" />
+            <div className="agt-skeleton__bar is-3" /><div className="agt-skeleton__block" />
+          </div>
+        )}
+        {turns.length === 0 && state.connection !== 'connecting'
           ? <div className="agt-empty">No activity yet.</div>
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;

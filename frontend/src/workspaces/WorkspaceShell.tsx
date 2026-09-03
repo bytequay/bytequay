@@ -134,29 +134,35 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         />
       );
     }
-    return (
-      <div className="ws-tab-page">
-        <WorkspaceTasks
-          workspace={workspace}
-          onOpenTask={execution => {
-            setOpenExecutionId(execution.executionId);
-            onSelectTab('commits');
-          }}
-          onNewCherryPick={() => {
-            setOpenExecutionId(null);
-            setInitialCommitsRepo('upstream');
-            onSelectTab('commits');
-          }}
-        />
-        {developmentBuild && (
-          <AgentTasksView
-            workspaceId={workspace.id}
-            onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-            onOpenSettings={() => onSelectTab('settings')}
-          />
-        )}
-      </div>
+    const cherryPicks = (
+      <WorkspaceTasks
+        workspace={workspace}
+        embedded={developmentBuild}
+        onOpenTask={execution => {
+          setOpenExecutionId(execution.executionId);
+          onSelectTab('commits');
+        }}
+        onNewCherryPick={() => {
+          setOpenExecutionId(null);
+          setInitialCommitsRepo('upstream');
+          onSelectTab('commits');
+        }}
+      />
     );
+    if (developmentBuild) {
+      // The agent view owns the page: its composer stays anchored under both task sections.
+      return (
+        <AgentTasksView
+          workspaceId={workspace.id}
+          branch={workspace.defaultBranch}
+          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+          onOpenSettings={() => onSelectTab('settings')}
+        >
+          {cherryPicks}
+        </AgentTasksView>
+      );
+    }
+    return <div className="ws-tab-page">{cherryPicks}</div>;
   }
   if (tab === 'settings') {
     return (
@@ -187,14 +193,16 @@ function WorkspaceUnavailable({ message }: { message: string }) {
   return <div className="ws-tab-page"><div className="ws-empty">{message}</div></div>;
 }
 
-function WorkspaceTasks({ workspace, onOpenTask, onNewCherryPick }: {
+function WorkspaceTasks({ workspace, embedded = false, onOpenTask, onNewCherryPick }: {
   workspace: WorkspaceDto;
+  embedded?: boolean;
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
   return (
     <TasksView
       workspaceId={workspace.id}
+      embedded={embedded}
       onOpenTask={onOpenTask}
       onNewCherryPick={onNewCherryPick}
     />

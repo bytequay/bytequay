@@ -151,7 +151,7 @@ describe('agent task list', () => {
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('Describe a task');
     // Wire enums never reach the user.
-    expect(markup).toContain('>Open<');
+    expect(markup).toContain('>Ready<');
     expect(markup).toContain('>Completed<');
     expect(markup).toContain('>Recovery required<');
     expect(markup).not.toContain('OPEN');
@@ -163,12 +163,14 @@ describe('agent task list', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
 
-    // The lane is fixed at creation, so it must not render as a picker.
+    // The lane cannot be chosen until Claude parity lands, and the composer says so visibly.
     expect(markup).toContain('Codex');
-    expect(markup).toContain('agt-lane');
+    expect(markup).toMatch(/<button[^>]*class="agt-compose__chip agt-fake"[^>]*data-fake="CP11 · provider choice"[^>]*disabled/);
     expect(markup).toContain('5.6 Terra');
     expect(markup).toContain('high');
-    expect(markup).not.toContain('disabled=""');
+    // The one real choice, the model, is live.
+    expect(markup).not.toMatch(/class="sets-chip"[^>]*disabled/);
+    expect(markup).not.toMatch(/class="agt-send"[^>]*disabled/);
   });
 
   it('refuses to offer creation when the provider has no model to run', () => {
@@ -184,7 +186,7 @@ describe('agent task list', () => {
         error={null}
       />);
 
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>\s*Send/);
+    expect(markup).toMatch(/<button[^>]*class="agt-send"[^>]*disabled/);
     expect(markup).toContain('No Codex model is available yet');
     // The catalog is only fetched by a readiness check, so the copy must send them there.
     expect(markup).toContain('Workspace settings');
@@ -436,7 +438,7 @@ describe('agent task detail', () => {
     // Nothing may send, retry or complete until the process is verified gone.
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Send</);
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Retry last message</);
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>Complete</);
+    expect(markup).toMatch(/<button[^>]*class="agt-headbtn is-labelled"[^>]*disabled/);
     expect(markup).toContain('Unlocks after recovery');
     expect(markup).toContain('>Recovering<');
   });
@@ -490,7 +492,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('abc123');
     expect(markup).toContain('the branch remains');
     expect(markup).not.toContain('Message the agent');
-    expect(markup).not.toContain('>Complete<');
+    expect(markup).not.toContain('agt-headbtn is-labelled');
 
     const failed = body({
       task: { ...task('t-1', 'FAILED', 'Gave up'), terminalReason: 'Marked failed by the user during recovery' },

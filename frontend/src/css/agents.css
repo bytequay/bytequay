@@ -48,29 +48,57 @@
   padding: 2px 9px;
 }
 
+/* The Tasks page: one scrolling column of sections with the composer anchored under it. */
+.agt-tasks-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.agt-tasks-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 32px 12px;
+}
+
+.agt-tasks-scroll h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+/* Rows as the design draws them: separated by hairlines, not boxed. */
 .agt-list {
   display: flex;
   flex-direction: column;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  overflow: hidden;
+  margin-top: 2px;
 }
 
 .agt-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  width: 100%;
+  padding: 11px 14px;
   border: 0;
-  border-bottom: 1px solid #eaeef2;
+  border-top: 1px solid #f0f0f2;
   background: #ffffff;
   font-size: 13px;
+  color: #1f2328;
   text-align: left;
   cursor: pointer;
 }
 
-.agt-row:last-child {
-  border-bottom: 0;
+.agt-row:first-child {
+  border-top: 0;
+}
+
+.agt-row__mark {
+  width: 18px;
+  flex: none;
+  text-align: center;
+  color: #8c959f;
 }
 
 .agt-row:hover {
@@ -82,13 +110,32 @@
 }
 
 .agt-row-title {
-  font-weight: 600;
-  color: #24292f;
+  flex: 1;
+  color: #1f2328;
 }
 
 .agt-row-meta {
-  font-size: 11.5px;
-  color: #57606a;
+  font-size: 11px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-empty-hero {
+  margin-top: 8px;
+  padding: 28px 20px;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+.agt-empty-hero__mark {
+  font-size: 22px;
+  color: #8c959f;
+}
+
+.agt-empty-hero__title {
+  font-size: 13.5px;
+  color: #1f2328;
+  margin: 10px 0 4px;
 }
 
 /* Task state reads as a pill, matching the colours the cherry-pick task list already uses. */
@@ -335,6 +382,7 @@
 .agt-state.is-recovery {
   color: #9a6700;
   background: #fff8c5;
+  animation: agt-pulse 1.2s ease-in-out infinite;
 }
 
 /* A failed bridge call, kept until the next one; it is not part of the transcript. */
@@ -347,13 +395,198 @@
   color: #cf222e;
 }
 
-.agt-title-input {
+/*
+ * The composer as the design draws it: one rounded card, the message above a row of controls,
+ * and exactly one round button that sends. Shared by the Tasks page and the task screen.
+ */
+.agt-compose-dock {
+  padding: 0 32px 18px;
+}
+
+.agt-compose-blocker {
+  max-width: 760px;
+  margin: 0 auto 8px;
+  font-size: 12px;
+  color: #57606a;
+}
+
+.agt-compose {
+  position: relative;
+  max-width: 760px;
+  margin: 0 auto;
   border: 1px solid #d0d7de;
-  border-radius: 6px;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.06);
+}
+
+.agt-compose__bar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 9px 14px;
+  background: #f6f8fa;
+  border-bottom: 1px solid #f0f0f2;
+  border-radius: 11px 11px 0 0;
+  font-size: 12.5px;
+  color: #24292f;
+}
+
+.agt-compose__input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 13.5px;
+  color: #1f2328;
+  padding: 12px 14px 4px;
+  resize: none;
+}
+
+.agt-compose__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+.agt-compose__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: none;
+  padding: 2px 5px;
   font: inherit;
   font-size: 12.5px;
-  padding: 3px 8px;
-  min-width: 180px;
+  color: #57606a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agt-compose__chip:disabled,
+.agt-compose__chip.is-fact {
+  cursor: default;
+}
+
+.agt-caret {
+  color: #8c959f;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.agt-compose__model {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.agt-compose__model .sets-chip {
+  border: 0;
+  background: none;
+  padding: 2px 5px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #24292f;
+}
+
+.agt-bolt {
+  color: #d4a72c;
+  font-size: 12px;
+}
+
+.agt-send {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: #24292f;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.agt-send:disabled {
+  background: #eceff2;
+  color: #8c959f;
+  cursor: default;
+}
+
+/*
+ * A control standing in for a backend that does not exist yet. Striped and labelled with the
+ * checkpoint that retires it, so it is obvious in the app and in any screenshot; deleted with
+ * the last placeholder.
+ */
+.agt-fake {
+  position: relative;
+  outline: 1px dashed #d4a72c;
+  background: repeating-linear-gradient(45deg, transparent 0 6px, rgba(154, 103, 0, 0.1) 6px 12px);
+}
+
+.agt-fake::after {
+  content: attr(data-fake);
+  position: absolute;
+  top: -9px;
+  right: 0;
+  padding: 0 4px;
+  font: 600 9px ui-monospace, Menlo, monospace;
+  color: #9a6700;
+  background: #fff8c5;
+  white-space: nowrap;
+}
+
+/* Connecting: the transcript's shape, pulsing, until the history arrives. */
+.agt-skeleton {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.agt-skeleton__note {
+  text-align: center;
+  font-size: 11.5px;
+  color: #8c959f;
+  margin-top: 6px;
+}
+
+.agt-skeleton__bar,
+.agt-skeleton__block {
+  border-radius: 6px;
+  background: #eceff2;
+  animation: agt-pulse 1.4s ease-in-out infinite;
+}
+
+.agt-skeleton__bar {
+  height: 13px;
+}
+
+.agt-skeleton__bar.is-1 {
+  width: 46%;
+  margin: 22px 0 0 auto;
+}
+
+.agt-skeleton__bar.is-2 {
+  width: 88%;
+  margin-top: 18px;
+  animation-delay: 0.15s;
+}
+
+.agt-skeleton__bar.is-3 {
+  width: 74%;
+  margin-top: 10px;
+  animation-delay: 0.3s;
+}
+
+.agt-skeleton__block {
+  height: 120px;
+  border-radius: 10px;
+  background: #f2f4f6;
+  margin-top: 16px;
+  animation-delay: 0.45s;
 }
 
 /*
@@ -571,6 +804,7 @@
 .agt-state.is-loading {
   color: #57606a;
   background: #eceff2;
+  animation: agt-pulse 1.2s ease-in-out infinite;
 }
 
 .agt-cursor {
@@ -1058,14 +1292,15 @@
   cursor: pointer;
 }
 
-.agt-agent-mark {
-  color: #8250df;
-  font-size: 12px;
+.agt-mark {
   flex: none;
+  display: inline-block;
+  vertical-align: -3px;
 }
 
-.agt-agent-mark.is-muted {
-  color: #8c959f;
+.agt-mark__tone {
+  fill: currentColor;
+  fill-opacity: 0.22;
 }
 
 .agt-barrier {
@@ -1107,6 +1342,17 @@
 .agt-headbtn[aria-pressed="true"] {
   background: #e4e4e8;
   border-color: #c6ccd2;
+}
+
+.agt-headbtn.is-labelled {
+  padding: 0 11px;
+  color: #24292f;
+}
+
+.agt-headbtn:disabled {
+  color: #8c959f;
+  border-color: #e3e3e6;
+  cursor: not-allowed;
 }
 
 .agt-panel__tabs {

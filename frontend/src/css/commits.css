@@ -699,6 +699,25 @@
 
 .cmt-tasks-head h1 { margin: 0; font-size: 18px; font-weight: 700; color: #1f2328; }
 
+/* Inside the Tasks page the section reads as a label under the page's one heading. */
+.cmt-tasks-label { font-size: 12px; color: #656d76; letter-spacing: 0.4px; text-transform: uppercase; }
+
+.cmt-tasks.is-embedded { flex: none; overflow: visible; }
+
+.cmt-tasks.is-embedded .cmt-tasks-head,
+.cmt-tasks.is-embedded .cmt-task-list,
+.cmt-tasks.is-embedded .cmt-tasks-footnote {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.cmt-tasks.is-embedded .cmt-tasks-head { padding-top: 24px; }
+
+.cmt-tasks.is-embedded .cmt-tasks-footnote { margin-bottom: 8px; }
+
 .cmt-tasks-sub { font-size: var(--ui-font-size); color: #8c959f; }
 
 .cmt-tasks-spacer { flex: 1; }

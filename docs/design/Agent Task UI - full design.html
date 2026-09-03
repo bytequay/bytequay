@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<!--
+  AGENT TASK UI — single-file design reference (generated 2026-09-02)
+
+  Structure
+  - This document: "Agent Task UI v2.dc.html" — the full clickable prototype (13 screens + Tab Overview).
+      01 Task list · 02 Home (task window cards) · 03 Running · 04 Approval · 05 Completed · 06 Subagents panel
+      07 Subagent detail · 08 Queue + steer · 09 Image message · 10 Recovery · 11 Connecting · 12 Empty list
+      13 Activity expired · 14 Tab Overview (overlay over any screen)
+  - Embedded at the end (text/plain blocks):
+      TaskCard.dc.html   — scaled "task window" card used on Home and in the Tab Overview
+      AgentMark.dc.html  — subagent mark: Phosphor Duotone icon + colour, hashed from the agent name
+      Agent Marks.dc.html — reference sheet for the 12-shape × 8-colour mark family
+
+  Key interactions
+  - Tab Overview: ⧉ button pinned top-right of the window (every screen), ⇧⌘\ toggles, esc closes;
+    cards open the task, ✕ closes it, dashed card = new task. Tweaks: overviewColumns (2–4), overviewSort (recent|status).
+  - Home shows live task windows instead of a list (tweak homeLayout: windows|list); Tasks tab keeps the list.
+  - Header controls (Complete · panel toggle · overview) share one 26px / 7px-radius button style.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Arimo:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap">
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arimo,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button,textarea,select{font-family:inherit}
+button{white-space:nowrap}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #0969da;outline-offset:2px}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqpulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes bqblink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes bqovin{from{opacity:0;transform:scale(1.025)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div style="padding:28px 36px 56px;width:max-content;min-width:1312px">
+
+  <div style="width:1240px;min-width:1240px;flex:none">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <div style="font-size:18px;font-weight:700;flex:none;white-space:nowrap">Agent task UI — clickable prototype</div>
+      <span style="flex:none;white-space:nowrap;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.5px;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 8px">PROTOTYPE · STATIC FIXTURE DATA</span>
+    </div>
+    <div style="font-size:12.5px;color:#57606a;margin-top:4px;max-width:900px">Composer-first task creation, right panel for subagents and pull requests, Codex-style hierarchy in ByteQuay's visual system. Click chips below or press <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace">[</span> <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace">]</span>. Inside the window: task rows, suggestion cards, model/provider chips, agent chips, the panel toggle (◨), Allow once, the task window cards on Home, and the Tab Overview (⧉ at the top right of the window, from any screen, or ⇧⌘\) are wired.</div>
+    <div role="toolbar" aria-label="Prototype state switcher" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:14px">
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="13">
+        <button sc-camel-on-click="{{ c.go }}" aria-pressed="{{ c.on }}" style="padding:4px 11px;border-radius:14px;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap;border:1px solid {{ c.bd }};background:{{ c.bg }};color:{{ c.fg }}">{{ c.label }}</button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div data-screen-label="{{ screenLabel }}" style="position:relative;width:1240px;min-width:1240px;flex:none;height:832px;margin-top:16px;border:1px solid #d0d7de;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(140,149,159,.2);display:flex;background:#ffffff">
+
+    <button onClick="{{ toggleOverview }}" aria-pressed="{{ overview }}" aria-label="Show all tasks" title="Show all tasks (⇧⌘\)" style="position:absolute;top:12px;right:20px;z-index:45;width:32px;height:26px;border:1px solid {{ ovBtnBd }};border-radius:7px;background:{{ ovBtnBg }};color:#57606a;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(27,31,36,.06)" style-hover="background:#f0f1f3"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="5" width="9" height="9" rx="1.6" stroke="currentColor" stroke-width="1.3"></rect><path d="M5.5 5V3.6A1.6 1.6 0 0 1 7.1 2h5.3A1.6 1.6 0 0 1 14 3.6v5.3a1.6 1.6 0 0 1-1.6 1.6H11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></button>
+
+    <div style="width:230px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+      <div style="display:flex;align-items:center;gap:8px;padding:14px 14px 8px">
+        <span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span>
+        <svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="margin-left:6px;color:#8c959f"><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.2"></rect><path d="M6.5 3v10" stroke="currentColor" stroke-width="1.2"></path></svg>
+        <span style="flex:1"></span>
+        <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="color:#57606a"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="color:#c6ccd2"><path d="M6 3l5 5-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="color:#57606a"><path d="M3 7.5 8 3l5 4.5V13a.7.7 0 0 1-.7.7H3.7A.7.7 0 0 1 3 13z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"></path></svg>
+        <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="color:#57606a"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.2"></rect><path d="M2.5 6h11M2.5 9.5h11M6 2.5v11M9.5 2.5v11" stroke="currentColor" stroke-width="1"></path></svg>
+      </div>
+      <div style="padding:4px 8px 0">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M3 7.5 8 3l5 4.5V13a.7.7 0 0 1-.7.7H3.7A.7.7 0 0 1 3 13z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg><span style="font-size:13.5px">Home</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M2.8 8a5.2 5.2 0 1 0 1.5-3.7M4.3 2.6v2h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path><path d="M8 5.5V8l1.8 1.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font-size:13.5px">Recent</span></div>
+        <div style="height:1px;background:#e7e7ea;margin:8px 8px 6px"></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:7px 10px 5px"><span style="width:15px;height:15px;border-radius:4px;background:#e4e4e8;color:#57606a;font-size:10px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none">t</span><span style="width:7px;height:7px;border-radius:50%;background:#2da44e;flex:none"></span><span style="font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">trinodb/trino</span></div>
+      </div>
+      <div style="flex:1;padding:2px 8px">
+        <div sc-camel-on-click="{{ goHome }}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer;background:{{ navHomeBg }}"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M3 7.5 8 3l5 4.5V13a.7.7 0 0 1-.7.7H3.7A.7.7 0 0 1 3 13z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg><span style="font-size:13.5px;white-space:nowrap">Workspace home</span></div>
+        <div sc-camel-on-click="{{ goTasks }}" style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer;background:{{ navTasksBg }}"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.3"></rect><path d="M5.4 8.2 7.1 9.9 10.6 6.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font-size:13.5px">Tasks</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><rect x="2.5" y="2.8" width="4.2" height="4.2" rx="1" stroke="currentColor" stroke-width="1.2"></rect><path d="M9.2 4.9H13.5M2.8 10.7h10.7M2.8 13.3h10.7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg><span style="font-size:13.5px;white-space:nowrap">Pull requests</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3"></circle><circle cx="8" cy="8" r="1.6" fill="currentColor"></circle></svg><span style="font-size:13.5px">Issues</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><circle cx="4.5" cy="4" r="1.7" stroke="currentColor" stroke-width="1.2"></circle><circle cx="4.5" cy="12" r="1.7" stroke="currentColor" stroke-width="1.2"></circle><circle cx="11.5" cy="9.5" r="1.7" stroke="currentColor" stroke-width="1.2"></circle><path d="M4.5 5.7v4.6M6.1 11l3.8-.9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg><span style="font-size:13.5px">Commits</span></div>
+      </div>
+      <div style="padding:8px">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer"><svg width="15" height="15" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.2"></circle><path d="M8 2v1.6M8 12.4V14M2 8h1.6M12.4 8H14M3.8 3.8l1.1 1.1M11.1 11.1l1.1 1.1M12.2 3.8l-1.1 1.1M4.9 11.1 3.8 12.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg><span style="font-size:13.5px;white-space:nowrap">Workspace settings</span></div>
+      </div>
+    </div>
+
+    <sc-if value="{{ isList }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+        <div style="flex:1;min-height:0;overflow:auto;padding:26px 32px 12px">
+        <h1 style="margin:0;font-size:20px;font-weight:400">Tasks</h1>
+
+        <div style="display:flex;align-items:center;gap:10px;margin-top:24px">
+          <div style="font-size:12px;font-weight:400;color:#656d76;letter-spacing:.4px">CHERRY-PICK EXECUTIONS</div>
+          <span style="flex:1"></span>
+          <button style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#24292f;cursor:pointer">New cherry-pick</button>
+        </div>
+        <div style="margin-top:2px">
+          <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px">
+            <span style="width:18px;text-align:center;color:#8c959f">⑂</span>
+            <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">cp-0142 — resolving conflict on acdfbb7 · item 5 of 12</span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:9px;height:9px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Running</span>
+            <span style="flex:none;font-size:12px;color:#8c959f">5m</span><span style="color:#8c959f">›</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid #f0f0f2;font-size:13px">
+            <span style="width:18px;text-align:center;color:#8c959f">☑</span>
+            <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">cp-0139 — 3 applied to release-1.4</span>
+            <span style="font-size:11px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:2px 9px;white-space:nowrap">✓ Finished</span>
+            <span style="flex:none;font-size:12px;color:#8c959f">1d</span><span style="color:#8c959f">›</span>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;margin-top:26px">
+          <div style="font-size:12px;font-weight:400;color:#656d76;letter-spacing:.4px">AGENT TASKS</div>
+        </div>
+
+        <sc-if value="{{ listEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:8px;padding:28px 20px;text-align:center">
+            <div style="font-size:22px;color:#8c959f">❋</div>
+            <div style="font-size:13.5px;margin-top:10px">No agent tasks yet</div>
+            <div style="font-size:12.5px;color:#57606a;margin-top:4px">Describe a task below — sending the first message creates it. Every command and file change stays visible.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ listRows }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:2px">
+            <button sc-camel-on-click="{{ goRun }}" style="display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px;width:100%;text-align:left;border:none;background:#ffffff;cursor:pointer;color:#1f2328">
+              <span style="width:18px;text-align:center;color:#8c959f">❋</span>
+              <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Fix flaky cherry-pick preview</span>
+              <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">5.6 Terra · 12m</span>
+              <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:9px;height:9px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Running</span>
+              <span style="color:#8c959f">›</span>
+            </button>
+            <button sc-camel-on-click="{{ goAppr }}" style="display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px;width:100%;text-align:left;border:none;border-top:1px solid #f0f0f2;background:#ffffff;cursor:pointer;color:#1f2328">
+              <span style="width:18px;text-align:center;color:#8c959f">❋</span>
+              <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Explain refresh button delay</span>
+              <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">5.6 Terra · 4m</span>
+              <span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">Needs approval</span>
+              <span style="color:#8c959f">›</span>
+            </button>
+            <button sc-camel-on-click="{{ goDone }}" style="display:flex;align-items:center;gap:10px;padding:11px 14px;font-size:13px;width:100%;text-align:left;border:none;border-top:1px solid #f0f0f2;background:#ffffff;cursor:pointer;color:#1f2328">
+              <span style="width:18px;text-align:center;color:#8c959f">❋</span>
+              <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Audit storage layer for dead code</span>
+              <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">5.6 Sol · 1d</span>
+              <span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:2px 9px;white-space:nowrap">Completed</span>
+              <span style="color:#8c959f">›</span>
+            </button>
+          </div>
+        </sc-if>
+        </div>
+        <div style="padding:0 32px 18px">
+          <div style="max-width:760px;margin:0 auto;border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 1px 3px rgba(27,31,36,.06)">
+            <div style="display:flex;align-items:center;gap:20px;padding:9px 14px;background:#f6f8fa;border-bottom:1px solid #f0f0f2;border-radius:11px 11px 0 0;font-size:12.5px;color:#24292f">
+              <button title="Branch of the managed checkout" style="display:inline-flex;align-items:center;gap:7px;padding:3px 10px;margin:-3px 0;border:none;border-radius:14px;background:#eceff2;font-size:12.5px;color:#24292f;cursor:pointer;white-space:nowrap"><span style="color:#57606a">⑂</span>master <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+            </div>
+            <input value="{{ draft }}" sc-camel-on-change="{{ onDraft }}" aria-label="Describe a task — sending the first message creates it" placeholder="Describe a task — sending the first message creates it…" style="width:100%;box-sizing:border-box;border:none;outline:none;font-size:13.5px;color:#1f2328;background:transparent;padding:12px 14px 4px">
+            <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 10px">
+              <button aria-label="Attach an image" title="Attach an image" style="border:none;background:none;font-size:16px;color:#57606a;cursor:pointer;padding:2px 6px">+</button>
+              <button style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Codex <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              <button title="Auto asks before anything risky" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Auto <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              <span style="flex:1"></span>
+              <button style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;cursor:pointer;white-space:nowrap"><span style="color:#d4a72c">⚡</span><span style="color:#24292f">5.6 Terra</span> <span style="color:#8c959f">High</span> <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              <button sc-camel-on-click="{{ heroSend }}" disabled="{{ sendDis }}" aria-label="Send — creates the task" style="width:30px;height:30px;border:none;border-radius:50%;background:{{ sendBg }};color:{{ sendFg }};font-size:14px;cursor:pointer">↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isTask }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#ffffff">
+
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 62px 11px 20px;border-bottom:1px solid #e3e3e6">
+          <a sc-camel-on-click="{{ backToList }}" tabindex="0" style="font-size:12.5px;cursor:pointer;white-space:nowrap">‹ Tasks</a>
+          <span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px;flex:none">{{ taskTitle }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;border-radius:10px;padding:2px 9px;white-space:nowrap;background:{{ stBg }};color:{{ stFg }}"><sc-if value="{{ stSpin }}" hint-placeholder-val="{{ false }}"><span style="width:9px;height:9px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if><sc-if value="{{ stPulse }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;flex:none;border-radius:50%;background:{{ stDot }};display:inline-block;animation:bqpulse 1.2s ease-in-out infinite"></span></sc-if>{{ stLabel }}</span>
+          <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">{{ hdrMeta }}</span>
+          <span style="flex:1"></span>
+          <span title="{{ connLabel }}" aria-label="{{ connLabel }}" style="width:7px;height:7px;flex:none;border-radius:50%;background:{{ connDot }};display:inline-block"></span>
+          <button disabled="{{ compDis }}" title="{{ compTitle }}" style="display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border:1px solid {{ compBd }};border-radius:7px;background:#ffffff;font-size:12px;font-weight:600;color:{{ compFg }};cursor:pointer;white-space:nowrap;box-shadow:0 1px 2px rgba(27,31,36,.06)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"></circle><path d="M5.3 8.2 7.1 10 10.7 6.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg>Complete</button>
+          <sc-if value="{{ panelToggle }}" hint-placeholder-val="{{ false }}">
+            <button sc-camel-on-click="{{ togglePanel }}" aria-pressed="{{ showPanel }}" aria-label="Show or hide the side panel" title="Subagents and pull requests" style="width:32px;height:26px;border:1px solid {{ ptBd }};border-radius:7px;background:{{ ptBg }};color:#57606a;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 1px 2px rgba(27,31,36,.06)" style-hover="background:#f0f1f3"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.6" stroke="currentColor" stroke-width="1.3"></rect><path d="M9.5 3v10" stroke="currentColor" stroke-width="1.3"></path></svg></button>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ showBanner }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 24px;background:#fff8c5;border-bottom:1px solid #eed888;font-size:12px;color:#9a6700"><span style="width:10px;height:10px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Reconnecting — catching up from event 214. Nothing is lost.</div>
+        </sc-if>
+
+        <div ref="{{ scRef }}" role="log" aria-label="Task transcript" style="flex:1;min-height:0;overflow-y:auto;padding:16px 24px 22px">
+          <div style="max-width:760px;margin:0 auto">
+
+            <sc-if value="{{ showLoad }}" hint-placeholder-val="{{ false }}">
+              <div style="text-align:center;font-size:11.5px;color:#8c959f;margin-top:6px">Connecting — loading task history…</div>
+              <div style="height:13px;border-radius:6px;background:#eceff2;margin-top:22px;width:46%;margin-left:auto;animation:bqpulse 1.4s ease-in-out infinite"></div>
+              <div style="height:13px;border-radius:6px;background:#eceff2;margin-top:18px;width:88%;animation:bqpulse 1.4s ease-in-out .15s infinite"></div>
+              <div style="height:13px;border-radius:6px;background:#eceff2;margin-top:10px;width:74%;animation:bqpulse 1.4s ease-in-out .3s infinite"></div>
+              <div style="height:120px;border-radius:10px;background:#f2f4f6;margin-top:16px;animation:bqpulse 1.4s ease-in-out .45s infinite"></div>
+            </sc-if>
+
+            <sc-if value="{{ showHero }}" hint-placeholder-val="{{ false }}">
+              <div style="max-width:640px;margin:44px auto 0;text-align:center">
+                <div style="font-size:26px;color:#8c959f">❋</div>
+                <div style="font-size:20px;font-weight:400;margin-top:12px">What should the agent do in jackchen/trino?</div>
+                <div style="display:flex;gap:10px;justify-content:center;margin-top:18px">
+                  <button sc-camel-on-click="{{ sug1 }}" style="width:190px;text-align:left;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:12px 14px;white-space:normal"><div style="font-size:13px;color:#8250df">⌕</div><div style="font-size:12.5px;margin-top:6px;line-height:1.35">Explore and understand code</div></button>
+                  <button sc-camel-on-click="{{ sug2 }}" style="width:190px;text-align:left;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:12px 14px;white-space:normal"><div style="font-size:13px;color:#cf222e">◉</div><div style="font-size:12.5px;margin-top:6px;line-height:1.35">Fix issues and failures</div></button>
+                  <button sc-camel-on-click="{{ sug3 }}" style="width:190px;text-align:left;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;padding:12px 14px;white-space:normal"><div style="font-size:13px;color:#1a7f37">☑</div><div style="font-size:12.5px;margin-top:6px;line-height:1.35">Review code and suggest changes</div></button>
+                </div>
+                <div style="text-align:left;margin-top:34px">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <span style="font-size:11px;font-weight:700;letter-spacing:.4px;color:#656d76;white-space:nowrap">OPEN TASKS · {{ openCount }}</span>
+                    <span style="flex:1"></span>
+                    <a onClick="{{ openOverview }}" tabindex="0" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;white-space:nowrap">Show all <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f;border:1px solid #d0d7de;border-radius:4px;padding:0 4px;line-height:15px">⇧⌘\</span></a>
+                  </div>
+                  <sc-if value="{{ homeWindows }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;gap:16px;margin-top:12px">
+                      <sc-for list="{{ homeCards }}" as="c" hint-placeholder-count="3">
+                        <dc-import name="TaskCard" card="{{ c }}" hint-size="200px,160px"></dc-import>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ homeList }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:6px">
+                  <button sc-camel-on-click="{{ goRun }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:9px 2px;border-bottom:1px solid #f6f6f8;cursor:pointer;font-size:13px;color:#1f2328">
+                    <span style="width:18px;flex:none;text-align:center;color:#8c959f">❋</span>
+                    <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Fix flaky cherry-pick preview</span>
+                    <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:2px 9px;white-space:nowrap"><span style="width:9px;height:9px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Running</span>
+                    <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">12m</span>
+                  </button>
+                  <button sc-camel-on-click="{{ goAppr }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:9px 2px;border-bottom:1px solid #f6f6f8;cursor:pointer;font-size:13px;color:#1f2328">
+                    <span style="width:18px;flex:none;text-align:center;color:#8c959f">❋</span>
+                    <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Explain refresh button delay</span>
+                    <span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">Needs approval</span>
+                    <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">4m</span>
+                  </button>
+                  <button sc-camel-on-click="{{ goDone }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:9px 2px;cursor:pointer;font-size:13px;color:#1f2328">
+                    <span style="width:18px;flex:none;text-align:center;color:#8c959f">❋</span>
+                    <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Audit storage layer for dead code</span>
+                    <span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:2px 9px;white-space:nowrap">Completed</span>
+                    <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">1d</span>
+                  </button>
+                </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+
+            <sc-if value="{{ showU1 }}" hint-placeholder-val="{{ false }}">
+              <div style="text-align:center;font-size:11.5px;color:#8c959f;margin-top:2px">Today 4:31 PM</div>
+              <div style="display:flex;justify-content:flex-end;margin-top:12px">
+                <div style="max-width:76%;background:#f0f1f3;border-radius:14px;padding:10px 14px">
+                  <sc-if value="{{ u1Imgs }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                      <div style="width:116px;height:84px;border:1px solid #d0d7de;border-radius:8px;background:repeating-linear-gradient(45deg,#f6f8fa,#f6f8fa 6px,#eef0f3 6px,#eef0f3 12px);display:flex;align-items:center;justify-content:center"><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">failing-test.png</span></div>
+                      <div style="width:116px;height:84px;border:1px solid #d0d7de;border-radius:8px;background:repeating-linear-gradient(45deg,#f6f8fa,#f6f8fa 6px,#eef0f3 6px,#eef0f3 12px);display:flex;align-items:center;justify-content:center"><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">preview-error.png</span></div>
+                    </div>
+                  </sc-if>
+                  <div style="font-size:13.5px;line-height:1.5">{{ u1Text }}</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showT1 }}" hint-placeholder-val="{{ false }}">
+              <button sc-camel-on-click="{{ toggleT1 }}" aria-expanded="{{ t1Open }}" title="Show or hide this turn's log" style="display:flex;align-items:center;gap:8px;margin-top:20px;width:100%;text-align:left;border:none;background:none;padding:0 0 7px;border-bottom:1px solid #ececef;cursor:pointer">
+                <sc-if value="{{ t1Live }}" hint-placeholder-val="{{ false }}"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+                <span style="font-size:12px;color:#8c959f;white-space:nowrap">{{ t1Label }}</span>
+                <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ t1Rot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </button>
+            </sc-if>
+
+            <sc-if value="{{ showIntroRun }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13.5px;line-height:1.6;margin-top:14px">I'm tracing the failing <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;background:#f6f8fa;border-radius:4px;padding:1px 5px">cherrypick:preview</span> call from the UI through its Git commands to find where the output limit is hit.</div>
+            </sc-if>
+
+            <sc-if value="{{ showPlan }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:11px;font-weight:700;letter-spacing:.4px;color:#656d76">PLAN</span><span style="font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">{{ planChip }}</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#8c959f;white-space:nowrap">Reproduce the failing preview test</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px">
+                  <sc-if value="{{ planStep2Run }}" hint-placeholder-val="{{ false }}"><span style="width:16px;display:flex;justify-content:center"><span style="width:10px;height:10px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></span><span style="font-weight:600;white-space:nowrap">Trace the Git output limit in the preview service</span></sc-if>
+                  <sc-if value="{{ planStep2Done }}" hint-placeholder-val="{{ false }}"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#8c959f;white-space:nowrap">Trace the Git output limit in the preview service</span></sc-if>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px">
+                  <sc-if value="{{ planStep3Done }}" hint-placeholder-val="{{ false }}"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#8c959f;white-space:nowrap">Fix the scan and add regression coverage</span></sc-if>
+                  <sc-if value="{{ planStep3Pending }}" hint-placeholder-val="{{ false }}"><span style="width:16px;text-align:center;color:#8c959f">○</span><span style="color:#57606a;white-space:nowrap">Fix the scan and add regression coverage</span></sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showActRun }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="width:11px;height:11px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span><span style="font-size:12px;font-weight:700;color:#0969da">Working</span><span style="font-size:12px;color:#57606a">— reading files and running tests</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a">{{ actRunElapsed }}</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Read</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">CherryPickPreviewService.java</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">2s</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Read</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">GitCommandRunner.java</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">1s</span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Searched</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">previewCherryPickRange in frontend</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">1s</span></div>
+                <button sc-camel-on-click="{{ toggleCmdOut }}" aria-expanded="{{ cmdOutOpen }}" title="Show or hide the live output" style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;width:100%;text-align:left;border:none;background:none;cursor:pointer;color:#1f2328"><span style="width:16px;flex:none;display:flex;justify-content:center"><span style="width:10px;height:10px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">$ mvn -pl backend/app test -Dtest=CherryPickPreviewTest</span><svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ cmdOutRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">{{ cmdElapsed }}</span></button>
+                <sc-if value="{{ cmdOutOpen }}" hint-placeholder-val="{{ true }}">
+                  <div style="background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;margin-top:6px;padding:8px 12px;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11.5px;line-height:1.6;color:#57606a">[INFO] Running CherryPickPreviewTest<br>[INFO] reproducing 12-commit selection ad9a10d^..cec02f0<span style="display:inline-block;width:7px;height:12px;background:#57606a;margin-left:3px;vertical-align:-2px;animation:bqblink 1s step-end infinite"></span></div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showActDone }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:14px">
+                <button sc-camel-on-click="{{ toggleAct }}" aria-expanded="{{ actOpen }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:4px 0;font-size:12.5px;color:#57606a;cursor:pointer">
+                  <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ actRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  <span>Read 3 files, ran 2 commands, and edited 2 files</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">1m 12s</span>
+                </button>
+                <sc-if value="{{ actOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding-left:22px">
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Read</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">CherryPickPreviewService.java · GitCommandRunner.java · CommitsTab.tsx</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">4s</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">$ mvn -pl backend/app test -Dtest=CherryPickPreviewTest</span><span style="font-size:11px;color:#1a7f37">passed</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">41s</span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Edited</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">CherryPickPreviewService.java</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#1a7f37">+12</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#cf222e">−3</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Edited</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">TestCherryPickPreview.java</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#1a7f37">+38</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#cf222e">−0</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">$ mvn -pl backend/app verify</span><span style="font-size:11px;color:#1a7f37">passed · 179 tests</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">28s</span></div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showAgentsStart }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap">
+                <button sc-camel-on-click="{{ openSub }}" style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer"><dc-import name="AgentMark" agent-name="Preview backend" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>Preview backend</button>
+                <button sc-camel-on-click="{{ noop }}" style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer"><dc-import name="AgentMark" agent-name="Renderer range" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>Renderer range</button>
+                <button sc-camel-on-click="{{ noop }}" style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer"><dc-import name="AgentMark" agent-name="History tests" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>History tests</button>
+                <span style="font-size:12px;color:#8c959f;white-space:nowrap">started working</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showAppr }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">Approval needed</span><span style="font-size:12.5px;font-weight:600;white-space:nowrap">Run a command in this workspace</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">Turn 1 · root agent</span></div>
+                <div style="margin-top:6px">
+                  <div style="font-size:12.5px;color:#57606a;line-height:1.5">Pushing leaves this workspace, so Auto mode asks first.</div>
+                  <div style="margin-top:8px;background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;color:#1f2328">git push origin fix/preview-limit</div>
+                  <div style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;margin-top:6px">in workspaces/jackchen-trino</div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:11px">
+                    <button sc-camel-on-click="{{ apprAllow }}" style="padding:5px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Allow once</button>
+                    <button sc-camel-on-click="{{ apprAllow }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Allow for this task</button>
+                    <button sc-camel-on-click="{{ apprAllow }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Deny</button>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showApprRes }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:#8c959f"><span style="color:#1a7f37">✓</span><span style="flex:none;white-space:nowrap">Approved once —</span> <span style="flex:none;white-space:nowrap;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11.5px">git push origin fix/preview-limit</span> · 4:35 PM</div>
+            </sc-if>
+
+            <sc-if value="{{ showAgentsFinish }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px;margin-top:14px;flex-wrap:wrap">
+                <button sc-camel-on-click="{{ openSub }}" style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer"><dc-import name="AgentMark" agent-name="Preview backend" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>Preview backend</button>
+                <button sc-camel-on-click="{{ noop }}" style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f;cursor:pointer"><dc-import name="AgentMark" agent-name="Renderer range" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>Renderer range</button>
+                <span style="font-size:12px;color:#8c959f;white-space:nowrap">finished</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showBarrier }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:8px;margin-top:12px;font-size:12px;color:#9a6700;line-height:1.5">1 subagent is still working — Send, queued messages, and Complete unlock when every agent and command finishes.</div>
+            </sc-if>
+
+            <sc-if value="{{ showAnswer }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13.5px;line-height:1.6;margin-top:16px">Root cause found and fixed. The preview was scanning the <span style="font-weight:600">entire divergent target history</span> for prior cherry-pick markers, so large repositories exceeded ByteQuay's 1 MiB Git output limit and the preview failed — even with only 12 commits selected.</div>
+              <ul style="font-size:13.5px;line-height:1.6;margin:10px 0 0;padding-left:22px">
+                <li>The scan now checks only the 12 selected commits, not 19,474 historical ones.</li>
+                <li>Added a regression test that fails on the old unbounded query.</li>
+                <li><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">mvn -pl backend/app verify</span> passed — 179 tests.</li>
+              </ul>
+            </sc-if>
+
+            <sc-if value="{{ showUsage }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:11.5px;color:#8c959f"><span style="color:#1a7f37">✓</span>Turn 1 · 4m 51s · 5.6 Terra High · Auto · 4:36 PM</div>
+            </sc-if>
+
+            <sc-if value="{{ showU2 }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;justify-content:flex-end;margin-top:18px">
+                <div style="max-width:76%;background:#f0f1f3;border-radius:14px;padding:10px 14px;font-size:13.5px;line-height:1.5">Now run the full backend verify suite and summarize anything slow.</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showT2 }}" hint-placeholder-val="{{ false }}">
+              <button sc-camel-on-click="{{ toggleT2 }}" aria-expanded="{{ t2Open }}" title="Show or hide this turn's log" style="display:flex;align-items:center;gap:8px;margin-top:20px;width:100%;text-align:left;border:none;background:none;padding:0 0 7px;border-bottom:1px solid #ececef;cursor:pointer">
+                <sc-if value="{{ t2Live }}" hint-placeholder-val="{{ false }}"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+                <span style="font-size:12px;color:#8c959f;white-space:nowrap">{{ t2Label }}</span>
+                <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ t2Rot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </button>
+            </sc-if>
+
+            <sc-if value="{{ showSteerB }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;justify-content:flex-end;margin-top:14px">
+                <div style="max-width:72%">
+                  <div style="background:#f0f1f3;border-radius:14px;padding:9px 14px;font-size:13px;line-height:1.5">Skip the flaky UI suite — backend modules only.</div>
+                  <div style="text-align:right;font-size:10.5px;color:#8c959f;margin-top:4px">Steered into turn 2 · 4:41 PM</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ showRunOut2 }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13.5px;line-height:1.6;margin-top:14px">Got it — backend modules only. Running the verify suite and timing each module.</div>
+            </sc-if>
+
+            <sc-if value="{{ showErrRow }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:10px;margin-top:14px;font-size:12.5px;color:#cf222e;line-height:1.5">Turn 2 was interrupted — ByteQuay restarted at 4:43 PM. Everything the agent did is saved above.</div>
+            </sc-if>
+
+          </div>
+        </div>
+
+
+
+        <sc-if value="{{ showQueueRec }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#ffffff;padding:8px 24px 0">
+            <div style="max-width:760px;margin:0 auto">
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #e3e3e6;border-radius:8px;padding:4px 10px">
+                <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M4 3.5v3.5a3 3 0 0 0 3 3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M9.5 7.5 12 10l-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px">Paused</span>
+                <span style="font-size:12.5px;color:#1f2328;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Then update the design doc with the fix summary</span>
+                <a sc-camel-on-click="{{ noop }}" tabindex="0" style="font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Resume queue</a>
+                <button aria-label="Remove from queue" style="border:none;background:none;color:#8c959f;font-size:13px;cursor:pointer;padding:2px 4px">✕</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;border:1px solid #e8d59a;border-radius:8px;padding:4px 10px;margin-top:4px">
+                <svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#9a6700"><path d="M4 3.5v3.5a3 3 0 0 0 3 3h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M9.5 7.5 12 10l-2.5 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">Delivery uncertain</span>
+                <span style="font-size:12.5px;color:#1f2328;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Re-run the failing suite once more<span style="color:#8c959f"> — never re-sends by itself</span></span>
+                <a sc-camel-on-click="{{ noop }}" tabindex="0" style="font-size:12px;font-weight:600;color:#cf222e;cursor:pointer;white-space:nowrap">Discard</a>
+                <a sc-camel-on-click="{{ noop }}" tabindex="0" style="font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">Keep</a>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showRecCard }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:1px solid #e3e3e6;background:#ffffff;padding:11px 24px 13px">
+            <div style="max-width:760px;margin:0 auto">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="width:11px;height:11px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>
+                <span style="font-size:13px;font-weight:700;white-space:nowrap">Recovering agent execution</span>
+                <span style="flex:1"></span>
+                <button style="padding:4px 10px;border:1px solid rgba(207,34,46,.35);border-radius:6px;background:#ffffff;font-size:11.5px;font-weight:600;color:#cf222e;cursor:pointer;white-space:nowrap">Stop this task's Codex server…</button>
+              </div>
+              <div style="font-size:12.5px;color:#57606a;line-height:1.5;margin-top:7px">ByteQuay restarted while this task was working. The transcript is safe; new messages wait until nothing from the old run can still change files here.</div>
+              <div style="margin-top:7px">
+                <div style="display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px"><span style="width:10px;height:10px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span><span style="font-weight:600;flex:none;white-space:nowrap">Still working:</span><span style="color:#57606a;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">History tests (subagent) — last update 41 s ago</span></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px"><span style="width:16px;flex:none;text-align:center;color:#9a6700">▣</span><span style="font-weight:600;flex:none;white-space:nowrap">Background command:</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11.5px;color:#57606a;flex:none;white-space:nowrap">mvn -pl backend verify</span><span style="color:#8c959f;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">— not confirmed stopped</span></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px"><span style="width:16px;flex:none;text-align:center;color:#9a6700">?</span><span style="font-weight:600;flex:none;white-space:nowrap">Cannot verify yet:</span><span style="color:#57606a;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Codex server process tree from before the restart</span></div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:11px">
+                <button style="padding:5px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Stop execution</button>
+                <button title="Fails the task and keeps its worktree for inspection, without waiting for confirmation" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Mark task failed</button>
+                <button disabled="{{ true }}" title="Unlocks after recovery — never re-sends by itself" style="padding:5px 12px;border:1px solid #e3e3e6;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#8c959f;cursor:not-allowed">Retry last message</button>
+                <span style="flex:1"></span>
+                <span style="font-size:10.5px;color:#8c959f;white-space:nowrap">Only this task's Codex server is stopped</span>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showNewComposer }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#ffffff;padding:0 24px 16px">
+            <div style="position:relative;max-width:760px;margin:0 auto;border:1px solid #d0d7de;border-radius:12px;background:#ffffff;box-shadow:0 1px 3px rgba(27,31,36,.06)">
+              <div style="display:flex;align-items:center;gap:20px;padding:9px 14px;background:#f6f8fa;border-bottom:1px solid #f0f0f2;border-radius:11px 11px 0 0;font-size:12.5px;color:#24292f">
+                <button title="Branch of the managed checkout" style="display:inline-flex;align-items:center;gap:7px;padding:3px 10px;margin:-3px 0;border:none;border-radius:14px;background:#eceff2;font-size:12.5px;color:#24292f;cursor:pointer;white-space:nowrap"><span style="color:#57606a">⑂</span>master <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              </div>
+              <input value="{{ draft }}" sc-camel-on-change="{{ onDraft }}" aria-label="Describe a task" placeholder="Describe a task…" style="width:100%;box-sizing:border-box;border:none;outline:none;font-size:13.5px;color:#1f2328;background:transparent;padding:12px 14px 4px">
+              <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 10px">
+                <button aria-label="Attach an image" title="Attach an image" style="border:none;background:none;font-size:16px;color:#57606a;cursor:pointer;padding:2px 6px">+</button>
+                <button sc-camel-on-click="{{ toggleProv }}" aria-expanded="{{ provMenu }}" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Codex <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                <button title="Auto asks before anything risky" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:#57606a;cursor:pointer;white-space:nowrap">Auto <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                <span style="flex:1"></span>
+                <button sc-camel-on-click="{{ toggleModel }}" aria-expanded="{{ modelMenu }}" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;cursor:pointer;white-space:nowrap"><span style="color:#d4a72c">⚡</span><span style="color:#24292f">5.6 Terra</span> <span style="color:#8c959f">High</span> <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                <button sc-camel-on-click="{{ heroSend }}" disabled="{{ sendDis }}" aria-label="Send — creates the task" style="width:30px;height:30px;border:none;border-radius:50%;background:{{ sendBg }};color:{{ sendFg }};font-size:14px;cursor:pointer">↑</button>
+              </div>
+              <sc-if value="{{ modelMenu }}" hint-placeholder-val="{{ false }}">
+                <div role="menu" style="position:absolute;right:8px;bottom:48px;width:230px;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;box-shadow:0 8px 24px rgba(140,149,159,.25);padding:6px;z-index:30">
+                  <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;padding:5px 8px 3px">MODEL</div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#f0f7ff;font-size:12.5px;font-weight:600">5.6 Terra<span style="flex:1"></span><span style="color:#0969da">✓</span></div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12.5px;color:#57606a">5.6 Sol</div>
+                  <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;padding:8px 8px 3px;border-top:1px solid #f0f0f2;margin-top:5px">EFFORT</div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12.5px;color:#57606a">Medium</div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#f0f7ff;font-size:12.5px;font-weight:600">High<span style="flex:1"></span><span style="color:#0969da">✓</span></div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12.5px;color:#57606a">Ultra<span style="flex:1"></span><span style="font-size:10.5px;color:#8c959f">uses limits faster</span></div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ provMenu }}" hint-placeholder-val="{{ false }}">
+                <div role="menu" style="position:absolute;left:42px;bottom:48px;width:250px;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;box-shadow:0 8px 24px rgba(140,149,159,.25);padding:6px;z-index:30">
+                  <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;padding:5px 8px 3px">PROVIDER — FIXED AFTER CREATE</div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:#f0f7ff;font-size:12.5px;font-weight:600">Codex<span style="font-size:10.5px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:1px 7px">✓ Ready</span><span style="flex:1"></span><span style="color:#0969da">✓</span></div>
+                  <div aria-disabled="true" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:12.5px;color:#8c959f;cursor:not-allowed">Claude<span style="font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 7px;white-space:nowrap">Sign in required</span></div>
+                  <div style="font-size:11px;color:#8c959f;padding:4px 8px 3px">Sign in from <a href="#" sc-camel-on-click="{{ noop }}">Workspace Settings → Agent providers</a></div>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showComposer }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:1px solid #e3e3e6;background:#ffffff;padding:12px 24px">
+            <div style="max-width:760px;margin:0 auto">
+              <sc-if value="{{ compImgs }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:8px;margin-bottom:8px;margin-left:14px">
+                  <div style="display:flex;align-items:center;gap:8px;border:1px solid #e3e3e6;border-radius:8px;padding:5px 8px;background:#ffffff">
+                    <span style="width:32px;height:24px;border:1px solid #d0d7de;border-radius:4px;background:repeating-linear-gradient(45deg,#f6f8fa,#f6f8fa 4px,#eef0f3 4px,#eef0f3 8px);flex:none"></span>
+                    <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a;white-space:nowrap">stack-trace.png · 212 KB</span>
+                    <button aria-label="Remove image stack-trace.png" style="border:none;background:none;color:#8c959f;font-size:12px;cursor:pointer;padding:1px 3px">✕</button>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ showTodos }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#f6f8fa;border-radius:12px;padding:9px 12px;margin-bottom:8px;margin-left:14px;margin-right:14px">
+                  <button sc-camel-on-click="{{ toggleTodos }}" aria-expanded="{{ todosOpen }}" aria-label="Show or hide the plan" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;padding:0;cursor:pointer">
+                    <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M3 4.5h1.2M6.4 4.5H13M3 8h1.2M6.4 8H13M3 11.5h1.2M6.4 11.5H13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>
+                    <span style="font-size:12.5px;font-weight:600;color:#1f2328">Plan</span>
+                    <span style="font-size:12px;color:#8c959f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ todosSummary }}</span>
+                    <span style="flex:1"></span>
+                    <svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ todosRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  </button>
+                  <sc-if value="{{ todosOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:7px">
+                      <sc-for list="{{ todos }}" as="t" hint-placeholder-count="3">
+                        <div style="display:flex;align-items:center;gap:9px;padding:3px 1px;font-size:12.5px;color:{{ t.fg }}">
+                          <sc-if value="{{ t.done }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><circle cx="8" cy="8" r="6.6" stroke="#1a7f37" stroke-width="1.6"></circle><path d="M5.3 8.3 7.1 10.1 10.7 6.5" stroke="#1a7f37" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></sc-if>
+                          <sc-if value="{{ t.run }}" hint-placeholder-val="{{ false }}"><span style="width:13px;height:13px;box-sizing:border-box;flex:none;border:1.4px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+                          <sc-if value="{{ t.pend }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><circle cx="8" cy="8" r="6.6" stroke="#8c959f" stroke-width="1.6" stroke-dasharray="3 3.1"></circle></svg></sc-if>
+                          <span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.label }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+              <sc-if value="{{ showQueue }}" hint-placeholder-val="{{ false }}">
+                <div style="background:#f6f8fa;border-radius:14px;padding-bottom:14px;margin-bottom:-14px;margin-left:14px;margin-right:14px">
+                <div style="display:flex;align-items:center;gap:9px;padding:9px 14px">
+                  <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M8 12.8c2.9 0 5.2-1.9 5.2-4.4S10.9 4 8 4 2.8 5.9 2.8 8.4c0 1 .4 2 1.1 2.7l-.5 2.1 2.1-.7c.8.2 1.6.3 2.5.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>
+                  <span style="font-size:12.5px;color:#1f2328;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Then update the design doc with the fix summary</span>
+                  <button aria-label="Edit queued message" title="Edit" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M11.3 2.9l1.8 1.8L6 11.8l-2.4.6.6-2.4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg></button>
+                  <button aria-label="Remove from queue" title="Remove" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M4.5 4.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <button aria-label="Send into the running turn now" title="Send into the running turn now" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                </div>
+                <div style="display:flex;align-items:center;gap:9px;padding:9px 14px;border-top:1px solid #ececef">
+                  <svg width="14" height="14" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M8 12.8c2.9 0 5.2-1.9 5.2-4.4S10.9 4 8 4 2.8 5.9 2.8 8.4c0 1 .4 2 1.1 2.7l-.5 2.1 2.1-.7c.8.2 1.6.3 2.5.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>
+                  <span style="font-size:12.5px;color:#1f2328;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Open a draft pull request with the fix</span>
+                  <button aria-label="Edit queued message" title="Edit" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M11.3 2.9l1.8 1.8L6 11.8l-2.4.6.6-2.4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg></button>
+                  <button aria-label="Remove from queue" title="Remove" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M4.5 4.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <button aria-label="Send into the running turn now" title="Send into the running turn now" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                </div>
+                </div>
+              </sc-if>
+              <div style="position:relative;background:#ffffff;border:1px solid #d0d7de;border-radius:14px;box-shadow:0 1px 3px rgba(27,31,36,.06)">
+                <input value="{{ draft }}" sc-camel-on-change="{{ onDraft }}" disabled="{{ inputDis }}" aria-label="Message the agent" placeholder="{{ inputPh }}" style="width:100%;box-sizing:border-box;border:none;outline:none;font-size:13.5px;color:#1f2328;background:transparent;padding:12px 14px 4px">
+                <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 10px">
+                  <button disabled="{{ inputDis }}" aria-label="Attach an image" title="5.6 Terra accepts images" style="border:none;background:none;font-size:16px;color:{{ ctlFg }};cursor:pointer;padding:2px 6px">+</button>
+                  <button disabled="{{ inputDis }}" title="Auto asks before anything risky" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:{{ ctlFg }};cursor:pointer;white-space:nowrap">Auto <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <span style="flex:1"></span>
+                  <button disabled="{{ inputDis }}" aria-label="Model and effort for the next message" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;cursor:pointer;white-space:nowrap"><span style="color:#d4a72c">⚡</span><span style="color:#24292f">5.6 Terra</span> <span style="color:#8c959f">High</span> <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <sc-if value="{{ cmRun }}" hint-placeholder-val="{{ false }}">
+                    <button aria-label="Stop this turn" title="Stop this turn" style="width:30px;height:30px;border:none;border-radius:50%;background:#24292f;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0"><span style="width:10px;height:10px;border-radius:2px;background:#ffffff;display:inline-block"></span></button>
+                  </sc-if>
+                  <sc-if value="{{ cmNotRun }}" hint-placeholder-val="{{ false }}">
+                    <button disabled="{{ sendDis }}" aria-label="Send message" title="{{ sendTitle }}" style="width:30px;height:30px;border:none;border-radius:50%;background:{{ sendBg }};color:{{ sendFg }};font-size:14px;cursor:pointer">↑</button>
+                  </sc-if>
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+      </div>
+
+      <sc-if value="{{ showPanel }}" hint-placeholder-val="{{ false }}">
+        <div sc-camel-on-mouse-down="{{ dragStart }}" title="Drag to resize the panel" style="width:5px;flex:none;cursor:col-resize;background:transparent;margin-right:-3px;position:relative;z-index:5" style-hover="background:#0969da;opacity:.4"></div>
+        <div style="width:{{ panelW }}px;flex:none;border-left:1px solid #e3e3e6;background:#ffffff;display:flex;flex-direction:column;min-height:0">
+          <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid #f0f0f2">
+            <button sc-camel-on-click="{{ setTabAgents }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:none;border-radius:6px;background:{{ tabAgBg }};font-size:12px;font-weight:600;color:{{ tabAgFg }};cursor:pointer;white-space:nowrap"><span style="color:#6e6e76">❋</span>Subagents</button>
+            <button sc-camel-on-click="{{ setTabPrs }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:none;border-radius:6px;background:{{ tabPrBg }};font-size:12px;font-weight:600;color:{{ tabPrFg }};cursor:pointer;white-space:nowrap"><span style="color:#6e6e76">⑃</span>Pull requests</button>
+            <span style="flex:1"></span>
+            <button sc-camel-on-click="{{ togglePanel }}" aria-label="Hide the side panel" style="width:24px;height:22px;border:none;border-radius:6px;background:none;font-size:12px;color:#8c959f;cursor:pointer;padding:0">»</button>
+          </div>
+          <div style="flex:1;min-height:0;overflow-y:auto;padding:10px 12px 14px">
+
+            <sc-if value="{{ pList }}" hint-placeholder-val="{{ false }}">
+              <sc-if value="{{ tabAgents }}" hint-placeholder-val="{{ false }}">
+              <sc-if value="{{ pHasAgents }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76">ACTIVE · 1</div>
+                <div style="display:flex;align-items:center;gap:8px;padding:8px 6px 8px 2px;border-bottom:1px solid #f6f6f8">
+                  <dc-import name="AgentMark" agent-name="History tests" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                  <span style="min-width:0;flex:1">
+                    <span style="display:block;font-size:12.5px;font-weight:600">History tests</span>
+                    <span style="display:block;font-size:11px;color:#8c959f;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">running focused persistence tests</span>
+                  </span>
+                  <span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>
+                  <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#8c959f">{{ subElapsed }}</span>
+                </div>
+                <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;margin-top:12px">DONE · 3</div>
+                <button sc-camel-on-click="{{ openSub }}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;padding:8px 6px 8px 2px;border-bottom:1px solid #f6f6f8;cursor:pointer">
+                  <dc-import name="AgentMark" agent-name="Preview backend" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                  <span style="font-size:12.5px;font-weight:600;color:#1f2328">Preview backend</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#8c959f">19m</span>
+                  <span style="color:#8c959f">›</span>
+                </button>
+                <button sc-camel-on-click="{{ noop }}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;padding:8px 6px 8px 2px;border-bottom:1px solid #f6f6f8;cursor:pointer">
+                  <dc-import name="AgentMark" agent-name="Renderer range" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                  <span style="font-size:12.5px;font-weight:600;color:#1f2328">Renderer range</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#8c959f">22m</span>
+                  <span style="color:#8c959f">›</span>
+                </button>
+                <button sc-camel-on-click="{{ openExp }}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;padding:8px 6px 8px 2px;cursor:pointer">
+                  <dc-import name="AgentMark" agent-name="Range probe" size="15" muted="{{ true }}" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                  <span style="font-size:12.5px;font-weight:600;color:#57606a">Range probe</span>
+                  <span style="font-size:10px;font-weight:600;color:#57606a;background:#eceff2;border-radius:8px;padding:0 6px;white-space:nowrap">expired</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#8c959f">Aug 16</span>
+                  <span style="color:#8c959f">›</span>
+                </button>
+              </sc-if>
+              <sc-if value="{{ pNoAgents }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76">ACTIVE · 0</div>
+                <div style="font-size:12px;color:#8c959f;padding:8px 2px">No active subagents</div>
+              </sc-if>
+              </sc-if>
+              <sc-if value="{{ tabPrs }}" hint-placeholder-val="{{ false }}">
+              <sc-if value="{{ pHasPr }}" hint-placeholder-val="{{ false }}">
+                <button sc-camel-on-click="{{ openPr }}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:none;background:none;padding:8px 6px 8px 2px;cursor:pointer">
+                  <span style="width:18px;flex:none;text-align:center;color:#1a7f37">⑃</span>
+                  <span style="min-width:0;flex:1">
+                    <span style="display:block;font-size:12.5px;font-weight:600;color:#1f2328;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">#482 Fix preview output limit</span>
+                    <span style="display:block;font-size:11px;color:#8c959f">opened by this task</span>
+                  </span>
+                  <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 7px;white-space:nowrap"><span style="width:8px;height:8px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Checks</span>
+                </button>
+              </sc-if>
+              <sc-if value="{{ pNoPr }}" hint-placeholder-val="{{ false }}">
+                <div style="font-size:12px;color:#8c959f;padding:8px 2px">No pull requests from this task yet</div>
+              </sc-if>
+              </sc-if>
+            </sc-if>
+
+            <sc-if value="{{ pPrEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:12px;color:#8c959f;padding:8px 2px">No pull requests from this task yet</div>
+            </sc-if>
+            <sc-if value="{{ pPrDetail }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="display:inline-flex;align-items:center;gap:5px;background:#eceff2;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:600;color:#1f2328;white-space:nowrap"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="color:#1a7f37"><circle cx="4.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><circle cx="4.5" cy="12" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><circle cx="11.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><path d="M4.5 5.6v4.8M11.5 5.6v1.2a3 3 0 0 1-3 3h-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>PR #482</span>
+                <span style="flex:1"></span>
+                <button aria-label="Open full pull request page" title="Open the full PR page" style="width:26px;height:24px;border:1px solid #e3e3e6;border-radius:8px;background:#ffffff;color:#57606a;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 2.5H3.5A1 1 0 0 0 2.5 3.5V6M10 2.5h2.5a1 1 0 0 1 1 1V6M6 13.5H3.5a1 1 0 0 1-1-1V10M10 13.5h2.5a1 1 0 0 0 1-1V10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></button>
+                <button aria-label="Refresh pull request" title="Refresh" style="width:26px;height:24px;border:1px solid #e3e3e6;border-radius:8px;background:#ffffff;color:#57606a;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.8v2.4h-2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
+                <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #e3e3e6;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:600;color:#57606a;white-space:nowrap"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"></rect><path d="M8 5.5v5M5.5 8h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg>Changes<span style="color:#1a7f37;background:#dafbe1;border-radius:8px;padding:0 6px">+12</span><span style="color:#cf222e;background:#ffebe9;border-radius:8px;padding:0 6px">−3</span></span>
+                <span style="flex:1"></span>
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;color:#9a6700;border:1px solid #e8d59a;background:#fffbeb;border-radius:12px;padding:2px 9px;white-space:nowrap"><span style="width:8px;height:8px;flex:none;border:2px solid #eed888;border-top-color:#9a6700;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Checks running</span>
+              </div>
+              <div style="font-size:13.5px;font-weight:700;line-height:1.4;margin-top:10px">Fix cherry-pick preview output limit <span style="font-weight:400;color:#8c959f">#482</span></div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap">
+                <span style="display:inline-flex;align-items:center;gap:5px;background:#1f883d;color:#ffffff;border-radius:14px;padding:2px 10px;font-size:11px;font-weight:600"><svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><circle cx="4.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><circle cx="4.5" cy="12" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><circle cx="11.5" cy="4" r="1.6" stroke="currentColor" stroke-width="1.3"></circle><path d="M4.5 5.6v4.8M11.5 5.6v1.2a3 3 0 0 1-3 3h-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>Open</span>
+                <span style="font-family:'Roboto Mono',Menlo,ui-monospace,monospace;font-size:10.5px;color:#0969da;background:#ddf4ff;border-radius:6px;padding:2px 7px">master</span>
+                <span style="color:#8c959f;font-size:11px">←</span>
+                <span style="font-family:'Roboto Mono',Menlo,ui-monospace,monospace;font-size:10.5px;color:#0969da;background:#ddf4ff;border-radius:6px;padding:2px 7px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px">fix/preview-limit</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+                <span style="border:1px solid #e3e3e6;border-radius:12px;padding:2px 9px;font-size:11px;color:#57606a;white-space:nowrap">Reviewers · 1</span>
+                <span style="border:1px solid #e3e3e6;border-radius:12px;padding:2px 9px;font-size:11px;color:#57606a;white-space:nowrap">1 label</span>
+              </div>
+              <div style="font-size:12.5px;font-weight:700;margin-top:14px;padding-bottom:6px;border-bottom:1px solid #ececef">Description</div>
+              <div style="font-size:12px;line-height:1.55;margin-top:8px">Fixes <a href="#" sc-camel-on-click="{{ noop }}">cherry-pick preview fails on large selections #4128</a> by scanning only the selected commits instead of the whole divergent history.</div>
+              <div style="font-size:11px;color:#8c959f;margin-top:6px">Opened by this task · turn 1 · 4:35 PM</div>
+              <div style="margin-top:14px">
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11.5px;color:#57606a"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.3"></circle><path d="M2 8h3.6M10.4 8H14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Fix preview output limit</span><span style="font-family:'Roboto Mono',Menlo,ui-monospace,monospace;font-size:10.5px;color:#8c959f;flex:none">8f3c2d1</span><span style="flex:1"></span><span style="font-size:10.5px;color:#8c959f;flex:none">4:35 PM</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11.5px;color:#57606a"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M2.5 7.5v-4a1 1 0 0 1 1-1h4l6 6a1 1 0 0 1 0 1.4l-3.6 3.6a1 1 0 0 1-1.4 0z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path><circle cx="5.5" cy="5.5" r=".9" fill="currentColor"></circle></svg><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">added</span><span style="background:#ffebe9;color:#cf222e;border-radius:10px;padding:0 7px;font-size:10.5px;font-weight:600;flex:none">backend</span><span style="flex:1"></span><span style="font-size:10.5px;color:#8c959f;flex:none">4:35 PM</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11.5px;color:#57606a"><span style="width:13px;height:13px;border-radius:50%;background:#e4e4e8;color:#57606a;font-size:8px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none">c</span><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-weight:600;color:#1f2328">codex</span> requested review from <span style="font-weight:600;color:#1f2328">jackchen</span></span><span style="flex:1"></span><span style="font-size:10.5px;color:#8c959f;flex:none">4:36 PM</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:11.5px;color:#57606a"><svg width="13" height="13" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M1.8 8S4 3.8 8 3.8 14.2 8 14.2 8 12 12.2 8 12.2 1.8 8 1.8 8z" stroke="currentColor" stroke-width="1.2"></path><circle cx="8" cy="8" r="1.8" stroke="currentColor" stroke-width="1.2"></circle></svg><span style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="font-weight:600;color:#1f2328">jackchen</span> reviewed</span><span style="flex:1"></span><span style="font-size:10.5px;color:#8c959f;flex:none">4:41 PM</span></div>
+                <div style="display:flex;align-items:center;gap:7px;background:#f6f8fa;border-radius:8px;padding:6px 9px;margin-top:2px"><svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="font-family:'Roboto Mono',Menlo,ui-monospace,monospace;font-size:10.5px;color:#57606a;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">CherryPickPreviewService.java</span><span style="flex:1"></span><span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:#8250df;flex:none"><svg width="12" height="12" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="#8250df"></circle><path d="M5.4 8.2 7.1 9.9 10.6 6.4" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>Resolved</span></div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ pDetail }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <button sc-camel-on-click="{{ backToSub }}" aria-label="Back to all subagents" style="width:24px;height:22px;border:none;border-radius:6px;background:none;font-size:13px;color:#57606a;cursor:pointer;padding:0">‹</button>
+                <dc-import name="AgentMark" agent-name="Preview backend" size="15" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                <span style="font-size:13px;font-weight:700">Preview backend</span>
+                <span style="font-size:10.5px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:10px;padding:1px 7px;white-space:nowrap">✓ Done</span>
+              </div>
+              <button sc-camel-on-click="{{ toggleSub }}" aria-expanded="{{ subOpen }}" title="Show or hide this agent's log" style="display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:none;background:none;margin-top:4px;padding:4px 2px 7px;border-bottom:1px solid #ececef;cursor:pointer;font-size:11.5px;color:#8c959f">Worked for 3m 43s · finished 7:29 PM <svg width="11" height="11" sc-camel-view-box="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ subRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              <sc-if value="{{ subOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:10px;font-size:11.5px;color:#57606a;line-height:1.5"><span style="font-weight:600;color:#656d76">From root agent —</span> trace the preview request path and find which query goes over the 1 MiB Git output limit.</div>
+              <div style="margin-top:10px">
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:11.5px"><span style="width:14px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Read CherryPickPreviewService.java</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">2s</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:11.5px"><span style="width:14px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Read GitCommandRunner.java</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">1s</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:11.5px"><span style="width:14px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Searched originMarker in backend</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">1s</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:11.5px"><span style="width:14px;text-align:center;color:#1a7f37">✓</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">$ git log --grep="cherry picked" …</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;color:#8c959f">41s</span></div>
+                <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:11px;color:#8c959f"><span style="width:14px;text-align:center;color:#1a7f37">✓</span>Approved for this task — sed -n 1,220p</div>
+              </div>
+              </sc-if>
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;margin-top:12px">RESULT</div>
+              <div style="font-size:12px;line-height:1.55;margin-top:5px">The preview scans the entire divergent target history and requests every matching commit's full body — about 2.9 MiB here, over the fixed 1 MiB Git limit, even with only 12 commits selected.</div>
+              <div style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:10.5px;color:#8c959f"><span style="color:#1a7f37">✓</span>3m 43s</div>
+            </sc-if>
+
+            <sc-if value="{{ pExpired }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <button sc-camel-on-click="{{ backToSub }}" aria-label="Back to all subagents" style="width:24px;height:22px;border:none;border-radius:6px;background:none;font-size:13px;color:#57606a;cursor:pointer;padding:0">‹</button>
+                <dc-import name="AgentMark" agent-name="Range probe" size="15" muted="{{ true }}" style="flex:none;width:15px;height:15px;display:block" hint-size="15px,15px"></dc-import>
+                <span style="font-size:13px;font-weight:700;color:#57606a">Range probe</span>
+                <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 7px;white-space:nowrap">Done · Aug 16</span>
+              </div>
+              <div style="margin-top:12px;padding:2px 0">
+                <div style="font-size:12px;font-weight:700">Activity expired</div>
+                <div style="font-size:11.5px;color:#57606a;margin-top:4px;line-height:1.5">Detailed steps were removed on Aug 23, 2026 at the end of the 7-day window. The result is kept.</div>
+              </div>
+              <div style="font-size:10.5px;font-weight:700;letter-spacing:.5px;color:#656d76;margin-top:12px">RESULT — KEPT</div>
+              <div style="font-size:12px;line-height:1.55;margin-top:5px">The renderer sends exactly the 12 selected commits (<span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px">ad9a10d^..cec02f0</span>); selection logic is correct and no renderer change is needed.</div>
+              <div style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:10.5px;color:#8c959f"><span style="color:#1a7f37">✓</span>Finished Aug 16 · 2m 08s</div>
+            </sc-if>
+
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+    <sc-if value="{{ overview }}" hint-placeholder-val="{{ false }}">
+      <div role="dialog" aria-label="All tasks" data-screen-label="Tab Overview" style="position:absolute;top:0;bottom:0;left:231px;right:0;z-index:40;display:flex;flex-direction:column;background:rgba(238,240,243,.9);backdrop-filter:blur(22px) saturate(1.1);-webkit-backdrop-filter:blur(22px) saturate(1.1);animation:bqovin .18s ease-out">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 62px 0 32px;min-height:38px">
+          <h1 style="margin:0;font-size:20px;font-weight:400">Tasks</h1>
+          <span style="font-size:12.5px;color:#57606a;white-space:nowrap">{{ ovSummary }}</span>
+          <span style="flex:1"></span>
+          <button onClick="{{ goNew }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#24292f;cursor:pointer"><span style="font-size:14px;line-height:1;color:#57606a">+</span>New task</button>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;padding:26px 32px 12px">
+          <div style="display:grid;grid-template-columns:repeat({{ ovCols }},{{ ovCardW }}px);gap:30px 32px;justify-content:start">
+            <sc-for list="{{ ovCards }}" as="c" hint-placeholder-count="3">
+              <dc-import name="TaskCard" card="{{ c }}" hint-size="294px,230px"></dc-import>
+            </sc-for>
+            <button onClick="{{ goNew }}" aria-label="New task" style="width:{{ ovCardW }}px;height:{{ ovThumbH }}px;border:1.5px dashed #c6ccd2;border-radius:10px;background:rgba(255,255,255,.55);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#57606a;align-self:start" style-hover="background:#ffffff;border-color:#8c959f"><span style="font-size:28px;line-height:1;color:#8c959f">+</span><span style="font-size:12.5px;font-weight:600">New task</span></button>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;padding:0 32px 14px;font-size:11px;color:#8c959f">
+          <span style="display:inline-flex;align-items:center;gap:6px"><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;border:1px solid #d0d7de;border-radius:4px;padding:0 4px;line-height:15px;color:#57606a">⇧⌘\</span>toggle overview</span>
+          <span style="display:inline-flex;align-items:center;gap:6px"><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10px;border:1px solid #d0d7de;border-radius:4px;padding:0 4px;line-height:15px;color:#57606a">esc</span>back to the current task</span>
+          <span>Click a window to open it · ✕ closes the task</span>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="width:1240px;min-width:1240px;flex:none;font-size:11.5px;color:#8c959f;margin-top:10px;line-height:1.6">Prototype-only switcher above; all data is a static fixture. Typing in the new-task composer and pressing ↑ creates the task (<a href="#" sc-camel-on-click="{{ noop }}">01</a> list rows, suggestion cards, the Codex / model chips, agent chips, ◨ panel toggle, panel rows, Allow once, the Home task windows, ✕ on a window card, and the Tab Overview — ⧉ at the top right of the window or ⇧⌘\ — are wired the same way). Spec: <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace">docs/design/agent-task-ui-visual.md</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;homeLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;windows&quot;,&quot;list&quot;],&quot;default&quot;:&quot;windows&quot;,&quot;tsType&quot;:&quot;'windows' | 'list'&quot;,&quot;section&quot;:&quot;Home&quot;},&quot;overviewColumns&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;min&quot;:2,&quot;max&quot;:4,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Tab Overview&quot;},&quot;overviewSort&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;recent&quot;,&quot;status&quot;],&quot;default&quot;:&quot;recent&quot;,&quot;tsType&quot;:&quot;'recent' | 'status'&quot;,&quot;section&quot;:&quot;Tab Overview&quot;}}">
+class Component extends DCLogic {
+  state = { sid: '01', overview: false, closed: [], panelOpen: false, panelMode: 'list', pTab: 'agents', actUser: null, draft: '', tick: 0, modelMenu: false, provMenu: false, t1Open: false, t2Open: true, subOpen: false, todosOpen: true };
+
+  componentDidMount() {
+    window.__proto = { set: (id) => this.go(id) };
+    this._t = setInterval(() => { if (this.liveNow()) this.setState(s => ({ tick: s.tick + 1 })); }, 1000);
+    this._k = (e) => {
+      if (e.code === 'Backslash' && e.shiftKey && (e.metaKey || e.ctrlKey)) { e.preventDefault(); this.setState(s => ({ overview: !s.overview, modelMenu: false, provMenu: false })); return; }
+      if (e.key === 'Escape' && this.state.overview) { this.setState({ overview: false }); return; }
+      if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const ids = this.ids(); const i = ids.indexOf(this.state.overview ? '14' : this.state.sid);
+      if (e.key === ']') this.go(ids[(i + 1) % ids.length]);
+      if (e.key === '[') this.go(ids[(i - 1 + ids.length) % ids.length]);
+    };
+    window.addEventListener('keydown', this._k);
+  }
+  componentWillUnmount() { clearInterval(this._t); window.removeEventListener('keydown', this._k); }
+  componentDidUpdate(_, prev) {
+    if (!prev) return;
+    if (prev.sid !== this.state.sid && this._sc) {
+      const go = () => { if (!this._sc) return; this._sc.scrollTop = this.state.sid === '02' ? 0 : this._sc.scrollHeight; };
+      go(); setTimeout(go, 120); setTimeout(go, 300);
+    }
+  }
+
+  ids() { return ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14']; }
+  liveNow() { return ['03', '04', '06', '07', '08', '09'].indexOf(this.state.sid) >= 0; }
+  go(id) {
+    if (id === '14') { this.setState({ sid: '03', overview: true, panelOpen: false, panelMode: 'list', pTab: 'agents', actUser: null, draft: '', modelMenu: false, provMenu: false, t1Open: false, t2Open: true, subOpen: false, todosOpen: true }); return; }
+    const drafts = { '02': 'Investigate the flaky cherry-pick preview test and fix the root cause.', '08': 'Prefer the smallest fix — keep the query shape.' };
+    const panel = { '06': 'list', '07': 'detail', '13': 'expired' };
+    this.setState({ sid: id, overview: false, panelOpen: !!panel[id], panelMode: panel[id] || 'list', pTab: 'agents', actUser: null, draft: drafts[id] || '', modelMenu: false, provMenu: false, t1Open: false, t2Open: true, subOpen: false, todosOpen: true });
+  }
+  fmt(sec) { const m = Math.floor(sec / 60), s = sec % 60; return m ? m + 'm ' + (s < 10 ? '0' : '') + s + 's' : s + 's'; }
+
+  taskFixtures(tick) {
+    return [
+      { id: 'run', title: 'Fix flaky cherry-pick preview', status: 'run', meta: '5.6 Terra · 12m', stamp: 'Today 4:31 PM', go: '03', rows: [
+        { k: 'user', text: 'Investigate the flaky cherry-pick preview test and fix the root cause.' },
+        { k: 'turn', live: true, text: 'Turn 1 · Working for ' + this.fmt(38 + tick) },
+        { k: 'text', text: 'I\u2019m tracing the failing cherrypick:preview call from the UI through its Git commands to find where the output limit is hit.' },
+        { k: 'work', text: '— reading files and running tests', right: this.fmt(31 + tick) },
+        { k: 'ok', verb: 'Read', mono: 'CherryPickPreviewService.java', right: '2s' },
+        { k: 'ok', verb: 'Read', mono: 'GitCommandRunner.java', right: '1s' },
+        { k: 'ok', verb: 'Searched', mono: 'previewCherryPickRange in frontend', right: '1s' },
+        { k: 'cmd', mono: '$ mvn -pl backend/app test -Dtest=CherryPickPreviewTest', right: this.fmt(9 + tick) },
+        { k: 'code', text: '[INFO] Running CherryPickPreviewTest\n[INFO] reproducing 12-commit selection ad9a10d^..cec02f0' }
+      ] },
+      { id: 'appr', title: 'Explain refresh button delay', status: 'appr', meta: '5.6 Terra · 4m', stamp: 'Today 4:33 PM', go: '04', rows: [
+        { k: 'user', text: 'Why does the refresh button take seconds to react? Fix it if it\u2019s simple.' },
+        { k: 'turn', live: false, text: 'Turn 1 · Waiting on you' },
+        { k: 'text', text: 'The delay comes from a synchronous status refetch before the click handler returns. The fix is small and ready on a branch.' },
+        { k: 'ok', verb: 'Read', mono: 'RefreshButton.tsx', right: '1s' },
+        { k: 'ok', verb: 'Edited', mono: 'RefreshButton.tsx', right: '+4 −2' },
+        { k: 'appr', text: 'Run a command in this workspace', mono: 'git push origin fix/preview-limit' }
+      ] },
+      { id: 'done', title: 'Audit storage layer for dead code', status: 'done', meta: '5.6 Sol · 1d', stamp: 'Yesterday 9:06 AM', go: '05', rows: [
+        { k: 'user', text: 'Review the storage layer for dead code and suggest safe removals.' },
+        { k: 'turn', live: false, text: 'Turn 1 · Worked for 6m 02s' },
+        { k: 'sum', text: 'Read 14 files, ran 3 commands', right: '6m 02s' },
+        { k: 'text', text: 'Found 9 unreferenced classes and 2 dead migration paths under storage/. Every removal is safe — nothing is reached by reflection or config.' },
+        { k: 'note', text: 'Turn 1 · 6m 02s · 5.6 Sol High · Auto · 9:12 AM' }
+      ] }
+    ];
+  }
+  mkCard(t, w, active, closable) {
+    const scale = w / 760, thumbH = Math.round(w * 0.625);
+    const S = { run: { label: 'Running', bg: '#ddf4ff', fg: '#0969da', spin: true }, appr: { label: 'Needs approval', bg: '#fff8c5', fg: '#9a6700' }, done: { label: 'Completed', bg: '#eceff2', fg: '#57606a' } }[t.status];
+    return {
+      key: t.id, title: t.title, meta: t.meta, stamp: t.stamp, stLabel: S.label, stBg: S.bg, stFg: S.fg, stSpin: !!S.spin,
+      w, thumbH, scale: Math.round(scale * 10000) / 10000, innerH: Math.round(thumbH / scale),
+      ring: active ? '#0969da' : 'rgba(27,31,36,.12)', ringW: active ? 2 : 1, closable,
+      open: () => this.go(t.go),
+      close: e => { if (e && e.stopPropagation) e.stopPropagation(); this.setState(s => ({ closed: s.closed.concat(t.id) })); },
+      rows: t.rows.map(r => ({ ...r, isUser: r.k === 'user', isTurn: r.k === 'turn', isText: r.k === 'text', isWork: r.k === 'work', isSum: r.k === 'sum', isOk: r.k === 'ok', isCmd: r.k === 'cmd', isCode: r.k === 'code', isAppr: r.k === 'appr', isNote: r.k === 'note' }))
+    };
+  }
+
+  renderVals() {
+    const st = this.state, sid = st.sid, tick = st.tick, overview = !!st.overview;
+    const labels = { '01': '01 · Task list', '02': '02 · New / idle task', '03': '03 · Running · expanded', '04': '04 · Approval request', '05': '05 · Completed · folded', '06': '06 · Subagents panel', '07': '07 · Subagent detail', '08': '08 · Queue + steer', '09': '09 · Image message', '10': '10 · Recovery + error', '11': '11 · Connecting', '12': '12 · Empty list', '13': '13 · Activity expired', '14': '14 · Tab Overview' };
+    const chips = this.ids().map(id => { const on = id === '14' ? overview : (id === sid && !overview); return {
+      label: labels[id], on, go: () => this.go(id),
+      bg: on ? '#24292f' : '#ffffff', fg: on ? '#ffffff' : '#57606a', bd: on ? '#24292f' : '#d0d7de'
+    }; });
+
+    const isList = sid === '01' || sid === '12';
+    const v = { '02': 'idle', '03': 'run', '04': 'appr', '05': 'done', '06': 'sub', '07': 'sub', '08': 'queue', '09': 'img', '10': 'rec', '11': 'load', '13': 'exp' }[sid] || null;
+    const V = k => v === k;
+    const runLike = V('run') || V('appr') || V('img');
+
+    let stLabel = 'Ready', stBg = '#dafbe1', stFg = '#1a7f37', stSpin = false, stPulse = false, stDot = '#9a6700';
+    if (runLike || V('queue') || V('sub')) { stLabel = 'Running'; stBg = '#ddf4ff'; stFg = '#0969da'; stSpin = true; }
+    if (V('appr')) { stLabel = 'Needs approval'; stBg = '#fff8c5'; stFg = '#9a6700'; stSpin = false; stPulse = true; }
+    if (V('rec')) { stLabel = 'Recovering'; stBg = '#fff8c5'; stFg = '#9a6700'; stPulse = true; }
+    if (V('load')) { stLabel = 'Connecting'; stBg = '#eceff2'; stFg = '#57606a'; stPulse = true; stDot = '#8c959f'; }
+    if (V('exp')) { stLabel = 'Ready'; }
+
+    let connLabel = 'Live', connFg = '#1a7f37', connDot = '#2da44e';
+    if (V('rec')) { connLabel = 'Reconnecting'; connFg = '#9a6700'; connDot = '#d4a72c'; }
+    if (V('load')) { connLabel = 'Connecting'; connFg = '#57606a'; connDot = '#8c959f'; }
+
+    const t1run = this.fmt(38 + tick), t2run = this.fmt(154 + tick), subT = this.fmt(291 + tick);
+    const hdrMeta = {
+      idle: '5.6 Terra High · Auto', run: 'Turn 1 · ' + t1run, appr: 'Turn 1 · waiting on you',
+      done: '1 turn · 4:36 PM', sub: 'Turn 1 · ' + subT, queue: 'Turn 2 · ' + t2run + ' · 2 queued',
+      img: 'Turn 1 · ' + this.fmt(22 + tick), rec: 'Turn 2 interrupted · workspace reserved', load: '', exp: '1 turn · 4:36 PM'
+    }[v] || '';
+
+    const compEnabled = V('idle') || V('done') || V('exp');
+    const compTitle = compEnabled ? 'Closes this task and frees the workspace' : (V('sub') ? 'Unlocks when every subagent finishes' : V('rec') ? 'Unlocks after recovery' : 'Available when the task is idle');
+
+    const actUser = st.actUser;
+    const actOpen = actUser === null ? false : actUser;
+    const draft = st.draft, hasDraft = draft.trim().length > 0;
+    const cmIdle = V('done') || V('exp');
+    const cmRun = runLike || V('queue') || V('sub');
+    const inputDis = V('load');
+    const sendDis = !hasDraft || inputDis;
+    const steerDis = !hasDraft || V('sub');
+
+    const hasAgents = V('sub') || V('exp') || V('done') || V('queue') || V('rec');
+    const t1LiveC = runLike || V('sub');
+    const t1Vis = t1LiveC || st.t1Open;
+    const t2LiveC = V('queue');
+    const t2Vis = t2LiveC || st.t2Open;
+    const panelAvail = !isList && !V('idle') && !V('load');
+    const showPanel = panelAvail && st.panelOpen;
+
+    const closed = st.closed || [];
+    const activeTask = { '03': 'run', '06': 'run', '07': 'run', '08': 'run', '09': 'run', '10': 'run', '11': 'run', '04': 'appr', '05': 'done', '13': 'done' }[sid] || null;
+    const homeLayout = this.props.homeLayout ?? 'windows';
+    const cols = Math.max(2, Math.min(4, Math.round(+(this.props.overviewColumns ?? 3))));
+    const cardW = Math.floor((946 - 32 * (cols - 1)) / cols);
+    const order = { appr: 0, run: 1, done: 2 };
+    let visible = this.taskFixtures(tick).filter(t => closed.indexOf(t.id) < 0);
+    if ((this.props.overviewSort ?? 'recent') === 'status') visible = visible.slice().sort((a, b) => order[a.status] - order[b.status]);
+    const homeCards = visible.map(t => this.mkCard(t, 200, false, false));
+    const ovCards = visible.map(t => this.mkCard(t, cardW, t.id === activeTask, true));
+    const nAppr = visible.filter(t => t.status === 'appr').length;
+    const ovSummary = visible.length + ' open' + (nAppr ? ' · ' + nAppr + ' needs approval' : '');
+
+    return {
+      chips,
+      screenLabel: 'Agent tasks · ' + (overview ? '14 · Tab Overview over ' : '') + (labels[sid] || sid),
+      isList, listEmpty: sid === '12', listRows: sid === '01',
+      goNew: () => this.go('02'), goRun: () => this.go('03'), goAppr: () => this.go('04'), goDone: () => this.go('05'),
+      noop: e => { if (e && e.preventDefault) e.preventDefault(); },
+      isTask: !isList,
+      taskTitle: V('appr') ? 'Explain refresh button delay' : 'Fix flaky cherry-pick preview',
+      stLabel, stBg, stFg, stSpin, stPulse, stDot, hdrMeta,
+      connLabel, connFg, connDot,
+      compDis: !compEnabled, compFg: compEnabled ? '#24292f' : '#8c959f', compBd: compEnabled ? '#d0d7de' : '#e3e3e6', compTitle,
+      panelToggle: panelAvail, togglePanel: () => this.setState(s => ({ panelOpen: !s.panelOpen })),
+      ptBg: showPanel ? '#e4e4e8' : '#ffffff', ptBd: showPanel ? '#c6ccd2' : '#d0d7de',
+      showBanner: V('rec'),
+      backToList: () => this.setState({ sid: '01', panelOpen: false }),
+      scRef: el => { this._sc = el; },
+      // transcript
+      showLoad: V('load'),
+      showHero: V('idle'),
+      sug1: () => this.setState({ draft: 'Explore the cherry-pick preview code and explain how the range is validated.' }),
+      sug2: () => this.setState({ draft: 'Investigate the flaky cherry-pick preview test and fix the root cause.' }),
+      sug3: () => this.setState({ draft: 'Review the storage layer for dead code and suggest safe removals.' }),
+      heroSend: () => { if (hasDraft) this.go('03'); },
+      toggleModel: () => this.setState(s => ({ modelMenu: !s.modelMenu, provMenu: false })),
+      toggleProv: () => this.setState(s => ({ provMenu: !s.provMenu, modelMenu: false })),
+      modelMenu: st.modelMenu, provMenu: st.provMenu,
+      showU1: !V('idle') && !V('load'),
+      u1Imgs: V('img'),
+      u1Text: V('img') ? 'This is what I see when the preview fails — investigate and tell me the root cause.' : (V('appr') ? 'Why does the refresh button take seconds to react? Fix it if it\u2019s simple.' : 'Investigate the flaky cherry-pick preview test and fix the root cause.'),
+      showT1: !V('idle') && !V('load'),
+      t1Label: runLike ? ('Turn 1 · Working for ' + (V('img') ? this.fmt(22 + tick) : t1run)) : (V('sub') ? 'Turn 1 · Working for ' + subT : 'Turn 1 · Worked for 4m 51s'),
+      t1Live: t1LiveC,
+      t1Open: t1Vis, t1Rot: t1Vis ? '90deg' : '0deg',
+      toggleT1: () => this.setState(s => ({ t1Open: !s.t1Open })),
+      showIntroRun: V('run') || V('appr'),
+      showPlan: V('done') && t1Vis,
+      planChip: (V('done') || V('sub')) ? 'Completed' : 'Step 2 of 3',
+      planStep2Run: V('run') || V('appr'), planStep2Done: V('done') || V('sub'),
+      planStep3Done: V('done') || V('sub'), planStep3Pending: V('run') || V('appr'),
+      showActRun: runLike,
+      actRunElapsed: V('img') ? this.fmt(16 + tick) : this.fmt(31 + tick),
+      cmdElapsed: this.fmt(9 + tick),
+      showActDone: (V('done') || V('sub') || V('queue') || V('rec') || V('exp')) && t1Vis,
+      actOpen, actRot: actOpen ? '90deg' : '0deg',
+      toggleAct: () => this.setState(s => ({ actUser: !(s.actUser === null ? false : s.actUser) })),
+      showAgentsStart: V('sub'),
+      showAgentsFinish: (V('exp') || V('done')) && t1Vis,
+      showAppr: V('appr'),
+      apprAllow: () => this.go('05'),
+      showApprRes: (V('done') || V('exp')) && t1Vis,
+      showBarrier: V('sub'),
+      showAnswer: V('done') || V('sub') || V('queue') || V('rec') || V('exp'),
+      showUsage: V('done') || V('sub') || V('queue') || V('rec') || V('exp'),
+      showU2: V('queue') || V('rec'),
+      showT2: V('queue') || V('rec'),
+      t2Label: V('queue') ? 'Turn 2 · Working for ' + t2run : 'Turn 2 · Interrupted after 12s',
+      t2Live: V('queue'),
+      showSteerB: V('queue') && t2Vis, showRunOut2: V('queue') && t2Vis,
+      showErrRow: V('rec') && t2Vis,
+      t2Open: t2Vis, t2Rot: t2Vis ? '90deg' : '0deg',
+      toggleT2: () => this.setState(s => ({ t2Open: !s.t2Open })),
+      showQueue: V('queue'), showQueueRec: V('rec'), showRecCard: V('rec'),
+      showComposer: !V('rec') && !isList && !V('idle'),
+      showNewComposer: V('idle'),
+      compImgs: V('img'),
+      draft, onDraft: e => this.setState({ draft: e.target.value }),
+      inputDis, inputPh: V('load') ? 'Connecting…' : 'Message the agent',
+      ctlFg: inputDis ? '#8c959f' : '#57606a',
+      cmIdle, cmRun, cmNotRun: !cmRun,
+      sendDis, sendBg: sendDis ? '#eceff2' : '#24292f', sendFg: sendDis ? '#8c959f' : '#ffffff',
+      sendTitle: cmRun ? 'Sends into the queue — starts after this turn finishes' : 'Send',
+      steerDis,
+      steerBg: steerDis ? '#f6f8fa' : '#1f883d', steerFg: steerDis ? '#8c959f' : '#ffffff', steerBd: steerDis ? '#e3e3e6' : 'rgba(31,35,40,.15)',
+      rnFg: steerDis ? '#8c959f' : '#24292f',
+      // panel
+      showPanel,
+      panelW: st.panelW || 300,
+      dragStart: e => {
+        e.preventDefault();
+        const startX = e.clientX, startW = this.state.panelW || 300;
+        const move = ev => this.setState({ panelW: Math.max(240, Math.min(420, startW + (startX - ev.clientX))) });
+        const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+      },
+      tabAgents: st.pTab !== 'prs', tabPrs: st.pTab === 'prs',
+      setTabAgents: () => this.setState({ pTab: 'agents', panelMode: 'list', prSel: false }),
+      setTabPrs: () => this.setState({ pTab: 'prs', panelMode: 'list' }),
+      pPrDetail: st.pTab === 'prs' && hasAgents,
+      pPrEmpty: st.pTab === 'prs' && !hasAgents,
+      tabAgBg: st.pTab !== 'prs' ? '#e4e4e8' : 'transparent', tabAgFg: st.pTab !== 'prs' ? '#1f2328' : '#57606a',
+      tabPrBg: st.pTab === 'prs' ? '#e4e4e8' : 'transparent', tabPrFg: st.pTab === 'prs' ? '#1f2328' : '#57606a',
+      goHome: () => this.go('02'), goTasks: () => this.go('01'),
+      toggleSub: () => this.setState(s => ({ subOpen: !s.subOpen })),
+      cmdOutOpen: st.cmdOutOpen === undefined ? true : st.cmdOutOpen,
+      cmdOutRot: (st.cmdOutOpen === undefined ? true : st.cmdOutOpen) ? '90deg' : '0deg',
+      toggleCmdOut: () => this.setState(s => ({ cmdOutOpen: !(s.cmdOutOpen === undefined ? true : s.cmdOutOpen) })),
+      subOpen: !!st.subOpen, subRot: st.subOpen ? '90deg' : '0deg',
+      showTodos: cmRun,
+      todos: (V('queue')
+        ? [{ done: true, label: 'Re-run backend verify with the UI suite skipped' }, { run: true, label: 'Time each backend module' }, { pend: true, label: 'Summarize anything slow' }]
+        : (V('sub')
+          ? [{ done: true, label: 'Reproduce the failing preview test' }, { done: true, label: 'Trace the Git output limit in the preview service' }, { done: true, label: 'Fix the scan and add regression coverage' }]
+          : [{ done: true, label: 'Reproduce the failing preview test' }, { run: true, label: 'Trace the Git output limit in the preview service' }, { pend: true, label: 'Fix the scan and add regression coverage' }])).map(t => ({ ...t, fg: t.done ? '#8c959f' : (t.run ? '#1f2328' : '#57606a') })),
+      todosSummary: V('sub') ? '3 completed' : '1 completed · 1 in progress · 1 pending',
+      todosOpen: !!st.todosOpen, todosRot: st.todosOpen ? '90deg' : '0deg',
+      toggleTodos: () => this.setState(s => ({ todosOpen: !s.todosOpen })),
+      navHomeBg: V('idle') ? '#e4e4e8' : 'transparent', navHomeW: V('idle') ? 600 : 400,
+      navTasksBg: V('idle') ? 'transparent' : '#e4e4e8', navTasksW: V('idle') ? 400 : 600,
+      navBadgeBg: V('idle') ? '#e4e4e8' : '#d8d8dd',
+      pList: st.panelMode === 'list' && st.pTab !== 'prs', pDetail: st.panelMode === 'detail', pExpired: st.panelMode === 'expired',
+      pHasAgents: hasAgents && st.pTab !== 'prs', pNoAgents: !hasAgents && st.pTab !== 'prs',
+      pHasPr: hasAgents && st.pTab === 'prs', pNoPr: !hasAgents && st.pTab === 'prs',
+      subElapsed: subT,
+      openSub: () => this.setState({ sid: sid === '13' || sid === '05' ? sid : '07', panelOpen: true, panelMode: 'detail' }),
+      openExp: () => this.setState({ sid: '13', panelOpen: true, panelMode: 'expired' }),
+      backToSub: () => this.setState({ sid: '06', panelOpen: true, panelMode: 'list' }),
+      // task windows + overview
+      overview,
+      toggleOverview: () => this.setState(s => ({ overview: !s.overview, modelMenu: false, provMenu: false })),
+      openOverview: () => this.setState({ overview: true, modelMenu: false, provMenu: false }),
+      closeOverview: () => this.setState({ overview: false }),
+      ovBtnBg: overview ? '#e4e4e8' : '#ffffff', ovBtnBd: overview ? '#c6ccd2' : '#d0d7de',
+      ovSummary, ovCols: cols, ovCardW: cardW, ovThumbH: Math.round(cardW * 0.625), ovCards,
+      homeCards, homeWindows: homeLayout !== 'list', homeList: homeLayout === 'list', openCount: visible.length,
+      true: true
+    };
+  }
+}
+</script>
+
+<!-- ============================================================
+  EMBEDDED SOURCES — the child Design Components this page mounts via <dc-import>.
+  They are included verbatim (with </script> escaped as <\/script>) so one file carries the whole design.
+  To run standalone, save each block to a sibling file with the name in data-dc-source.
+  ============================================================ -->
+<script type="text/plain" data-dc-source="TaskCard.dc.html">
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"><\/script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@keyframes bqspin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div style="width:{{ card.w }}px;flex:none;position:relative;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arimo,Helvetica,Arial,sans-serif;color:#1f2328">
+  <button onClick="{{ card.open }}" aria-label="Open task: {{ card.title }}" style="display:block;width:100%;padding:0;border:none;background:none;cursor:pointer;text-align:left;border-radius:10px">
+    <div style="position:relative;height:{{ card.thumbH }}px;border-radius:10px;overflow:hidden;background:#ffffff;box-shadow:0 0 0 {{ card.ringW }}px {{ card.ring }},0 6px 18px rgba(140,149,159,.22);transition:box-shadow .12s" style-hover="box-shadow:0 0 0 2px #0969da,0 8px 22px rgba(140,149,159,.3)">
+      <div style="width:760px;height:{{ card.innerH }}px;transform:scale({{ card.scale }});transform-origin:0 0;background:#ffffff;pointer-events:none;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px 20px 11px;border-bottom:1px solid #e3e3e6">
+          <span style="font-size:12.5px;color:#0969da;white-space:nowrap">‹ Tasks</span>
+          <span style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px">{{ card.title }}</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;border-radius:10px;padding:2px 9px;white-space:nowrap;background:{{ card.stBg }};color:{{ card.stFg }}">{{ card.stLabel }}</span>
+          <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f;white-space:nowrap">{{ card.meta }}</span>
+        </div>
+        <div style="padding:16px 24px 0">
+          <div style="text-align:center;font-size:11.5px;color:#8c959f">{{ card.stamp }}</div>
+          <sc-for list="{{ card.rows }}" as="r" hint-placeholder-count="5">
+            <sc-if value="{{ r.isUser }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;justify-content:flex-end;margin-top:12px"><div style="max-width:76%;background:#f0f1f3;border-radius:14px;padding:10px 14px;font-size:13.5px;line-height:1.5">{{ r.text }}</div></div>
+            </sc-if>
+            <sc-if value="{{ r.isTurn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:20px;padding-bottom:7px;border-bottom:1px solid #ececef">
+                <sc-if value="{{ r.live }}" hint-placeholder-val="{{ false }}"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+                <span style="font-size:12px;color:#8c959f;white-space:nowrap">{{ r.text }}</span>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate(90deg)"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isText }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13.5px;line-height:1.6;margin-top:14px">{{ r.text }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isWork }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:16px;margin-bottom:4px"><span style="width:11px;height:11px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span><span style="font-size:12px;font-weight:700;color:#0969da">Working</span><span style="font-size:12px;color:#57606a">{{ r.text }}</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#57606a">{{ r.right }}</span></div>
+            </sc-if>
+            <sc-if value="{{ r.isSum }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:4px 0;font-size:12.5px;color:#57606a"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span>{{ r.text }}</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">{{ r.right }}</span></div>
+            </sc-if>
+            <sc-if value="{{ r.isOk }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">{{ r.verb }}</span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">{{ r.mono }}</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">{{ r.right }}</span></div>
+            </sc-if>
+            <sc-if value="{{ r.isCmd }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;flex:none;display:flex;justify-content:center"><span style="width:10px;height:10px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;white-space:nowrap">{{ r.mono }}</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11px;color:#8c959f">{{ r.right }}</span></div>
+            </sc-if>
+            <sc-if value="{{ r.isCode }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;margin-top:6px;padding:8px 12px;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:11.5px;line-height:1.6;color:#57606a;white-space:pre-wrap">{{ r.text }}</div>
+            </sc-if>
+            <sc-if value="{{ r.isAppr }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:16px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">Approval needed</span><span style="font-size:12.5px;font-weight:600;white-space:nowrap">{{ r.text }}</span></div>
+                <div style="margin-top:8px;background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:12px;color:#1f2328">{{ r.mono }}</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:11px">
+                  <span style="padding:5px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600">Allow once</span>
+                  <span style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f">Allow for this task</span>
+                  <span style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e">Deny</span>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ r.isNote }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:11.5px;color:#8c959f"><span style="color:#1a7f37">✓</span>{{ r.text }}</div>
+            </sc-if>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </button>
+  <div style="display:flex;align-items:center;gap:7px;margin-top:9px;padding:0 2px">
+    <span style="flex:none;color:#8c959f;font-size:12px;line-height:1">❋</span>
+    <span style="flex:1;min-width:0;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ card.title }}</span>
+    <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;border-radius:10px;padding:1px 8px;white-space:nowrap;background:{{ card.stBg }};color:{{ card.stFg }}"><sc-if value="{{ card.stSpin }}" hint-placeholder-val="{{ false }}"><span style="width:8px;height:8px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>{{ card.stLabel }}</span>
+  </div>
+  <sc-if value="{{ card.closable }}" hint-placeholder-val="{{ false }}">
+    <button onClick="{{ card.close }}" aria-label="Close task: {{ card.title }}" title="Close task" style="position:absolute;top:7px;left:7px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(255,255,255,.94);box-shadow:0 1px 3px rgba(27,31,36,.22);color:#57606a;font-size:10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0" style-hover="background:#ffffff;color:#1f2328">✕</button>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:340,&quot;height&quot;:260},&quot;card&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;{ title: string; meta: string; stamp: string; stLabel: string; stBg: string; stFg: string; stSpin: boolean; w: number; thumbH: number; innerH: number; scale: number; ring: string; ringW: number; closable: boolean; open: () =&gt; void; close: (e: MouseEvent) =&gt; void; rows: Array&lt;object&gt; }&quot;,&quot;default&quot;:{&quot;title&quot;:&quot;Fix flaky cherry-pick preview&quot;,&quot;meta&quot;:&quot;5.6 Terra · 12m&quot;,&quot;stamp&quot;:&quot;Today 4:31 PM&quot;,&quot;stLabel&quot;:&quot;Running&quot;,&quot;stBg&quot;:&quot;#ddf4ff&quot;,&quot;stFg&quot;:&quot;#0969da&quot;,&quot;stSpin&quot;:true,&quot;w&quot;:294,&quot;thumbH&quot;:184,&quot;innerH&quot;:476,&quot;scale&quot;:0.3868,&quot;ring&quot;:&quot;#0969da&quot;,&quot;ringW&quot;:2,&quot;closable&quot;:true,&quot;rows&quot;:[{&quot;isUser&quot;:true,&quot;text&quot;:&quot;Investigate the flaky cherry-pick preview test and fix the root cause.&quot;},{&quot;isTurn&quot;:true,&quot;live&quot;:true,&quot;text&quot;:&quot;Turn 1 · Working for 12m 04s&quot;},{&quot;isText&quot;:true,&quot;text&quot;:&quot;I’m tracing the failing cherrypick:preview call from the UI through its Git commands to find where the output limit is hit.&quot;},{&quot;isWork&quot;:true,&quot;text&quot;:&quot;— reading files and running tests&quot;,&quot;right&quot;:&quot;31s&quot;},{&quot;isOk&quot;:true,&quot;verb&quot;:&quot;Read&quot;,&quot;mono&quot;:&quot;CherryPickPreviewService.java&quot;,&quot;right&quot;:&quot;2s&quot;},{&quot;isOk&quot;:true,&quot;verb&quot;:&quot;Read&quot;,&quot;mono&quot;:&quot;GitCommandRunner.java&quot;,&quot;right&quot;:&quot;1s&quot;},{&quot;isCmd&quot;:true,&quot;mono&quot;:&quot;$ mvn -pl backend/app test -Dtest=CherryPickPreviewTest&quot;,&quot;right&quot;:&quot;9s&quot;}]}}}"><\/script>
+</body>
+</html>
+
+</script>
+<script type="text/plain" data-dc-source="AgentMark.dc.html">
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"><\/script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/duotone/style.css">
+</helmet>
+<i class="ph-duotone {{ iconClass }}" role="img" aria-label="{{ label }}" title="{{ iconName }}" style="display:inline-flex;align-items:center;justify-content:center;flex:none;width:{{ size }}px;height:{{ size }}px;font-size:{{ size }}px;line-height:1;color:{{ color }}"></i>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:120,&quot;height&quot;:120},&quot;agentName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Preview backend&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;size&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:48,&quot;min&quot;:12,&quot;max&quot;:96,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;},&quot;muted&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;icon&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;flower&quot;,&quot;flower-lotus&quot;,&quot;leaf&quot;,&quot;plant&quot;,&quot;sun&quot;,&quot;moon-stars&quot;,&quot;planet&quot;,&quot;shooting-star&quot;,&quot;sparkle&quot;,&quot;butterfly&quot;,&quot;feather&quot;,&quot;acorn&quot;],&quot;default&quot;:null,&quot;tsType&quot;:&quot;string | null&quot;},&quot;hue&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:null,&quot;min&quot;:0,&quot;max&quot;:7,&quot;tsType&quot;:&quot;number | null&quot;}}">
+class Component extends DCLogic {
+  static FAMILY = ['flower', 'flower-lotus', 'leaf', 'plant', 'sun', 'moon-stars', 'planet', 'shooting-star', 'sparkle', 'butterfly', 'feather', 'acorn'];
+  static PALETTE = ['#0969da', '#8250df', '#bf3989', '#1a7f37', '#9a6700', '#bc4c00', '#1b7c83', '#cf222e'];
+  renderVals() {
+    const name = String(this.props.agentName ?? 'agent');
+    const size = +(this.props.size ?? 16);
+    const seed = name + '#2591';
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    h ^= h >>> 16; h = Math.imul(h, 0x45d9f3b) >>> 0; h ^= h >>> 16; h >>>= 0;
+    const F = Component.FAMILY, P = Component.PALETTE;
+    const icon = this.props.icon && F.indexOf(this.props.icon) >= 0 ? this.props.icon : F[(h >>> 3) % F.length];
+    const hue = this.props.hue == null ? (h & 7) : Math.abs(+this.props.hue) % P.length;
+    const color = this.props.muted ? '#8c959f' : P[hue];
+    return { size, color, iconClass: 'ph-' + icon, iconName: icon, label: name + ' — ' + icon + ' mark' };
+  }
+}
+<\/script>
+</body>
+</html>
+
+</script>
+<script type="text/plain" data-dc-source="Agent Marks.dc.html">
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"><\/script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#eef0f3;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arimo,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+</style>
+</helmet>
+<div style="padding:28px 36px 56px;width:max-content;min-width:900px">
+  <div style="font-size:18px;font-weight:700">Subagent marks — icon family</div>
+  <div style="font-size:12.5px;color:#57606a;margin-top:4px;max-width:760px;line-height:1.5">One family (Phosphor Duotone, MIT), one subject — living and celestial things — one 8-colour palette from the app's status colours. A subagent's mark is picked deterministically from its name, so the same agent looks the same everywhere: transcript chips, side panel, detail header. Expired agents go grey.</div>
+
+  <div style="margin-top:22px;background:#ffffff;border:1px solid #d0d7de;border-radius:12px;padding:20px 24px;width:840px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.4px;color:#656d76">THE 12 SHAPES</div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px 12px;margin-top:12px">
+      <sc-for list="{{ family }}" as="f" hint-placeholder-count="12">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 6px;border:1px solid #f0f0f2;border-radius:10px">
+          <dc-import name="AgentMark" agent-name="{{ f.name }}" icon="{{ f.name }}" hue="{{ f.hue }}" size="28" hint-size="28px,28px"></dc-import>
+          <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#57606a">{{ f.name }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;letter-spacing:.4px;color:#656d76;margin-top:22px">THE 8 COLOURS</div>
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <sc-for list="{{ palette }}" as="p" hint-placeholder-count="8">
+        <div style="display:inline-flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border:1px solid #e3e3e6;border-radius:8px">
+          <dc-import name="AgentMark" agent-name="palette" icon="flower" hue="{{ p.hue }}" size="18" hint-size="18px,18px"></dc-import>
+          <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#57606a">{{ p.hex }}</span>
+        </div>
+      </sc-for>
+      <div style="display:inline-flex;align-items:center;gap:8px;padding:5px 10px 5px 6px;border:1px solid #e3e3e6;border-radius:8px">
+        <dc-import name="AgentMark" agent-name="expired" icon="flower" muted="{{ true }}" size="18" hint-size="18px,18px"></dc-import>
+        <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#57606a">expired</span>
+      </div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;letter-spacing:.4px;color:#656d76;margin-top:22px">IN CONTEXT — THE FIXTURE AGENTS</div>
+    <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center">
+      <sc-for list="{{ agents }}" as="a" hint-placeholder-count="4">
+        <span style="display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border:1px solid #e3e3e6;border-radius:14px;background:#ffffff;font-size:11.5px;font-weight:600;color:#24292f"><dc-import name="AgentMark" agent-name="{{ a.name }}" muted="{{ a.muted }}" size="15" hint-size="15px,15px"></dc-import>{{ a.name }}</span>
+      </sc-for>
+      <span style="font-size:12px;color:#8c959f">started working</span>
+    </div>
+    <div style="margin-top:14px;width:300px;border:1px solid #e3e3e6;border-radius:10px;padding:8px 12px">
+      <sc-for list="{{ agents }}" as="a" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 6px 8px 2px;border-bottom:1px solid #f6f6f8">
+          <dc-import name="AgentMark" agent-name="{{ a.name }}" muted="{{ a.muted }}" size="15" hint-size="15px,15px"></dc-import>
+          <span style="font-size:12.5px;font-weight:600;color:{{ a.fg }}">{{ a.name }}</span>
+          <span style="flex:1"></span>
+          <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace;font-size:10.5px;color:#8c959f">{{ a.when }}</span>
+          <span style="color:#8c959f">›</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="font-size:11.5px;color:#8c959f;margin-top:14px;line-height:1.6">Rule: hash(name) → shape (12) × colour (8) = 96 distinct marks. Override with <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace">icon</span> / <span style="font-family:ui-monospace,Menlo,'Roboto Mono',monospace">hue</span> when a team wants a fixed mark for a recurring agent. Sizes: 15px in chips and rows, 16px in headers.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const F = ['flower', 'flower-lotus', 'leaf', 'plant', 'sun', 'moon-stars', 'planet', 'shooting-star', 'sparkle', 'butterfly', 'feather', 'acorn'];
+    const P = ['#0969da', '#8250df', '#bf3989', '#1a7f37', '#9a6700', '#bc4c00', '#1b7c83', '#cf222e'];
+    return {
+      family: F.map((name, i) => ({ name, hue: i % 8 })),
+      palette: P.map((hex, hue) => ({ hex, hue })),
+      agents: [
+        { name: 'Preview backend', muted: false, fg: '#1f2328', when: '19m' },
+        { name: 'Renderer range', muted: false, fg: '#1f2328', when: '22m' },
+        { name: 'History tests', muted: false, fg: '#1f2328', when: '4m 51s' },
+        { name: 'Range probe', muted: true, fg: '#57606a', when: 'Aug 16' }
+      ],
+      true: true
+    };
+  }
+}
+<\/script>
+</body>
+</html>
+
+</script>
+</body>
+</html>

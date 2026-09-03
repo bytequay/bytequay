@@ -881,6 +881,12 @@ function SidePanel({
             ? <Spinner />
             : <span className="agt-chip">{agent?.status === 'failed' ? 'Failed' : 'Done'}</span>}
         </div>
+        {agent !== undefined && agent.startedAt !== null && (
+          <div className="agt-panel__worked">
+            {agent.endedAt === null ? 'Working for ' : 'Worked for '}{agentElapsed(agent, now)}
+            {agent.endedAt === null ? '' : ` · finished ${clock(agent.endedAt)}`}
+          </div>
+        )}
         {purpose !== null && (
           <div className="agt-panel__prompt"><span className="agt-label">From its parent</span> {purpose}</div>
         )}

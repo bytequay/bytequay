@@ -38,16 +38,6 @@
   flex: 1;
 }
 
-/* The lane is not a choice at this checkpoint, so it is styled as a fact, not a control. */
-.agt-lane {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #57606a;
-  background: #eceff2;
-  border-radius: 10px;
-  padding: 2px 9px;
-}
-
 /* The Tasks page: one scrolling column of sections with the composer anchored under it. */
 .agt-tasks-page {
   display: flex;
@@ -263,38 +253,6 @@
   max-width: 760px;
   margin-left: auto;
   margin-right: auto;
-}
-
-.agt-item {
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  padding: 9px 11px;
-  background: #ffffff;
-  font-size: 13px;
-}
-
-.agt-item__kind {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #57606a;
-  margin-bottom: 4px;
-}
-
-.agt-item.is-user {
-  background: #f6f8fa;
-}
-
-.agt-item.is-assistant {
-  border-color: #b6d4f7;
-  font-size: 13.5px;
-  line-height: 1.6;
-}
-
-.agt-item.is-error {
-  border-color: rgba(207, 34, 46, 0.35);
-  background: #ffebe9;
 }
 
 .agt-pre {
@@ -706,12 +664,6 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
   word-break: break-all;
-}
-
-.agt-item details > summary {
-  cursor: pointer;
-  font-size: 11.5px;
-  color: #57606a;
 }
 
 /*
@@ -1490,6 +1442,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.agt-panel__worked {
+  margin-top: 4px;
+  padding: 4px 2px 7px;
+  border-bottom: 1px solid #ececef;
+  font-size: 11.5px;
+  color: #8c959f;
 }
 
 .agt-panel__prompt {

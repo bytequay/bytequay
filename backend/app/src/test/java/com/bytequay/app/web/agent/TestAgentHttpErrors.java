@@ -30,6 +30,7 @@ import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.store.PullRequestStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -71,7 +72,8 @@ class TestAgentHttpErrors
                 driverRegistry,
                 mock(ModelSettingsService.class),
                 mock(AgentResourceService.class),
-                mock(RecentTouchRecorder.class));
+                mock(RecentTouchRecorder.class),
+                mock(PullRequestStore.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

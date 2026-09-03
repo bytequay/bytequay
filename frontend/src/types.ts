@@ -1239,6 +1239,8 @@ export type Bridge = {
   ) => Promise<AgentTaskDto>;
   /** A person's name for the task; final, and version-checked like every other task write. */
   renameAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, title: string) => Promise<AgentTaskDto>;
+  /** The pull requests on the task's branch; the branch is derived from the task, so nothing is recorded. */
+  listAgentTaskPullRequests: (taskId: string, workspaceId: string) => Promise<PullRequestDto[]>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;

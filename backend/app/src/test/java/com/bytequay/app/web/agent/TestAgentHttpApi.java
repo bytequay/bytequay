@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
@@ -24,8 +25,11 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -134,6 +138,9 @@ class TestAgentHttpApi
     @Autowired
     private AgentTaskService tasks;
 
+    @Autowired
+    private PullRequestStore pullRequests;
+
     private String workspaceId;
     private Path repository;
 
@@ -204,6 +211,54 @@ class TestAgentHttpApi
         assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("codex");
         assertThat(status.getBody().get(0).get("readiness").asText()).isEqualTo("READY");
         assertThat(status.getBody().get(0).has("health")).isFalse();
+    }
+
+    @Test
+    void listsThePullRequestsOnTheTasksBranch()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        AgentTask task = tasks.get(TaskId.valueOf(taskId));
+        String branch = task.taskWorktree().orElseThrow().generatedBranch();
+        String path = "/agent/tasks/" + taskId + "/pull-requests?workspaceId=";
+        assertThat(get(path + workspaceId).getBody()).isEmpty();
+
+        pullRequests.saveRepositorySyncPage(
+                REPOSITORY,
+                ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")),
+                "seed");
+
+        JsonNode listed = get(path + workspaceId).getBody();
+        assertThat(listed).hasSize(1);
+        assertThat(listed.get(0).get("number").asInt()).isEqualTo(482);
+        assertThat(listed.get(0).get("headRef").asText()).isEqualTo(branch);
+        // Another workspace cannot see this task, let alone its pull requests.
+        assertThat(get(path + "another-workspace").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    private static FetchedPullRequest fetchedPullRequest(int number, String headRef)
+    {
+        Instant at = Instant.parse("2026-09-01T00:00:00Z");
+        return new FetchedPullRequest(
+                (long) number,
+                REPOSITORY,
+                number,
+                "PR " + number,
+                "alice",
+                "https://github.com/" + REPOSITORY + "/pull/" + number,
+                at,
+                at,
+                PullRequest.Origin.AUTHORED,
+                ImmutableList.of(),
+                ImmutableMap.of(),
+                false,
+                "open",
+                null,
+                null,
+                ImmutableList.of(),
+                null,
+                null,
+                headRef);
     }
 
     @Test

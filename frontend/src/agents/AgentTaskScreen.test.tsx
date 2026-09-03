@@ -22,7 +22,7 @@ import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { previewTask } from './preview';
-import type { AgentTaskDto, AgentTurnDto, ModelOptionDto, ModelSettingsDto } from '../types';
+import type { AgentTaskDto, AgentTurnDto, ModelOptionDto, ModelSettingsDto, PullRequestDto } from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
 
@@ -241,6 +241,88 @@ describe('agent task list', () => {
     expect(renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error="backend refused" />))
       .toContain('backend refused');
+  });
+});
+
+function pullRequest(number: number, title: string, state = 'open', draft = false): PullRequestDto {
+  return {
+    id: number,
+    repo: 'bytequay/bytequay',
+    number,
+    title,
+    author: 'alice',
+    htmlUrl: `https://github.com/bytequay/bytequay/pull/${number}`,
+    createdAt: '2026-08-20T10:00:00Z',
+    updatedAt: '2026-08-20T10:00:00Z',
+    origin: 'AUTHORED',
+    labels: [],
+    labelColors: null,
+    draft,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
+    requestedReviewers: [],
+    ciStatus: null,
+    additions: 0,
+    deletions: 0,
+    commentCount: 0,
+    attentionReason: null,
+    state,
+    mergeable: null,
+    mergeableState: null,
+    headPushedAt: null,
+    headRef: 'bytequay/task/t-1',
+  };
+}
+
+describe('agent task side panel', () => {
+  const props = {
+    models: MODELS,
+    onSelectModel: () => {},
+    onBack: () => {},
+    onSend: () => {},
+    onCancel: () => {},
+    onComplete: () => {},
+    onDecide: () => {},
+    onCompose: () => {},
+    onStopServer: () => {},
+    onMarkFailed: () => {},
+    onRetry: () => {},
+  };
+  const state = { ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open' as const };
+
+  it('opens for any loaded task and switches between subagents and pull requests', () => {
+    const agents = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen {...props} />);
+    // No agents yet, but the panel is still worth opening for its pull requests.
+    expect(agents).toContain('aria-label="Show or hide the side panel"');
+    expect(agents).toContain('aria-label="Subagents"');
+    expect(agents).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^<]*<span[^>]*>❋<\/span>Subagents/);
+    expect(agents).toContain('No active subagents');
+
+    const prs = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen panelTab="prs" pullRequests={[]} {...props} />);
+    expect(prs).toContain('aria-label="Pull requests"');
+    expect(prs).toContain('No pull requests from this task yet');
+    expect(prs).not.toContain('Active · ');
+  });
+
+  it('lists the pull requests on the task branch and hands one to the existing page', () => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state}
+        panelOpen
+        panelTab="prs"
+        pullRequests={[pullRequest(482, 'Fix preview output limit'), pullRequest(480, 'Earlier attempt', 'merged')]}
+        onOpenPullRequest={() => {}}
+        {...props}
+      />);
+    expect(markup).toContain('#482 Fix preview output limit');
+    expect(markup).toContain('on this task');
+    expect(markup).toContain('>Open<');
+    expect(markup).toContain('>Merged<');
+    // The row is a control: selecting it opens the pull-request page rather than a panel copy of it.
+    expect(markup).toMatch(/<button[^>]*class="agt-panel__row"[^>]*title="Open this pull request"/);
+    expect(markup).not.toContain('Description');
   });
 });
 
@@ -555,7 +637,7 @@ describe('agent task detail', () => {
     expect(closed).toContain('History tests');
     expect(closed).toContain('started working');
     expect(closed).not.toContain('3 tests failed');
-    expect(closed).toContain('Subagents · 2');
+    expect(closed).toContain('Subagents (2) and pull requests');
     // Two agents are still working, so the barrier says what Send and Complete are waiting for.
     expect(closed).toContain('2 subagents are still working');
 

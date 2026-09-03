@@ -56,6 +56,9 @@ public interface PullRequestStore
 
     Optional<Long> findIdByRepoAndNumber(String repo, int number);
 
+    /** Every stored pull request whose head is the given branch of the repository, newest number first. */
+    List<PullRequest> findByHeadRef(String repo, String headRef);
+
     Optional<PullRequestRef> findRefById(long prId);
 
     void updateState(long prId, String state, Instant updatedAt, Instant mergedAt);

@@ -1085,6 +1085,87 @@
   font-size: 12px;
 }
 
+/* One 26px control for the header's actions, as the design draws Complete, the panel toggle and the overview. */
+.agt-headbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  min-width: 32px;
+  padding: 0;
+  border: 1px solid #d0d7de;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(27, 31, 36, 0.06);
+}
+
+.agt-headbtn[aria-pressed="true"] {
+  background: #e4e4e8;
+  border-color: #c6ccd2;
+}
+
+.agt-panel__tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -10px -12px 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f0f2;
+}
+
+.agt-panel__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: #57606a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agt-panel__tab.is-current {
+  background: #e4e4e8;
+  color: #1f2328;
+}
+
+.agt-panel__tab-mark {
+  color: #6e6e76;
+}
+
+.agt-panel__hide {
+  width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: #8c959f;
+  cursor: pointer;
+  padding: 0;
+}
+
+.agt-pr-mark {
+  width: 18px;
+  flex: none;
+  text-align: center;
+  color: #1a7f37;
+}
+
+.agt-state.is-merged {
+  color: #8250df;
+  background: #fbefff;
+}
+
 .agt-panel__head {
   display: flex;
   align-items: center;

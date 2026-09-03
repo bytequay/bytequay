@@ -130,6 +130,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           workspaceId={workspace.id}
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
+          onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
         />
       );
     }

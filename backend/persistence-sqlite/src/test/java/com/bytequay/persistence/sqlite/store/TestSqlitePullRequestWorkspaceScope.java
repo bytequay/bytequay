@@ -271,10 +271,31 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findIdByRepoAndNumber("owner/project", 204)).isEmpty();
     }
 
+    @Test
+    void findsThePullRequestsOnOneHeadBranch()
+    {
+        String branch = "bytequay/task/0f1e2d3c-0000-4000-8000-000000000001";
+        store.saveRepositorySyncPage("Owner/Project", ImmutableList.of(
+                pullRequest(301, "Owner/Project", 301, branch),
+                pullRequest(302, "Owner/Project", 302, branch),
+                pullRequest(303, "Owner/Project", 303),
+                pullRequest(304, "other/project", 304, branch)), "heads");
+
+        assertThat(store.findByHeadRef("owner/project", branch))
+                .extracting(PullRequest::number)
+                .containsExactly(302, 301);
+        assertThat(store.findByHeadRef("owner/project", "bytequay/task/none")).isEmpty();
+    }
+
     private static FetchedPullRequest pullRequest(long githubId, String repository, int number)
     {
+        return pullRequest(githubId, repository, number, "feature");
+    }
+
+    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String headRef)
+    {
         return pullRequest(
-                githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"));
+                githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
     }
 
     private static FetchedPullRequest pullRequest(
@@ -284,6 +305,18 @@ class TestSqlitePullRequestWorkspaceScope
             String state,
             Instant closedAt,
             Instant updatedAt)
+    {
+        return pullRequest(githubId, repository, number, state, closedAt, updatedAt, "feature");
+    }
+
+    private static FetchedPullRequest pullRequest(
+            long githubId,
+            String repository,
+            int number,
+            String state,
+            Instant closedAt,
+            Instant updatedAt,
+            String headRef)
     {
         return new FetchedPullRequest(
                 githubId,
@@ -304,7 +337,7 @@ class TestSqlitePullRequestWorkspaceScope
                 ImmutableList.of(),
                 null,
                 null,
-                "feature");
+                headRef);
     }
 
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)

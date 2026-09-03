@@ -136,4 +136,6 @@ public interface PullRequestJpaRepository
      * repeat read within one transaction.
      */
     Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(String repo, int number);
+
+    List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(String repo, String headRef);
 }

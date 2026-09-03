@@ -146,6 +146,10 @@ export function createPreviewBridge(
       previewDefaults = defaults;
       return { ...previewTask(id, taskId), defaults, version: previewVersion };
     },
+    listAgentTaskPullRequests: async (taskId, id) => {
+      record('listAgentTaskPullRequests', taskId, id);
+      return [];
+    },
     renameAgentTask: async (taskId, id, expectedVersion, title) => {
       record('renameAgentTask', taskId, id, expectedVersion, title);
       if (expectedVersion !== previewVersion) {

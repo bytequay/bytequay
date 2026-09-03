@@ -43,6 +43,8 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,6 +92,7 @@ public class AgentController
     private final ModelSettingsService modelSettings;
     private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
+    private final PullRequestStore pullRequests;
 
     public AgentController(
             AgentTaskService taskService,
@@ -101,7 +104,8 @@ public class AgentController
             AgentDriverRegistry driverRegistry,
             ModelSettingsService modelSettings,
             AgentResourceService resourceService,
-            RecentTouchRecorder recent)
+            RecentTouchRecorder recent,
+            PullRequestStore pullRequests)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
@@ -113,6 +117,7 @@ public class AgentController
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
     @PostMapping("/tasks")
@@ -170,6 +175,23 @@ public class AgentController
                 id,
                 request.expectedVersion(),
                 request.title())));
+    }
+
+    /**
+     * The pull requests on this task's branch. The branch is derived from the task, so nothing
+     * records what a task opened; whatever the user pushed and opened on it appears here.
+     */
+    @GetMapping("/tasks/{taskId}/pull-requests")
+    public List<PullRequest> taskPullRequests(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
+        return task.taskWorktree()
+                .map(worktree -> pullRequests.findByHeadRef(
+                        task.repository().owner() + "/" + task.repository().name(),
+                        worktree.generatedBranch()))
+                .orElse(ImmutableList.of());
     }
 
     /**

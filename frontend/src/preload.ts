@@ -225,6 +225,8 @@ const bridge: Bridge = {
   getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),
   updateAgentTaskDefaults: (taskId, workspaceId, expectedVersion, defaults) =>
     ipcRenderer.invoke('agent:task:defaults', taskId, workspaceId, expectedVersion, defaults),
+  listAgentTaskPullRequests: (taskId, workspaceId) =>
+    ipcRenderer.invoke('agent:task:pull-requests', taskId, workspaceId),
   renameAgentTask: (taskId, workspaceId, expectedVersion, title) =>
     ipcRenderer.invoke('agent:task:rename', taskId, workspaceId, expectedVersion, title),
   getEffectiveTurnSettings: (taskId, workspaceId) =>

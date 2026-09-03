@@ -57,7 +57,9 @@ import {
   type TranscriptTurn,
   type TurnBlock,
 } from './transcript';
-import type { AgentApprovalDecision, AgentChildSummaryDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
+import type { AgentApprovalDecision, AgentChildSummaryDto, AgentTaskDto, AgentTurnDto, ModelOptionDto, PullRequestDto } from '../types';
+
+export type PanelTab = 'agents' | 'prs';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
@@ -89,6 +91,8 @@ export interface AgentTaskScreenProps {
   /** Electron's bridge unless a test supplies its own. */
   bridge?: AgentBridgePort;
   onBack: () => void;
+  /** Opens the existing pull-request page for one found on the task's branch. */
+  onOpenPullRequest?: (number: number) => void;
   /** Fixed at creation; the screen reads its catalog, it does not offer a choice. */
   laneId?: string;
 }
@@ -748,9 +752,74 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
  * not a second subscription. Once retention has removed the transcript the agent is still listed
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
-function AgentsPanel({
-  agents, openAgent, expiredChildren, deleteAfter, transcript, now,
-  activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide,
+/** GitHub's state words, plus draft, as the pill a pull-request row wears. */
+function pullRequestPill(pr: PullRequestDto): { label: string; className: string } {
+  if (pr.state === 'merged') return { label: 'Merged', className: 'is-merged' };
+  if (pr.state === 'closed') return { label: 'Closed', className: 'is-failed' };
+  if (pr.draft) return { label: 'Draft', className: '' };
+  return { label: 'Open', className: 'is-completed' };
+}
+
+function PanelTabs({ tab, onSelect, onHide }: {
+  tab: PanelTab;
+  onSelect: (tab: PanelTab) => void;
+  onHide: () => void;
+}): React.JSX.Element {
+  return (
+    <div className="agt-panel__tabs" role="tablist">
+      <button type="button" role="tab" className={`agt-panel__tab${tab === 'agents' ? ' is-current' : ''}`} aria-selected={tab === 'agents'} onClick={() => onSelect('agents')}>
+        <span className="agt-panel__tab-mark" aria-hidden="true">❋</span>Subagents
+      </button>
+      <button type="button" role="tab" className={`agt-panel__tab${tab === 'prs' ? ' is-current' : ''}`} aria-selected={tab === 'prs'} onClick={() => onSelect('prs')}>
+        <span className="agt-panel__tab-mark" aria-hidden="true">⑃</span>Pull requests
+      </button>
+      <span className="agt-spacer" />
+      <button type="button" className="agt-panel__hide" aria-label="Hide the side panel" onClick={onHide}>»</button>
+    </div>
+  );
+}
+
+/**
+ * The pull requests on this task's branch. The branch is derived from the task, so this lists
+ * whatever the user pushed and opened on it; selecting one goes to the existing pull-request page.
+ */
+function PullRequestRows({ pullRequests, onOpen }: {
+  pullRequests: PullRequestDto[];
+  onOpen?: (number: number) => void;
+}): React.JSX.Element {
+  if (pullRequests.length === 0) {
+    return <div className="agt-muted agt-panel__empty">No pull requests from this task yet</div>;
+  }
+  return (
+    <>
+      {pullRequests.map((pr) => {
+        const pill = pullRequestPill(pr);
+        return (
+          <button type="button" className="agt-panel__row" key={pr.id} onClick={() => onOpen?.(pr.number)} title="Open this pull request">
+            <span className="agt-pr-mark" aria-hidden="true">⑃</span>
+            <span className="agt-panel__name">
+              <span className="agt-panel__label agt-ellipsis">#{pr.number} {pr.title}</span>
+              <span className="agt-panel__purpose">on this task&apos;s branch</span>
+            </span>
+            <span className={`agt-state ${pill.className}`}>{pill.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The side panel: the subagents this task delegated to, with one agent's own transcript when it
+ * is opened, and the pull requests on the task's branch.
+ *
+ * Opening an agent filters the task's existing events by its thread; it is not another route and
+ * not a second subscription. Once retention has removed the transcript the agent is still listed
+ * from the task's kept summary, and opening it says its activity expired rather than inventing it.
+ */
+function SidePanel({
+  agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
+  activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
 }: {
   agents: AgentNode[];
   openAgent: string | null;
@@ -758,15 +827,29 @@ function AgentsPanel({
   deleteAfter: string | null;
   transcript: TranscriptTurn[];
   now: number;
+  tab: PanelTab;
+  pullRequests: PullRequestDto[];
   activityChoice: Record<string, boolean>;
   onOpenAgent: (threadId: string) => void;
   onCloseAgent: () => void;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onSelectTab: (tab: PanelTab) => void;
+  onHide: () => void;
+  onOpenPullRequest?: (number: number) => void;
 }): React.JSX.Element {
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
+  const tabs = <PanelTabs tab={tab} onSelect={onSelectTab} onHide={onHide} />;
+  if (tab === 'prs') {
+    return (
+      <aside className="agt-panel" aria-label="Pull requests">
+        {tabs}
+        <PullRequestRows pullRequests={pullRequests} onOpen={onOpenPullRequest} />
+      </aside>
+    );
+  }
   if (openAgent !== null) {
     const agent = agents.find((node) => node.threadId === openAgent);
     const expired = expiredChildren.find((child) => child.threadId === openAgent);
@@ -776,6 +859,7 @@ function AgentsPanel({
     const purpose = agent?.purpose ?? expired?.purpose ?? null;
     return (
       <aside className="agt-panel" aria-label={`Agent: ${label}`}>
+        {tabs}
         <div className="agt-panel__head">
           <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
           <span className="agt-agent-mark" aria-hidden="true">❋</span>
@@ -823,7 +907,7 @@ function AgentsPanel({
   }
   return (
     <aside className="agt-panel" aria-label="Subagents">
-      <div className="agt-panel__head"><strong>Subagents</strong></div>
+      {tabs}
       <div className="agt-label agt-panel__section">Active · {active.length}</div>
       {active.length === 0
         ? <div className="agt-muted agt-panel__empty">No active subagents</div>
@@ -871,6 +955,8 @@ export function AgentTaskBody({
   previews = {},
   panelOpen = false,
   openAgent = null,
+  panelTab = 'agents',
+  pullRequests = [],
   onToggleActivity = () => {},
   onToggleTurn = () => {},
   onTogglePlan = () => {},
@@ -879,6 +965,8 @@ export function AgentTaskBody({
   onTogglePanel = () => {},
   onOpenAgent = () => {},
   onCloseAgent = () => {},
+  onSelectPanelTab = () => {},
+  onOpenPullRequest,
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
@@ -914,6 +1002,11 @@ export function AgentTaskBody({
   onTogglePanel?: () => void;
   onOpenAgent?: (threadId: string) => void;
   onCloseAgent?: () => void;
+  /** Which side-panel tab is showing, and the pull requests found on the task's branch. */
+  panelTab?: PanelTab;
+  pullRequests?: PullRequestDto[];
+  onSelectPanelTab?: (tab: PanelTab) => void;
+  onOpenPullRequest?: (number: number) => void;
 }): React.JSX.Element {
   const turns = projectTranscript(state.events);
   const agents = projectAgents(state.events);
@@ -957,16 +1050,21 @@ export function AgentTaskBody({
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
-        {hasAgents && (
+        {state.task !== null && (
           <button
             type="button"
-            className="agt-action"
-            aria-label="Show or hide the subagents panel"
+            className="agt-headbtn"
+            aria-label="Show or hide the side panel"
             aria-pressed={panelOpen}
-            title="Subagents"
+            title={hasAgents
+              ? `Subagents (${agents.length + expiredChildren.length}) and pull requests`
+              : 'Subagents and pull requests'}
             onClick={onTogglePanel}
           >
-            Subagents · {agents.length + expiredChildren.length}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M10 3v10" stroke="currentColor" strokeWidth="1.3" />
+            </svg>
           </button>
         )}
         {!terminal && (
@@ -1025,19 +1123,24 @@ export function AgentTaskBody({
           </div>
         )}
       </div>
-      {panelOpen && hasAgents && (
-        <AgentsPanel
+      {panelOpen && state.task !== null && (
+        <SidePanel
           agents={agents}
           openAgent={openAgent}
           expiredChildren={expiredChildren}
-          deleteAfter={state.task?.deleteAfter ?? null}
+          deleteAfter={state.task.deleteAfter}
           transcript={openAgent === null ? [] : projectTranscript(state.events, openAgent)}
           now={now}
+          tab={panelTab}
+          pullRequests={pullRequests}
           activityChoice={activityChoice}
           onOpenAgent={onOpenAgent}
           onCloseAgent={onCloseAgent}
           onToggleActivity={onToggleActivity}
           onDecide={onDecide}
+          onSelectTab={onSelectPanelTab}
+          onHide={onTogglePanel}
+          onOpenPullRequest={onOpenPullRequest}
         />
       )}
       </div>
@@ -1159,6 +1262,7 @@ export default function AgentTaskScreen({
   taskId,
   bridge: explicitBridge,
   onBack,
+  onOpenPullRequest,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
@@ -1170,6 +1274,8 @@ export default function AgentTaskScreen({
   const [planOpen, setPlanOpen] = useState(true);
   const [panelOpen, setPanelOpen] = useState(false);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
+  const [panelTab, setPanelTab] = useState<PanelTab>('agents');
+  const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [now, setNow] = useState(() => Date.now());
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
   // screen goes away or a draft is dropped, never left for the garbage collector to find.
@@ -1249,6 +1355,19 @@ export default function AgentTaskScreen({
     });
     return () => { active = false; };
   }, [live, taskId, workspaceId, lifecycleEpoch, latestTurnId]);
+
+  // The branch is derived from the task, so this is only a lookup; it is repeated while the tab is
+  // showing whenever something about the task changed.
+  useEffect(() => {
+    if (!panelOpen || panelTab !== 'prs') return;
+    let active = true;
+    void live().listAgentTaskPullRequests(taskId, workspaceId)
+      .then((found) => { if (active) setPullRequests(found); })
+      .catch((failure: unknown) => {
+        if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+      });
+    return () => { active = false; };
+  }, [live, panelOpen, panelTab, taskId, workspaceId, lifecycleEpoch]);
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -1434,9 +1553,13 @@ export default function AgentTaskScreen({
       onRemoveAttachment={(attachmentId) => { void removeAttachment(attachmentId); }}
       panelOpen={panelOpen}
       openAgent={openAgent}
+      panelTab={panelTab}
+      pullRequests={pullRequests}
       onTogglePanel={() => setPanelOpen((open) => !open)}
-      onOpenAgent={(threadId) => { setPanelOpen(true); setOpenAgent(threadId); }}
+      onOpenAgent={(threadId) => { setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
+      onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}
+      onOpenPullRequest={onOpenPullRequest}
     />
   );
 }

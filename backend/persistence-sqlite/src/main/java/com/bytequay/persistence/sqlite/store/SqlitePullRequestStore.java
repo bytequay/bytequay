@@ -289,6 +289,17 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<PullRequest> findByHeadRef(String repo, String headRef)
+    {
+        requireNonNull(repo, "repo is null");
+        requireNonNull(headRef, "headRef is null");
+        return jpaRepository.findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(repo, headRef).stream()
+                .map(entity -> entity.toDomain(null))
+                .collect(toImmutableList());
+    }
+
+    @Override
     public Optional<PullRequestRef> findRefById(long prId)
     {
         return jpaRepository.findById(prId)

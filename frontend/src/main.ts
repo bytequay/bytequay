@@ -12,8 +12,6 @@
  * limitations under the License.
  */
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
-import type { WebContents } from 'electron';
-import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -26,10 +24,9 @@ import {
   parseAgentTurnSettings,
 } from './agents/contracts';
 import { parseAgentEventSequence } from './agents/events';
-import { readAgentStream } from './agents/sse';
+import { AgentSubscriptions } from './agents/subscriptions';
 import type {
   AgentApprovalDecision,
-  AgentStreamPayload,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
@@ -258,75 +255,11 @@ function agentHeaders(json = false): Record<string, string> {
   return headers;
 }
 
-interface AgentSubscription {
-  controller: AbortController;
-  sender: WebContents;
-  taskId: string;
-}
-
-const agentSubscriptions = new Map<string, AgentSubscription>();
-
-/**
- * Streams one task to one renderer until it is stopped.
- *
- * Every push names its subscription and task, so a renderer that has moved on can drop events
- * still arriving for the screen it left rather than rendering them into the new one.
- */
-function startAgentSubscription(sender: WebContents, taskId: string, after: number): string {
-  // Re-subscribing replaces: two readers on one task would push the same events twice into the
-  // same screen and both would hold a connection open.
-  for (const [id, existing] of agentSubscriptions) {
-    if (existing.sender === sender && existing.taskId === taskId) {
-      stopAgentSubscription(id);
-    }
-  }
-  const subscriptionId = randomUUID();
-  const controller = new AbortController();
-  agentSubscriptions.set(subscriptionId, { controller, sender, taskId });
-
-  const push = (message: AgentStreamPayload): void => {
-    if (sender.isDestroyed() || !agentSubscriptions.has(subscriptionId)) {
-      return;
-    }
-    sender.send('agent:stream:message', { subscriptionId, taskId, ...message });
-  };
-
-  const finish = (): void => {
-    agentSubscriptions.delete(subscriptionId);
-    sender.off('destroyed', finish);
-  };
-  // A closed window must not leave a stream reading forever.
-  sender.once('destroyed', () => {
-    controller.abort();
-    finish();
-  });
-
-  void readAgentStream({
-    after,
-    signal: controller.signal,
-    request: (cursor, signal) => fetch(
-      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/stream`
-        + `?${new URLSearchParams({ after: String(cursor) })}`,
-      { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
-    ),
-    onStatus: (state, detail) => push({ kind: 'state', state, detail }),
-    onEvents: (events) => push({ kind: 'events', events }),
-  }).finally(finish);
-
-  return subscriptionId;
-}
-
-function stopAgentSubscription(subscriptionId: string): void {
-  agentSubscriptions.get(subscriptionId)?.controller.abort();
-  agentSubscriptions.delete(subscriptionId);
-}
-
-/** Nothing may keep reading a backend that is going away. */
-function stopAllAgentSubscriptions(): void {
-  for (const id of [...agentSubscriptions.keys()]) {
-    stopAgentSubscription(id);
-  }
-}
+const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
+  `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/stream`
+    + `?${new URLSearchParams({ after: String(after) })}`,
+  { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
+));
 
 function refreshDashboardInBackground(): void {
   void backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, {
@@ -497,9 +430,9 @@ function registerIpc(): void {
       signal: AbortSignal.timeout(90_000),
     }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number) =>
-    startAgentSubscription(event.sender, taskId, after));
+    agentSubscriptions.start(event.sender, taskId, after));
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
-    stopAgentSubscription(subscriptionId);
+    agentSubscriptions.stop(subscriptionId);
   });
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
@@ -1268,7 +1201,7 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   // Streams read from the backend, so they stop before it does.
-  stopAllAgentSubscriptions();
+  agentSubscriptions.stopAll();
   killBackend();
 });
 app.on('activate', () => {

@@ -126,6 +126,25 @@ describe('readAgentStream', () => {
     expect(result.statuses.map((entry) => entry.status)).toEqual(['connecting', 'open', 'reconnecting']);
   });
 
+  it("ends without reconnecting once the task's own closing event has been delivered", async () => {
+    const lifecycle = events.find((event) => (event as { type: string }).type === 'lifecycle') as Record<string, unknown>;
+    const last = (events[events.length - 1] as { sequence: number }).sequence;
+    const closing: Record<string, unknown> = {
+      ...lifecycle,
+      eventId: '00000000-0000-4000-8000-00000000fffe',
+      sequence: last + 1,
+      turnId: null,
+      payload: { phase: 'TASK_COMPLETED', message: 'Task completed' },
+    };
+
+    const result = await run(async () => streaming([frame(events[events.length - 1]), frame(closing)]), { after: last - 1 });
+
+    // One request, one open, and no reconnect after the clean close that follows the closing event.
+    expect(result.cursors).toEqual([last - 1]);
+    expect(result.statuses.map((entry) => entry.status)).toEqual(['connecting', 'open']);
+    expect(result.delivered.map((event) => event.sequence)).toEqual([last, last + 1]);
+  });
+
   it('reconnects from the last delivered sequence, not from where the request began', async () => {
     let attempt = 0;
     const result = await run(async () => {

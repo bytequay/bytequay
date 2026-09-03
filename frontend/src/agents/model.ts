@@ -260,6 +260,11 @@ export async function startAgentTaskSession(
   const replayed = await bridge.readAgentEvents(taskId, 0);
   if (!isActive()) return noop;
   dispatch({ type: 'events/applied', events: replayed });
+  if (task.state !== 'OPEN') {
+    // The backend would only replay and close; the history just read is everything there is.
+    dispatch({ type: 'connection/changed', state: 'open' });
+    return noop;
+  }
 
   const after = replayed.length === 0 ? 0 : replayed[replayed.length - 1].sequence;
   const stop = await bridge.subscribeAgentTask(taskId, after, (message) => {

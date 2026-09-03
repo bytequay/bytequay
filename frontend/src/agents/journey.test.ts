@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createPreviewBridge, type PreviewCommand } from './preview';
 import {
   agentIdempotencyKey,
@@ -36,6 +36,27 @@ async function open(bridge: ReturnType<typeof createPreviewBridge>, taskId: stri
 function names(commands: PreviewCommand[]): string[] {
   return commands.map((command) => command.name);
 }
+
+describe('a task that has already ended', () => {
+  it('replays its history and never opens a stream', async () => {
+    const bridge = createPreviewBridge('workspace-1');
+    const subscribe = vi.fn(bridge.subscribeAgentTask);
+    const done = {
+      ...bridge,
+      getAgentTask: async (taskId: string, workspaceId: string) => ({ ...await bridge.getAgentTask(taskId, workspaceId), state: 'COMPLETED' }),
+      subscribeAgentTask: subscribe,
+    };
+    let state = initialAgentTaskState();
+    await startAgentTaskSession(done, 'task-1', 'workspace-1', (action: AgentTaskAction) => {
+      state = agentTaskReducer(state, action);
+    });
+
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(state.events.length).toBeGreaterThan(0);
+    // Up to date, and it says so, rather than reconnecting to a stream that only closes again.
+    expect(state.connection).toBe('open');
+  });
+});
 
 describe('preview journey', () => {
   it('replays history then subscribes past the highest replayed sequence', async () => {

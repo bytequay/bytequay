@@ -127,6 +127,9 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
   const retryDelayMs = options.retryDelayMs ?? 1000;
   let cursor = options.after ?? 0;
   let reconnecting = false;
+  // The backend completes a terminal task's stream once its closing event is out; after that a
+  // clean close is the end, not a drop, and reconnecting would only replay the same close forever.
+  let terminal = false;
 
   for (;;) {
     if (options.signal.aborted) {
@@ -172,8 +175,11 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
       for (;;) {
         const { done, value } = await reader.read();
         if (done) {
-          // A stream that ends without an error is a drop, not a completion: the task is still
-          // live and the renderer still wants its events.
+          if (terminal) {
+            return;
+          }
+          // A stream that ends without an error before the task has ended is a drop, not a
+          // completion: the task is still live and the renderer still wants its events.
           dropped = true;
           break;
         }
@@ -184,6 +190,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
             continue;
           }
           cursor = events[events.length - 1].sequence;
+          terminal ||= events.some(isTaskTerminalEvent);
           options.onEvents(events);
         }
       }
@@ -209,6 +216,13 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
       await sleep(retryDelayMs);
     }
   }
+}
+
+/** The task's own closing event: a lifecycle event outside any turn that says the task ended. */
+export function isTaskTerminalEvent(event: AgentEventEnvelope): boolean {
+  return event.type === 'lifecycle'
+    && event.turnId === null
+    && (event.payload.phase === 'TASK_COMPLETED' || event.payload.phase === 'TASK_FAILED');
 }
 
 /**

@@ -757,11 +757,25 @@ public final class CodexCliDriver
             }
         }
 
+        /**
+         * A message, reasoning, or plan item is model output. The App Server leaves one open when
+         * a turn is interrupted mid-token, and it cannot have written anything, so waiting for it
+         * would fail a cancelled turn over a writer that never existed.
+         */
+        private static boolean canTouchWorktree(CodexProtocol.ThreadItem item)
+        {
+            return !(item instanceof CodexProtocol.AgentMessageItem
+                    || item instanceof CodexProtocol.ModelOutputItem);
+        }
+
         /** Records what this process has shown us, so quiescence can be answered from it. */
         private void observe(CodexProtocol.Notification notification)
         {
             observedThreads.add(notification.threadId());
             if (notification instanceof CodexProtocol.ItemStartedNotification started) {
+                if (!canTouchWorktree(started.params().item())) {
+                    return;
+                }
                 liveItems
                         .computeIfAbsent(started.threadId(), thread -> ConcurrentHashMap.newKeySet())
                         .add(started.params().item().id());

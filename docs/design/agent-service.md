@@ -1233,7 +1233,10 @@ public interface RunningTurn
      * full reachable descendant set, every discovered descendant is terminal,
      * every observed command, tool, file-change, hook, terminal, and background
      * item is terminal, and every root/child background-terminal listing is
-     * empty. This is the strongest per-turn quiescence fact in the running App
+     * empty. Message, reasoning, and plan items are model output: one the App
+     * Server leaves open when a turn is interrupted mid-token cannot have
+     * written anything and does not hold the turn.
+     * This is the strongest per-turn quiescence fact in the running App
      * Server contract; it is not represented as OS-level ownership of each
      * internal App Server command.
      * The stage completes normally; provider or transport failure is an

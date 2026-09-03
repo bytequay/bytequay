@@ -42,10 +42,13 @@ class TestCodexProtocolReferenceBindings
 {
     private static final String REFERENCE_BINDINGS =
             "/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json";
+    // ModelOutputItem names several ThreadItem variants only to tell them from an unknown one; it
+    // decodes nothing but the id every variant carries, so there is no projection to pin it to.
     private static final ImmutableSet<String> UNBOUND_RECORDS = ImmutableSet.of(
             "UnknownNotification",
             "UnknownParams",
             "UnknownThreadItem",
+            "ModelOutputItem",
             "UnknownServerRequest",
             "EmptyParams",
             "EmptyResponse");

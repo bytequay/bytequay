@@ -739,6 +739,26 @@ class TestCodexCliDriver
     }
 
     @Test
+    void cancelsATurnWhoseStreamingMessageAndReasoningWereLeftOpen()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(500));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("stop me"));
+        supervisor.server().emitOpenModelOutput("msg-open", "agentMessage");
+        supervisor.server().emitOpenModelOutput("reasoning-open", "reasoning");
+
+        turn.cancel();
+
+        // The interrupt lands mid-token, so the App Server never completes the message or the
+        // reasoning it was streaming. Neither can write a file, so nothing is left to wait for.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+        session.close();
+    }
+
+    @Test
     void failsATurnWhoseProcessCannotBeShownStopped()
             throws Exception
     {
@@ -1419,6 +1439,14 @@ class TestCodexCliDriver
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"" + threadId + "\","
                     + "\"turn\":{\"id\":\"subagent-turn\",\"status\":\"completed\","
                     + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
+        }
+
+        /** Starts model output and never completes it, the way an interrupt mid-token leaves it. */
+        private void emitOpenModelOutput(String itemId, String type)
+        {
+            emit("{\"method\":\"item/started\",\"params\":{\"item\":{"
+                    + "\"type\":\"" + type + "\",\"id\":\"" + itemId + "\",\"text\":\"\"},"
+                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
         }
 
         /** Starts an item and never reports it terminal, the way a cancelled turn leaves one. */

@@ -162,6 +162,7 @@ final class CodexEventMapper
                     started,
                     source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
+            case CodexProtocol.ModelOutputItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };
     }

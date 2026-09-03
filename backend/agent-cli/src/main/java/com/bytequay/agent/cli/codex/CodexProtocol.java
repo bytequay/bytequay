@@ -319,10 +319,18 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "dynamicToolCall", value = DynamicToolCallItem.class),
             @JsonSubTypes.Type(name = "collabAgentToolCall", value = CollabAgentToolCallItem.class),
             @JsonSubTypes.Type(name = "subAgentActivity", value = SubAgentActivityItem.class),
+            @JsonSubTypes.Type(name = "reasoning", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "plan", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "userMessage", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "functionCallOutput", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "enteredReviewMode", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "exitedReviewMode", value = ModelOutputItem.class),
+            @JsonSubTypes.Type(name = "contextCompaction", value = ModelOutputItem.class),
     })
     sealed interface ThreadItem
             permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
-            DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, UnknownThreadItem
+            DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, ModelOutputItem,
+            UnknownThreadItem
     {
         String id();
 
@@ -503,6 +511,20 @@ final class CodexProtocol
             checkIdentifier(agentThreadId, "agentThreadId");
             checkIdentifier(agentPath, "agentPath");
             requireNonNull(kind, "kind is null");
+        }
+    }
+
+    /**
+     * An item that is model output or a record of it: reasoning, a plan update, the user's own
+     * message, a tool's returned output, a review-mode marker, or a context compaction. Nothing
+     * of this kind runs a process or changes a file, so one left open holds nothing.
+     */
+    record ModelOutputItem(String id)
+            implements ThreadItem
+    {
+        ModelOutputItem
+        {
+            checkIdentifier(id, "id");
         }
     }
 

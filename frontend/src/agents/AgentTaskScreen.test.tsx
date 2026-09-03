@@ -132,6 +132,11 @@ describe('agent task layout', () => {
     expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
   });
 
+  it('opens the composer menus upward, away from the window edge the composer sits on', () => {
+    expect(declarations('.agt-compose .sets-menu')).toContain('top: auto');
+    expect(declarations('.agt-compose .sets-menu')).toContain('bottom: calc(100% + 6px)');
+  });
+
   it('scrolls the transcript rather than the screen, so the composer stays reachable', () => {
     // A long transcript must move under a fixed header and composer, not push them off-screen.
     expect(declarations('.agt-screen')).toContain('height: 100%');

@@ -438,6 +438,12 @@
   color: #24292f;
 }
 
+/* The composer sits at the bottom of the window, so its menu opens upward or it would be cut off. */
+.agt-compose .sets-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .agt-bolt {
   color: #d4a72c;
   font-size: 12px;

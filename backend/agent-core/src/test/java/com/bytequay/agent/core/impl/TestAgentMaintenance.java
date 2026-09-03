@@ -15,6 +15,8 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentEventOutboxPayload;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -39,6 +41,8 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -52,6 +56,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentMaintenance
@@ -115,6 +120,124 @@ class TestAgentMaintenance
         assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.RUNNING);
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
                 .contains(WorktreeMutationClaim.turn(running.id(), running.createdAt()));
+    }
+
+    @Test
+    void interruptsARestartedTurnAndReleasesItsWorktreeWhenItsProcessVerifiedStopped()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        AgentTurn running = runningTurn(taskId);
+        stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(running.id(), running.createdAt()), NOW));
+        stores.insert(running);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of("launch-1"), true);
+
+        // The transport is gone either way; a verified stop is what makes the worktree safe again.
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(interruptionMessages(stores)).singleElement().asString().contains("verified stopped");
+    }
+
+    @Test
+    void interruptsARestartedTurnAndReservesItsWorktreeWhenItsProcessIsUnverifiable()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        AgentTurn running = runningTurn(taskId);
+        stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(running.id(), running.createdAt()), NOW));
+        stores.insert(running);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-1"), ImmutableSet.of(), true);
+
+        // The launch, not the finished turn, is what now blocks, so a later verification of that
+        // launch is what can release it.
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
+                .hasValueSatisfying(claim -> {
+                    assertThat(claim.kind()).isEqualTo(WorktreeMutationClaim.Kind.RECOVERY);
+                    assertThat(claim.ownerId()).isEqualTo("launch-1");
+                });
+        assertThat(interruptionMessages(stores)).singleElement().asString().contains("could not be verified stopped");
+    }
+
+    @Test
+    void swapsARetainedTurnClaimForTheUnverifiableLaunchThatStillBlocks()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        AgentTurn terminal = runningTurn(taskId)
+                .finish(TurnState.FAILED, TurnMetrics.empty(), Optional.of("not shown stopped"), NOW.plusSeconds(2));
+        stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(terminal.id(), terminal.createdAt()), NOW));
+        stores.insert(terminal);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-1"), ImmutableSet.of(), true);
+
+        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.recovery("launch-1", NOW.plusSeconds(10)));
+    }
+
+    @Test
+    void releasesARecoveryClaimOnceItsLaunchVerifiesStopped()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId released = TaskId.random();
+        TaskId stillBlocked = TaskId.random();
+        stores.insert(managedTask(released).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
+        stores.insert(managedTask(stillBlocked).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-2", NOW), NOW));
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of("launch-1"), true);
+
+        assertThat(stores.find(released).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.find(stillBlocked).orElseThrow().worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.recovery("launch-2", NOW));
+    }
+
+    @Test
+    void leavesOtherRestartedTurnsAloneWhileAProcessRemainsUnattributed()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId blocked = TaskId.random();
+        TaskId unknown = TaskId.random();
+        AgentTurn blockedTurn = runningTurn(blocked);
+        AgentTurn unknownTurn = runningTurn(unknown);
+        stores.insert(managedTask(blocked).claimWorktreeMutation(WorktreeMutationClaim.turn(blockedTurn.id(), blockedTurn.createdAt()), NOW));
+        stores.insert(managedTask(unknown).claimWorktreeMutation(WorktreeMutationClaim.turn(unknownTurn.id(), unknownTurn.createdAt()), NOW));
+        stores.insert(blockedTurn);
+        stores.insert(unknownTurn);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(ImmutableMap.of(blocked, "launch-1"), ImmutableSet.of(), false);
+
+        // The stray process could belong to the task nobody could pin it to, so only the task with
+        // its own verdict is settled.
+        assertThat(stores.find(blockedTurn.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.find(unknownTurn.id()).orElseThrow().state()).isEqualTo(TurnState.RUNNING);
+        assertThat(stores.find(unknown).orElseThrow().worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.turn(unknownTurn.id(), unknownTurn.createdAt()));
+    }
+
+    private static AgentTurn runningTurn(TaskId taskId)
+    {
+        return AgentTurn.accepted(TurnId.random(), taskId, "delivered", turnSettings(), NOW)
+                .markDeliveryStarted(NOW.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
+    }
+
+    private static List<String> interruptionMessages(InMemoryAgentStores stores)
+    {
+        return stores.outboxEntries().stream()
+                .map(entry -> entry.payload())
+                .filter(payload -> payload instanceof AgentEventOutboxPayload.Inline)
+                .map(payload -> ((AgentEventOutboxPayload.Inline) payload).payload())
+                .filter(payload -> payload instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.INTERRUPTED)
+                .map(payload -> ((AgentEventPayload.Lifecycle) payload).message())
+                .collect(toImmutableList());
     }
 
     @Test

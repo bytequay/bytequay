@@ -18,8 +18,10 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -32,7 +34,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -42,6 +46,10 @@ import static java.util.Objects.requireNonNull;
 public final class AgentMaintenance
 {
     private static final String INTERRUPTION_REASON = "Backend restarted while the turn was active";
+    private static final String VERIFIED_STOP_REASON =
+            INTERRUPTION_REASON + "; its provider process is verified stopped";
+    private static final String UNVERIFIED_STOP_REASON =
+            INTERRUPTION_REASON + "; a process it started could not be verified stopped, so the worktree stays reserved";
     private static final Duration CLEANUP_RETRY_DELAY = Duration.ofMinutes(1);
 
     private final AgentTaskStore taskStore;
@@ -139,6 +147,107 @@ public final class AgentMaintenance
                     failLegacyTask(current);
                 }
             }
+        });
+    }
+
+    /**
+     * Settles provider ownership once the previous backend's processes have been classified.
+     *
+     * <p>A turn that was mid-flight at the crash has no transport any more, so it is interrupted
+     * either way; what the process verdict decides is the worktree. A task whose launch could not
+     * be verified stopped swaps its claim for a {@code RECOVERY} claim keyed by that launch, so
+     * nothing may touch the worktree until a later startup verifies the launch, and that later
+     * verification is what releases the claim here. Every other task's turn is released, because
+     * its own process was verified stopped or was never launched.
+     *
+     * @param unverifiableLaunches the launch that could not be verified stopped, by the task it names
+     * @param verifiedLaunches launches now verified stopped or known never launched
+     * @param everyProcessAttributed false when some unverifiable process names no task, in which
+     * case no turn outside {@code unverifiableLaunches} may be treated as stopped, because the
+     * stray process could be its own
+     */
+    public void settleAfterProcessRecovery(
+            Map<TaskId, String> unverifiableLaunches,
+            Set<String> verifiedLaunches,
+            boolean everyProcessAttributed)
+    {
+        requireNonNull(unverifiableLaunches, "unverifiableLaunches is null");
+        requireNonNull(verifiedLaunches, "verifiedLaunches is null");
+        unverifiableLaunches.forEach((taskId, launchId) -> settleTask(taskId, Optional.of(launchId), verifiedLaunches));
+        if (!everyProcessAttributed) {
+            return;
+        }
+        taskStore.listLive().stream()
+                .map(AgentTask::id)
+                .filter(taskId -> !unverifiableLaunches.containsKey(taskId))
+                .forEach(taskId -> settleTask(taskId, Optional.empty(), verifiedLaunches));
+    }
+
+    private void settleTask(TaskId taskId, Optional<String> unverifiableLaunch, Set<String> verifiedLaunches)
+    {
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            Optional<AgentTask> found = taskStore.find(taskId).filter(task -> !task.state().terminal());
+            if (found.isEmpty()) {
+                return;
+            }
+            AgentTask task = found.orElseThrow();
+            Optional<AgentTurn> active = turnStore.findActive(taskId);
+            if (active.isPresent()) {
+                interruptRestartedTurn(task, active.orElseThrow(), unverifiableLaunch);
+                return;
+            }
+            Instant now = Instant.now(clock);
+            Optional<WorktreeMutationClaim> claim = task.worktreeMutationClaim();
+            if (unverifiableLaunch.isPresent()) {
+                WorktreeMutationClaim recovery = WorktreeMutationClaim.recovery(unverifiableLaunch.orElseThrow(), now);
+                if (claim.isEmpty()) {
+                    taskStore.update(task.claimWorktreeMutation(recovery, now));
+                }
+                else if (claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.TURN) {
+                    // The turn ended without proving its process quiet, and now that process is
+                    // gone unverified: the launch, not the finished turn, is what still blocks.
+                    taskStore.update(task.releaseWorktreeMutation(claim.orElseThrow(), now).claimWorktreeMutation(recovery, now));
+                }
+                return;
+            }
+            if (claim.isPresent()
+                    && claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.RECOVERY
+                    && verifiedLaunches.contains(claim.orElseThrow().ownerId())) {
+                taskStore.update(task.releaseWorktreeMutation(claim.orElseThrow(), now));
+            }
+        }
+    }
+
+    private void interruptRestartedTurn(AgentTask task, AgentTurn turn, Optional<String> unverifiableLaunch)
+    {
+        WorktreeMutationClaim claim = WorktreeMutationClaim.turn(turn.id(), turn.createdAt());
+        String reason = unverifiableLaunch.isPresent() ? UNVERIFIED_STOP_REASON : VERIFIED_STOP_REASON;
+        EventId eventId = EventId.random();
+        unitOfWork.execute(() -> {
+            TurnMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED);
+            Instant interruptedAt = Instant.now(clock);
+            AgentTask current = taskStore.find(task.id()).orElseThrow();
+            turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(
+                    TurnState.INTERRUPTED,
+                    metrics,
+                    Optional.of(reason),
+                    interruptedAt));
+            AgentTask released = current.worktreeMutationClaim().equals(Optional.of(claim))
+                    ? current.releaseWorktreeMutation(claim, interruptedAt)
+                    : current;
+            taskStore.update(unverifiableLaunch
+                    .map(launchId -> released.claimWorktreeMutation(
+                            WorktreeMutationClaim.recovery(launchId, interruptedAt),
+                            interruptedAt))
+                    .orElse(released));
+            outboxStore.insert(pendingLifecycle(
+                    eventId,
+                    task.id(),
+                    Optional.of(turn.id()),
+                    AgentEventPayload.LifecyclePhase.INTERRUPTED,
+                    reason,
+                    interruptedAt));
+            return null;
         });
     }
 

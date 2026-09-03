@@ -21,18 +21,17 @@ import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Component;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -56,7 +55,6 @@ public final class AgentStartupRecovery
     private final AgentServingGate servingGate;
     private final AgentProcessLaunchStore launchStore;
     private final AgentTaskStore taskStore;
-    private final Clock clock;
 
     public AgentStartupRecovery(
             AgentEventOutboxStore outboxStore,
@@ -65,8 +63,7 @@ public final class AgentStartupRecovery
             ProcessSupervisor supervisor,
             AgentServingGate servingGate,
             AgentProcessLaunchStore launchStore,
-            AgentTaskStore taskStore,
-            Clock clock)
+            AgentTaskStore taskStore)
     {
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -75,7 +72,6 @@ public final class AgentStartupRecovery
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
         this.launchStore = requireNonNull(launchStore, "launchStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
@@ -85,7 +81,11 @@ public final class AgentStartupRecovery
             drainPendingEvents();
             maintenance.recover();
             drainPendingEvents();
-            if (!recoverOwnedProcesses()) {
+            boolean attributable = recoverOwnedProcesses();
+            // Settling a restarted turn records its interruption, which must reach the log before
+            // anything can be served.
+            drainPendingEvents();
+            if (!attributable) {
                 log.error("Agent operations remain unavailable: an owned provider process could not be "
                         + "verified stopped, so a worktree may still have a live writer");
                 return;
@@ -108,7 +108,9 @@ public final class AgentStartupRecovery
      *
      * <p>Classification runs before any write. A task can leak more than one launch and can hold
      * only one claim, so deciding per launch as it is read would release a block that another
-     * launch still needs.
+     * launch still needs. Once every launch is classified, the turns that were mid-flight at the
+     * crash are settled by that verdict: a verified stop releases the turn's worktree, an
+     * unverifiable one reserves it until a later startup can verify it.
      *
      * @return true when nothing unattributable was left running
      */
@@ -142,7 +144,10 @@ public final class AgentStartupRecovery
             blockedTasks.putIfAbsent(owner.orElseThrow(), recovery.launchId());
         }
 
-        blockedTasks.forEach(this::holdRecoveryClaim);
+        maintenance.settleAfterProcessRecovery(
+                ImmutableMap.copyOf(blockedTasks),
+                ImmutableSet.copyOf(resolved),
+                attributable);
         resolved.forEach(supervisor::acknowledge);
         return attributable;
     }
@@ -185,18 +190,6 @@ public final class AgentStartupRecovery
         return taskStore.find(taskId)
                 .filter(task -> !task.state().terminal())
                 .map(AgentTask::id);
-    }
-
-    private void holdRecoveryClaim(TaskId taskId, String launchId)
-    {
-        AgentTask task = taskStore.find(taskId).orElseThrow();
-        if (task.worktreeMutationClaim().isPresent()) {
-            // Already blocked by a turn or completion that did not finish; one claim is enough.
-            return;
-        }
-        taskStore.update(task.claimWorktreeMutation(
-                WorktreeMutationClaim.recovery(launchId, Instant.now(clock)),
-                Instant.now(clock)));
     }
 
     private void drainPendingEvents()

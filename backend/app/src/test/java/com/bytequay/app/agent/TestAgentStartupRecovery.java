@@ -47,7 +47,6 @@ import org.mockito.InOrder;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,7 +81,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
@@ -111,7 +110,7 @@ class TestAgentStartupRecovery
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -133,7 +132,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -155,7 +154,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         // An old process may still be writing to a worktree, so no agent operation may be served.
@@ -181,7 +180,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         // The launch names one task, so only that task's worktree is held and every other task can
@@ -195,6 +194,59 @@ class TestAgentStartupRecovery
         // The marker is kept for inspection, so the block survives another restart.
         verify(supervisor).acknowledge("clean");
         verify(supervisor, never()).acknowledge("leaked");
+    }
+
+    @Test
+    void settlesRestartedTurnsOnlyAfterEveryLaunchIsClassified()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        AgentTask task = openTask(taskId);
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(task));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale")));
+
+        new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore)
+                .afterSingletonsInstantiated();
+
+        // A turn that was mid-flight is judged by the process verdict, so it can only be looked at
+        // once every launch has one.
+        InOrder order = inOrder(supervisor, turnStore);
+        order.verify(supervisor).recoverOwnedProcesses();
+        order.verify(turnStore).findActive(taskId);
+        verify(supervisor).acknowledge("stale");
+        assertThat(servingGate.isReady()).isTrue();
+    }
+
+    @Test
+    void leavesRestartedTurnsUntouchedWhenAProcessCannotBeAttributed()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(openTask(taskId)));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("orphan")));
+
+        new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore)
+                .afterSingletonsInstantiated();
+
+        // The stray process could be this task's own, so its turn must not be treated as stopped.
+        verify(turnStore, never()).findActive(any());
+        verify(taskStore, never()).update(any());
+        assertThat(servingGate.isReady()).isFalse();
     }
 
     @Test
@@ -214,7 +266,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, FIXED_CLOCK)
+                launchStore(), taskStore)
                 .afterSingletonsInstantiated();
 
         // Nothing can be pinned to a worktree, so something may still be writing somewhere nobody
@@ -236,8 +288,6 @@ class TestAgentStartupRecovery
                 AgentPermissionPolicy.AUTO,
                 Instant.parse("2026-09-01T00:00:00Z"));
     }
-
-    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-09-02T00:00:00Z"), ZoneOffset.UTC);
 
     private static AgentProcessLaunchStore launchStore(AgentProcessLaunch... rows)
     {

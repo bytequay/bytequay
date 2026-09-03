@@ -116,6 +116,12 @@ describe('watched repository workspace UI', () => {
     const development = renderToStaticMarkup(<WorkspaceShell {...props} developmentBuild />);
     expect(development).toContain('Agent tasks');
     expect(development).toContain('Describe a task');
+    // Every agent screen carries the overview control.
+    expect(development).toContain('aria-label="Show all tasks"');
+    // Home becomes the design's hero in a development build, and stays the product's home otherwise.
+    expect(renderToStaticMarkup(<WorkspaceShell {...props} tab="home" developmentBuild />))
+      .toContain('What should the agent do in');
+    expect(renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />)).toContain('What should we do?');
     // A packaged build must not ship a fixture-backed preview.
     expect(renderToStaticMarkup(<WorkspaceShell {...props} />)).not.toContain('Agent tasks');
 

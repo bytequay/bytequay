@@ -439,7 +439,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent }: {
   turn: TranscriptTurn;
   first: boolean;
   open: boolean;

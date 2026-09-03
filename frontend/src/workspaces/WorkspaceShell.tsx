@@ -11,9 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import AgentHome from '../agents/AgentHome';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView from '../agents/AgentTasksView';
+import TaskOverview from '../agents/TaskOverview';
 import Avatar from '../Avatar';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
@@ -53,6 +55,45 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
   const [initialPullsTab, setInitialPullsTab] = useState<PullTab | null>(null);
+  // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const agentScreens = developmentBuild && (tab === 'home' || tab === 'tasks');
+  useEffect(() => {
+    if (!agentScreens) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.code === 'Backslash' && event.shiftKey && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setOverviewOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [agentScreens]);
+  useEffect(() => { if (!agentScreens) setOverviewOpen(false); }, [agentScreens]);
+  const stage = (content: React.ReactNode) => (
+    <div className="agt-stage">
+      {content}
+      <button
+        type="button"
+        className="agt-headbtn agt-overview-toggle"
+        aria-pressed={overviewOpen}
+        aria-label="Show all tasks"
+        title={'Show all tasks (⇧⌘\\)'}
+        onClick={() => setOverviewOpen((open) => !open)}
+      >
+        ⧉
+      </button>
+      {overviewOpen && (
+        <TaskOverview
+          workspaceId={workspace.id}
+          activeTaskId={initialAgentTaskId}
+          onOpenTask={(taskId) => { setOverviewOpen(false); onSelectAgentTask(taskId, 'push'); }}
+          onNewTask={() => { setOverviewOpen(false); onSelectTab('tasks'); }}
+          onDismiss={() => setOverviewOpen(false)}
+        />
+      )}
+    </div>
+  );
   const selectScopedPullRequest = useCallback((reference: { number: number }, mode: NavigationMode) => {
     onSelectPullRequest(reference.number, mode);
   }, [onSelectPullRequest]);
@@ -124,14 +165,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       // Keyed by task: moving between two open tasks must not carry one task's transcript and
       // sequence cursor into the other, which would drop the second task's early events as
       // duplicates.
-      return (
+      return stage(
         <AgentTaskScreen
           key={initialAgentTaskId}
           workspaceId={workspace.id}
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
           onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
-        />
+        />,
       );
     }
     const cherryPicks = (
@@ -151,7 +192,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     );
     if (developmentBuild) {
       // The agent view owns the page: its composer stays anchored under both task sections.
-      return (
+      return stage(
         <AgentTasksView
           workspaceId={workspace.id}
           branch={workspace.defaultBranch}
@@ -159,7 +200,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           onOpenSettings={() => onSelectTab('settings')}
         >
           {cherryPicks}
-        </AgentTasksView>
+        </AgentTasksView>,
       );
     }
     return <div className="ws-tab-page">{cherryPicks}</div>;
@@ -171,6 +212,19 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         onWorkspaceChanged={onWorkspaceChanged}
         onRemoved={onRemoved}
       />
+    );
+  }
+  if (developmentBuild) {
+    // The design's Home: the question, three starting points, the open tasks as windows.
+    return stage(
+      <AgentHome
+        workspaceId={workspace.id}
+        repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+        branch={workspace.defaultBranch}
+        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+        onOpenSettings={() => onSelectTab('settings')}
+        onShowAll={() => setOverviewOpen(true)}
+      />,
     );
   }
   return (

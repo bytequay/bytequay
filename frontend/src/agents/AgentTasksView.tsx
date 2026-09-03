@@ -96,17 +96,16 @@ export function creationBlocker(
   return null;
 }
 
-export default function AgentTasksView({
-  workspaceId,
-  branch,
-  children,
-  bridge: explicitBridge,
-  onOpenTask,
-  onOpenSettings,
-  laneId = INTERACTIVE_LANE_ID,
-}: AgentTasksViewProps): React.JSX.Element {
-  // Resolved when used, not when rendered: a static render has no window to reach.
-  const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
+/**
+ * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
+ * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
+ */
+export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }: {
+  workspaceId: string;
+  laneId: string;
+  bridge: () => AgentBridgePort;
+  onOpenTask: (taskId: string) => void;
+}) {
   const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +116,7 @@ export default function AgentTasksView({
   useEffect(() => {
     let active = true;
     setLoading(true);
-    live().listAgentTasks(workspaceId)
+    bridge().listAgentTasks(workspaceId)
       .then((found) => {
         if (!active) return;
         setTasks(found);
@@ -131,11 +130,11 @@ export default function AgentTasksView({
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [live, workspaceId]);
+  }, [bridge, workspaceId]);
 
   useEffect(() => {
     let active = true;
-    live().getModelSettings()
+    bridge().getModelSettings()
       .then((settings) => {
         if (!active) return;
         setCatalog(settings);
@@ -150,7 +149,7 @@ export default function AgentTasksView({
       })
       .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
     return () => { active = false; };
-  }, [live, laneId]);
+  }, [bridge, laneId]);
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
@@ -160,7 +159,7 @@ export default function AgentTasksView({
     const message = draft.trim();
     if (selection === null || blocker !== null || message === '') return;
     try {
-      const task = await live().createAgentTask({
+      const task = await bridge().createAgentTask({
         workspaceId,
         message,
         laneId,
@@ -168,7 +167,7 @@ export default function AgentTasksView({
       });
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       // The message that created the task is also its first turn; the task screen shows it arrive.
-      await live().startAgentTurn({ taskId: task.id, message, idempotencyKey: agentIdempotencyKey(task.id, 0) });
+      await bridge().startAgentTurn({ taskId: task.id, message, idempotencyKey: agentIdempotencyKey(task.id, 0) });
       setDraft('');
       onOpenTask(task.id);
     }
@@ -176,22 +175,37 @@ export default function AgentTasksView({
       // Creation is gated on a fresh readiness probe, so this is the probe saying no.
       setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
     }
-  }, [blocker, draft, laneId, live, onOpenTask, selection, workspaceId]);
+  }, [blocker, bridge, draft, laneId, onOpenTask, selection, workspaceId]);
 
+  return { tasks, loading, error, models, selection, setSelection, draft, setDraft, blocker, create };
+}
+
+export default function AgentTasksView({
+  workspaceId,
+  branch,
+  children,
+  bridge: explicitBridge,
+  onOpenTask,
+  onOpenSettings,
+  laneId = INTERACTIVE_LANE_ID,
+}: AgentTasksViewProps): React.JSX.Element {
+  // Resolved when used, not when rendered: a static render has no window to reach.
+  const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
+  const creation = useAgentTaskCreation({ workspaceId, laneId, bridge: live, onOpenTask });
   return (
     <AgentTaskList
-      tasks={tasks}
-      loading={loading}
-      error={error}
+      tasks={creation.tasks}
+      loading={creation.loading}
+      error={creation.error}
       laneId={laneId}
-      models={models}
-      selection={selection}
-      draft={draft}
-      blocker={blocker}
+      models={creation.models}
+      selection={creation.selection}
+      draft={creation.draft}
+      blocker={creation.blocker}
       branch={branch}
-      onDraftChange={setDraft}
-      onSelectModel={(model, effort) => setSelection({ model, effort })}
-      onCreate={() => { void create(); }}
+      onDraftChange={creation.setDraft}
+      onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
+      onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
     >
@@ -200,7 +214,96 @@ export default function AgentTasksView({
   );
 }
 
-/** The list as a function of what was loaded, so empty, loading, error and populated all render. */
+/** The card that creates a task: the first message above the branch, provider, permission and model facts. */
+export function TaskComposer({
+  draft, blocker, branch, laneId, models, selection, onDraftChange, onSelectModel, onCreate, onOpenSettings,
+}: {
+  draft: string;
+  blocker: string | null;
+  branch?: string;
+  laneId: string;
+  models: ModelOptionDto[];
+  selection: { model: string; effort: string | null } | null;
+  onDraftChange: (draft: string) => void;
+  onSelectModel: (model: string, effort: string | null) => void;
+  onCreate: () => void;
+  onOpenSettings?: () => void;
+}): React.JSX.Element {
+  const chosen = models.find((model) => model.id === selection?.model);
+  return (
+    <div className="agt-compose-dock">
+      {blocker !== null && (
+        <div className="agt-compose-blocker" role="status">
+          {blocker}
+          {onOpenSettings !== undefined && (
+            <>
+              {' '}
+              <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
+            </>
+          )}
+        </div>
+      )}
+      <div className="agt-compose">
+        {branch !== undefined && (
+          <div className="agt-compose__bar">
+            <span className="agt-chip" title="Branch the task starts from">
+              <span aria-hidden="true">⑂ </span>{branch}
+            </span>
+          </div>
+        )}
+        <input
+          className="agt-compose__input"
+          type="text"
+          aria-label="Describe a task"
+          placeholder="Describe a task — sending the first message creates it…"
+          value={draft}
+          disabled={blocker !== null}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') onCreate(); }}
+        />
+        <div className="agt-compose__row">
+          <button type="button" className="agt-attach" aria-label="Attach an image" title="Create the task first, then attach images" disabled>+</button>
+          {/* Codex is the only lane until Claude parity lands, so this cannot open a menu yet. */}
+          <button
+            type="button"
+            className="agt-compose__chip agt-fake"
+            data-fake="CP11 · provider choice"
+            title={`${laneLabel(laneId)} is the only provider until Claude parity lands`}
+            disabled
+          >
+            {laneLabel(laneId)} <span className="agt-caret" aria-hidden="true">⌄</span>
+          </button>
+          <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
+          <span className="agt-spacer" />
+          <span className="agt-compose__model">
+            <span className="agt-bolt" aria-hidden="true">⚡</span>
+            <ModelChip
+              ariaLabel="Model and effort for the new task"
+              label={chosen?.name ?? 'No model'}
+              detail={selection?.effort ?? undefined}
+              disabled={models.length === 0}
+              models={models}
+              selectedModel={selection?.model ?? ''}
+              selectedEffort={selection?.effort ?? undefined}
+              onSelect={onSelectModel}
+            />
+          </span>
+          <button
+            type="button"
+            className="agt-send"
+            aria-label="Send — creates the task"
+            title="Sends the first message, which creates the task"
+            onClick={onCreate}
+            disabled={blocker !== null || draft.trim() === ''}
+          >
+            ↑
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AgentTaskList({
   tasks, loading, error, laneId, models, selection, draft, blocker, branch, children,
   onDraftChange, onSelectModel, onCreate, onOpenTask, onOpenSettings,
@@ -224,7 +327,6 @@ export function AgentTaskList({
   onOpenSettings?: () => void;
 }): React.JSX.Element {
   const openCount = tasks.filter((task) => task.state === 'OPEN').length;
-  const chosen = models.find((model) => model.id === selection?.model);
   const now = Date.now();
   return (
     <div className="agt-tasks-page">
@@ -277,76 +379,18 @@ export function AgentTaskList({
       </div>
 
       {/* Anchored under the list: sending this first message is what creates a task. */}
-      <div className="agt-compose-dock">
-        {blocker !== null && (
-          <div className="agt-compose-blocker" role="status">
-            {blocker}
-            {onOpenSettings !== undefined && (
-              <>
-                {' '}
-                <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
-              </>
-            )}
-          </div>
-        )}
-        <div className="agt-compose">
-          {branch !== undefined && (
-            <div className="agt-compose__bar">
-              <span className="agt-chip" title="Branch the task starts from">
-                <span aria-hidden="true">⑂ </span>{branch}
-              </span>
-            </div>
-          )}
-          <input
-            className="agt-compose__input"
-            type="text"
-            aria-label="Describe a task"
-            placeholder="Describe a task — sending the first message creates it…"
-            value={draft}
-            disabled={blocker !== null}
-            onChange={(event) => onDraftChange(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') onCreate(); }}
-          />
-          <div className="agt-compose__row">
-            <button type="button" className="agt-attach" aria-label="Attach an image" title="Create the task first, then attach images" disabled>+</button>
-            {/* Codex is the only lane until Claude parity lands, so this cannot open a menu yet. */}
-            <button
-              type="button"
-              className="agt-compose__chip agt-fake"
-              data-fake="CP11 · provider choice"
-              title={`${laneLabel(laneId)} is the only provider until Claude parity lands`}
-              disabled
-            >
-              {laneLabel(laneId)} <span className="agt-caret" aria-hidden="true">⌄</span>
-            </button>
-            <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
-            <span className="agt-spacer" />
-            <span className="agt-compose__model">
-              <span className="agt-bolt" aria-hidden="true">⚡</span>
-              <ModelChip
-                ariaLabel="Model and effort for the new task"
-                label={chosen?.name ?? 'No model'}
-                detail={selection?.effort ?? undefined}
-                disabled={models.length === 0}
-                models={models}
-                selectedModel={selection?.model ?? ''}
-                selectedEffort={selection?.effort ?? undefined}
-                onSelect={onSelectModel}
-              />
-            </span>
-            <button
-              type="button"
-              className="agt-send"
-              aria-label="Send — creates the task"
-              title="Sends the first message, which creates the task"
-              onClick={onCreate}
-              disabled={blocker !== null || draft.trim() === ''}
-            >
-              ↑
-            </button>
-          </div>
-        </div>
-      </div>
+      <TaskComposer
+        draft={draft}
+        blocker={blocker}
+        branch={branch}
+        laneId={laneId}
+        models={models}
+        selection={selection}
+        onDraftChange={onDraftChange}
+        onSelectModel={onSelectModel}
+        onCreate={onCreate}
+        onOpenSettings={onOpenSettings}
+      />
     </div>
   );
 }

@@ -1515,3 +1515,327 @@
   line-height: 1.55;
   margin-top: 5px;
 }
+
+/* The Home hero, and the open tasks as windows beneath it. */
+.agt-hero {
+  max-width: 640px;
+  margin: 44px auto 0;
+  text-align: center;
+}
+
+.agt-hero__mark {
+  font-size: 26px;
+  color: #8c959f;
+}
+
+.agt-hero h1 {
+  margin: 12px 0 0;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.agt-suggestions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.agt-suggestion {
+  width: 190px;
+  text-align: left;
+  border: 1px solid #e3e3e6;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 12px 14px;
+  white-space: normal;
+}
+
+.agt-suggestion:hover {
+  border-color: #b6b6bc;
+}
+
+.agt-suggestion__icon {
+  font-size: 13px;
+}
+
+.agt-suggestion__text {
+  font-size: 12.5px;
+  margin-top: 6px;
+  line-height: 1.35;
+}
+
+.agt-open-tasks {
+  text-align: left;
+  margin-top: 34px;
+}
+
+.agt-open-tasks__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: #0969da;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agt-kbd {
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 10px;
+  color: #57606a;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+
+.agt-windows {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+/*
+ * A task window: the 760px task screen scaled to the card's width. The width arrives as a
+ * unitless custom property so one rule gives the thumbnail its height and the screen its scale.
+ */
+.agt-card {
+  position: relative;
+  flex: none;
+  width: calc(var(--card-w) * 1px);
+  color: #1f2328;
+}
+
+.agt-card__open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agt-card__thumb {
+  position: relative;
+  height: calc(var(--card-w) * 0.625px);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(27, 31, 36, 0.12), 0 6px 18px rgba(140, 149, 159, 0.22);
+  transition: box-shadow 0.12s;
+}
+
+.agt-card.is-active .agt-card__thumb,
+.agt-card__open:hover .agt-card__thumb {
+  box-shadow: 0 0 0 2px #0969da, 0 8px 22px rgba(140, 149, 159, 0.3);
+}
+
+.agt-card__inner {
+  width: 760px;
+  height: 475px;
+  transform: scale(calc(var(--card-w) / 760));
+  transform-origin: 0 0;
+  background: #ffffff;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.agt-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px 11px;
+  border-bottom: 1px solid #e3e3e6;
+}
+
+.agt-card__back {
+  font-size: 12.5px;
+  color: #0969da;
+  white-space: nowrap;
+}
+
+.agt-card__title {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.agt-card__body {
+  padding: 16px 24px 0;
+}
+
+.agt-card__caption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 0 2px;
+}
+
+.agt-card__caption .agt-state {
+  font-size: 10.5px;
+  padding: 1px 8px;
+}
+
+.agt-card__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-card__close {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.22);
+  color: #57606a;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.agt-card__close:hover {
+  background: #ffffff;
+  color: #1f2328;
+}
+
+.agt-card__close:disabled {
+  color: #c6ccd2;
+  cursor: not-allowed;
+}
+
+/* The overview lays over whichever agent screen is showing; the stage gives it its bounds. */
+.agt-stage {
+  position: relative;
+  height: 100%;
+}
+
+.agt-overview-toggle {
+  position: absolute;
+  top: 12px;
+  right: 20px;
+  z-index: 45;
+}
+
+@keyframes agt-overview-in {
+  from { opacity: 0; transform: scale(1.025); }
+  to { opacity: 1; transform: none; }
+}
+
+.agt-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: rgba(238, 240, 243, 0.9);
+  backdrop-filter: blur(22px) saturate(1.1);
+  -webkit-backdrop-filter: blur(22px) saturate(1.1);
+  animation: agt-overview-in 0.18s ease-out;
+}
+
+.agt-overview__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 62px 0 32px;
+  min-height: 38px;
+}
+
+.agt-overview__head h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.agt-overview__summary {
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.agt-overview__notice {
+  margin: 10px 32px 0;
+}
+
+.agt-overview__grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 32px 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 294px);
+  gap: 30px 32px;
+  justify-content: start;
+  align-content: start;
+}
+
+.agt-card-new {
+  width: 294px;
+  height: calc(294 * 0.625px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1.5px dashed #c6ccd2;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  color: #57606a;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.agt-card-new:hover {
+  background: #ffffff;
+  border-color: #8c959f;
+}
+
+.agt-card-new__plus {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.agt-overview__foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 32px 14px;
+  font-size: 11px;
+  color: #8c959f;
+}
+
+.agt-overview__foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

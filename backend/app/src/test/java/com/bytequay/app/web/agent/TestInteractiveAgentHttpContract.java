@@ -80,6 +80,7 @@ class TestInteractiveAgentHttpContract
                         "laneId",
                         "defaults",
                         "state",
+                        "mutationClaim",
                         "version",
                         "createdAt",
                         "updatedAt",
@@ -89,7 +90,11 @@ class TestInteractiveAgentHttpContract
                         "summary",
                         "cleanupState",
                         "deleteAfter",
-                        "cleanupFailure");
+                        "cleanupFailure",
+                        "checkoutRemovedAt");
+        assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
+                .extracting(component -> component.getName())
+                .containsExactly("kind", "ownerId", "acquiredAt");
         assertThat(InteractiveAgentHttpContract.TurnResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(
@@ -101,6 +106,7 @@ class TestInteractiveAgentHttpContract
                         "startedAt",
                         "endedAt",
                         "cancellationRequestedAt",
+                        "delivered",
                         "settings",
                         "terminalReason",
                         "metrics");

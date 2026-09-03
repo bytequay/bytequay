@@ -105,7 +105,9 @@ class TestAgentHttpApi
             "occurredAt",
             "terminalAt",
             "completedAt",
-            "deleteAfter");
+            "deleteAfter",
+            "acquiredAt",
+            "checkoutRemovedAt");
 
     @LocalServerPort
     private int port;

@@ -22,6 +22,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TestFact;
 import com.bytequay.agent.core.TurnMetrics;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 
@@ -58,6 +59,7 @@ final class InteractiveAgentHttpContract
                 task.laneId().value(),
                 defaults(task.defaults()),
                 task.state().name(),
+                task.worktreeMutationClaim().map(InteractiveAgentHttpContract::mutationClaim),
                 task.version(),
                 task.createdAt(),
                 task.updatedAt(),
@@ -67,7 +69,21 @@ final class InteractiveAgentHttpContract
                 task.summary().map(InteractiveAgentHttpContract::summary),
                 task.cleanupState().name(),
                 task.deleteAfter(),
-                task.cleanupFailure());
+                task.cleanupFailure(),
+                task.worktreeRemovedAt());
+    }
+
+    /**
+     * The one operation currently allowed to touch the task's checkout.
+     *
+     * <p>Exposed because the renderer derives running, closing, and recovery-required from it: a
+     * task whose claim outlives its turns is one whose provider could not be shown to have stopped
+     * writing, and every mutation control has to stay disabled until that is resolved. The owner id
+     * is a turn or launch identifier, never a path or a provider handle.
+     */
+    private static MutationClaim mutationClaim(WorktreeMutationClaim claim)
+    {
+        return new MutationClaim(claim.kind().name(), claim.ownerId(), claim.acquiredAt());
     }
 
     static TurnResponse turn(AgentTurn turn)
@@ -82,6 +98,10 @@ final class InteractiveAgentHttpContract
                 turn.startedAt(),
                 turn.endedAt(),
                 turn.cancellationRequestedAt(),
+                // Whether the provider acknowledged the input. A turn that was started but never
+                // acknowledged may or may not have been received, so a retry must not be offered
+                // as if the message were known unsent.
+                turn.providerTurnReference().isPresent(),
                 turn.settings().map(InteractiveAgentHttpContract::settings),
                 turn.terminalReason(),
                 turn.metrics());
@@ -187,6 +207,7 @@ final class InteractiveAgentHttpContract
             String laneId,
             TaskDefaults defaults,
             String state,
+            Optional<MutationClaim> mutationClaim,
             long version,
             Instant createdAt,
             Instant updatedAt,
@@ -196,7 +217,13 @@ final class InteractiveAgentHttpContract
             Optional<TaskSummaryResponse> summary,
             String cleanupState,
             Optional<Instant> deleteAfter,
-            Optional<String> cleanupFailure) {}
+            Optional<String> cleanupFailure,
+            Optional<Instant> checkoutRemovedAt) {}
+
+    record MutationClaim(
+            String kind,
+            String ownerId,
+            Instant acquiredAt) {}
 
     record TaskSummaryResponse(
             String finalResponse,
@@ -216,6 +243,7 @@ final class InteractiveAgentHttpContract
             Optional<Instant> startedAt,
             Optional<Instant> endedAt,
             Optional<Instant> cancellationRequestedAt,
+            boolean delivered,
             Optional<TurnSettings> settings,
             Optional<String> terminalReason,
             TurnMetrics metrics) {}

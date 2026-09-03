@@ -25,6 +25,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -116,6 +117,7 @@ class TestBranchRebaseService
                 taskId,
                 false,
                 "Rebase feature",
+                TitleSource.USER,
                 AgentLaneId.CLAUDE_CLI,
                 taskWorktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX),

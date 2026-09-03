@@ -23,6 +23,7 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
@@ -30,6 +31,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -239,6 +241,32 @@ class TestDefaultAgentTaskService
                 created.id(),
                 created.version(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO))))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("version changed");
+    }
+
+    @Test
+    void namesAnInteractiveTaskAfterItsFirstMessageUntilTheAgentAnswers()
+    {
+        AgentTask interactive = service.createInteractive(interactiveCommand(TaskId.random()));
+        assertThat(interactive.title()).isEqualTo("Interactive task");
+        assertThat(interactive.titleSource()).isEqualTo(TitleSource.PROVISIONAL);
+        // A workflow names its own task and that name is not up for proposal.
+        assertThat(service.create(command()).titleSource()).isEqualTo(TitleSource.USER);
+    }
+
+    @Test
+    void renamesWithTheObservedTaskVersion()
+    {
+        AgentTask created = service.createInteractive(interactiveCommand(TaskId.random()));
+
+        AgentTask renamed = service.rename(new RenameAgentTaskCommand(created.id(), created.version(), "  Fix the preview  "));
+
+        assertThat(renamed.title()).isEqualTo("Fix the preview");
+        assertThat(renamed.titleSource()).isEqualTo(TitleSource.USER);
+        assertThat(renamed.version()).isEqualTo(created.version() + 1);
+        assertThat(service.get(created.id())).isEqualTo(renamed);
+        assertThatThrownBy(() -> service.rename(new RenameAgentTaskCommand(created.id(), created.version(), "Stale")))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("version changed");
     }

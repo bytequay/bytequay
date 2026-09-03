@@ -537,6 +537,8 @@ export type AgentTaskDto = {
   id: string;
   workspaceId: string;
   title: string;
+  /** PROVISIONAL until the agent's first answer proposes a name (AGENT); a rename is USER and final. */
+  titleSource: string;
   laneId: string;
   defaults: AgentTaskDefaultsDto;
   state: string;
@@ -581,7 +583,8 @@ export type AgentTurnDto = {
 
 export type CreateAgentTaskRequest = {
   workspaceId: string;
-  title: string;
+  /** The first message; it creates the task and names it until the agent answers. */
+  message: string;
   laneId: string;
   defaults: AgentTaskDefaultsDto;
 };
@@ -1234,6 +1237,8 @@ export type Bridge = {
     expectedVersion: number,
     defaults: AgentTaskDefaultsDto,
   ) => Promise<AgentTaskDto>;
+  /** A person's name for the task; final, and version-checked like every other task write. */
+  renameAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, title: string) => Promise<AgentTaskDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;

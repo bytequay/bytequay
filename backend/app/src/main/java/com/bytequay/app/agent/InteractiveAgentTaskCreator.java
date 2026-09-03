@@ -60,7 +60,7 @@ public final class InteractiveAgentTaskCreator
 
     public AgentTask create(
             String workspaceId,
-            String title,
+            String message,
             AgentLaneId laneId,
             AgentTaskDefaults defaults)
     {
@@ -81,7 +81,7 @@ public final class InteractiveAgentTaskCreator
                         workspace.selectedRepository().owner(),
                         workspace.selectedRepository().repo()),
                 head.output().strip(),
-                title,
+                message,
                 defaults));
     }
 

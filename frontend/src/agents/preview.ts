@@ -67,7 +67,7 @@ export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
     ...(contracts.task as AgentTaskDto),
     id: taskId,
     workspaceId,
-    title: eventFixture.createTaskRequest.title,
+    title: eventFixture.createTaskRequest.message,
     state: 'OPEN',
   };
 }
@@ -145,6 +145,14 @@ export function createPreviewBridge(
       previewVersion += 1;
       previewDefaults = defaults;
       return { ...previewTask(id, taskId), defaults, version: previewVersion };
+    },
+    renameAgentTask: async (taskId, id, expectedVersion, title) => {
+      record('renameAgentTask', taskId, id, expectedVersion, title);
+      if (expectedVersion !== previewVersion) {
+        throw new Error(`Task version changed: ${taskId}`);
+      }
+      previewVersion += 1;
+      return { ...previewTask(id, taskId), title, titleSource: 'USER', defaults: previewDefaults, version: previewVersion };
     },
     getEffectiveTurnSettings: async (taskId, id) => {
       record('getEffectiveTurnSettings', taskId, id);

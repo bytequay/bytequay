@@ -2,7 +2,7 @@
   "createRequest": {
     "workspaceId": "<workspace-id>",
     "laneId": "codex",
-    "title": "Agent HTTP test",
+    "message": "Agent HTTP test",
     "defaults": {
       "model": "test-model",
       "effort": "high",
@@ -13,6 +13,7 @@
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
+    "titleSource": "PROVISIONAL",
     "laneId": "codex",
     "defaults": {
       "model": "test-model",
@@ -575,7 +576,8 @@
   "finalTask": {
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
-    "title": "Agent HTTP test",
+    "title": "deterministic: first",
+    "titleSource": "AGENT",
     "laneId": "codex",
     "defaults": {
       "model": "test-model",

@@ -17,7 +17,7 @@ import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
-import type { AgentBridgePort } from './model';
+import { agentIdempotencyKey, type AgentBridgePort } from './model';
 
 export interface AgentTasksViewProps {
   workspaceId: string;
@@ -30,8 +30,6 @@ export interface AgentTasksViewProps {
   /** Fixed Codex lane; Claude arrives with its parity checkpoint. */
   laneId?: string;
 }
-
-const DEFAULT_TITLE = 'New agent task';
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
 const STATE_LABELS: Record<string, string> = {
@@ -100,7 +98,7 @@ export default function AgentTasksView({
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [selection, setSelection] = useState<{ model: string; effort: string | null } | null>(null);
-  const [title, setTitle] = useState(DEFAULT_TITLE);
+  const [draft, setDraft] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -145,22 +143,26 @@ export default function AgentTasksView({
   const blocker = creationBlocker(catalog, laneId, selection);
 
   const create = useCallback(async () => {
-    if (selection === null || blocker !== null) return;
+    const message = draft.trim();
+    if (selection === null || blocker !== null || message === '') return;
     try {
       const task = await live().createAgentTask({
         workspaceId,
-        title: title.trim() === '' ? DEFAULT_TITLE : title.trim(),
+        message,
         laneId,
         defaults: { model: selection.model, effort: selection.effort, permissionPolicy: 'AUTO' },
       });
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
+      // The message that created the task is also its first turn; the task screen shows it arrive.
+      await live().startAgentTurn({ taskId: task.id, message, idempotencyKey: agentIdempotencyKey(task.id, 0) });
+      setDraft('');
       onOpenTask(task.id);
     }
     catch (failure) {
       // Creation is gated on a fresh readiness probe, so this is the probe saying no.
       setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
     }
-  }, [blocker, laneId, live, onOpenTask, selection, title, workspaceId]);
+  }, [blocker, draft, laneId, live, onOpenTask, selection, workspaceId]);
 
   return (
     <AgentTaskList
@@ -170,9 +172,9 @@ export default function AgentTasksView({
       laneId={laneId}
       models={models}
       selection={selection}
-      title={title}
+      draft={draft}
       blocker={blocker}
-      onTitleChange={setTitle}
+      onDraftChange={setDraft}
       onSelectModel={(model, effort) => setSelection({ model, effort })}
       onCreate={() => { void create(); }}
       onOpenTask={onOpenTask}
@@ -183,7 +185,7 @@ export default function AgentTasksView({
 
 /** The list as a function of what was loaded, so empty, loading, error and populated all render. */
 export function AgentTaskList({
-  tasks, loading, error, laneId, models, selection, title, blocker, onTitleChange, onSelectModel, onCreate, onOpenTask, onOpenSettings,
+  tasks, loading, error, laneId, models, selection, draft, blocker, onDraftChange, onSelectModel, onCreate, onOpenTask, onOpenSettings,
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -191,10 +193,11 @@ export function AgentTaskList({
   laneId: string;
   models: ModelOptionDto[];
   selection: { model: string; effort: string | null } | null;
-  title: string;
+  /** The first message; sending it creates the task and names it until the agent answers. */
+  draft: string;
   /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
-  onTitleChange: (title: string) => void;
+  onDraftChange: (draft: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
@@ -211,9 +214,11 @@ export function AgentTaskList({
         <input
           className="agt-title-input"
           type="text"
-          aria-label="Title for the new agent task"
-          value={title}
-          onChange={(event) => onTitleChange(event.target.value)}
+          aria-label="Describe a task"
+          placeholder="Describe a task — sending the first message creates it…"
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={(event) => { if (event.key === 'Enter') onCreate(); }}
         />
         {/* The lane is fixed at creation, so it reads as a label rather than a picker. */}
         <span className="agt-lane" title="Agent tasks run on Codex in this build" aria-label="Provider">
@@ -230,8 +235,15 @@ export function AgentTaskList({
           onSelect={onSelectModel}
         />
         <span className="agt-lane" title="Permission policy for every turn" aria-label="Permission policy">Auto</span>
-        <button type="button" className="agt-action" onClick={onCreate} disabled={blocker !== null}>
-          New agent task
+        <button
+          type="button"
+          className="agt-action"
+          aria-label="Send — creates the task"
+          title="Sends the first message, which creates the task"
+          onClick={onCreate}
+          disabled={blocker !== null || draft.trim() === ''}
+        >
+          Send
         </button>
       </div>
       {blocker !== null && (

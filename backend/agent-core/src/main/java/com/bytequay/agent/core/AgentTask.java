@@ -32,6 +32,7 @@ public record AgentTask(
         Optional<String> workspaceId,
         boolean interactive,
         String title,
+        TitleSource titleSource,
         AgentLaneId laneId,
         RepositoryIdentity repository,
         Path worktree,
@@ -58,6 +59,7 @@ public record AgentTask(
         checkOptionalText(workspaceId, "workspaceId");
         checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
         checkNotBlank(title, "title");
+        requireNonNull(titleSource, "titleSource is null");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(repository, "repository is null");
         requireNonNull(worktree, "worktree is null");
@@ -117,6 +119,7 @@ public record AgentTask(
                 workspaceId,
                 interactive,
                 title,
+                TitleSource.USER,
                 laneId,
                 repository,
                 worktree,
@@ -142,6 +145,7 @@ public record AgentTask(
             TaskId id,
             boolean interactive,
             String title,
+            TitleSource titleSource,
             AgentLaneId laneId,
             TaskWorktree taskWorktree,
             AgentTaskDefaults defaults,
@@ -153,6 +157,7 @@ public record AgentTask(
                 Optional.of(taskWorktree.workspaceId()),
                 interactive,
                 title,
+                titleSource,
                 laneId,
                 taskWorktree.physicalRepository(),
                 taskWorktree.canonicalWorktree(),
@@ -311,6 +316,46 @@ public record AgentTask(
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
+    /**
+     * Replaces the title. A person's choice is final; the agent may only propose over a
+     * provisional title, so a proposal that arrives after a rename changes nothing.
+     */
+    public AgentTask withTitle(String updatedTitle, TitleSource source, Instant now)
+    {
+        checkNotBlank(updatedTitle, "updatedTitle");
+        requireNonNull(source, "source is null");
+        requireNonNull(now, "now is null");
+        checkArgument(source != TitleSource.PROVISIONAL, "a title cannot become provisional again");
+        checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL,
+                "only a provisional title accepts a proposal");
+        checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
+        return new AgentTask(
+                id,
+                workspaceId,
+                interactive,
+                updatedTitle,
+                source,
+                laneId,
+                repository,
+                worktree,
+                taskWorktree,
+                defaults,
+                state,
+                worktreeMutationClaim,
+                version,
+                createdAt,
+                now,
+                terminalAt,
+                terminalReason,
+                sessionReference,
+                metrics,
+                summary,
+                worktreeRemovedAt,
+                cleanupState,
+                deleteAfter,
+                cleanupFailure);
+    }
+
     public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
     {
         requireNonNull(updatedDefaults, "updatedDefaults is null");
@@ -322,6 +367,7 @@ public record AgentTask(
                 workspaceId,
                 interactive,
                 title,
+                titleSource,
                 laneId,
                 repository,
                 worktree,
@@ -372,6 +418,7 @@ public record AgentTask(
                 workspaceId,
                 interactive,
                 title,
+                titleSource,
                 laneId,
                 repository,
                 worktree,
@@ -443,6 +490,7 @@ public record AgentTask(
                 workspaceId,
                 interactive,
                 title,
+                titleSource,
                 laneId,
                 repository,
                 worktree,

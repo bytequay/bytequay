@@ -512,6 +512,62 @@ const CONNECTION_TEXT: Record<string, string> = {
  * Reconnecting names the sequence it is resuming from, because "catching up" without a resume
  * point asks the user to take the claim that nothing was lost on faith.
  */
+/**
+ * The task's name, and the control that changes it: click to edit, Enter or blur to keep, Escape
+ * to drop. Until the agent's first answer proposes a name, the title is the first message and
+ * reads as provisional.
+ */
+function TaskTitle({ title, provisional, onRename }: {
+  title: string;
+  provisional: boolean;
+  onRename?: (title: string) => void;
+}): React.JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
+  const committed = useRef(false);
+  const className = `agt-title${provisional ? ' is-provisional' : ''}`;
+  // Text, not a dead control, while there is nothing to rename yet.
+  if (onRename === undefined) {
+    return <strong className={className}>{title}</strong>;
+  }
+  if (draft === null) {
+    return (
+      <button
+        type="button"
+        className={className}
+        title={provisional
+          ? 'Named after your first message until the agent proposes a name. Click to rename.'
+          : 'Click to rename'}
+        onClick={() => { committed.current = false; setDraft(title); }}
+      >
+        {title}
+      </button>
+    );
+  }
+  const commit = (): void => {
+    if (committed.current) return;
+    committed.current = true;
+    const next = draft.trim();
+    setDraft(null);
+    if (next !== '' && next !== title) onRename(next);
+  };
+  return (
+    <input
+      className="agt-title-edit"
+      type="text"
+      aria-label="Task name"
+      value={draft}
+      autoFocus
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit();
+        if (event.key === 'Escape') { committed.current = true; setDraft(null); }
+      }}
+    />
+  );
+}
+
 function connectionText(state: AgentTaskState): string {
   if (state.connection === 'reconnecting') {
     return `Reconnecting — catching up from event ${state.lastSequence}. Nothing is lost.`;
@@ -807,7 +863,7 @@ function AgentsPanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
-  onStopServer, onMarkFailed, onRetry, composerRef,
+  onStopServer, onMarkFailed, onRetry, onRename, composerRef,
   now = Date.now(),
   activityChoice = {},
   turnChoice = {},
@@ -836,6 +892,8 @@ export function AgentTaskBody({
   onStopServer: () => void;
   onMarkFailed: () => void;
   onRetry: () => void;
+  /** A person's name for the task; absent while the task is still loading or in a static render. */
+  onRename?: (title: string) => void;
   composerRef?: React.Ref<HTMLTextAreaElement>;
   /** The clock reading the elapsed times are drawn against; ticks once a second while a turn runs. */
   now?: number;
@@ -882,7 +940,11 @@ export function AgentTaskBody({
     <div className="agt-screen">
       <div className="agt-screen-head">
         <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
-        <strong className="agt-title">{state.task?.title ?? 'Agent task'}</strong>
+        <TaskTitle
+          title={state.task?.title ?? 'Agent task'}
+          provisional={state.task?.titleSource === 'PROVISIONAL'}
+          onRename={state.task === null ? undefined : onRename}
+        />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
           {status === 'running' && !waiting && <Spinner />}
           {statusLabel}
@@ -1217,6 +1279,12 @@ export default function AgentTaskScreen({
     });
   }), [live, run, state.task, taskId, workspaceId]);
 
+  const rename = useCallback((title: string) => run(async () => {
+    const task = state.task;
+    if (task === null) return;
+    dispatch({ type: 'task/loaded', task: await live().renameAgentTask(taskId, workspaceId, task.version, title) });
+  }), [live, run, state.task, taskId, workspaceId]);
+
   const startTurn = useCallback(async (message: string, attachments: string[] = []) => {
     dispatch({ type: 'composer/sending', sending: true });
     try {
@@ -1353,6 +1421,7 @@ export default function AgentTaskScreen({
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRetry={() => { void retry(); }}
+      onRename={(title) => { void rename(title); }}
       now={now}
       activityChoice={activityChoice}
       turnChoice={turnChoice}

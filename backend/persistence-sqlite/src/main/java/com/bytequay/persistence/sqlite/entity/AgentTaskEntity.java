@@ -22,6 +22,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -64,6 +65,10 @@ public class AgentTaskEntity
 
     @Column(nullable = false)
     private String title;
+
+    // Nullable so rows written before titles had a source read as fixed, never as proposable.
+    @Enumerated(EnumType.STRING)
+    private TitleSource titleSource;
 
     @Column(nullable = false)
     private String laneId;
@@ -176,6 +181,7 @@ public class AgentTaskEntity
         workspaceId = task.workspaceId().orElse(null);
         interactive = task.interactive();
         title = task.title();
+        titleSource = task.titleSource();
         laneId = task.laneId().toString();
         repositoryOwner = task.repository().owner();
         repositoryName = task.repository().name();
@@ -222,6 +228,7 @@ public class AgentTaskEntity
                 Optional.ofNullable(workspaceId),
                 Boolean.TRUE.equals(interactive),
                 title,
+                titleSource == null ? TitleSource.USER : titleSource,
                 new AgentLaneId(laneId),
                 new RepositoryIdentity(repositoryOwner, repositoryName),
                 Path.of(worktree),

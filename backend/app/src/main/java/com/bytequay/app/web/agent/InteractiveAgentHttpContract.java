@@ -56,6 +56,7 @@ final class InteractiveAgentHttpContract
                 task.id().toString(),
                 task.workspaceId().orElseThrow(),
                 task.title(),
+                task.titleSource().name(),
                 task.laneId().value(),
                 defaults(task.defaults()),
                 task.state().name(),
@@ -160,16 +161,17 @@ final class InteractiveAgentHttpContract
                 attachment.mediaType());
     }
 
+    /** The first message creates the task; there is no title field, the message names it for now. */
     record CreateTaskRequest(
             String workspaceId,
-            String title,
+            String message,
             String laneId,
             TaskDefaults defaults)
     {
         CreateTaskRequest
         {
             checkNotBlank(workspaceId, "workspaceId");
-            checkNotBlank(title, "title");
+            checkNotBlank(message, "message");
             checkNotBlank(laneId, "laneId");
             requireNonNull(defaults, "defaults is null");
             if (!AgentLaneId.CODEX_CLI.value().equals(laneId)) {
@@ -198,6 +200,17 @@ final class InteractiveAgentHttpContract
         }
     }
 
+    record RenameTaskRequest(
+            long expectedVersion,
+            String title)
+    {
+        RenameTaskRequest
+        {
+            checkArgument(expectedVersion >= 0, "expectedVersion is negative");
+            checkNotBlank(title, "title");
+        }
+    }
+
     record TaskDefaults(
             Optional<String> model,
             Optional<String> effort,
@@ -215,6 +228,7 @@ final class InteractiveAgentHttpContract
             String id,
             String workspaceId,
             String title,
+            String titleSource,
             String laneId,
             TaskDefaults defaults,
             String state,

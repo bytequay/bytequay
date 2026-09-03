@@ -27,6 +27,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -125,6 +126,7 @@ class TestSqliteAgentStores
                         taskId,
                         true,
                         "Agent task",
+                        TitleSource.USER,
                         AgentLaneId.CODEX_CLI,
                         worktree,
                         AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
@@ -350,6 +352,7 @@ class TestSqliteAgentStores
                 taskId,
                 true,
                 "Managed agent task",
+                TitleSource.USER,
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
@@ -515,6 +518,7 @@ class TestSqliteAgentStores
                 taskId,
                 false,
                 "Agent task",
+                TitleSource.USER,
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(permissionPolicy),

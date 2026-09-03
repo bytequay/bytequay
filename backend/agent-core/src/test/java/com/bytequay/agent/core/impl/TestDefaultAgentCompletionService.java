@@ -39,6 +39,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -478,6 +479,7 @@ class TestDefaultAgentCompletionService
                 taskId,
                 false,
                 title,
+                TitleSource.USER,
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),

@@ -80,6 +80,16 @@ public interface AgentTaskService
     AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command);
 
     /**
+     * Gives a task the title a person chose, using optimistic task versioning. That title is
+     * final: no later agent proposal replaces it.
+     *
+     * @param command task, observed version, and the chosen title
+     * @return updated task with its next version
+     * @throws AgentConflictException when the task changed concurrently
+     */
+    AgentTask rename(RenameAgentTaskCommand command);
+
+    /**
      * Lists durable task facts in reverse update order.
      *
      * <p>This keeps the current unscoped listing working until workspace-owned

@@ -56,9 +56,9 @@ const listProps = {
   laneId: 'codex',
   models: MODELS,
   selection: { model: 'gpt-5.6-codex', effort: 'high' as string | null },
-  title: 'New agent task',
+  draft: 'Fix the flaky preview test',
   blocker: null as string | null,
-  onTitleChange: () => {},
+  onDraftChange: () => {},
   onSelectModel: () => {},
   onCreate: () => {},
   onOpenTask: () => {},
@@ -149,7 +149,7 @@ describe('agent task list', () => {
     expect(markup).toContain('2 open \u00b7 1 finished');
     expect(markup).not.toContain('u00b7');
     expect(markup).toContain('Rename the widget');
-    expect(markup).toContain('New agent task');
+    expect(markup).toContain('Describe a task');
     // Wire enums never reach the user.
     expect(markup).toContain('>Open<');
     expect(markup).toContain('>Completed<');
@@ -184,7 +184,7 @@ describe('agent task list', () => {
         error={null}
       />);
 
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>\s*New agent task/);
+    expect(markup).toMatch(/<button[^>]*disabled[^>]*>\s*Send/);
     expect(markup).toContain('No Codex model is available yet');
     // The catalog is only fetched by a readiness check, so the copy must send them there.
     expect(markup).toContain('Workspace settings');
@@ -245,6 +245,32 @@ describe('agent task list', () => {
 });
 
 describe('agent task detail', () => {
+  it('offers the header title as the rename control, marked provisional until the agent names the task', () => {
+    const provisional = { ...task('t-1', 'OPEN', 'Investigate the flaky preview'), titleSource: 'PROVISIONAL' };
+    const renamable = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: provisional }}
+        models={MODELS}
+        onRename={() => {}}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onRetry={() => {}}
+      />);
+    expect(renamable).toMatch(/<button[^>]*class="agt-title is-provisional"[^>]*>Investigate the flaky preview</);
+    expect(renamable).toContain('until the agent proposes a name');
+
+    // Without a rename handler the title is text, not a dead control; an agent-named task is not provisional.
+    const named = body({ task: { ...task('t-1', 'OPEN', 'Trim the preview to the selection'), titleSource: 'AGENT' } });
+    expect(named).toMatch(/<strong class="agt-title">Trim the preview to the selection</);
+  });
+
   it('never leaks a raw escape sequence into rendered text', () => {
     // A JSX text node does not interpret \\u escapes; one written there renders literally.
     // This has slipped through twice, so it is asserted over every state the body can be in.

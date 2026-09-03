@@ -115,7 +115,7 @@ describe('watched repository workspace UI', () => {
 
     const development = renderToStaticMarkup(<WorkspaceShell {...props} developmentBuild />);
     expect(development).toContain('Agent tasks');
-    expect(development).toContain('New agent task');
+    expect(development).toContain('Describe a task');
     // A packaged build must not ship a fixture-backed preview.
     expect(renderToStaticMarkup(<WorkspaceShell {...props} />)).not.toContain('Agent tasks');
 

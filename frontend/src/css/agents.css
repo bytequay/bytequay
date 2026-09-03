@@ -460,12 +460,37 @@
  * Transcript, as the design draws it: the user's message in a bubble on the right, each turn's
  * log under a collapsible header, and the agent's text flush left without boxes.
  */
+/* The title is a control: clicking it renames the task in place. */
 .agt-title {
+  font: inherit;
   font-size: 14px;
+  font-weight: 700;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: text;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 420px;
+}
+
+/* Named after the first message until the agent proposes a name; reads as not yet settled. */
+.agt-title.is-provisional {
+  color: #57606a;
+  font-weight: 600;
+}
+
+.agt-title-edit {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 240px;
+  max-width: 420px;
+  padding: 1px 6px;
+  border: 1px solid #0969da;
+  border-radius: 6px;
 }
 
 .agt-meta {

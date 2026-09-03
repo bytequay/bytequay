@@ -19,7 +19,7 @@ describe('agent event contract', () => {
   it('freezes the workspace-safe task-create request', () => {
     expect(fixture.createTaskRequest).toEqual({
       workspaceId: 'workspace-1',
-      title: 'Review the authentication change',
+      message: 'Review the authentication change',
       laneId: 'codex',
       defaults: {
         model: 'gpt-5.6-sol',

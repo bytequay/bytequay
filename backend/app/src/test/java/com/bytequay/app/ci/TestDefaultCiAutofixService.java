@@ -37,6 +37,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -191,6 +192,7 @@ class TestDefaultCiAutofixService
                 taskId,
                 false,
                 "CI Autofix " + PULL_REQUEST.fullName(),
+                TitleSource.USER,
                 AgentLaneId.CLAUDE_CLI,
                 taskWorktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX),
@@ -1599,6 +1601,7 @@ class TestDefaultCiAutofixService
                 taskId,
                 false,
                 command.title(),
+                TitleSource.USER,
                 command.laneId(),
                 taskWorktree,
                 command.defaults(),

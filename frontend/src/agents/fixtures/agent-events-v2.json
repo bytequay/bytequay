@@ -1,7 +1,7 @@
 {
   "createTaskRequest": {
     "workspaceId": "workspace-1",
-    "title": "Review the authentication change",
+    "message": "Review the authentication change",
     "laneId": "codex",
     "defaults": {
       "model": "gpt-5.6-sol",

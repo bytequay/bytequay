@@ -80,7 +80,7 @@ describe('preview journey', () => {
     expect(codex?.models.map((model) => model.id)).toContain(codex?.selectedModel);
     const created = await bridge.createAgentTask({
       workspaceId: 'workspace-1',
-      title: 'New agent task',
+      message: 'Review the authentication change',
       laneId: 'codex',
       defaults: {
         model: codex?.selectedModel ?? null,

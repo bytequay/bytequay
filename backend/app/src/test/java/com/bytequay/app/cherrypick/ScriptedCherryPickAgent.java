@@ -27,9 +27,11 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -155,6 +157,7 @@ final class ScriptedCherryPickAgent
                 command.taskId(),
                 false,
                 command.title(),
+                TitleSource.USER,
                 command.laneId(),
                 worktree,
                 command.defaults(),
@@ -187,6 +190,16 @@ final class ScriptedCherryPickAgent
             throw new AgentConflictException("Task version changed: " + task.id());
         }
         task = task.withDefaults(command.defaults(), NOW).withVersion(task.version() + 1);
+        return task;
+    }
+
+    @Override
+    public AgentTask rename(RenameAgentTaskCommand command)
+    {
+        if (task.version() != command.expectedVersion()) {
+            throw new AgentConflictException("Task version changed: " + task.id());
+        }
+        task = task.withTitle(command.title(), TitleSource.USER, NOW).withVersion(task.version() + 1);
         return task;
     }
 

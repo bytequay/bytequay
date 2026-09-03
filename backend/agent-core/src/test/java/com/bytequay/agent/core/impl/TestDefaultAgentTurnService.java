@@ -31,14 +31,17 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
@@ -243,6 +246,57 @@ class TestDefaultAgentTurnService
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.ASSISTANT_MESSAGE)
                 .extracting(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text())
                 .containsExactly("first response", "second response");
+    }
+
+    @Test
+    void namesTheTaskFromItsFirstAnswerOnce()
+    {
+        AgentTask interactive = interactiveTask("Investigate the flaky cherry-pick preview test and fix the root cause.");
+        assertThat(interactive.title()).isEqualTo("Investigate the flaky cherry-pick preview test and fix the root cause");
+        assertThat(interactive.titleSource()).isEqualTo(TitleSource.PROVISIONAL);
+
+        service.start(new StartAgentTurnCommand(interactive.id(), "first", ImmutableList.of(), "key-1"));
+        driver.complete("The preview reads every commit body. Trimming it to the selection fixes the flake.");
+
+        AgentTask named = stores.find(interactive.id()).orElseThrow();
+        assertThat(named.title()).isEqualTo("The preview reads every commit body");
+        assertThat(named.titleSource()).isEqualTo(TitleSource.AGENT);
+        assertThat(named.worktreeMutationClaim()).isEmpty();
+
+        service.start(new StartAgentTurnCommand(interactive.id(), "second", ImmutableList.of(), "key-2"));
+        driver.complete("Done. Nothing else to rename.");
+
+        assertThat(stores.find(interactive.id()).orElseThrow().title()).isEqualTo("The preview reads every commit body");
+    }
+
+    @Test
+    void keepsAUserChosenTitleOverALaterProposal()
+    {
+        AgentTask interactive = interactiveTask("Fix the flaky preview");
+        service.start(new StartAgentTurnCommand(interactive.id(), "first", ImmutableList.of(), "key-1"));
+        long version = stores.find(interactive.id()).orElseThrow().version();
+        taskService.rename(new RenameAgentTaskCommand(interactive.id(), version, "Preview flake"));
+
+        driver.complete("The preview reads every commit body.");
+
+        AgentTask after = stores.find(interactive.id()).orElseThrow();
+        assertThat(after.title()).isEqualTo("Preview flake");
+        assertThat(after.titleSource()).isEqualTo(TitleSource.USER);
+    }
+
+    private AgentTask interactiveTask(String firstMessage)
+    {
+        return taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
+                TaskId.random(),
+                "workspace-a",
+                DeterministicAgentDriver.LANE_ID,
+                new RepositoryIdentity("bytequay", "bytequay"),
+                "0123456789012345678901234567890123456789",
+                firstMessage,
+                new AgentTaskDefaults(
+                        Optional.of("model-a"),
+                        Optional.of("low"),
+                        AgentPermissionPolicy.AUTO)));
     }
 
     @Test

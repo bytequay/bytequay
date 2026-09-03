@@ -45,6 +45,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'subscribeAgentTask'
   | 'getModelSettings'
   | 'updateAgentTaskDefaults'
+  | 'renameAgentTask'
   | 'getEffectiveTurnSettings'>;
 
 export interface AgentTaskState {

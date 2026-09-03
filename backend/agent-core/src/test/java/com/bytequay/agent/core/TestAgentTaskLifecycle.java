@@ -71,6 +71,45 @@ class TestAgentTaskLifecycle
     }
 
     @Test
+    void aChosenTitleIsFinalAndOnlyAProvisionalOneTakesAProposal()
+    {
+        AgentTask fixed = newTask();
+        assertThat(fixed.titleSource()).isEqualTo(TitleSource.USER);
+        assertThatThrownBy(() -> fixed.withTitle("Proposed", TitleSource.AGENT, CREATED_AT.plusSeconds(1)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("provisional");
+        assertThatThrownBy(() -> fixed.withTitle("Back", TitleSource.PROVISIONAL, CREATED_AT.plusSeconds(1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        AgentTask renamed = fixed.withTitle("Chosen", TitleSource.USER, CREATED_AT.plusSeconds(1));
+        assertThat(renamed.title()).isEqualTo("Chosen");
+        assertThat(renamed.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(1));
+
+        TaskId taskId = TaskId.random();
+        AgentTask provisional = AgentTask.created(
+                taskId,
+                true,
+                "first message",
+                TitleSource.PROVISIONAL,
+                AgentLaneId.CODEX_CLI,
+                new TaskWorktree(
+                        taskId,
+                        "workspace-1",
+                        new RepositoryIdentity("bytequay", "bytequay"),
+                        Path.of("/worktrees").resolve(taskId.toString()),
+                        "bytequay/task/" + taskId,
+                        "0123456789012345678901234567890123456789"),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                CREATED_AT);
+        AgentTask proposed = provisional.withTitle("Agent proposal", TitleSource.AGENT, CREATED_AT.plusSeconds(1));
+        assertThat(proposed.titleSource()).isEqualTo(TitleSource.AGENT);
+        // The agent proposes once; only a person changes it after that.
+        assertThatThrownBy(() -> proposed.withTitle("Again", TitleSource.AGENT, CREATED_AT.plusSeconds(2)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(proposed.withTitle("Mine", TitleSource.USER, CREATED_AT.plusSeconds(2)).titleSource())
+                .isEqualTo(TitleSource.USER);
+    }
+
+    @Test
     void interactiveTaskRequiresWorkspace()
     {
         assertThatThrownBy(() -> AgentTask.created(

@@ -26,6 +26,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
@@ -50,6 +51,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -123,7 +125,7 @@ public class AgentController
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()));
         AgentTask task = taskCreator.create(
                 request.workspaceId(),
-                request.title(),
+                request.message(),
                 new AgentLaneId(request.laneId()),
                 defaults);
         return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.task(task));
@@ -154,6 +156,20 @@ public class AgentController
                         request.defaults().model(),
                         request.defaults().effort(),
                         AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy())))));
+    }
+
+    @PatchMapping("/tasks/{taskId}")
+    public InteractiveAgentHttpContract.TaskResponse renameTask(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody InteractiveAgentHttpContract.RenameTaskRequest request)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return InteractiveAgentHttpContract.task(taskService.rename(new RenameAgentTaskCommand(
+                id,
+                request.expectedVersion(),
+                request.title())));
     }
 
     /**

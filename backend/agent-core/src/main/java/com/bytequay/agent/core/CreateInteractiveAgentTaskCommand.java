@@ -25,7 +25,7 @@ public record CreateInteractiveAgentTaskCommand(
         AgentLaneId laneId,
         RepositoryIdentity physicalRepository,
         String startCommit,
-        String title,
+        String message,
         AgentTaskDefaults defaults)
 {
     public CreateInteractiveAgentTaskCommand
@@ -35,7 +35,7 @@ public record CreateInteractiveAgentTaskCommand(
         requireNonNull(laneId, "laneId is null");
         requireNonNull(physicalRepository, "physicalRepository is null");
         ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
-        checkNotBlank(title, "title");
+        checkNotBlank(message, "message");
         requireNonNull(defaults, "defaults is null");
     }
 }

@@ -215,7 +215,7 @@ class TestAgentHttpApi
                 ImmutableMap.of(
                         "workspaceId", "",
                         "laneId", "codex",
-                        "title", "Invalid"),
+                        "message", "Invalid"),
                 null);
         assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
@@ -230,7 +230,7 @@ class TestAgentHttpApi
                 ImmutableMap.of(
                         "workspaceId", workspaceId,
                         "laneId", "codex",
-                        "title", "Unknown model",
+                        "message", "Unknown model",
                         "defaults", ImmutableMap.of(
                                 "model", "unknown-model",
                                 "effort", "high",
@@ -577,7 +577,7 @@ class TestAgentHttpApi
         return ImmutableMap.of(
                 "workspaceId", workspaceId,
                 "laneId", laneId,
-                "title", "Agent HTTP test",
+                "message", "Agent HTTP test",
                 "defaults", ImmutableMap.of(
                         "model", "test-model",
                         "effort", "high",
@@ -676,7 +676,7 @@ class TestAgentHttpApi
         String taskId = post("/agent/tasks", ImmutableMap.of(
                 "workspaceId", workspaceId,
                 "laneId", "codex",
-                "title", "Text only",
+                "message", "Text only",
                 "defaults", ImmutableMap.of("model", "text-only-model", "effort", "high", "permissionPolicy", "AUTO")), null)
                 .getBody().required("id").asText();
         HttpHeaders upload = headers();

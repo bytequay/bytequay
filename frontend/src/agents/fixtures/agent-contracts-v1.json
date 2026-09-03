@@ -3,6 +3,7 @@
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
+    "titleSource": "PROVISIONAL",
     "laneId": "codex",
     "defaults": {
       "model": "test-model",
@@ -83,6 +84,7 @@
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
+    "titleSource": "PROVISIONAL",
     "laneId": "codex",
     "defaults": {
       "model": "test-model",

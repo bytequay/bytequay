@@ -60,7 +60,7 @@ class TestInteractiveAgentHttpContract
                         "AUTO")));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("workspaceId", "title", "laneId", "defaults");
+                .containsExactlyInAnyOrder("workspaceId", "message", "laneId", "defaults");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
@@ -77,6 +77,7 @@ class TestInteractiveAgentHttpContract
                         "id",
                         "workspaceId",
                         "title",
+                        "titleSource",
                         "laneId",
                         "defaults",
                         "state",

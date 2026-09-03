@@ -23,8 +23,11 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -79,7 +82,15 @@ public final class DefaultAgentTaskService
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit()));
-        return createManaged(command.taskId(), true, command.title(), command.laneId(), command.defaults(), worktree);
+        // Named after its first message until the agent's first answer proposes something better.
+        return createManaged(
+                command.taskId(),
+                true,
+                TaskTitles.provisional(command.message()),
+                TitleSource.PROVISIONAL,
+                command.laneId(),
+                command.defaults(),
+                worktree);
     }
 
     @Override
@@ -95,7 +106,7 @@ public final class DefaultAgentTaskService
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit()));
-        return createManaged(command.taskId(), false, command.title(), command.laneId(), command.defaults(), worktree);
+        return createManaged(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), command.defaults(), worktree);
     }
 
     @Override
@@ -130,6 +141,17 @@ public final class DefaultAgentTaskService
                     "Agent lane " + task.laneId() + " cannot enforce " + command.defaults().permissionPolicy());
         }
         return taskStore.update(task.withDefaults(command.defaults(), Instant.now(clock)));
+    }
+
+    @Override
+    public AgentTask rename(RenameAgentTaskCommand command)
+    {
+        requireNonNull(command, "command is null");
+        AgentTask task = get(command.taskId());
+        if (task.version() != command.expectedVersion()) {
+            throw new AgentConflictException("Task version changed: " + task.id());
+        }
+        return taskStore.update(task.withTitle(command.title().strip(), TitleSource.USER, Instant.now(clock)));
     }
 
     @Override
@@ -189,6 +211,7 @@ public final class DefaultAgentTaskService
             TaskId taskId,
             boolean interactive,
             String title,
+            TitleSource titleSource,
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
             TaskWorktree worktree)
@@ -199,6 +222,7 @@ public final class DefaultAgentTaskService
                     taskId,
                     interactive,
                     title,
+                    titleSource,
                     laneId,
                     worktree,
                     defaults,

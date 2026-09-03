@@ -140,6 +140,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     id: text(source.id, `${path}.id`),
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
     title: text(source.title, `${path}.title`),
+    titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
     defaults: defaults(source.defaults, `${path}.defaults`),
     state: text(source.state, `${path}.state`),

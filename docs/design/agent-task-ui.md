@@ -95,6 +95,8 @@ not weaken the remaining compatibility, isolation, and release gates.
 ### 2.1 Task and conversation
 
 - Create, list, open, resume, cancel, complete, and retain an agent task.
+- Create a task from its first message alone, let the agent propose the task
+  name, and let the user rename it at any time.
 - Send multiple turns to the same root provider conversation.
 - Rebuild the transcript from persisted events after navigation, renderer
   reload, SSE reconnect, or backend restart.
@@ -240,6 +242,14 @@ backfill lifecycle marker distinguishes recovered history from new live
 activity. Experimental parent/ancestor list filters are an optimization, not
 the only way ByteQuay can rediscover its children.
 
+The panel that lists subagents also carries a **Pull requests** tab. Because a
+task's generated branch is derived from its ID, that tab needs no new record of
+what a task opened: it lists the pull requests whose head branch is this task's
+generated branch, and selecting one opens ByteQuay's existing pull-request
+detail surface unchanged. The tab shows an empty state until the user pushes
+that branch and opens a pull request; nothing in the first release pushes or
+opens one on its own.
+
 ### 2.6 Queue and steering
 
 Steering appends input to the active turn and does not create a new ByteQuay
@@ -281,15 +291,30 @@ product tool.
 
 The existing Tasks screen keeps cherry-pick executions and adds a separate
 **Agent tasks** section. It does not broaden `CherryPickExecution` into a
-generic task DTO. A **New agent task** action asks for title, provider, model,
-effort, and permission mode; the workspace is already fixed by the route. The
-HTTP request contains `workspaceId`, not a worktree path. `app` resolves and
-validates that workspace's managed repository and exact starting commit, then
-the shared service provisions a separate generated task worktree before
-`agent-core` persists the task as `OPEN`.
+generic task DTO. There is no New-agent-task dialog and no title field: the
+Tasks screen anchors a composer under that section — "Describe a task —
+sending the first message creates it" — carrying the branch, provider, model,
+and permission chips, and sending that first message is what creates the task.
+The workspace is already fixed by the route, so the HTTP request carries
+`workspaceId` and the message, never a title or a worktree path. `app`
+resolves and validates that workspace's managed repository and exact starting
+commit, then the shared service provisions a separate generated task worktree
+before `agent-core` persists the task as `OPEN` and accepts that first message
+as its first turn.
 
-The dialog checks the same typed provider readiness returned by Workspace
-Settings before enabling **Create**. Authentication-required, missing,
+A task is therefore never named by hand at creation. `agent-core` stores the
+trimmed first message as a provisional name so no row or header is ever blank,
+then replaces it once with a name derived from the agent's own first turn
+output, and records which of the two the current name came from. A user rename
+is final: it clears that provisional state, so no later agent output can
+overwrite a name the user chose. The name stays editable from the task header
+for the life of the task. App Server supplies no thread title of its own — the
+only `title` in the v0.151.0 reference bindings is the client's
+`clientInfo.title` handshake field — so this naming is ByteQuay's own and
+costs no extra provider turn.
+
+The composer checks the same typed provider readiness returned by Workspace
+Settings before enabling its send control. Authentication-required, missing,
 unsupported, and unavailable lanes are disabled with an actionable link to
 **Workspace Settings → Agent providers**. No task row, runtime directory, or
 worktree is created until a fresh backend readiness check succeeds; the
@@ -449,6 +474,7 @@ construct backend URLs or authentication headers.
 The existing service endpoints remain, with these additions:
 
 ```text
+PATCH  /agent/tasks/{taskId}
 PATCH  /agent/tasks/{taskId}/defaults
 POST   /agent/turns/{turnId}/steer
 POST   /agent/tasks/{taskId}/queue
@@ -460,11 +486,14 @@ GET    /agent/tasks/{taskId}/attachments/{attachmentId}
 POST   /agent/tasks/{taskId}/mark-failed
 ```
 
-Task creation accepts a workspace ID, title, lane, and defaults; it never
-accepts a renderer-selected worktree path. Turn/queue requests accept explicit
-supported model, effort, and permission settings plus the observed task
-version, so enqueue cannot race Complete. Attachment upload receives bytes
-selected by Electron main, validates media type and size, writes an
+Task creation accepts a workspace ID, lane, defaults, and the first message;
+it accepts neither a title nor a renderer-selected worktree path.
+`PATCH /agent/tasks/{taskId}` carries only a user-chosen name and the observed
+task version, so a rename cannot race an agent-proposed name. Turn/queue
+requests accept explicit supported model, effort, and permission settings plus
+the observed task version, so enqueue cannot race Complete. Attachment upload
+receives bytes selected by Electron main, validates media type and size,
+writes an
 owner-only task blob, and returns an opaque attachment reference. It never
 accepts an arbitrary renderer-chosen local path.
 
@@ -499,6 +528,8 @@ state:
   unresolved;
 - per-task App Server launch identity plus directly owned
   provider process recovery state;
+- task name plus whether it is provisional, agent-proposed, or user-chosen, so
+  a rename is never overwritten;
 - task defaults and per-turn snapshots for model, effort, and permission;
 - image attachment references and advertised media types;
 - typed approval request and resolution details;

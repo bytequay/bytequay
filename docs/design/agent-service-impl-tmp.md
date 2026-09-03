@@ -1530,10 +1530,12 @@ End-to-end acceptance:
 - [x] Run two tasks concurrently without event/approval/filesystem cross-talk.
   A second task's turn completed while the first task's turn was running, and
   its replay carried none of the first task's turns.
-- [ ] The packaged desktop, not only unit fixtures, passes this journey. Every
+- [ ] The desktop app, not only unit fixtures, passes this journey. Every
   step above was proven through the reference shell and direct API calls
-  against the real Codex CLI; the same journey through the packaged Electron
-  screens is the one remaining check.
+  against the real Codex CLI; the same journey through the Electron screens
+  over the real bridge is the one remaining check. The agent surface stays
+  behind the development gate until CP11, so this runs in the development
+  build; the packaged build proves only that it builds.
 
 **Checkpoint result:** this is the first usable Codex task surface. Do not call
 CP2, CP5, or CP6 alone “agent UI complete.”

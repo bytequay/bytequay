@@ -38,19 +38,6 @@
   flex: 1;
 }
 
-/* The preview must always look like fixture data, never like a live task. */
-.agt-fixture-badge {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #9a6700;
-  background: #fff8c5;
-  border: 1px solid #eed888;
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
 /* The lane is not a choice at this checkpoint, so it is styled as a fact, not a control. */
 .agt-lane {
   font-size: 11.5px;
@@ -336,4 +323,135 @@
 .agt-action:disabled {
   color: #8c959f;
   cursor: not-allowed;
+}
+
+/* Bounded status text for assistive technology; streamed tokens never go through it. */
+.agt-status {
+  font-size: 11.5px;
+  color: #57606a;
+  padding: 0 2px;
+}
+
+.agt-state.is-recovery {
+  color: #9a6700;
+  background: #fff8c5;
+}
+
+/* A failed bridge call, kept until the next one; it is not part of the transcript. */
+.agt-notice {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(207, 34, 46, 0.35);
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+.agt-title-input {
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 8px;
+  min-width: 180px;
+}
+
+/*
+ * Replaces the mutation controls while the task's checkout is still reserved by a process that
+ * could not be shown to have stopped. Nothing here edits or cleans that checkout.
+ */
+.agt-recovery {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  border: 1px solid #eed888;
+  border-radius: 10px;
+  background: #fffdf2;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.agt-recovery__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.agt-recovery__body {
+  color: #57606a;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+.agt-recovery__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agt-recovery__note {
+  font-size: 10.5px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-action.is-danger {
+  border-color: rgba(207, 34, 46, 0.35);
+  color: #cf222e;
+  background: #ffffff;
+}
+
+.agt-action.is-danger:disabled {
+  color: #8c959f;
+  border-color: #e3e3e6;
+}
+
+/* The task's result once it is closed: what was kept, and whether the checkout is gone. */
+.agt-terminal {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #f6f8fa;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.agt-terminal__kind {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #57606a;
+  margin-bottom: 4px;
+}
+
+.agt-terminal dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 12px;
+  margin: 6px 0 0;
+}
+
+.agt-terminal dt {
+  color: #57606a;
+}
+
+.agt-terminal dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.agt-item details > summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: #57606a;
 }

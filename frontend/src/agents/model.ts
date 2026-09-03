@@ -22,6 +22,25 @@ import type {
   Bridge,
 } from '../types';
 
+/** The slice of the bridge an agent screen uses, so a screen can be driven by a test double. */
+export type AgentBridgePort = Pick<Bridge,
+  | 'listAgentTasks'
+  | 'createAgentTask'
+  | 'getAgentTask'
+  | 'readAgentEvents'
+  | 'startAgentTurn'
+  | 'getAgentTurn'
+  | 'cancelAgentTurn'
+  | 'resolveAgentApproval'
+  | 'completeAgentTask'
+  | 'markAgentTaskFailed'
+  | 'getAgentRuntimeStopImpact'
+  | 'stopAgentRuntime'
+  | 'subscribeAgentTask'
+  | 'getModelSettings'
+  | 'updateAgentTaskDefaults'
+  | 'getEffectiveTurnSettings'>;
+
 /** One entry in the transcript, derived from events and never from local guesses. */
 export type AgentRow =
   | { kind: 'user'; id: string; text: string; delivery: string; attachments: string[] }
@@ -52,6 +71,13 @@ export interface AgentTaskState {
   sending: boolean;
   /** What the next turn would run with, read from the server rather than assembled here. */
   effective: AgentTurnSettingsDto | null;
+  /** The turn the newest applied events belong to, and whether its lifecycle has ended. */
+  latestTurnId: string | null;
+  latestTurnSettled: boolean;
+  /** Bumped by every lifecycle event, so the screen re-reads the turn and task facts it changed. */
+  lifecycleEpoch: number;
+  /** The last failed command, shown until the next one; never a transcript row. */
+  notice: string | null;
 }
 
 export type AgentTaskAction =
@@ -61,7 +87,8 @@ export type AgentTaskAction =
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
   | { type: 'composer/sending'; sending: boolean }
-  | { type: 'settings/loaded'; settings: AgentTurnSettingsDto };
+  | { type: 'settings/loaded'; settings: AgentTurnSettingsDto }
+  | { type: 'notice/changed'; notice: string | null };
 
 export function initialAgentTaskState(): AgentTaskState {
   return {
@@ -76,6 +103,10 @@ export function initialAgentTaskState(): AgentTaskState {
     composer: '',
     sending: false,
     effective: null,
+    latestTurnId: null,
+    latestTurnSettled: true,
+    lifecycleEpoch: 0,
+    notice: null,
   };
 }
 
@@ -94,6 +125,8 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, composer: action.text };
     case 'composer/sending':
       return { ...state, sending: action.sending };
+    case 'notice/changed':
+      return { ...state, notice: action.notice };
     case 'events/applied':
       return applyEvents(state, action.events);
     default:
@@ -111,6 +144,9 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
  */
 function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): AgentTaskState {
   let lastSequence = state.lastSequence;
+  let latestTurnId = state.latestTurnId;
+  let latestTurnSettled = state.latestTurnSettled;
+  let lifecycleEpoch = state.lifecycleEpoch;
   const applied = [...state.events];
   const queue = [...state.pending, ...incoming]
     .filter((event) => event.sequence > lastSequence)
@@ -128,6 +164,17 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
     }
     applied.push(event);
     lastSequence = event.sequence;
+    if (event.turnId !== null && event.turnId !== latestTurnId) {
+      latestTurnId = event.turnId;
+      latestTurnSettled = false;
+    }
+    if (event.type === 'lifecycle') {
+      lifecycleEpoch++;
+      const phase = event.payload.phase;
+      if (event.turnId === latestTurnId && (phase === 'TURN_COMPLETED' || phase === 'INTERRUPTED')) {
+        latestTurnSettled = true;
+      }
+    }
   }
 
   return {
@@ -136,6 +183,9 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
     lastSequence,
     pending,
     gap: pending.length > 0,
+    latestTurnId,
+    latestTurnSettled,
+    lifecycleEpoch,
   };
 }
 
@@ -364,12 +414,34 @@ export function agentIdempotencyKey(taskId: string, lastSequence: number): strin
   return `${taskId}:${lastSequence}`;
 }
 
-/** Whether the task is idle, which is the only time completing it is offered. */
+/**
+ * What the task is doing, derived from durable facts rather than owned by the renderer.
+ *
+ * The backend keeps only OPEN, COMPLETED and FAILED. Running, idle, closing and recovery are read
+ * from the turn and the task's mutation claim: a claim that outlives its turn means the provider
+ * could not be shown to have stopped writing, and nothing may touch the checkout until it is.
+ */
+export type AgentRuntimeStatus = 'loading' | 'idle' | 'running' | 'closing' | 'recovery' | 'completed' | 'failed';
+
+export function runtimeStatus(state: AgentTaskState): AgentRuntimeStatus {
+  const task = state.task;
+  if (task === null) return 'loading';
+  if (task.state === 'COMPLETED') return 'completed';
+  if (task.state === 'FAILED') return 'failed';
+  // Until the durable turn has been read, the events say whether one is still in flight.
+  const turnActive = state.turn === null
+    ? state.latestTurnId !== null && !state.latestTurnSettled
+    : state.turn.state === 'RUNNING' || state.turn.state === 'ACCEPTED';
+  const claim = task.mutationClaim ?? null;
+  if (claim === null) return turnActive ? 'running' : 'idle';
+  if (claim.kind === 'COMPLETION') return 'closing';
+  if (claim.kind === 'RECOVERY') return 'recovery';
+  return turnActive ? 'running' : 'recovery';
+}
+
+/** Whether the task is idle, which is the only time sending or completing is offered. */
 export function isIdle(state: AgentTaskState): boolean {
-  if (state.turn === null) {
-    return state.task !== null;
-  }
-  return state.turn.state !== 'RUNNING' && state.turn.state !== 'ACCEPTED';
+  return runtimeStatus(state) === 'idle';
 }
 
 /** Whether Send may fire: idle, connected, not already sending, and with something to say. */
@@ -378,4 +450,30 @@ export function canSend(state: AgentTaskState): boolean {
     && !state.sending
     && state.composer.trim().length > 0
     && state.connection !== 'failed';
+}
+
+/**
+ * Whether the provider may or may not have received a turn's input.
+ *
+ * Delivery started but was never acknowledged, so resending could run the message twice; such a
+ * turn is never retried by a shortcut. A turn that never started delivery is known unsent.
+ */
+export function deliveryUncertain(turn: AgentTurnDto): boolean {
+  return turn.state !== 'COMPLETED'
+    && turn.state !== 'RUNNING'
+    && turn.state !== 'ACCEPTED'
+    && turn.startedAt !== null
+    && !turn.delivered;
+}
+
+/** The text a Retry would send again: the most recent user message, once the task is idle. */
+export function retryableMessage(state: AgentTaskState): string | null {
+  if (!isIdle(state) || state.turn === null || state.turn.state === 'COMPLETED' || deliveryUncertain(state.turn)) {
+    return null;
+  }
+  for (let index = state.events.length - 1; index >= 0; index--) {
+    const event = state.events[index];
+    if (event.type === 'user_message') return event.payload.text;
+  }
+  return null;
 }

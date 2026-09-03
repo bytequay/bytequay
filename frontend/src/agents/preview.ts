@@ -15,30 +15,16 @@
 import contracts from './fixtures/agent-contracts-v1.json';
 import eventFixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
+import type { AgentBridgePort } from './model';
 import type {
   AgentStreamMessage,
   AgentTaskDefaultsDto,
   AgentTaskDto,
   AgentTurnDto,
-  Bridge,
   ModelSettingsDto,
 } from '../types';
 
-/** The slice of the bridge an agent screen uses, so a screen can be driven by a mock. */
-export type AgentBridgePort = Pick<Bridge,
-  | 'listAgentTasks'
-  | 'createAgentTask'
-  | 'getAgentTask'
-  | 'readAgentEvents'
-  | 'startAgentTurn'
-  | 'getAgentTurn'
-  | 'cancelAgentTurn'
-  | 'resolveAgentApproval'
-  | 'completeAgentTask'
-  | 'subscribeAgentTask'
-  | 'getModelSettings'
-  | 'updateAgentTaskDefaults'
-  | 'getEffectiveTurnSettings'>;
+export type { AgentBridgePort } from './model';
 
 /** Every command the preview sent, so a test can assert the exact bridge calls. */
 export interface PreviewCommand {
@@ -209,6 +195,30 @@ export function createPreviewBridge(
         completedAt: '2026-08-20T10:05:00Z',
         deleteAfter: '2026-08-27T10:05:00Z',
       };
+    },
+    markAgentTaskFailed: async (taskId, id, reason) => {
+      record('markAgentTaskFailed', taskId, id, reason);
+      return {
+        ...previewTask(id, taskId),
+        state: 'FAILED',
+        terminalReason: reason,
+        terminalAt: '2026-08-20T10:06:00Z',
+        deleteAfter: '2026-08-27T10:06:00Z',
+      };
+    },
+    getAgentRuntimeStopImpact: async (taskId, id) => {
+      record('getAgentRuntimeStopImpact', taskId, id);
+      return {
+        taskId,
+        generation: turnState === 'RUNNING' ? 'turn:preview' : `task:${previewVersion}`,
+        activeTurnId: turnState === 'RUNNING' ? contracts.turn.id : null,
+        liveProcess: true,
+      };
+    },
+    stopAgentRuntime: async (taskId, id, generation) => {
+      record('stopAgentRuntime', taskId, id, generation);
+      if (turnState === 'RUNNING') turnState = 'INTERRUPTED';
+      return { ...previewTask(id, taskId), defaults: previewDefaults, version: previewVersion };
     },
     subscribeAgentTask: async (taskId, after, listener) => {
       record('subscribeAgentTask', taskId, after);

@@ -118,6 +118,28 @@ describe('preview journey', () => {
     expect(agentIdempotencyKey(created.id, 1)).not.toBe(agentIdempotencyKey(created.id, 2));
   });
 
+  it('stops a runtime only with the generation it was shown, then fails the task explicitly', async () => {
+    const bridge = createPreviewBridge('workspace-1');
+    const session = await open(bridge, 'task-1');
+    await bridge.startAgentTurn({ taskId: 'task-1', message: 'hang', idempotencyKey: 'k' });
+
+    const impact = await bridge.getAgentRuntimeStopImpact('task-1', 'workspace-1');
+    // The impact names what the stop interrupts; the stop echoes exactly that generation.
+    expect(impact.activeTurnId).not.toBeNull();
+    const stopped = await bridge.stopAgentRuntime('task-1', 'workspace-1', impact.generation);
+    expect(stopped.state).toBe('OPEN');
+    expect((await bridge.getAgentTurn('turn')).state).toBe('INTERRUPTED');
+
+    const failed = await bridge.markAgentTaskFailed('task-1', 'workspace-1', 'giving up');
+    session.stop();
+
+    expect(failed.state).toBe('FAILED');
+    expect(failed.terminalReason).toBe('giving up');
+    expect(names(bridge.commands)).toContain('getAgentRuntimeStopImpact');
+    const stop = bridge.commands.find((command) => command.name === 'stopAgentRuntime');
+    expect(stop?.args[2]).toBe(impact.generation);
+  });
+
   it('adopts the version each defaults write returns, so a second change is not a conflict', async () => {
     const bridge = createPreviewBridge('workspace-1');
     let task = await bridge.getAgentTask('task-1', 'workspace-1');

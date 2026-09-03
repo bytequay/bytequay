@@ -508,6 +508,18 @@ export type AgentTaskSummaryDto = {
   notes: string | null;
 };
 
+/**
+ * The one operation currently allowed to touch the task's checkout.
+ *
+ * A claim that outlives the task's turns means the provider could not be shown to have stopped
+ * writing; every mutation control stays disabled until it is resolved.
+ */
+export type AgentMutationClaimDto = {
+  kind: string;
+  ownerId: string;
+  acquiredAt: string;
+};
+
 export type AgentTaskDto = {
   id: string;
   workspaceId: string;
@@ -515,6 +527,7 @@ export type AgentTaskDto = {
   laneId: string;
   defaults: AgentTaskDefaultsDto;
   state: string;
+  mutationClaim: AgentMutationClaimDto | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -525,6 +538,7 @@ export type AgentTaskDto = {
   cleanupState: string;
   deleteAfter: string | null;
   cleanupFailure: string | null;
+  checkoutRemovedAt: string | null;
 };
 
 export type AgentTurnSettingsDto = {
@@ -545,6 +559,8 @@ export type AgentTurnDto = {
   startedAt: string | null;
   endedAt: string | null;
   cancellationRequestedAt: string | null;
+  /** Whether the provider acknowledged the input; a started but unacknowledged turn is uncertain. */
+  delivered: boolean;
   settings: AgentTurnSettingsDto | null;
   terminalReason: string | null;
   metrics: AgentMetricsDto;
@@ -572,6 +588,14 @@ export type AgentApprovalDto = {
   scopedPermission: string | null;
   resolvedAt: string;
   timedOut: boolean;
+};
+
+/** What stopping a task's Codex server would interrupt, and the generation the stop must echo. */
+export type AgentRuntimeStopImpactDto = {
+  taskId: string;
+  generation: string;
+  activeTurnId: string | null;
+  liveProcess: boolean;
 };
 
 export type AgentCompletionDto = {
@@ -1186,6 +1210,11 @@ export type Bridge = {
     scopedPermission?: string,
   ) => Promise<AgentApprovalDto>;
   completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
+  /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */
+  markAgentTaskFailed: (taskId: string, workspaceId: string, reason: string) => Promise<AgentTaskDto>;
+  getAgentRuntimeStopImpact: (taskId: string, workspaceId: string) => Promise<AgentRuntimeStopImpactDto>;
+  /** Stops only this task's Codex server; the generation is the one the user confirmed. */
+  stopAgentRuntime: (taskId: string, workspaceId: string, generation: string) => Promise<AgentTaskDto>;
   /** Streams one task's events; the returned function stops the subscription. */
   subscribeAgentTask: (
     taskId: string,

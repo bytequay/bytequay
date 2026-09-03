@@ -11,10 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView from '../agents/AgentTasksView';
-import { createPreviewBridge } from '../agents/preview';
 import Avatar from '../Avatar';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
@@ -50,8 +49,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   onSelectIssue: (number: number, mode: NavigationMode) => void;
   onRemoved: () => void;
 }) {
-  // Fixture-backed and created once: the preview must never reach a real provider.
-  const agentPreviewBridge = useMemo(() => createPreviewBridge(workspace.id), [workspace.id]);
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
@@ -128,7 +125,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         <AgentTaskScreen
           workspaceId={workspace.id}
           taskId={initialAgentTaskId}
-          bridge={agentPreviewBridge}
           onBack={() => onSelectAgentTask(null, 'push')}
         />
       );
@@ -150,8 +146,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         {developmentBuild && (
           <AgentTasksView
             workspaceId={workspace.id}
-            bridge={agentPreviewBridge}
             onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+            onOpenSettings={() => onSelectTab('settings')}
           />
         )}
       </div>

@@ -14,56 +14,97 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
-import { INTERACTIVE_LANE_ID, laneLabel } from '../settings/model';
+import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy } from '../settings/model';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
-import type { AgentBridgePort } from './preview';
+import type { AgentBridgePort } from './model';
 
 export interface AgentTasksViewProps {
   workspaceId: string;
-  bridge: AgentBridgePort;
+  /** Electron's bridge unless a test supplies its own. */
+  bridge?: AgentBridgePort;
   /** The route owns which task is open, so opening one is a navigation. */
   onOpenTask: (taskId: string) => void;
-  /** Fixed Codex lane and backend defaults; the picker arrives with CP7. */
+  /** Where a provider that is not ready gets fixed. */
+  onOpenSettings?: () => void;
+  /** Fixed Codex lane; Claude arrives with its parity checkpoint. */
   laneId?: string;
 }
 
-function stateClass(state: string): string {
-  switch (state) {
-    case 'OPEN':
-      return 'is-running';
-    case 'COMPLETED':
-      return 'is-completed';
-    case 'FAILED':
-      return 'is-failed';
-    default:
-      return '';
-  }
-}
+const DEFAULT_TITLE = 'New agent task';
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
 const STATE_LABELS: Record<string, string> = {
-  OPEN: 'Running',
+  OPEN: 'Open',
   COMPLETED: 'Completed',
   FAILED: 'Failed',
 };
 
+/** The pill for one task: a reserved checkout is worth calling out over plain "open". */
+export function taskStatePill(task: AgentTaskDto): { label: string; className: string } {
+  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') {
+    return { label: 'Recovery required', className: 'is-recovery' };
+  }
+  switch (task.state) {
+    case 'OPEN':
+      return { label: STATE_LABELS.OPEN, className: 'is-running' };
+    case 'COMPLETED':
+      return { label: STATE_LABELS.COMPLETED, className: 'is-completed' };
+    case 'FAILED':
+      return { label: STATE_LABELS.FAILED, className: 'is-failed' };
+    default:
+      return { label: task.state, className: '' };
+  }
+}
+
+/**
+ * Why a task cannot be created right now, or null when it can.
+ *
+ * Creation needs a provider that is ready and a model it actually offers; the backend refuses
+ * anything less, so the button is disabled with the reason rather than letting the POST fail.
+ */
+export function creationBlocker(
+  catalog: ModelSettingsDto | null,
+  laneId: string,
+  selection: { model: string; effort: string | null } | null,
+): string | null {
+  const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
+  if (provider === null) {
+    return `${laneLabel(laneId)} has not been checked yet. Check it in Workspace settings → Agent providers.`;
+  }
+  if (!providerAvailable(provider.readiness)) {
+    const remedy = providerRemedy(provider.readiness);
+    // The probe's own diagnostic names the actual obstacle; the remedy alone can be generic.
+    return `${laneLabel(laneId)} is not ready — ${remedy.title}. ${remedy.detail}`
+      + (remedy.command === null ? '' : ` Run: ${remedy.command}`)
+      + (provider.diagnostic === '' ? '' : ` ${provider.diagnostic}`);
+  }
+  if (selection === null || !provider.models.some((model) => model.id === selection.model)) {
+    return `No ${laneLabel(laneId)} model is available yet. Checking the provider in Workspace settings also fetches its models.`;
+  }
+  return null;
+}
+
 export default function AgentTasksView({
   workspaceId,
-  bridge,
+  bridge: explicitBridge,
   onOpenTask,
+  onOpenSettings,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentTasksViewProps): React.JSX.Element {
+  // Resolved when used, not when rendered: a static render has no window to reach.
+  const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [selection, setSelection] = useState<{ model: string; effort: string | null } | null>(null);
+  const [title, setTitle] = useState(DEFAULT_TITLE);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    bridge.listAgentTasks(workspaceId)
+    live().listAgentTasks(workspaceId)
       .then((found) => {
         if (!active) return;
         setTasks(found);
@@ -77,11 +118,11 @@ export default function AgentTasksView({
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [bridge, workspaceId]);
+  }, [live, workspaceId]);
 
   useEffect(() => {
     let active = true;
-    bridge.getModelSettings()
+    live().getModelSettings()
       .then((settings) => {
         if (!active) return;
         setCatalog(settings);
@@ -94,26 +135,31 @@ export default function AgentTasksView({
           });
         }
       })
-      .catch(() => { /* the row below reports an unusable catalog on its own */ });
+      .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
     return () => { active = false; };
-  }, [bridge, laneId]);
+  }, [live, laneId]);
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
-  // Creation needs a model the provider actually offers; without one it must not be attempted.
-  const creatable = selection !== null && models.some((model) => model.id === selection.model);
+  const blocker = creationBlocker(catalog, laneId, selection);
 
   const create = useCallback(async () => {
-    if (selection === null) return;
-    const task = await bridge.createAgentTask({
-      workspaceId,
-      title: 'New agent task',
-      laneId,
-      defaults: { model: selection.model, effort: selection.effort, permissionPolicy: 'AUTO' },
-    });
-    setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
-    onOpenTask(task.id);
-  }, [bridge, laneId, onOpenTask, selection, workspaceId]);
+    if (selection === null || blocker !== null) return;
+    try {
+      const task = await live().createAgentTask({
+        workspaceId,
+        title: title.trim() === '' ? DEFAULT_TITLE : title.trim(),
+        laneId,
+        defaults: { model: selection.model, effort: selection.effort, permissionPolicy: 'AUTO' },
+      });
+      setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
+      onOpenTask(task.id);
+    }
+    catch (failure) {
+      // Creation is gated on a fresh readiness probe, so this is the probe saying no.
+      setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
+    }
+  }, [blocker, laneId, live, onOpenTask, selection, title, workspaceId]);
 
   return (
     <AgentTaskList
@@ -123,17 +169,20 @@ export default function AgentTasksView({
       laneId={laneId}
       models={models}
       selection={selection}
-      creatable={creatable}
+      title={title}
+      blocker={blocker}
+      onTitleChange={setTitle}
       onSelectModel={(model, effort) => setSelection({ model, effort })}
       onCreate={() => { void create(); }}
       onOpenTask={onOpenTask}
+      onOpenSettings={onOpenSettings}
     />
   );
 }
 
 /** The list as a function of what was loaded, so empty, loading, error and populated all render. */
 export function AgentTaskList({
-  tasks, loading, error, laneId, models, selection, creatable, onSelectModel, onCreate, onOpenTask,
+  tasks, loading, error, laneId, models, selection, title, blocker, onTitleChange, onSelectModel, onCreate, onOpenTask, onOpenSettings,
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -141,10 +190,14 @@ export function AgentTaskList({
   laneId: string;
   models: ModelOptionDto[];
   selection: { model: string; effort: string | null } | null;
-  creatable: boolean;
+  title: string;
+  /** Why creation is unavailable; null when the task can be created. */
+  blocker: string | null;
+  onTitleChange: (title: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
+  onOpenSettings?: () => void;
 }): React.JSX.Element {
   const openCount = tasks.filter((task) => task.state === 'OPEN').length;
   const chosen = models.find((model) => model.id === selection?.model);
@@ -153,13 +206,20 @@ export function AgentTaskList({
       <div className="agt-head">
         <h2>Agent tasks</h2>
         <span className="agt-sub">{openCount} open · {tasks.length - openCount} finished</span>
-        <span className="agt-fixture-badge">Fixture data</span>
         <span className="agt-spacer" />
+        <input
+          className="agt-title-input"
+          type="text"
+          aria-label="Title for the new agent task"
+          value={title}
+          onChange={(event) => onTitleChange(event.target.value)}
+        />
         {/* The lane is fixed at creation, so it reads as a label rather than a picker. */}
-        <span className="agt-lane" title="Agent tasks run on Codex in this build">
+        <span className="agt-lane" title="Agent tasks run on Codex in this build" aria-label="Provider">
           {laneLabel(laneId)}
         </span>
         <ModelChip
+          ariaLabel="Model and effort for the new task"
           label={chosen?.name ?? 'No model'}
           detail={selection?.effort ?? undefined}
           disabled={models.length === 0}
@@ -168,14 +228,20 @@ export function AgentTaskList({
           selectedEffort={selection?.effort ?? undefined}
           onSelect={onSelectModel}
         />
-        <button type="button" className="agt-action" onClick={onCreate} disabled={!creatable}>
+        <span className="agt-lane" title="Permission policy for every turn" aria-label="Permission policy">Auto</span>
+        <button type="button" className="agt-action" onClick={onCreate} disabled={blocker !== null}>
           New agent task
         </button>
       </div>
-      {!creatable && (
+      {blocker !== null && (
         <div className="agt-empty">
-          No Codex model is available yet. Make Codex ready in Workspace settings — checking it
-          there also fetches its models — then reopen this tab.
+          {blocker}
+          {onOpenSettings !== undefined && (
+            <>
+              {' '}
+              <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
+            </>
+          )}
         </div>
       )}
 
@@ -184,25 +250,24 @@ export function AgentTaskList({
       <div className="agt-list">
         {loading && <div className="agt-loading">Loading agent tasks…</div>}
         {!loading && tasks.length === 0 && (
-          <div className="agt-empty">
-            No agent tasks yet. This preview reads checked-in fixture data and never runs an agent.
-          </div>
+          <div className="agt-empty">No agent tasks yet.</div>
         )}
-        {tasks.map((task) => (
-          <button
-            key={task.id}
-            type="button"
-            className="agt-row"
-            onClick={() => onOpenTask(task.id)}
-          >
-            <span className="agt-row-title">{task.title}</span>
-            <span className="agt-spacer" />
-            <span className="agt-row-meta">{task.laneId}</span>
-            <span className={`agt-state ${stateClass(task.state)}`}>
-              {STATE_LABELS[task.state] ?? task.state}
-            </span>
-          </button>
-        ))}
+        {tasks.map((task) => {
+          const pill = taskStatePill(task);
+          return (
+            <button
+              key={task.id}
+              type="button"
+              className="agt-row"
+              onClick={() => onOpenTask(task.id)}
+            >
+              <span className="agt-row-title">{task.title}</span>
+              <span className="agt-spacer" />
+              <span className="agt-row-meta">{laneLabel(task.laneId)}</span>
+              <span className={`agt-state ${pill.className}`}>{pill.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

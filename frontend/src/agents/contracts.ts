@@ -21,6 +21,8 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  AgentMutationClaimDto,
+  AgentRuntimeStopImpactDto,
 } from '../types';
 
 /**
@@ -88,6 +90,15 @@ function defaults(value: unknown, path: string): AgentTaskDefaultsDto {
   };
 }
 
+function claim(value: unknown, path: string): AgentMutationClaimDto {
+  const source = object(value, path);
+  return {
+    kind: text(source.kind, `${path}.kind`),
+    ownerId: text(source.ownerId, `${path}.ownerId`),
+    acquiredAt: text(source.acquiredAt, `${path}.acquiredAt`),
+  };
+}
+
 function summary(value: unknown, path: string): AgentTaskSummaryDto {
   const source = object(value, path);
   return {
@@ -110,6 +121,9 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     laneId: text(source.laneId, `${path}.laneId`),
     defaults: defaults(source.defaults, `${path}.defaults`),
     state: text(source.state, `${path}.state`),
+    mutationClaim: source.mutationClaim === null || source.mutationClaim === undefined
+      ? null
+      : claim(source.mutationClaim, `${path}.mutationClaim`),
     version: count(source.version, `${path}.version`),
     createdAt: text(source.createdAt, `${path}.createdAt`),
     updatedAt: text(source.updatedAt, `${path}.updatedAt`),
@@ -122,6 +136,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     cleanupState: text(source.cleanupState, `${path}.cleanupState`),
     deleteAfter: optionalText(source.deleteAfter, `${path}.deleteAfter`),
     cleanupFailure: optionalText(source.cleanupFailure, `${path}.cleanupFailure`),
+    checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
   };
 }
 
@@ -157,6 +172,7 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     startedAt: optionalText(source.startedAt, `${path}.startedAt`),
     endedAt: optionalText(source.endedAt, `${path}.endedAt`),
     cancellationRequestedAt: optionalText(source.cancellationRequestedAt, `${path}.cancellationRequestedAt`),
+    delivered: source.delivered === true,
     settings: source.settings === null || source.settings === undefined
       ? null
       : parseAgentTurnSettings(source.settings, `${path}.settings`),
@@ -177,6 +193,16 @@ export function parseAgentApproval(value: unknown, path = 'approval'): AgentAppr
     scopedPermission: optionalText(source.scopedPermission, `${path}.scopedPermission`),
     resolvedAt: text(source.resolvedAt, `${path}.resolvedAt`),
     timedOut: source.timedOut === true,
+  };
+}
+
+export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact'): AgentRuntimeStopImpactDto {
+  const source = object(value, path);
+  return {
+    taskId: text(source.taskId, `${path}.taskId`),
+    generation: text(source.generation, `${path}.generation`),
+    activeTurnId: optionalText(source.activeTurnId, `${path}.activeTurnId`),
+    liveProcess: source.liveProcess === true,
   };
 }
 

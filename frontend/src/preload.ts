@@ -235,6 +235,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
+  markAgentTaskFailed: (taskId, workspaceId, reason) =>
+    ipcRenderer.invoke('agent:task:mark-failed', taskId, workspaceId, reason),
+  getAgentRuntimeStopImpact: (taskId, workspaceId) =>
+    ipcRenderer.invoke('agent:task:stop-impact', taskId, workspaceId),
+  stopAgentRuntime: (taskId, workspaceId, generation) =>
+    ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
   subscribeAgentTask: async (taskId, after, listener) => {
     const subscriptionId: string = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after);
     // Main pushes every task on one channel, so each listener keeps only what it asked for.

@@ -19,13 +19,16 @@ import {
   agentTaskReducer,
   approvalDecisions,
   canSend,
+  deliveryUncertain,
   initialAgentTaskState,
   isIdle,
   projectAgentRows,
+  retryableMessage,
+  runtimeStatus,
   type AgentRow,
   type AgentTaskState,
 } from './model';
-import type { AgentTurnDto } from '../types';
+import type { AgentTaskDto, AgentTurnDto } from '../types';
 
 const all = parseAgentEventSequence(fixture.events);
 
@@ -41,7 +44,7 @@ function stream(...sequences: number[]): AgentEventEnvelope[] {
   });
 }
 
-function turn(state: string): AgentTurnDto {
+function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
   return {
     id: 'turn-1',
     taskId: 'task-1',
@@ -51,8 +54,10 @@ function turn(state: string): AgentTurnDto {
     startedAt: null,
     endedAt: null,
     cancellationRequestedAt: null,
+    delivered: true,
     settings: null,
     terminalReason: null,
+    ...extra,
     metrics: {
       inputTokens: 0,
       cachedInputTokens: 0,
@@ -62,6 +67,11 @@ function turn(state: string): AgentTurnDto {
       elapsed: 'PT0S',
     },
   };
+}
+
+/** An open task with only the facts the status derivation reads. */
+function openTask(claim: AgentTaskDto['mutationClaim'] = null): AgentTaskDto {
+  return { id: 'task-1', state: 'OPEN', mutationClaim: claim } as AgentTaskDto;
 }
 
 describe('applying events', () => {
@@ -99,6 +109,74 @@ describe('applying events', () => {
     expect(filled.gap).toBe(false);
     expect(filled.events.map((event) => event.sequence)).toEqual([1, 2, 3]);
     expect(filled.lastSequence).toBe(3);
+  });
+});
+
+describe('tracking the turn from events', () => {
+  it('names the turn the events belong to and settles it on its terminal lifecycle', () => {
+    const started = apply(initialAgentTaskState(), stream(1, 2, 3));
+
+    // The user message names the turn; nothing has ended it yet.
+    expect(started.latestTurnId).toBe(all[0].turnId);
+    expect(started.latestTurnSettled).toBe(false);
+    expect(started.lifecycleEpoch).toBe(1);
+
+    const settled = apply(started, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
+
+    expect(settled.latestTurnSettled).toBe(true);
+    // Two lifecycle events in the fixture, each a reason to re-read the durable facts.
+    expect(settled.lifecycleEpoch).toBe(2);
+  });
+
+  it('derives running from the events until the durable turn has been read', () => {
+    const mid = { ...apply(initialAgentTaskState(), stream(1, 2, 3)), task: openTask() };
+
+    // A reload mid-turn has events but no turn response yet; the composer must not open up.
+    expect(runtimeStatus(mid)).toBe('running');
+    expect(isIdle(mid)).toBe(false);
+
+    const done = { ...apply(mid, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)), task: openTask() };
+    expect(runtimeStatus(done)).toBe('idle');
+  });
+});
+
+describe('deriving runtime status', () => {
+  const base = { ...initialAgentTaskState(), task: openTask() };
+
+  it('reads idle, running and terminal from the task and turn', () => {
+    expect(runtimeStatus(initialAgentTaskState())).toBe('loading');
+    expect(runtimeStatus(base)).toBe('idle');
+    expect(runtimeStatus({ ...base, turn: turn('RUNNING') })).toBe('running');
+    expect(runtimeStatus({ ...base, turn: turn('ACCEPTED') })).toBe('running');
+    expect(runtimeStatus({ ...base, turn: turn('COMPLETED') })).toBe('idle');
+    expect(runtimeStatus({ ...base, task: { ...openTask(), state: 'COMPLETED' } })).toBe('completed');
+    expect(runtimeStatus({ ...base, task: { ...openTask(), state: 'FAILED' } })).toBe('failed');
+  });
+
+  it('reads recovery from a claim that outlived its turn, and closing from a completion claim', () => {
+    const turnClaim = { kind: 'TURN', ownerId: 'turn-1', acquiredAt: '2026-08-20T10:00:00Z' };
+
+    // While the claimed turn runs that is just running.
+    expect(runtimeStatus({ ...base, task: openTask(turnClaim), turn: turn('RUNNING') })).toBe('running');
+    // Once it ended without releasing the claim, the provider was not shown quiet.
+    expect(runtimeStatus({ ...base, task: openTask(turnClaim), turn: turn('FAILED') })).toBe('recovery');
+    expect(runtimeStatus({ ...base, task: openTask({ ...turnClaim, kind: 'RECOVERY' }) })).toBe('recovery');
+    expect(runtimeStatus({ ...base, task: openTask({ ...turnClaim, kind: 'COMPLETION' }) })).toBe('closing');
+    expect(isIdle({ ...base, task: openTask(turnClaim), turn: turn('FAILED') })).toBe(false);
+  });
+
+  it('offers Retry only for a delivered, unfinished last message on an idle task', () => {
+    const idleAfterFailure = { ...apply(base, stream(1, 2)), turn: turn('FAILED', { startedAt: '2026-08-20T10:00:01Z' }) };
+
+    expect(retryableMessage(idleAfterFailure)).toBe('Review the authentication change');
+    expect(retryableMessage({ ...idleAfterFailure, turn: turn('COMPLETED') })).toBeNull();
+    // Started but never acknowledged: it may have arrived, so it is never resent by a shortcut.
+    const uncertain = turn('INTERRUPTED', { startedAt: '2026-08-20T10:00:01Z', delivered: false });
+    expect(deliveryUncertain(uncertain)).toBe(true);
+    expect(retryableMessage({ ...idleAfterFailure, turn: uncertain })).toBeNull();
+    // Never started delivering is known unsent, which is safe to send.
+    expect(deliveryUncertain(turn('INTERRUPTED', { delivered: false }))).toBe(false);
+    expect(retryableMessage({ ...idleAfterFailure, turn: turn('RUNNING') })).toBeNull();
   });
 });
 
@@ -173,7 +251,7 @@ describe('projecting rows', () => {
 
     // Cancellation ends the turn, so the task becomes completable again.
     expect(cancelled.turn?.state).toBe('CANCELLED');
-    expect(isIdle({ ...cancelled, task: { id: 'task-1' } as never })).toBe(true);
+    expect(isIdle({ ...cancelled, task: openTask() })).toBe(true);
 
     const errors = projectAgentRows(all).filter((row) => row.kind === 'error');
     expect(errors.length).toBeGreaterThan(0);
@@ -203,7 +281,7 @@ describe('projecting rows', () => {
 
 describe('composer and lifecycle', () => {
   it('offers Complete only when no turn is running', () => {
-    const base = { ...initialAgentTaskState(), task: { id: 'task-1' } as never };
+    const base = { ...initialAgentTaskState(), task: openTask() };
 
     expect(isIdle({ ...base, turn: turn('RUNNING') })).toBe(false);
     expect(isIdle({ ...base, turn: turn('ACCEPTED') })).toBe(false);
@@ -213,7 +291,7 @@ describe('composer and lifecycle', () => {
   it('refuses Send while busy, empty, or disconnected', () => {
     const ready: AgentTaskState = {
       ...initialAgentTaskState(),
-      task: { id: 'task-1' } as never,
+      task: openTask(),
       turn: turn('COMPLETED'),
       composer: 'do the thing',
       connection: 'open',

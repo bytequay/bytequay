@@ -12,29 +12,33 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useReducer, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
+import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
-import type { AgentBridgePort } from './preview';
 import {
   agentIdempotencyKey,
   agentTaskReducer,
   approvalDecisions,
   canSend,
   initialAgentTaskState,
-  isIdle,
   projectAgentRows,
+  retryableMessage,
+  runtimeStatus,
   startAgentTaskSession,
+  type AgentBridgePort,
   type AgentRow,
+  type AgentRuntimeStatus,
   type AgentTaskState,
 } from './model';
-import type { AgentApprovalDecision, ModelOptionDto } from '../types';
+import type { AgentApprovalDecision, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 export interface AgentTaskScreenProps {
   workspaceId: string;
   taskId: string;
-  bridge: AgentBridgePort;
+  /** Electron's bridge unless a test supplies its own. */
+  bridge?: AgentBridgePort;
   onBack: () => void;
   /** Fixed at creation; the screen reads its catalog, it does not offer a choice. */
   laneId?: string;
@@ -80,7 +84,13 @@ export function AgentRowView({ row, onDecide }: {
         <div className="agt-item">
           <div className="agt-item__kind">Command · {row.state}{row.exitCode === null ? '' : ` · exit ${row.exitCode}`}</div>
           <pre className="agt-pre">{row.argv.join(' ')}</pre>
-          {row.output !== null && <pre className="agt-pre">{row.output}{row.truncated ? '\n…truncated' : ''}</pre>}
+          {/* Output folds behind a native disclosure, so it is keyboard-operable for free. */}
+          {row.output !== null && (
+            <details>
+              <summary>Output{row.truncated ? ' (truncated)' : ''}</summary>
+              <pre className="agt-pre">{row.output}</pre>
+            </details>
+          )}
         </div>
       );
     case 'file':
@@ -88,7 +98,12 @@ export function AgentRowView({ row, onDecide }: {
         <div className="agt-item">
           <div className="agt-item__kind">File · {row.change} · {row.state}</div>
           <div>{row.path}</div>
-          {row.diff !== null && <pre className="agt-pre">{row.diff}</pre>}
+          {row.diff !== null && (
+            <details>
+              <summary>Diff</summary>
+              <pre className="agt-pre">{row.diff}</pre>
+            </details>
+          )}
         </div>
       );
     case 'tool':
@@ -104,7 +119,7 @@ export function AgentRowView({ row, onDecide }: {
         <div className="agt-item">
           <div className="agt-item__kind">
             Approval · {row.approvalKind} · {row.agent}
-            {row.outcome === null ? '' : ` \u00b7 ${row.outcome}`}
+            {row.outcome === null ? '' : ` · ${row.outcome}`}
           </div>
           <div>{row.title}</div>
           <div className="agt-row-meta">{row.detail}</div>
@@ -121,6 +136,7 @@ export function AgentRowView({ row, onDecide }: {
                   key={choice.offered}
                   type="button"
                   className="agt-decision"
+                  aria-label={`${choice.label}: ${row.title}`}
                   onClick={() => onDecide?.(row.approvalId, choice.decision)}
                 >
                   {choice.label}
@@ -195,14 +211,124 @@ function connectionText(state: AgentTaskState): string {
   return state.connectionDetail === null ? text : `${text} — ${state.connectionDetail}`;
 }
 
+const STATUS_LABELS: Record<AgentRuntimeStatus, string> = {
+  loading: 'Loading',
+  idle: 'Idle',
+  running: 'Running',
+  closing: 'Closing',
+  recovery: 'Recovery required',
+  completed: 'Completed',
+  failed: 'Failed',
+};
+
+/** Why Complete is unavailable, told on the button rather than left to be guessed. */
+function completeTitle(status: AgentRuntimeStatus): string {
+  switch (status) {
+    case 'idle':
+      return 'Closes this task, removes its clean checkout and keeps the result branch';
+    case 'recovery':
+      return 'Unlocks after recovery';
+    case 'closing':
+      return 'Closing…';
+    default:
+      return 'Available when the task is idle';
+  }
+}
+
+/**
+ * Replaces the mutation controls while the checkout is still reserved.
+ *
+ * Nothing here edits or cleans that checkout. A claim from a turn means this task's own Codex
+ * server could not be shown to have stopped writing, and stopping it is the way out. A recovery
+ * claim means the process predates this ByteQuay, so nothing here can stop it: the checkout stays
+ * reserved until that process is gone and a restart verifies it.
+ */
+function RecoveryCard({ task, turn, onStopServer, onMarkFailed }: {
+  task: AgentTaskDto;
+  turn: AgentTurnDto | null;
+  onStopServer: () => void;
+  onMarkFailed: () => void;
+}): React.JSX.Element {
+  const oldProcess = task.mutationClaim?.kind === 'RECOVERY';
+  return (
+    <section className="agt-recovery" aria-labelledby="agt-recovery-title">
+      <div className="agt-recovery__head">
+        <span id="agt-recovery-title">Recovering agent execution</span>
+        <span className="agt-spacer" />
+        <button
+          type="button"
+          className="agt-action is-danger"
+          onClick={onStopServer}
+          disabled={oldProcess}
+          title={oldProcess
+            ? 'That process predates this ByteQuay run; stop it yourself, then restart ByteQuay'
+            : 'Kills only this task’s Codex server, after confirmation'}
+        >
+          Stop this task&apos;s Codex server…
+        </button>
+      </div>
+      <div className="agt-recovery__body">
+        {oldProcess
+          ? 'ByteQuay restarted while this task was working, and a process from before the restart '
+            + 'could not be verified stopped. The transcript is safe; the checkout stays reserved until '
+            + 'that process is gone and ByteQuay has restarted.'
+          : 'The last turn ended, but its Codex process could not be shown to have stopped writing '
+            + 'here. The transcript is safe; new messages wait until nothing from that run can still '
+            + 'change files.'}
+        {turn?.terminalReason && <div className="agt-row-meta">{turn.terminalReason}</div>}
+      </div>
+      <div className="agt-recovery__actions">
+        <button
+          type="button"
+          className="agt-action"
+          onClick={onMarkFailed}
+          title="Fails the task and keeps its checkout for inspection, after confirmation"
+        >
+          Mark task failed
+        </button>
+        <button type="button" className="agt-action" disabled title="Unlocks after recovery — never re-sends by itself">
+          Retry last message
+        </button>
+        <span className="agt-spacer" />
+        <span className="agt-recovery__note">Only this task&apos;s Codex server is stopped</span>
+      </div>
+    </section>
+  );
+}
+
+/** The task's result once it is closed: what was kept, and whether the checkout is gone. */
+function TerminalSummary({ task }: { task: AgentTaskDto }): React.JSX.Element {
+  const completed = task.state === 'COMPLETED';
+  return (
+    <section className="agt-terminal" aria-label={completed ? 'Task result' : 'Task failure'}>
+      <div className="agt-terminal__kind">
+        {completed ? 'Completed' : 'Failed'}{task.terminalAt === null ? '' : ` · ${relativeTime(task.terminalAt)}`}
+      </div>
+      {task.terminalReason !== null && <div>{task.terminalReason}</div>}
+      {task.summary?.finalResponse && <div>{task.summary.finalResponse}</div>}
+      <dl>
+        {task.summary?.resultBranch && <><dt>Result branch</dt><dd>{task.summary.resultBranch}</dd></>}
+        {task.summary?.resultHead && <><dt>HEAD</dt><dd>{task.summary.resultHead}</dd></>}
+        <dt>Checkout</dt>
+        <dd>
+          {task.checkoutRemovedAt === null
+            ? 'kept for inspection'
+            : `removed ${relativeTime(task.checkoutRemovedAt)}; the branch remains`}
+        </dd>
+      </dl>
+    </section>
+  );
+}
+
 /**
  * The whole screen as a function of state, so every visual state can be rendered on its own.
  *
  * The effectful wrapper below owns the stream; this owns nothing, which is what makes a
- * reconnecting or errored screen testable without driving a real subscription to produce it.
+ * reconnecting, recovering or closed screen testable without driving a real subscription.
  */
 export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
+  onStopServer, onMarkFailed, onRetry, composerRef,
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
@@ -213,15 +339,24 @@ export function AgentTaskBody({
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
   onCompose: (text: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
+  onStopServer: () => void;
+  onMarkFailed: () => void;
+  onRetry: () => void;
+  composerRef?: React.Ref<HTMLTextAreaElement>;
 }): React.JSX.Element {
   const rows = projectAgentRows(state.events);
-  const idle = isIdle(state);
+  const status = runtimeStatus(state);
+  const terminal = status === 'completed' || status === 'failed';
+  const retry = retryableMessage(state);
+  const statusText = state.turn === null
+    ? STATUS_LABELS[status]
+    : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
-        <button type="button" className="agt-back" onClick={onBack}>‹ Tasks</button>
+        <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
         <strong>{state.task?.title ?? 'Agent task'}</strong>
-        <span className="agt-fixture-badge">Fixture data</span>
+        <span className={`agt-state is-${status}`}>{STATUS_LABELS[status]}</span>
         <span className="agt-spacer" />
         <span
           className={`agt-conn-dot is-${stateClass(state.connection)}`}
@@ -229,24 +364,27 @@ export function AgentTaskBody({
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
-        <button
-          type="button"
-          className="agt-action"
-          title={idle ? 'Closes this task and frees the workspace' : 'Available when the task is idle'}
-          onClick={onComplete}
-          disabled={!idle}
-        >
-          Complete
-        </button>
+        {!terminal && (
+          <button
+            type="button"
+            className="agt-action"
+            title={completeTitle(status)}
+            onClick={onComplete}
+            disabled={status !== 'idle'}
+          >
+            Complete
+          </button>
+        )}
       </div>
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
       {(state.connection !== 'open' || state.gap) && (
         <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
           {connectionText(state)}
-          {state.gap ? ' \u2014 waiting for a missing event' : ''}
+          {state.gap ? ' — waiting for a missing event' : ''}
         </div>
       )}
+      {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <div className="agt-transcript">
         {rows.length === 0
@@ -254,90 +392,165 @@ export function AgentTaskBody({
           : rows.map((row) => <AgentRowView key={row.id} row={row} onDecide={onDecide} />)}
       </div>
 
-      {state.effective !== null && (
-        <div className="agt-next" role="status">
+      {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
+      <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
+
+      {terminal && state.task !== null && <TerminalSummary task={state.task} />}
+
+      {status === 'recovery' && state.task !== null && (
+        <RecoveryCard task={state.task} turn={state.turn} onStopServer={onStopServer} onMarkFailed={onMarkFailed} />
+      )}
+
+      {!terminal && state.effective !== null && (
+        <div className="agt-next">
           {/* Settings are snapshotted when a turn is accepted, so a change lands on the next one. */}
           Next turn: {modelName(models, state.effective.model)}
-          {state.effective.effort === null ? '' : ` \u00b7 ${state.effective.effort}`}
-          {' \u00b7 '}{permissionLabel(state.effective.permissionPolicy)}
+          {state.effective.effort === null ? '' : ` · ${state.effective.effort}`}
+          {' · '}{permissionLabel(state.effective.permissionPolicy)}
         </div>
       )}
 
-      <div className="agt-composer">
-        <textarea
-          value={state.composer}
-          aria-label="Message the agent"
-          placeholder={state.connection === 'connecting' ? 'Connecting…' : 'Message the agent'}
-          onChange={(event) => onCompose(event.target.value)}
-        />
-        <span className="agt-lane" title="Permission policy for the next turn">
-          {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
-        </span>
-        <ModelChip
-          ariaLabel="Model and effort for the next message"
-          label={modelName(models, state.task?.defaults.model ?? null)}
-          detail={state.task?.defaults.effort ?? undefined}
-          disabled={models.length === 0}
-          models={models}
-          selectedModel={state.task?.defaults.model ?? ''}
-          selectedEffort={state.task?.defaults.effort ?? undefined}
-          onSelect={onSelectModel}
-        />
-        <button type="button" className="agt-action" onClick={onSend} disabled={!canSend(state)}>Send</button>
-        {/* Cancel needs a turn to cancel; before one exists the handler falls straight out. */}
-        <button
-          type="button"
-          className="agt-action"
-          onClick={onCancel}
-          disabled={state.turn === null || idle}
-        >
-          Cancel
-        </button>
-      </div>
+      {!terminal && (
+        <div className="agt-composer">
+          <textarea
+            ref={composerRef}
+            value={state.composer}
+            aria-label="Message the agent"
+            placeholder={state.connection === 'connecting' ? 'Connecting…' : status === 'closing' ? 'Closing…' : 'Message the agent'}
+            disabled={status === 'closing' || status === 'recovery'}
+            onChange={(event) => onCompose(event.target.value)}
+          />
+          <span className="agt-lane" title="Permission policy for the next turn" aria-label="Permission policy">
+            {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
+          </span>
+          <ModelChip
+            ariaLabel="Model and effort for the next message"
+            label={modelName(models, state.task?.defaults.model ?? null)}
+            detail={state.task?.defaults.effort ?? undefined}
+            disabled={models.length === 0 || terminal}
+            models={models}
+            selectedModel={state.task?.defaults.model ?? ''}
+            selectedEffort={state.task?.defaults.effort ?? undefined}
+            onSelect={onSelectModel}
+          />
+          {retry !== null && (
+            <button
+              type="button"
+              className="agt-action"
+              onClick={onRetry}
+              title="Sends the last message again as a new turn, after confirmation"
+            >
+              Retry last message
+            </button>
+          )}
+          <button type="button" className="agt-action" onClick={onSend} disabled={!canSend(state)}>Send</button>
+          <button
+            type="button"
+            className="agt-action"
+            onClick={onCancel}
+            disabled={status !== 'running'}
+            title="Interrupts the running turn and waits for its work to stop"
+          >
+            Stop this turn
+          </button>
+          {status === 'running' && (
+            <button
+              type="button"
+              className="agt-action is-danger"
+              onClick={onStopServer}
+              title="Last resort: kills only this task’s Codex server, after confirmation"
+            >
+              Stop server…
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function failureText(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure);
 }
 
 export default function AgentTaskScreen({
   workspaceId,
   taskId,
-  bridge,
+  bridge: explicitBridge,
   onBack,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
   const [models, setModels] = useState<ModelOptionDto[]>([]);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Resolved when used, not when rendered: the product route reaches Electron's bridge, and a
+  // static render has no window to reach.
+  const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
 
   useEffect(() => {
     let active = true;
-    const session = startAgentTaskSession(bridge, taskId, workspaceId, dispatch, () => active);
+    const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active);
+    session.catch((failure: unknown) => {
+      if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+    });
     return () => {
       active = false;
-      void session.then((stop) => stop());
+      void session.then((stop) => stop(), () => {});
     };
-  }, [bridge, taskId, workspaceId]);
+  }, [live, taskId, workspaceId]);
 
   useEffect(() => {
     let active = true;
     void (async () => {
       const [catalog, effective] = await Promise.all([
-        bridge.getModelSettings(),
-        bridge.getEffectiveTurnSettings(taskId, workspaceId),
+        live().getModelSettings(),
+        live().getEffectiveTurnSettings(taskId, workspaceId),
       ]);
       if (!active) return;
       setModels(catalog.providers.find((provider) => provider.id === laneId)?.models ?? []);
       dispatch({ type: 'settings/loaded', settings: effective });
-    })();
+    })().catch(() => { /* the composer then shows no catalog, which the list already explains */ });
     return () => { active = false; };
-  }, [bridge, laneId, taskId, workspaceId]);
+  }, [live, laneId, taskId, workspaceId]);
 
-  const selectModel = useCallback(async (model: string, effort: string | null) => {
+  // Every lifecycle event changes durable task or turn facts the events themselves do not carry
+  // (the claim, the terminal state), so each one triggers a re-read of both.
+  const { lifecycleEpoch, latestTurnId } = state;
+  useEffect(() => {
+    if (lifecycleEpoch === 0) return;
+    let active = true;
+    void (async () => {
+      const [task, turn] = await Promise.all([
+        live().getAgentTask(taskId, workspaceId),
+        latestTurnId === null ? Promise.resolve(null) : live().getAgentTurn(latestTurnId),
+      ]);
+      if (!active) return;
+      dispatch({ type: 'task/loaded', task });
+      if (turn !== null) dispatch({ type: 'turn/changed', turn });
+    })().catch((failure: unknown) => {
+      if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+    });
+    return () => { active = false; };
+  }, [live, taskId, workspaceId, lifecycleEpoch, latestTurnId]);
+
+  /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
+  const run = useCallback(async (action: () => Promise<void>) => {
+    dispatch({ type: 'notice/changed', notice: null });
+    try {
+      await action();
+    }
+    catch (failure) {
+      dispatch({ type: 'notice/changed', notice: failureText(failure) });
+    }
+  }, []);
+
+  const selectModel = useCallback((model: string, effort: string | null) => run(async () => {
     const task = state.task;
     if (task === null) return;
     // The response carries the bumped version; keeping the old one conflicts on the next change.
     dispatch({
       type: 'task/loaded',
-      task: await bridge.updateAgentTaskDefaults(taskId, workspaceId, task.version, {
+      task: await live().updateAgentTaskDefaults(taskId, workspaceId, task.version, {
         model,
         effort,
         permissionPolicy: task.defaults.permissionPolicy,
@@ -345,45 +558,93 @@ export default function AgentTaskScreen({
     });
     dispatch({
       type: 'settings/loaded',
-      settings: await bridge.getEffectiveTurnSettings(taskId, workspaceId),
+      settings: await live().getEffectiveTurnSettings(taskId, workspaceId),
     });
-  }, [bridge, state.task, taskId, workspaceId]);
+  }), [live, run, state.task, taskId, workspaceId]);
 
-  const send = useCallback(async () => {
-    const message = state.composer.trim();
-    if (message.length === 0) return;
+  const startTurn = useCallback(async (message: string) => {
     dispatch({ type: 'composer/sending', sending: true });
     try {
-      const turn = await bridge.startAgentTurn({
+      const turn = await live().startAgentTurn({
         taskId,
         message,
         idempotencyKey: agentIdempotencyKey(taskId, state.lastSequence),
       });
       dispatch({ type: 'turn/changed', turn });
-      // The transcript still waits for the durable user-message event rather than inventing it.
-      dispatch({ type: 'composer/changed', text: '' });
     }
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }, [bridge, state.composer, state.lastSequence, taskId]);
+  }, [live, state.lastSequence, taskId]);
 
-  const cancel = useCallback(async () => {
+  const send = useCallback(() => run(async () => {
+    const message = state.composer.trim();
+    if (message.length === 0) return;
+    await startTurn(message);
+    // The transcript still waits for the durable user-message event rather than inventing it.
+    dispatch({ type: 'composer/changed', text: '' });
+  }), [run, startTurn, state.composer]);
+
+  const retry = useCallback(() => run(async () => {
+    const message = retryableMessage(state);
+    if (message === null) return;
+    // Never automatic: the user confirms the exact text that will run again as a new turn.
+    if (!window.confirm(`Send this message again as a new turn?\n\n${message}`)) return;
+    await startTurn(message);
+  }), [run, startTurn, state]);
+
+  const cancel = useCallback(() => run(async () => {
     if (state.turn === null) return;
-    dispatch({ type: 'turn/changed', turn: await bridge.cancelAgentTurn(state.turn.id) });
-  }, [bridge, state.turn]);
+    dispatch({ type: 'turn/changed', turn: await live().cancelAgentTurn(state.turn.id) });
+  }), [live, run, state.turn]);
+
+  const complete = useCallback(() => run(async () => {
+    await live().completeAgentTask(taskId, workspaceId);
+    dispatch({ type: 'task/loaded', task: await live().getAgentTask(taskId, workspaceId) });
+  }), [live, run, taskId, workspaceId]);
+
+  const stopServer = useCallback(() => run(async () => {
+    const impact = await live().getAgentRuntimeStopImpact(taskId, workspaceId);
+    const consequence = impact.activeTurnId === null
+      ? 'No turn is running; the checkout is released once the process is verified stopped.'
+      : 'The running turn is interrupted and its pending approvals denied.';
+    if (!window.confirm(`Stop this task's Codex server? Only this task is affected.\n\n${consequence}`)) return;
+    dispatch({ type: 'task/loaded', task: await live().stopAgentRuntime(taskId, workspaceId, impact.generation) });
+    if (latestTurnId !== null) {
+      dispatch({ type: 'turn/changed', turn: await live().getAgentTurn(latestTurnId) });
+    }
+  }), [live, latestTurnId, run, taskId, workspaceId]);
+
+  const markFailed = useCallback(() => run(async () => {
+    if (!window.confirm('Mark this task failed? Its checkout is kept for inspection unless it is clean; '
+      + 'the transcript is retained.')) return;
+    dispatch({
+      type: 'task/loaded',
+      task: await live().markAgentTaskFailed(taskId, workspaceId, 'Marked failed by the user during recovery'),
+    });
+  }), [live, run, taskId, workspaceId]);
+
+  const decide = useCallback((approvalId: string, decision: AgentApprovalDecision) => run(async () => {
+    await live().resolveAgentApproval(approvalId, decision);
+    // The buttons that had focus disappear with the decision; the composer is the next thing to do.
+    composerRef.current?.focus();
+  }), [live, run]);
 
   return (
     <AgentTaskBody
       state={state}
       models={models}
+      composerRef={composerRef}
       onBack={onBack}
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
-      onComplete={() => { void bridge.completeAgentTask(taskId, workspaceId); }}
-      onDecide={(approvalId, decision) => { void bridge.resolveAgentApproval(approvalId, decision); }}
+      onComplete={() => { void complete(); }}
+      onDecide={(approvalId, decision) => { void decide(approvalId, decision); }}
       onCompose={(text) => dispatch({ type: 'composer/changed', text })}
       onSelectModel={(model, effort) => { void selectModel(model, effort); }}
+      onStopServer={() => { void stopServer(); }}
+      onMarkFailed={() => { void markFailed(); }}
+      onRetry={() => { void retry(); }}
     />
   );
 }

@@ -10,6 +10,7 @@
       "permissionPolicy": "AUTO"
     },
     "state": "OPEN",
+    "mutationClaim": null,
     "version": 0,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
@@ -26,7 +27,8 @@
     "summary": null,
     "cleanupState": "RETAINED",
     "deleteAfter": null,
-    "cleanupFailure": null
+    "cleanupFailure": null,
+    "checkoutRemovedAt": null
   },
   "turn": {
     "id": "<turn-1>",
@@ -37,6 +39,7 @@
     "startedAt": "<timestamp>",
     "endedAt": "<timestamp>",
     "cancellationRequestedAt": null,
+    "delivered": true,
     "settings": {
       "model": "test-model",
       "effort": "high",
@@ -87,6 +90,7 @@
       "permissionPolicy": "AUTO"
     },
     "state": "COMPLETED",
+    "mutationClaim": null,
     "version": 10,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
@@ -118,6 +122,7 @@
     },
     "cleanupState": "RETAINED",
     "deleteAfter": "<timestamp>",
-    "cleanupFailure": null
+    "cleanupFailure": null,
+    "checkoutRemovedAt": "<timestamp>"
   }
 }

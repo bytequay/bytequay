@@ -37,6 +37,21 @@ describe('agent contract parsing', () => {
 
     expect(task.summary?.finalResponse).toBe(fixture.finalTask.summary.finalResponse);
     expect(task.summary?.resultBranch).toBe(fixture.finalTask.summary.resultBranch);
+    // Completion removed the clean worktree; the screen can say so without a path.
+    expect(task.checkoutRemovedAt).toBe(fixture.finalTask.checkoutRemovedAt);
+  });
+
+  it('reads the worktree claim that decides whether the task is idle', () => {
+    expect(parseAgentTask(fixture.task).mutationClaim).toBeNull();
+
+    const held = parseAgentTask({
+      ...fixture.task,
+      mutationClaim: { kind: 'TURN', ownerId: 'turn-9', acquiredAt: '2026-08-20T10:00:00Z' },
+    });
+
+    expect(held.mutationClaim).toEqual({ kind: 'TURN', ownerId: 'turn-9', acquiredAt: '2026-08-20T10:00:00Z' });
+    // A claim with no owner is not a claim the renderer can reason about.
+    expect(() => parseAgentTask({ ...fixture.task, mutationClaim: { kind: 'TURN' } })).toThrow(/ownerId/);
   });
 
   it('reads a turn and its settings snapshot', () => {

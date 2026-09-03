@@ -19,6 +19,7 @@ import path from 'node:path';
 import {
   parseAgentApproval,
   parseAgentCompletion,
+  parseAgentRuntimeStopImpact,
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
@@ -475,6 +476,26 @@ function registerIpc(): void {
       headers: agentHeaders(true),
       body: JSON.stringify({ notes: notes ?? null }),
     }).then((completion) => parseAgentCompletion(completion)));
+  ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ reason }),
+    }).then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then((impact) => parseAgentRuntimeStopImpact(impact)));
+  ipcMain.handle('agent:task:stop', (_event, taskId: string, workspaceId: string, generation: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ generation }),
+      // Stopping waits for the process tree to be verified gone, which can take a while.
+      signal: AbortSignal.timeout(90_000),
+    }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number) =>
     startAgentSubscription(event.sender, taskId, after));
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {

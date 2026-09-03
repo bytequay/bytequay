@@ -525,102 +525,49 @@
   color: #1f2328;
 }
 
-.agt-picker__head {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 6px 8px 10px;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: #1f2328;
-  cursor: pointer;
-}
-
-.agt-picker__head .agt-bolt {
-  margin-right: auto;
+.agt-picker__heading {
+  padding: 6px 12px 4px;
+  font-size: 12px;
   color: #8c959f;
 }
 
-.agt-picker__head .chev {
-  margin-left: auto;
-}
-
-.agt-picker__level {
-  color: #0969da;
-}
-
-/* The slider: a 40px pill whose filled part is the chosen effort, with a stop dot per level. */
-.agt-picker__slider {
-  --fill-color: #0969da;
-  position: relative;
-  height: 40px;
-}
-
-.agt-picker__slider.is-max {
-  --fill-color: #7b5fe0;
-}
-
-.agt-picker__range {
-  appearance: none;
-  -webkit-appearance: none;
+.agt-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  height: 40px;
-  margin: 0;
-  background: transparent;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  color: #1f2328;
+  text-align: left;
   cursor: pointer;
 }
 
-.agt-picker__range::-webkit-slider-runnable-track {
-  height: 40px;
-  border-radius: 20px;
-  background: linear-gradient(90deg, var(--fill-color) var(--fill), #eceff2 var(--fill));
+.agt-picker__item:hover {
+  background: #f0f1f3;
 }
 
-.agt-picker__range::-webkit-slider-thumb {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 4px rgba(27, 31, 36, 0.28);
+.agt-picker__item:disabled {
+  color: #a8b0b9;
+  cursor: default;
 }
 
-.agt-picker__range:focus-visible {
-  outline: 2px solid #0969da;
-  outline-offset: 2px;
-  border-radius: 20px;
+.agt-picker__value {
+  margin-left: auto;
+  color: #8c959f;
 }
 
-.agt-picker__stops {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 17px;
-  pointer-events: none;
-}
-
-.agt-picker__stop {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(31, 35, 40, 0.28);
-}
-
-.agt-picker__stop.is-under-thumb {
-  visibility: hidden;
+.agt-picker__item .chev {
+  color: #8c959f;
 }
 
 .agt-picker__single {
-  padding: 4px 8px 6px;
-  font-size: 12px;
+  padding: 9px 12px;
+  font-size: 12.5px;
   color: #57606a;
 }
 
@@ -1101,6 +1048,42 @@
   cursor: pointer;
 }
 
+/* A finished turn's log, folded to the design's one sentence under the head. */
+.agt-turn__sum {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: #57606a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agt-turn__sum .chev {
+  color: #8c959f;
+}
+
+/* Under the composer: what the task has done and used so far. */
+.agt-compose__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 0;
+  font-size: 11.5px;
+  color: #8c959f;
+}
+
+.agt-compose__sep {
+  color: #d0d7de;
+}
+
 .agt-turn__label {
   font-size: 12px;
   color: #8c959f;
@@ -1436,11 +1419,6 @@
   font-size: 11.5px;
   color: #8c959f;
   flex-wrap: wrap;
-}
-
-.agt-usage__tokens {
-  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
-  font-size: 11px;
 }
 
 /* The running turn's plan, kept in view above the composer. */

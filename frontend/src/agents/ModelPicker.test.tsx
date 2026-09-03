@@ -35,36 +35,30 @@ describe('model picker', () => {
 
   it('lists the models by short name with the current one checked', () => {
     const list = renderToStaticMarkup(
-      <ModelPickerCard view="models" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="low" onSelect={() => {}} onView={() => {}} />);
+      <ModelPickerCard view="models" models={MODELS} provider="Codex" selectedModel="gpt-5.6-sol" selectedEffort="low" onSelect={() => {}} onView={() => {}} />);
     expect(list).toContain('role="listbox"');
+    // The lane heads its list, as the reference harness heads its models with the provider's name.
+    expect(list).toContain('<div class="agt-picker__heading">Codex</div>');
     expect(list).toMatch(/<button[^>]*class="agt-picker__row is-current"[^>]*aria-selected="true"[^>]*>5\.6 Sol<span class="agt-picker__check"/);
     expect(list).toContain('>5.3 Codex Spark</button>');
     expect(list).not.toContain('Reliable.');
   });
 
-  it("sets the effort on a slider with one stop per level, purple at the top", () => {
-    const mid = renderToStaticMarkup(
+  it('opens on two rows, Model and Effort, each naming the current choice', () => {
+    const menu = renderToStaticMarkup(
+      <ModelPickerCard view="menu" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="medium" onSelect={() => {}} onView={() => {}} />);
+    expect(menu).toContain('role="menu"');
+    expect(menu).toMatch(/<button type="button" role="menuitem" class="agt-picker__item"><span>Model<\/span><span class="agt-picker__value">5\.6 Sol<\/span><svg class="chev"/);
+    expect(menu).toMatch(/<span>Effort<\/span><span class="agt-picker__value">Medium<\/span>/);
+    expect(menu).not.toContain('type="range"');
+  });
+
+  it('lists the effort levels of the chosen model with the current one checked', () => {
+    const efforts = renderToStaticMarkup(
       <ModelPickerCard view="effort" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="medium" onSelect={() => {}} onView={() => {}} />);
-    // A native range input: dragging, arrow keys and assistive technology come with it.
-    expect(mid).toMatch(/<input type="range"[^>]*min="0"[^>]*max="4"[^>]*step="1"[^>]*value="1"/);
-    expect(mid).toContain('aria-valuetext="Medium"');
-    expect(mid).toContain('--fill:25%');
-    expect(mid.match(/class="agt-picker__stop"/g)).toHaveLength(4);
-    expect(mid.match(/class="agt-picker__stop is-under-thumb"/g)).toHaveLength(1);
-    expect(mid).toContain('<span class="agt-picker__level">Medium</span>');
-    expect(mid).not.toContain('is-max');
-
-    const top = renderToStaticMarkup(
-      <ModelPickerCard view="effort" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="max" onSelect={() => {}} onView={() => {}} />);
-    expect(top).toContain('agt-picker__slider is-max');
-    expect(top).toContain('--fill:100%');
-
-    // One level is a fact, not a slider.
-    const single = renderToStaticMarkup(
-      <ModelPickerCard view="effort" models={MODELS} selectedModel="gpt-5.3-codex-spark" selectedEffort="high" onSelect={() => {}} onView={() => {}} />);
-    expect(single).not.toContain('type="range"');
-    // Static markup escapes the apostrophe, so the sentence is checked around it.
-    expect(single).toContain('High is this model');
-    expect(single).toContain('only effort level.');
+    expect(efforts).toContain('<div class="agt-picker__heading">Effort</div>');
+    expect(efforts).toMatch(/class="agt-picker__row is-current"[^>]*aria-selected="true"[^>]*>Medium<span class="agt-picker__check"/);
+    expect(efforts).toContain('>Extra high</button>');
+    expect(efforts.match(/role="option"/g)).toHaveLength(5);
   });
 });

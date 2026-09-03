@@ -89,11 +89,21 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
   };
 }
 
-function body(state: Partial<AgentTaskState>, activityChoice: Record<string, boolean> = {}): string {
+/** Every turn's id, opened, so a test can look at a finished turn's log; the screen folds one by default. */
+function allTurnsOpen(state: Partial<AgentTaskState>): Record<string, boolean> {
+  return Object.fromEntries(projectTranscript(state.events ?? []).map((turn) => [turn.turnId ?? `turn-${turn.ordinal}`, true]));
+}
+
+function body(
+  state: Partial<AgentTaskState>,
+  activityChoice: Record<string, boolean> = {},
+  turnChoice: Record<string, boolean> = allTurnsOpen(state),
+): string {
   return renderToStaticMarkup(
     <AgentTaskBody
       state={{ ...initialAgentTaskState(), ...state }}
       activityChoice={activityChoice}
+      turnChoice={turnChoice}
       models={MODELS}
       onSelectModel={() => {}}
       onBack={() => {}}
@@ -466,8 +476,6 @@ describe('agent task detail', () => {
     expect(markup).toContain('Plan');
     expect(markup).toContain('$ npm test');
     expect(markup).toContain('Approval');
-    expect(markup).toContain('in 1200');
-    expect(markup).toContain('cost unavailable');
     expect(markup).toContain('Live');
     // A finished group folds to a sentence derived from its typed members.
     expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
@@ -597,6 +605,17 @@ describe('agent task detail', () => {
     // The snapshot the turn recorded, not the defaults: a later change must not rewrite history.
     expect(markup).toContain('5.6 Terra medium \u00b7 Auto');
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
+  });
+
+  it('folds a finished turn to one sentence over its answer, and keeps the totals under the composer', () => {
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
+
+    // The log folds when the turn ends; its sentence and the answer stay, and the token figures leave the footer.
+    expect(markup).toMatch(/<button type="button" class="agt-turn__sum"[^>]*><svg class="chev"[^]*?<\/svg><span>[A-Z][^<]*<\/span>/);
+    expect(markup).toContain('class="agt-answer"');
+    expect(markup).not.toContain('agt-usage__tokens');
+    expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ steps?<\/span><span class="agt-compose__sep"/);
+    expect(markup).toMatch(/Input \d[\d.]*[kM]? tok · Cached \d[\d.]*[kM]? tok · Output \d[\d.]*[kM]? tok/);
   });
 
   it('folds command output behind a keyboard-operable disclosure', () => {

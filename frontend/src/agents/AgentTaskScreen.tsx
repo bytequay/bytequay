@@ -49,7 +49,6 @@ import {
   projectTranscript,
   turnElapsedMs,
   turnLabel,
-  usageText,
   type ActivityBlock,
   type ActivityMember,
   type AgentNode,
@@ -455,7 +454,6 @@ function TurnFooter({ turn, durable, models }: {
     <div className="agt-usage">
       <span className={`agt-icon ${turn.outcome === 'interrupted' ? 'is-failed' : 'is-ok'}`} aria-hidden="true">{turn.outcome === 'interrupted' ? '✕' : '✓'}</span>
       <span>{parts.join(' · ')}</span>
-      {turn.usage !== null && <span className="agt-usage__tokens" title="Token usage">{usageText(turn.usage)}</span>}
     </div>
   );
 }
@@ -478,6 +476,8 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
+  const activity = turn.blocks.flatMap((block) => (block.kind === 'activity' ? block.members : []));
+  const elapsed = turnElapsedMs(turn, now);
   return (
     <section className="agt-turn" aria-label={`Turn ${turn.ordinal}`}>
       {turn.user !== null && (
@@ -503,6 +503,14 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           {live && <Spinner />}
           <span className="agt-turn__label">{turnLabel(turn, now, waiting)}</span>
           <Chevron open={open} />
+        </button>
+      )}
+      {/* Folded, the log is one sentence, as the design draws a finished turn; the answer stays below it. */}
+      {hasLog && !open && activity.length > 0 && (
+        <button type="button" className="agt-turn__sum" onClick={onToggle} title="Show this turn's log">
+          <Chevron size={12} />
+          <span>{activitySummary(activity)}</span>
+          {elapsed !== null && <span className="agt-mono agt-muted">{formatDuration(elapsed)}</span>}
         </button>
       )}
       {open && turn.blocks.map((block) => (
@@ -1039,6 +1047,7 @@ function SidePanel({
 export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
   onStopServer, onMarkFailed, onRename, composerRef,
+  provider = '',
   now = Date.now(),
   activityChoice = {},
   turnChoice = {},
@@ -1063,6 +1072,8 @@ export function AgentTaskBody({
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
+  /** The lane's label, as the heading of its model list. */
+  provider?: string;
   onBack: () => void;
   onSend: () => void;
   onCancel: () => void;
@@ -1219,8 +1230,8 @@ export function AgentTaskBody({
           ? <div className="agt-empty">No activity yet.</div>
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
-            const last = index === turns.length - 1;
-            const open = turnChoice[id] ?? (last || turn.endedAt === null);
+            // A turn shows its log while it runs and folds it when it ends; the user's choice outlasts both.
+            const open = turnChoice[id] ?? turn.endedAt === null;
             return (
               <TurnView
                 key={id}
@@ -1340,6 +1351,7 @@ export function AgentTaskBody({
                 ariaLabel="Model and effort for the next message"
                 disabled={models.length === 0}
                 models={models}
+                provider={provider}
                 selectedModel={state.task?.defaults.model ?? ''}
                 selectedEffort={state.task?.defaults.effort ?? undefined}
                 onSelect={onSelectModel}
@@ -1377,9 +1389,40 @@ export function AgentTaskBody({
                 )}
             </div>
           </div>
+          <TaskStats task={state.task} turns={turns} now={now} />
         </div>
       )}
       </div>
+    </div>
+  );
+}
+
+function tokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M tok`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(count >= 10_000 ? 0 : 1)}k tok`;
+  return `${count} tok`;
+}
+
+/** The line under the composer: what the task has done so far and what it has used, from the task's totals. */
+function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: TranscriptTurn[]; now: number }): React.JSX.Element | null {
+  if (task === null || turns.length === 0) return null;
+  const steps = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
+  const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
+  const { inputTokens, cachedInputTokens, outputTokens, cost } = task.metrics;
+  const groups = [
+    `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${steps} ${steps === 1 ? 'step' : 'steps'}`,
+    `Worked ${formatDuration(worked)}`,
+  ];
+  if (inputTokens > 0) groups.push(`Cache hit ${Math.round((cachedInputTokens / inputTokens) * 100)}%`);
+  groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${cost === null ? '' : ` · $${cost.toFixed(2)}`}`);
+  return (
+    <div className="agt-compose__stats" aria-label="Task statistics">
+      {groups.map((group, index) => (
+        <React.Fragment key={group}>
+          {index > 0 && <span className="agt-compose__sep" aria-hidden="true">|</span>}
+          <span>{group}</span>
+        </React.Fragment>
+      ))}
     </div>
   );
 }
@@ -1398,6 +1441,7 @@ export default function AgentTaskScreen({
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
   const [models, setModels] = useState<ModelOptionDto[]>([]);
+  const [provider, setProvider] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // Fold choices are the user's, kept here so a live update can never override them.
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
@@ -1446,7 +1490,9 @@ export default function AgentTaskScreen({
         live().getEffectiveTurnSettings(taskId, workspaceId),
       ]);
       if (!active) return;
-      setModels(catalog.providers.find((provider) => provider.id === laneId)?.models ?? []);
+      const lane = catalog.providers.find((candidate) => candidate.id === laneId);
+      setModels(lane?.models ?? []);
+      setProvider(lane?.label ?? '');
       dispatch({ type: 'settings/loaded', settings: effective });
     })().catch(() => { /* the composer then shows no catalog, which the list already explains */ });
     return () => { active = false; };
@@ -1653,6 +1699,7 @@ export default function AgentTaskScreen({
     <AgentTaskBody
       state={state}
       models={models}
+      provider={provider}
       composerRef={composerRef}
       onBack={onBack}
       onSend={() => { void send(); }}

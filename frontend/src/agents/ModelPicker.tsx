@@ -17,24 +17,24 @@ import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
 
-export type PickerView = 'models' | 'effort';
+export type PickerView = 'menu' | 'models' | 'effort';
 
 /**
- * The composer's model control, as Codex draws its own: the chip opens a floating card that
- * lists the models by their short names, and once one is chosen the card becomes that model's
- * effort slider. The chip opens straight onto the slider when a model is already chosen; the
- * slider's heading goes back to the list.
+ * The composer's model control: the chip opens a floating card with two rows, Model and Effort,
+ * each opening the list it names under a heading, with the current choice checked. Choosing
+ * returns to the rows; the chip opens straight onto the model list while nothing is chosen.
  */
-export function ModelPicker({ models, selectedModel, selectedEffort, disabled = false, ariaLabel, onSelect }: {
+export function ModelPicker({ models, selectedModel, selectedEffort, provider = '', disabled = false, ariaLabel, onSelect }: {
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort?: string;
+  provider?: string;
   disabled?: boolean;
   ariaLabel: string;
   onSelect: (model: string, effort: string | null) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<PickerView>('models');
+  const [view, setView] = useState<PickerView>('menu');
   const current = models.find((model) => model.id === selectedModel);
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export function ModelPicker({ models, selectedModel, selectedEffort, disabled = 
         aria-expanded={open}
         disabled={disabled}
         onClick={() => {
-          setView(current === undefined ? 'models' : 'effort');
+          setView(current === undefined ? 'models' : 'menu');
           setOpen((value) => !value);
         }}
       >
@@ -68,6 +68,7 @@ export function ModelPicker({ models, selectedModel, selectedEffort, disabled = 
         <ModelPickerCard
           view={view}
           models={models}
+          provider={provider}
           selectedModel={selectedModel}
           selectedEffort={selectedEffort}
           onSelect={onSelect}
@@ -78,10 +79,11 @@ export function ModelPicker({ models, selectedModel, selectedEffort, disabled = 
   );
 }
 
-/** The floating card itself, one of two views; split out so each view can be rendered on its own. */
-export function ModelPickerCard({ view, models, selectedModel, selectedEffort, onSelect, onView }: {
+/** The floating card itself, one of three views; split out so each view can be rendered on its own. */
+export function ModelPickerCard({ view, models, provider = '', selectedModel, selectedEffort, onSelect, onView }: {
   view: PickerView;
   models: ModelOptionDto[];
+  provider?: string;
   selectedModel: string;
   selectedEffort?: string;
   onSelect: (model: string, effort: string | null) => void;
@@ -91,6 +93,7 @@ export function ModelPickerCard({ view, models, selectedModel, selectedEffort, o
   if (view === 'models' || current === undefined) {
     return (
       <div className="agt-picker__card" role="listbox" aria-label="Models">
+        {provider !== '' && <div className="agt-picker__heading">{provider}</div>}
         {models.map((model) => (
           <button
             type="button"
@@ -104,7 +107,7 @@ export function ModelPickerCard({ view, models, selectedModel, selectedEffort, o
                 model.id,
                 selectedEffort !== undefined && model.efforts.includes(selectedEffort) ? selectedEffort : model.defaultEffort ?? null,
               );
-              onView('effort');
+              onView('menu');
             }}
           >
             {displayModelName(model.name)}
@@ -114,39 +117,42 @@ export function ModelPickerCard({ view, models, selectedModel, selectedEffort, o
       </div>
     );
   }
-  const efforts = current.efforts;
-  const index = Math.max(0, efforts.indexOf(selectedEffort ?? ''));
-  const last = efforts.length - 1;
-  const fill = last <= 0 ? 100 : (index / last) * 100;
+  if (view === 'effort') {
+    return (
+      <div className="agt-picker__card" role="listbox" aria-label={`Effort for ${displayModelName(current.name)}`}>
+        <div className="agt-picker__heading">Effort</div>
+        {current.efforts.map((effort) => (
+          <button
+            type="button"
+            role="option"
+            key={effort}
+            className={`agt-picker__row${effort === selectedEffort ? ' is-current' : ''}`}
+            aria-selected={effort === selectedEffort}
+            onClick={() => {
+              onSelect(current.id, effort);
+              onView('menu');
+            }}
+          >
+            {effortLabel(effort)}
+            {effort === selectedEffort && <span className="agt-picker__check" aria-hidden="true">✓</span>}
+          </button>
+        ))}
+        {current.efforts.length === 0 && <div className="agt-picker__single">This model has no effort setting.</div>}
+      </div>
+    );
+  }
   return (
-    <div className="agt-picker__card is-effort">
-      <button type="button" className="agt-picker__head" onClick={() => onView('models')} title="Choose another model">
-        <span className="agt-bolt" aria-hidden="true">⚡</span>
-        <span className="agt-picker__model">{displayModelName(current.name)}</span>
-        {efforts.length > 0 && <span className="agt-picker__level">{effortLabel(efforts[index])}</span>}
-        <Chevron size={12} />
+    <div className="agt-picker__card" role="menu" aria-label="Model and effort">
+      <button type="button" role="menuitem" className="agt-picker__item" onClick={() => onView('models')}>
+        <span>Model</span>
+        <span className="agt-picker__value">{displayModelName(current.name)}</span>
+        <Chevron size={11} />
       </button>
-      {efforts.length > 1
-        ? (
-          <div className={`agt-picker__slider${index === last ? ' is-max' : ''}`} style={{ '--fill': `${fill}%` } as React.CSSProperties}>
-            <input
-              type="range"
-              className="agt-picker__range"
-              min={0}
-              max={last}
-              step={1}
-              value={index}
-              aria-label={`Effort for ${displayModelName(current.name)}`}
-              aria-valuetext={effortLabel(efforts[index])}
-              onChange={(event) => onSelect(current.id, efforts[Number(event.target.value)])}
-            />
-            <span className="agt-picker__stops" aria-hidden="true">
-              {/* The stop under the thumb stays hidden: the thumb is the mark for that level. */}
-              {efforts.map((effort, stop) => <span className={`agt-picker__stop${stop === index ? ' is-under-thumb' : ''}`} key={effort} />)}
-            </span>
-          </div>
-        )
-        : <div className="agt-picker__single">{efforts.length === 1 ? `${effortLabel(efforts[0])} is this model's only effort level.` : 'This model has no effort setting.'}</div>}
+      <button type="button" role="menuitem" className="agt-picker__item" disabled={current.efforts.length === 0} onClick={() => onView('effort')}>
+        <span>Effort</span>
+        <span className="agt-picker__value">{selectedEffort === undefined ? 'None' : effortLabel(selectedEffort)}</span>
+        <Chevron size={11} />
+      </button>
     </div>
   );
 }

@@ -656,12 +656,6 @@ export function turnLabel(turn: TranscriptTurn, now: number, waitingOnUser: bool
   return duration === null ? `Turn ${turn.ordinal} · Done` : `Turn ${turn.ordinal} · Worked for ${duration}`;
 }
 
-/** Token counts and the cost, which is named as unavailable rather than left blank. */
-export function usageText(usage: UsageFacts): string {
-  const cost = usage.cost === null ? 'cost unavailable' : `$${usage.cost.toFixed(4)}`;
-  return `in ${usage.inputTokens} · cached ${usage.cachedInputTokens} · out ${usage.outputTokens} · ${cost}`;
-}
-
 export function planCounts(steps: PlanStep[]): { completed: number; inProgress: number; pending: number } {
   return {
     completed: steps.filter((step) => step.state === 'COMPLETED').length,

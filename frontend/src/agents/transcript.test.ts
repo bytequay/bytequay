@@ -28,7 +28,6 @@ import {
   projectTranscript,
   turnElapsedMs,
   turnLabel,
-  usageText,
   type ActivityBlock,
 } from './transcript';
 
@@ -236,13 +235,6 @@ describe('projecting the transcript', () => {
       kind: 'error', code: 'INTERRUPTED', message: 'Backend restarted while the turn was active', retryable: false,
     });
     expect(formatDuration(3_720_000)).toBe('1h 02m');
-  });
-
-  it('names a missing cost instead of leaving it blank', () => {
-    const turn = projectTranscript(fixtureEvents)[0];
-    const usage = must(turn.usage);
-    expect(usageText(usage)).toBe('in 1200 · cached 400 · out 220 · cost unavailable');
-    expect(usageText({ ...usage, cost: 0.0123, costProvenance: 'PROVIDER_REPORTED' })).toBe('in 1200 · cached 400 · out 220 · $0.0123');
   });
 
   it('keeps a running group open and folds a finished one unless the user chose otherwise', () => {

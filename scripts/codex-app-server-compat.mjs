@@ -189,6 +189,7 @@ const referenceRecordBindings = [
     component("agentsStates", "agentsStates", {
       "child-thread": { status: "running" },
     }),
+    component("prompt"),
   ]),
   recordBinding("CollabAgentState", "decode", [
     schemaSource("v2", "CollabAgentState"),

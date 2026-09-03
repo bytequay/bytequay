@@ -219,6 +219,12 @@ this closure keeps the `OPEN` task blocked and projects recovery required.
 Task close
 unsubscribes the root and every known subscribed child only after that barrier.
 
+A subagent's label comes from the nickname App Server assigns it. Its purpose
+is shown only when the provider supplies the prompt it was spawned with:
+codex-cli 0.152.1 announces a child through `thread/started` with its parent
+and nickname but exposes no spawn prompt, on the collaboration item or as the
+child's own first message, so the purpose line is simply absent there.
+
 Every thread in a task's process belongs to that task, so a thread that is not
 the root is one of its subagents even before a spawn item names it. Its lineage
 is recorded on sight, which is what keeps a child's final answer from being

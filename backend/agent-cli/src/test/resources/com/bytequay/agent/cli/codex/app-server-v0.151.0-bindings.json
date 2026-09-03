@@ -990,6 +990,13 @@
               "status": "running"
             }
           }
+        },
+        {
+          "javaName": "prompt",
+          "wireName": "prompt",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
         }
       ]
     },

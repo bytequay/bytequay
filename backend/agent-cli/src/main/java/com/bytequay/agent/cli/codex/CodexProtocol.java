@@ -524,11 +524,13 @@ final class CodexProtocol
             ActivityStatus status,
             String senderThreadId,
             List<String> receiverThreadIds,
-            Map<String, CollabAgentState> agentsStates)
+            Map<String, CollabAgentState> agentsStates,
+            Optional<String> prompt)
             implements ThreadItem
     {
         CollabAgentToolCallItem
         {
+            requireNonNull(prompt, "prompt is null");
             checkIdentifier(id, "id");
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");

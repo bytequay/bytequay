@@ -934,7 +934,7 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("delegate"));
 
         supervisor.server().emitThreadStarted("child-2", "Preview backend");
-        supervisor.server().emitChildPrompt("child-2", "trace the preview request path");
+        supervisor.server().emitSpawnAgent("child-2", "trace the preview request path");
         supervisor.server().emitChildTurnCompleted("child-2", "completed");
 
         awaitCondition(() -> events.stream().anyMatch(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
@@ -1605,13 +1605,15 @@ class TestCodexCliDriver
                     + "\"agentNickname\":\"" + nickname + "\",\"agentRole\":null}}}");
         }
 
-        /** The prompt a subagent was spawned with, which arrives as its own first user message. */
-        private void emitChildPrompt(String threadId, String text)
+        /** The spawn that created a subagent, which is what carries the prompt it was given. */
+        private void emitSpawnAgent(String threadId, String prompt)
         {
             emit("{\"method\":\"item/completed\",\"params\":{\"item\":{"
-                    + "\"type\":\"userMessage\",\"id\":\"prompt-1\","
-                    + "\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]},"
-                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"child-turn\"}}");
+                    + "\"type\":\"collabAgentToolCall\",\"id\":\"spawn-1\",\"tool\":\"spawnAgent\","
+                    + "\"status\":\"completed\",\"senderThreadId\":\"thread-1\","
+                    + "\"receiverThreadIds\":[\"" + threadId + "\"],\"agentsStates\":{},"
+                    + "\"prompt\":\"" + prompt + "\"},"
+                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
         }
 
         private void emitChildTurnCompleted(String threadId, String status)

@@ -587,7 +587,7 @@ public final class CodexCliDriver
     private record CommandResult(int exitCode, String output) {}
 
     /** A subagent's place in the task: the thread that spawned it and the name it is shown under. */
-    private record ChildFacts(String parent, String label) {}
+    private record ChildFacts(String parent, String label, Optional<String> purpose) {}
 
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
@@ -603,6 +603,7 @@ public final class CodexCliDriver
         /** Every subagent this process has named, by thread, with its parent and label. */
         private final Map<String, ChildFacts> children = new ConcurrentHashMap<>();
         private final Set<String> announcedChildren = ConcurrentHashMap.newKeySet();
+        private final Set<String> promptedChildren = ConcurrentHashMap.newKeySet();
         private final Set<String> terminalChildren = ConcurrentHashMap.newKeySet();
         private final Set<String> backfilledChildren = ConcurrentHashMap.newKeySet();
         /** Item ids seen live, so a history read never appends an item the stream already delivered. */
@@ -862,7 +863,10 @@ public final class CodexCliDriver
         private void registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
         {
             if (item instanceof CodexProtocol.CollabAgentToolCallItem collab && collab.tool().equals("spawnAgent")) {
-                collab.receiverThreadIds().forEach(receiver -> register(receiver, collab.senderThreadId(), Optional.empty()));
+                // The spawn carries what the parent asked for; the child never repeats it as a
+                // message of its own, so this is the only record of its purpose.
+                collab.receiverThreadIds().forEach(receiver ->
+                        register(receiver, collab.senderThreadId(), Optional.empty(), collab.prompt()));
             }
             else if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
                 Path path = Path.of(activity.agentPath()).getFileName();
@@ -872,16 +876,31 @@ public final class CodexCliDriver
 
         private void register(String threadId, String parentThreadId, Optional<String> label)
         {
+            register(threadId, parentThreadId, label, Optional.empty());
+        }
+
+        private void register(
+                String threadId,
+                String parentThreadId,
+                Optional<String> label,
+                Optional<String> purpose)
+        {
             if (threadId.equals(reference.providerValue())) {
                 return;
             }
             observedThreads.add(threadId);
             children.compute(threadId, (thread, existing) -> {
                 if (existing == null) {
-                    return new ChildFacts(parentThreadId, label.orElse("Agent " + (children.size() + 1)));
+                    return new ChildFacts(
+                            parentThreadId,
+                            label.orElse("Agent " + (children.size() + 1)),
+                            purpose);
                 }
-                // A nickname that arrives after a placeholder replaces it; a parent never changes.
-                return label.map(known -> new ChildFacts(existing.parent(), known)).orElse(existing);
+                // A nickname or prompt that arrives after a placeholder fills it in; a parent never changes.
+                return new ChildFacts(
+                        existing.parent(),
+                        label.orElse(existing.label()),
+                        purpose.or(existing::purpose));
             });
         }
 
@@ -895,6 +914,18 @@ public final class CodexCliDriver
                             timestamp,
                             ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                             child.getValue().label(),
+                            childSource(child.getKey())));
+                }
+                // The spawn that carries the prompt can arrive before or after the thread it
+                // creates, so the purpose is published when it is known rather than at discovery.
+                if (child.getValue().purpose().isPresent() && promptedChildren.add(child.getKey())) {
+                    events.emit(new ProviderAgentEvent.Message(
+                            Optional.of(child.getKey() + ":agent-prompt"),
+                            timestamp,
+                            ProviderAgentEvent.MessageKind.PROMPT,
+                            ProviderAgentEvent.MessagePhase.FINAL,
+                            redactor.redact(child.getValue().purpose().orElseThrow()),
+                            Optional.empty(),
                             childSource(child.getKey())));
                 }
             }

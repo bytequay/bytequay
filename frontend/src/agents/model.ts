@@ -43,7 +43,7 @@ export type AgentBridgePort = Pick<Bridge,
 
 /** One entry in the transcript, derived from events and never from local guesses. */
 export type AgentRow =
-  | { kind: 'user'; id: string; text: string; delivery: string; attachments: string[] }
+  | { kind: 'user'; id: string; turnId: string | null; text: string; delivery: string; attachments: string[] }
   | { kind: 'assistant'; id: string; text: string; final: boolean; messageKind: string }
   | { kind: 'plan'; id: string; items: Array<{ text: string; state: string }> }
   | { kind: 'command'; id: string; argv: string[]; state: string; output: string | null; exitCode: number | null; truncated: boolean }
@@ -56,7 +56,10 @@ export type AgentRow =
 
 export interface AgentTaskState {
   task: AgentTaskDto | null;
+  /** The latest turn, read from the server; the composer and status derive from it. */
   turn: AgentTurnDto | null;
+  /** Every turn read so far, by id, so each message can show the settings it actually ran with. */
+  turns: Record<string, AgentTurnDto>;
   /** Applied events in sequence order. */
   events: AgentEventEnvelope[];
   /** Highest sequence applied; what a subscription resumes from. */
@@ -83,6 +86,7 @@ export interface AgentTaskState {
 export type AgentTaskAction =
   | { type: 'task/loaded'; task: AgentTaskDto }
   | { type: 'turn/changed'; turn: AgentTurnDto }
+  | { type: 'turn/loaded'; turn: AgentTurnDto }
   | { type: 'events/applied'; events: AgentEventEnvelope[] }
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
@@ -94,6 +98,7 @@ export function initialAgentTaskState(): AgentTaskState {
   return {
     task: null,
     turn: null,
+    turns: {},
     events: [],
     lastSequence: 0,
     pending: [],
@@ -118,7 +123,10 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
     case 'settings/loaded':
       return { ...state, effective: action.settings };
     case 'turn/changed':
-      return { ...state, turn: action.turn };
+      return { ...state, turn: action.turn, turns: { ...state.turns, [action.turn.id]: action.turn } };
+    case 'turn/loaded':
+      // An older turn's durable facts; the latest turn is only ever set through turn/changed.
+      return { ...state, turns: { ...state.turns, [action.turn.id]: action.turn } };
     case 'connection/changed':
       return { ...state, connection: action.state, connectionDetail: action.detail ?? null };
     case 'composer/changed':
@@ -221,6 +229,7 @@ export function projectAgentRows(events: AgentEventEnvelope[]): AgentRow[] {
         rows.push({
           kind: 'user',
           id,
+          turnId: event.turnId,
           text: event.payload.text,
           delivery: event.payload.deliveryKind,
           attachments: event.payload.attachments.map((attachment) => attachment.name),
@@ -464,6 +473,22 @@ export function deliveryUncertain(turn: AgentTurnDto): boolean {
     && turn.state !== 'ACCEPTED'
     && turn.startedAt !== null
     && !turn.delivered;
+}
+
+/**
+ * Turns the transcript names but the screen has not read yet.
+ *
+ * A message shows the settings its turn actually ran with, which live on the durable turn rather
+ * than in the event, so every turn a user message belongs to is read once.
+ */
+export function unloadedTurnIds(state: AgentTaskState): string[] {
+  const ids: string[] = [];
+  for (const event of state.events) {
+    if (event.type === 'user_message' && event.turnId !== null && !(event.turnId in state.turns) && !ids.includes(event.turnId)) {
+      ids.push(event.turnId);
+    }
+  }
+  return ids;
 }
 
 /** The text a Retry would send again: the most recent user message, once the task is idle. */

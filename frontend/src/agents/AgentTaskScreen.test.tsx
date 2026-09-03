@@ -375,6 +375,26 @@ describe('agent task detail', () => {
     expect(failed).toContain('kept for inspection');
   });
 
+  it('shows the settings each message actually ran with, from its durable turn', () => {
+    const firstTurn = events[0].turnId ?? '';
+    const ran = turn('COMPLETED', {
+      id: firstTurn,
+      settings: {
+        model: 'gpt-5.6-codex',
+        effort: 'medium',
+        permissionPolicy: 'AUTO',
+        sandboxPolicy: 'WORKSPACE_WRITE',
+        maximumRuntimeMillis: 3600000,
+        attachments: [],
+      },
+    });
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: ran } });
+
+    // The snapshot the turn recorded, not the defaults: a later change must not rewrite history.
+    expect(markup).toContain('Sent with 5.6 Terra \u00b7 medium \u00b7 Auto');
+    expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('Sent with');
+  });
+
   it('folds command output behind a keyboard-operable disclosure', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' });
 

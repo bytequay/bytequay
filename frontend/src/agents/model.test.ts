@@ -25,6 +25,7 @@ import {
   projectAgentRows,
   retryableMessage,
   runtimeStatus,
+  unloadedTurnIds,
   type AgentRow,
   type AgentTaskState,
 } from './model';
@@ -137,6 +138,24 @@ describe('tracking the turn from events', () => {
 
     const done = { ...apply(mid, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)), task: openTask() };
     expect(runtimeStatus(done)).toBe('idle');
+  });
+});
+
+describe('reading the turns the transcript names', () => {
+  it('asks for each turn a message belongs to exactly once, then stops', () => {
+    const replayed = apply(initialAgentTaskState(), stream(1, 2, 3));
+    const wanted = unloadedTurnIds(replayed);
+
+    expect(wanted).toEqual([all[0].turnId]);
+    // A user message carries its turn so the row can show what that turn ran with.
+    const user = projectAgentRows(replayed.events).find((row) => row.kind === 'user');
+    expect(user?.kind === 'user' && user.turnId).toBe(all[0].turnId);
+
+    const loaded = agentTaskReducer(replayed, { type: 'turn/loaded', turn: turn('COMPLETED', { id: wanted[0] }) });
+    expect(unloadedTurnIds(loaded)).toEqual([]);
+    // An older turn is only remembered; the latest turn stays whatever turn/changed set.
+    expect(loaded.turn).toBeNull();
+    expect(loaded.turns[wanted[0]]?.state).toBe('COMPLETED');
   });
 });
 

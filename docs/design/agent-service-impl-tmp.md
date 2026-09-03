@@ -1428,10 +1428,11 @@ Implementation:
 - [x] Add supported model, effort, and permission selection for the next turn.
   The Codex driver declares exactly one supported permission policy, so that
   control states the policy rather than offering a choice of one.
-- [ ] Persist defaults and display the effective settings actually snapshotted
-  for each turn. Defaults persist and the next turn's effective settings are
-  shown; the durable turn response carries its snapshot, and a per-turn footer
-  rendering it is CP8 transcript work.
+- [x] Persist defaults and display the effective settings actually snapshotted
+  for each turn. Defaults persist, the next turn's effective settings are
+  shown at the composer, and every user message shows the model, effort, and
+  permission its own turn recorded, read from the durable turn rather than
+  from the defaults at render time.
 - [x] Map **Auto** through the typed backend policy; React never sends provider
   wire strings.
 - [x] Render complete typed approval cards with source, kind, reason,

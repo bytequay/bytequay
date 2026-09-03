@@ -27,6 +27,7 @@ import {
   retryableMessage,
   runtimeStatus,
   startAgentTaskSession,
+  unloadedTurnIds,
   type AgentBridgePort,
   type AgentRow,
   type AgentRuntimeStatus,
@@ -48,19 +49,38 @@ function stateClass(state: string): string {
   return state.toLowerCase();
 }
 
+/**
+ * The settings a turn actually ran with, as recorded when it was accepted.
+ *
+ * Read from the durable turn, never from the defaults at render time: a default changed after the
+ * message was sent must not rewrite what that message ran with.
+ */
+function sentWith(models: ModelOptionDto[], turn: AgentTurnDto | undefined): string | null {
+  if (turn === undefined || turn.settings === null) return null;
+  const settings = turn.settings;
+  return `Sent with ${modelName(models, settings.model)}`
+    + (settings.effort === null ? '' : ` · ${settings.effort}`)
+    + ` · ${permissionLabel(settings.permissionPolicy)}`;
+}
+
 /** Renders one transcript row; every event kind gets a row so nothing is silently dropped. */
-export function AgentRowView({ row, onDecide }: {
+export function AgentRowView({ row, models = [], turns = {}, onDecide }: {
   row: AgentRow;
+  models?: ModelOptionDto[];
+  turns?: Record<string, AgentTurnDto>;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
 }): React.JSX.Element {
   switch (row.kind) {
-    case 'user':
+    case 'user': {
+      const settings = row.turnId === null ? null : sentWith(models, turns[row.turnId]);
       return (
         <div className="agt-item is-user">
           <div className="agt-item__kind">You · {row.delivery}</div>
           <div>{row.text}</div>
+          {settings !== null && <div className="agt-row-meta">{settings}</div>}
         </div>
       );
+    }
     case 'assistant':
       return (
         <div className="agt-item is-assistant">
@@ -389,7 +409,9 @@ export function AgentTaskBody({
       <div className="agt-transcript">
         {rows.length === 0
           ? <div className="agt-empty">No activity yet.</div>
-          : rows.map((row) => <AgentRowView key={row.id} row={row} onDecide={onDecide} />)}
+          : rows.map((row) => (
+            <AgentRowView key={row.id} row={row} models={models} turns={state.turns} onDecide={onDecide} />
+          ))}
       </div>
 
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
@@ -512,6 +534,22 @@ export default function AgentTaskScreen({
     })().catch(() => { /* the composer then shows no catalog, which the list already explains */ });
     return () => { active = false; };
   }, [live, laneId, taskId, workspaceId]);
+
+  // Each message shows the settings its turn ran with, which only the durable turn records.
+  const unloaded = unloadedTurnIds(state).join(',');
+  useEffect(() => {
+    if (unloaded === '') return;
+    let active = true;
+    void Promise.all(unloaded.split(',').map((turnId) => live().getAgentTurn(turnId)))
+      .then((turns) => {
+        if (!active) return;
+        turns.forEach((turn) => dispatch({ type: 'turn/loaded', turn }));
+      })
+      .catch((failure: unknown) => {
+        if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+      });
+    return () => { active = false; };
+  }, [live, unloaded]);
 
   // Every lifecycle event changes durable task or turn facts the events themselves do not carry
   // (the claim, the terminal state), so each one triggers a re-read of both.

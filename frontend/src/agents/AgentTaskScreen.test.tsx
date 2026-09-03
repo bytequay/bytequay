@@ -21,6 +21,7 @@ import { AgentTaskBody } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
+import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { previewTask } from './preview';
 import type { AgentTaskDto, AgentTurnDto, ModelOptionDto, ModelSettingsDto, PullRequestDto } from '../types';
@@ -132,9 +133,22 @@ describe('agent task layout', () => {
     expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
   });
 
-  it('opens the composer menus upward, away from the window edge the composer sits on', () => {
+  it('draws the composer menu as a floating card of short names, opening upward', () => {
     expect(declarations('.agt-compose .sets-menu')).toContain('top: auto');
-    expect(declarations('.agt-compose .sets-menu')).toContain('bottom: calc(100% + 6px)');
+    expect(declarations('.agt-compose .sets-menu')).toContain('bottom: calc(100% + 8px)');
+    expect(declarations('.agt-compose .sets-menu')).toContain('border-radius: 14px');
+    // Codex's list carries no blurb per model; the catalog's descriptions stay in Settings.
+    expect(declarations('.agt-compose .sets-menu-desc')).toContain('display: none');
+    // The chip and its rows show the name Codex itself shows.
+    expect(displayModelName('GPT-5.6-Sol')).toBe('5.6 Sol');
+    expect(displayModelName('GPT-5.3-Codex-Spark')).toBe('5.3 Codex Spark');
+    expect(displayModelName('Claude Opus 4.1')).toBe('Claude Opus 4.1');
+    const codex = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-sol', effort: 'low', permissionPolicy: 'AUTO' } };
+    const models: ModelOptionDto[] = [{ id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', description: 'Reliable.', efforts: ['low'], defaultEffort: 'low', inputModalities: ['text'] }];
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody state={{ ...initialAgentTaskState(), task: codex, connection: 'open' }} models={models} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+    expect(markup).toContain('5.6 Sol');
+    expect(markup).not.toContain('GPT-5.6-Sol');
   });
 
   it('scrolls the transcript rather than the screen, so the composer stays reachable', () => {

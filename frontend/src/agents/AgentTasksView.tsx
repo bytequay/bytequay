@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import { ModelChip } from '../settings/SettingsShell';
-import { INTERACTIVE_LANE_ID, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
 import { agentIdempotencyKey, type AgentBridgePort } from './model';
@@ -280,13 +280,14 @@ export function TaskComposer({
             <span className="agt-bolt" aria-hidden="true">⚡</span>
             <ModelChip
               ariaLabel="Model and effort for the new task"
-              label={chosen?.name ?? 'No model'}
+              label={chosen === undefined ? 'No model' : displayModelName(chosen.name)}
               detail={selection?.effort ?? undefined}
               disabled={models.length === 0}
               models={models}
               selectedModel={selection?.model ?? ''}
               selectedEffort={selection?.effort ?? undefined}
               onSelect={onSelectModel}
+              nameOf={displayModelName}
             />
           </span>
           <button
@@ -363,7 +364,7 @@ export function AgentTaskList({
                   <span className="agt-row__mark" aria-hidden="true">❋</span>
                   <span className="agt-row-title agt-ellipsis">{task.title}</span>
                   <span className="agt-mono agt-row-meta">
-                    {models.find((model) => model.id === task.defaults.model)?.name ?? task.defaults.model ?? laneLabel(task.laneId)}
+                    {displayModelName(models.find((model) => model.id === task.defaults.model)?.name ?? task.defaults.model ?? laneLabel(task.laneId))}
                     {' · '}
                     {relativeTime(task.updatedAt, { suffix: false, now })}
                   </span>

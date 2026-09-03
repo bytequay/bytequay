@@ -40,6 +40,14 @@ export function laneLabel(laneId: string): string {
 }
 
 /**
+ * The short name Codex itself shows for its models: "GPT-5.6-Sol" reads as "5.6 Sol". Other
+ * providers' names are already prose and pass through untouched.
+ */
+export function displayModelName(name: string): string {
+  return name.startsWith('GPT-') ? name.slice(4).replace(/-/g, ' ') : name;
+}
+
+/**
  * What the user can actually do about a provider that is not ready.
  *
  * ByteQuay never installs or signs in on the user's behalf: both are interactive and belong to

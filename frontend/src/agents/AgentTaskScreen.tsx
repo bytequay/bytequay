@@ -14,7 +14,7 @@
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
-import { INTERACTIVE_LANE_ID } from '../settings/model';
+import { INTERACTIVE_LANE_ID, displayModelName } from '../settings/model';
 import { AgentMark } from './AgentMark';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
@@ -105,7 +105,7 @@ function stateClass(state: string): string {
 /** The catalog's display name for a model id; the raw slug is never shown as a label. */
 function modelName(models: ModelOptionDto[], id: string | null): string {
   if (id === null || id === '') return 'No model';
-  return models.find((model) => model.id === id)?.name ?? id;
+  return displayModelName(models.find((model) => model.id === id)?.name ?? id);
 }
 
 /** Backend policy names are enum values, not prose, and not provider wire strings. */
@@ -1262,6 +1262,7 @@ export function AgentTaskBody({
                   selectedModel={state.task?.defaults.model ?? ''}
                   selectedEffort={state.task?.defaults.effort ?? undefined}
                   onSelect={onSelectModel}
+                  nameOf={displayModelName}
                 />
               </span>
               {/* Steering and queueing arrive with their own checkpoint; until then the shell shows where they go. */}

@@ -14,6 +14,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { relativeTime } from '../relativeTime';
+import { displayModelName } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
@@ -41,7 +42,7 @@ export function TaskCard({ task, events, models, width, active = false, now, onO
 }): React.JSX.Element {
   const pill = taskStatePill(task);
   const turns = projectTranscript(events);
-  const model = models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '';
+  const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
   const meta = `${model}${model === '' ? '' : ' · '}${relativeTime(task.updatedAt, { suffix: false, now })}`;
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>

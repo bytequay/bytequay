@@ -438,10 +438,60 @@
   color: #24292f;
 }
 
-/* The composer sits at the bottom of the window, so its menu opens upward or it would be cut off. */
+/*
+ * The composer's model menu, as Codex draws its own: a floating card of short names, a grey
+ * hover, a check on the current one, and no blurb per model. It opens upward because the
+ * composer sits on the bottom edge of the window.
+ */
 .agt-compose .sets-menu {
   top: auto;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
+  width: 300px;
+  padding: 8px;
+  border-color: #e3e3e6;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(27, 31, 36, 0.16);
+}
+
+.agt-compose .sets-menu-item {
+  padding: 9px 12px;
+  border-radius: 8px;
+}
+
+.agt-compose .sets-menu-item:hover {
+  background: #f0f1f3;
+}
+
+.agt-compose .sets-menu-item.is-current {
+  background: transparent;
+}
+
+.agt-compose .sets-menu-item.is-current:hover {
+  background: #f0f1f3;
+}
+
+.agt-compose .sets-menu-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #1f2328;
+}
+
+.agt-compose .sets-menu-desc {
+  display: none;
+}
+
+.agt-compose .sets-check {
+  color: #1f2328;
+}
+
+.agt-compose .sets-menu-divider {
+  margin: 6px 4px;
+}
+
+.agt-compose .sets-menu-label {
+  padding: 6px 12px 2px;
+  font-size: 11px;
+  color: #8c959f;
 }
 
 .agt-bolt {

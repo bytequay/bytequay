@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, LoaderCircle } from 'lucide-react';
 import Avatar from '../Avatar';
 import { relativeTime as formatRelativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
@@ -1270,6 +1271,8 @@ function ChecksCard({ pr, detail, onRefresh }: {
   const passing = detail.ciStatus === 'PASSING';
   const failing = detail.ciStatus === 'FAILING';
   const pending = detail.ciStatus === 'PENDING';
+  const running = detail.checkRuns.some(check => check.status === 'in_progress');
+  const SummaryIcon = passing ? CircleCheck : failing ? CircleX : pending ? running ? LoaderCircle : Clock3 : CircleDot;
   const canRerun = detail.viewerCanWrite && detail.checkRuns.some(check =>
     check.category === 'failing'
       && check.source === 'check_run'
@@ -1295,7 +1298,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
   return (
     <article className="pr-checks">
       <header><span className={passing ? 'is-success' : failing ? 'is-failure' : pending ? 'is-pending' : 'is-neutral'}>
-        {passing ? <CheckIcon /> : failing ? <XIcon /> : null}</span>
+        <SummaryIcon className={pending && running ? 'is-running' : undefined} aria-hidden="true" /></span>
         <strong>{passing ? 'All checks have passed' : failing ? 'Some checks were not successful' : pending ? 'Checks are in progress' : 'No checks reported'}</strong>
         {canRerun && <button type="button" className="pr-checks__rerun" disabled={rerunning || rerunRequested}
           onClick={() => { void rerun(); }}>{rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests'}</button>}
@@ -1308,7 +1311,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
             <summary>{groupLabel(category)} ({checks.length}) <span>›</span></summary>
             {checks.map((check, checkIndex) => (
               <div className="pr-check" key={check.githubId ?? `${check.name}-${checkIndex}`}>
-                <span className={`is-${check.category}`}>{check.category === 'successful' ? '✓' : check.category === 'failing' ? '✕' : '•'}</span>
+                <CheckStatusIcon check={check} />
                 <strong>{check.name ?? 'Check'}</strong>
                 {check.completedAt && <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>}
                 {check.source === 'status' && <small>status</small>}
@@ -1319,6 +1322,24 @@ function ChecksCard({ pr, detail, onRefresh }: {
       </div>
     </article>
   );
+}
+
+const CHECK_STATUS_ICONS = {
+  failing: { Icon: CircleX, label: 'Failed' },
+  pending: { Icon: Clock3, label: 'Pending' },
+  successful: { Icon: CircleCheck, label: 'Successful' },
+  neutral: { Icon: CircleDot, label: 'Neutral' },
+  skipped: { Icon: CircleMinus, label: 'Skipped' },
+  cancelled: { Icon: CircleSlash2, label: 'Cancelled' },
+} as const;
+
+function CheckStatusIcon({ check }: { check: PullRequestDetailDto['checkRuns'][number] }) {
+  const running = check.category === 'pending' && check.status === 'in_progress';
+  const queued = check.category === 'pending' && check.status === 'queued';
+  const { Icon, label } = running
+    ? { Icon: LoaderCircle, label: 'Running' }
+    : queued ? { Icon: Clock3, label: 'Queued' } : CHECK_STATUS_ICONS[check.category];
+  return <Icon className={`pr-check__icon is-${check.category}${running ? ' is-running' : ''}`} role="img" aria-label={label} />;
 }
 
 export type MentionCandidate = { login: string; avatarUrl: string | null };
@@ -2009,10 +2030,6 @@ function KebabIcon() {
 
 function CheckIcon({ size = 12 }: { size?: number }) {
   return <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" aria-hidden="true"><path d="m3.5 8.2 2.8 2.8 6.2-6" /></svg>;
-}
-
-function XIcon() {
-  return <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2"><path d="m4 4 8 8M12 4l-8 8" /></svg>;
 }
 
 function QuoteIcon() {

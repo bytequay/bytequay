@@ -351,21 +351,52 @@ describe('PullOverview', () => {
     }])).toHaveLength(2);
   });
 
-  it('shows running checks in yellow and completed check times', () => {
+  it('distinguishes queued and running checks and shows completed check times', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-20T10:00:00Z'));
     const value = detail();
     value.ciStatus = 'PENDING';
     value.checkRuns = [
       { ...value.checkRuns[0], status: 'in_progress', conclusion: null, completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], githubId: 12, name: 'queued', status: 'queued', conclusion: null, completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], githubId: 13, name: 'pending', status: null, conclusion: null, completedAt: null, category: 'pending' },
       { ...value.checkRuns[1], completedAt: '2026-08-20T09:58:00Z' },
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
     now.mockRestore();
 
-    expect(html).toContain('<header><span class="is-pending"></span><strong>Checks are in progress</strong>');
+    expect(html.match(/lucide-loader-circle/g)).toHaveLength(2);
+    expect(html).toContain('lucide-clock-3 pr-check__icon is-pending');
+    expect(html).toContain('aria-label="Running"');
+    expect(html).toContain('aria-label="Queued"');
+    expect(html).toContain('aria-label="Pending"');
     expect(html).not.toContain('<header><span class="is-failure">');
     expect(html).toContain('<time dateTime="2026-08-20T09:58:00Z">Finished 2m ago</time>');
+  });
+
+  it('uses distinct Lucide icons for completed check states', () => {
+    const value = detail();
+    const check = value.checkRuns[0];
+    value.checkRuns = [
+      { ...check, githubId: 20, name: 'success', conclusion: 'success', category: 'successful' },
+      { ...check, githubId: 21, name: 'failure', conclusion: 'failure', category: 'failing' },
+      { ...check, githubId: 22, name: 'neutral', conclusion: 'neutral', category: 'neutral' },
+      { ...check, githubId: 23, name: 'skipped', conclusion: 'skipped', category: 'skipped' },
+      { ...check, githubId: 24, name: 'cancelled', conclusion: 'cancelled', category: 'cancelled' },
+    ];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('lucide-circle-check pr-check__icon is-successful');
+    expect(html).toContain('lucide-circle-x pr-check__icon is-failing');
+    expect(html).toContain('lucide-circle-dot pr-check__icon is-neutral');
+    expect(html).toContain('lucide-circle-minus pr-check__icon is-skipped');
+    expect(html).toContain('lucide-circle-slash-2 pr-check__icon is-cancelled');
+    expect(html).toContain('aria-label="Successful"');
+    expect(html).toContain('aria-label="Failed"');
+    expect(html).toContain('aria-label="Neutral"');
+    expect(html).toContain('aria-label="Skipped"');
+    expect(html).toContain('aria-label="Cancelled"');
   });
 
   it('offers failed GitHub Actions reruns to viewers with write access', () => {

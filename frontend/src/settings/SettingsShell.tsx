@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import type {
+  CodeGraphSettingDto,
   GitHubAccountDto,
   ModelApiKeyDto,
   ModelOptionDto,
@@ -44,6 +45,7 @@ export default function SettingsShell() {
       <ModelsCard />
       <GitHubAccountCard />
       <QuietHoursCard />
+      <CodeGraphCard />
       <RecentCard />
       <footer className="sets-footer">ByteQuay {version}</footer>
     </main>
@@ -523,6 +525,47 @@ function RecentCard() {
           </button>
         )}
       </div>
+    </section>
+  );
+}
+
+function CodeGraphCard() {
+  const [setting, setSetting] = useState<CodeGraphSettingDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.bridge.getCodeGraphSetting().then(setSetting).catch(() => {});
+  }, []);
+
+  const update = (next: CodeGraphSettingDto) => {
+    setSetting(next);
+    window.bridge.saveCodeGraphSetting(next)
+      .then(saved => setSetting(saved))
+      .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+  };
+
+  if (setting === null) return null;
+  return (
+    <section className="sets-card">
+      <div className="sets-card-head"><span className="sets-card-title">Code graph</span></div>
+      <div className="sets-quiet-row">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={setting.enabled}
+          aria-label="Give agent tasks a code graph of their worktree"
+          className={`sets-toggle${setting.enabled ? ' is-on' : ''}`}
+          onClick={() => update({ ...setting, enabled: !setting.enabled })}
+        >
+          <span className="sets-toggle-knob" />
+        </button>
+        <span className="sets-quiet-label">Give agent tasks a code graph of their worktree</span>
+      </div>
+      <p className="sets-card-hint">
+        Each task is indexed from a per-repository baseline so the agent can explore callers, callees, and
+        cross-file structure in one call. Off hides the tool and stops indexing.
+      </p>
+      {error && <div className="sets-error" role="alert">{error}</div>}
     </section>
   );
 }

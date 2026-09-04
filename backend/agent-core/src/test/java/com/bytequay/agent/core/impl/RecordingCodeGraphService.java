@@ -30,11 +30,12 @@ final class RecordingCodeGraphService
     final List<TaskResources> preparedResources = new ArrayList<>();
     final List<TaskResources> deletedIndexes = new ArrayList<>();
     final List<RepositoryIdentity> deletedBaselines = new ArrayList<>();
+    boolean available = true;
 
     @Override
     public boolean available()
     {
-        return true;
+        return available;
     }
 
     @Override
@@ -50,7 +51,7 @@ final class RecordingCodeGraphService
     @Override
     public String explore(TaskWorktree worktree, TaskResources resources, String query)
     {
-        return "";
+        return "graph:" + query;
     }
 
     @Override

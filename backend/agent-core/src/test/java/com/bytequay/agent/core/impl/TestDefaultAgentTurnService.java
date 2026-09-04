@@ -33,6 +33,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -73,6 +74,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -1940,6 +1942,7 @@ class TestDefaultAgentTurnService
                 metrics,
                 configuredApprovals,
                 runtimeRegistry,
+                codeGraph,
                 clock,
                 Duration.ofMinutes(5),
                 queueStarter);
@@ -1974,6 +1977,26 @@ class TestDefaultAgentTurnService
                 scheduler,
                 CLOCK,
                 runtimeRegistry);
+    }
+
+    @Test
+    void opensProviderSessionsWithTheCodeGraphBridgeWhenTheHelperIsAvailable()
+    {
+        service.start(command("first", "key-1"));
+
+        CodeGraphBridge bridge = driver.openedContexts().getFirst().codeGraph().orElseThrow();
+        assertThat(bridge.instruction()).isEqualTo(CodeGraphInstructions.MANAGED);
+        assertThat(bridge.explore().apply("who calls cleanup")).isEqualTo("graph:who calls cleanup");
+    }
+
+    @Test
+    void opensProviderSessionsWithoutTheBridgeWhenTheHelperIsOff()
+    {
+        codeGraph.available = false;
+
+        service.start(command("first", "key-1"));
+
+        assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
     }
 
     private StartAgentTurnCommand command(String message, String idempotencyKey)

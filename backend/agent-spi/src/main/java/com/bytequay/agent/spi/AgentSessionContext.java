@@ -30,7 +30,8 @@ public record AgentSessionContext(
         AgentApprovalHandler approvals,
         Optional<String> model,
         Optional<String> effort,
-        boolean textOnly)
+        boolean textOnly,
+        Optional<CodeGraphBridge> codeGraph)
 {
     public AgentSessionContext(
             String taskId,
@@ -54,6 +55,32 @@ public record AgentSessionContext(
                 false);
     }
 
+    public AgentSessionContext(
+            String taskId,
+            Path worktree,
+            Path runtimeDirectory,
+            Path providerDirectory,
+            AgentPermissionPolicy permissionPolicy,
+            Optional<AgentSessionRef> sessionReference,
+            AgentApprovalHandler approvals,
+            Optional<String> model,
+            Optional<String> effort,
+            boolean textOnly)
+    {
+        this(
+                taskId,
+                worktree,
+                runtimeDirectory,
+                providerDirectory,
+                permissionPolicy,
+                sessionReference,
+                approvals,
+                model,
+                effort,
+                textOnly,
+                Optional.empty());
+    }
+
     public AgentSessionContext
     {
         checkNotBlank(taskId, "taskId");
@@ -65,6 +92,7 @@ public record AgentSessionContext(
         requireNonNull(approvals, "approvals is null");
         requireNonNull(model, "model is null").ifPresent(value -> checkNotBlank(value, "model"));
         requireNonNull(effort, "effort is null").ifPresent(value -> checkNotBlank(value, "effort"));
+        requireNonNull(codeGraph, "codeGraph is null");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");

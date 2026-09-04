@@ -57,6 +57,7 @@ import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -141,9 +142,10 @@ public class AgentConfiguration
     }
 
     @Bean
-    public CodeGraphService codeGraphService(CodeGraphProperties properties, AgentProperties agentProperties, GitCommandRunner git)
+    public CodeGraphService codeGraphService(CodeGraphProperties properties, AgentProperties agentProperties, GitCommandRunner git, AppSettingsService settings)
     {
-        return new PinnedCodeGraphService(new CodeGraphCli(properties.bundleHome(), git), git, agentProperties.runtimeRoot().resolve("codegraph-baselines"));
+        return new PinnedCodeGraphService(
+                new CodeGraphCli(properties.bundleHome(), git), git, agentProperties.runtimeRoot().resolve("codegraph-baselines"), settings::codeGraphEnabled);
     }
 
     @Bean
@@ -240,6 +242,7 @@ public class AgentConfiguration
             AgentMetricsService metricsService,
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
+            CodeGraphService codeGraph,
             Clock agentClock,
             AgentProperties properties)
     {
@@ -257,6 +260,7 @@ public class AgentConfiguration
                 metricsService,
                 approvalService,
                 runtimeRegistry,
+                codeGraph,
                 agentClock,
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the

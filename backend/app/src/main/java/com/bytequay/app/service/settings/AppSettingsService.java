@@ -28,6 +28,7 @@ import static java.util.Objects.requireNonNull;
 public class AppSettingsService
 {
     private static final String QUIET_HOURS_KEY = "github.quietHours";
+    private static final String CODEGRAPH_KEY = "codegraph.enabled";
 
     private final AppSettingsStore store;
     private final ObjectMapper mapper;
@@ -57,6 +58,19 @@ public class AppSettingsService
             throw new IllegalStateException("quiet hours could not be encoded", failure);
         }
         return quietHours;
+    }
+
+    /** Whether agent tasks get a code graph; on by default so the vendored helper is used when present. */
+    public boolean codeGraphEnabled()
+    {
+        return store.get(CODEGRAPH_KEY).map(Boolean::parseBoolean).orElse(true);
+    }
+
+    public CodeGraphSetting saveCodeGraph(CodeGraphSetting setting)
+    {
+        requireNonNull(setting, "setting is null");
+        store.put(CODEGRAPH_KEY, Boolean.toString(setting.enabled()));
+        return setting;
     }
 
     /** True while scheduled GitHub refresh jobs should stay idle, in local time. */

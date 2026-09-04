@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -102,7 +103,8 @@ public final class ClaudePermissionBroker
                 permissionPolicy,
                 false,
                 approvals,
-                redactor);
+                redactor,
+                Optional.empty());
     }
 
     Registration register(
@@ -113,7 +115,8 @@ public final class ClaudePermissionBroker
             AgentPermissionPolicy permissionPolicy,
             boolean textOnly,
             AgentApprovalHandler approvals,
-            SecretRedactor redactor)
+            SecretRedactor redactor,
+            Optional<CodeGraphBridge> codeGraph)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
@@ -125,12 +128,14 @@ public final class ClaudePermissionBroker
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
+        requireNonNull(codeGraph, "codeGraph is null");
         contexts.put(token, new PermissionContext(
                 taskId,
                 worktree,
                 permissionPolicy,
                 approvals,
-                redactor.withSecret(token)));
+                redactor.withSecret(token),
+                codeGraph));
         try {
             Files.createDirectories(providerDirectory);
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
@@ -192,6 +197,7 @@ public final class ClaudePermissionBroker
         return switch (params.name()) {
             case "permission_prompt" -> permission(request.id(), params.arguments(), context);
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
+            case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             default -> error(request.id(), -32602, "Unknown tool");
         };
     }
@@ -254,6 +260,26 @@ public final class ClaudePermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));
     }
 
+    private McpHttpResponse codeGraphExplore(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        Optional<String> query = codeGraphQuery(arguments);
+        if (context.codeGraph().isEmpty() || query.isEmpty()) {
+            return error(id, -32602, "Invalid " + CodeGraphBridge.TOOL_NAME + " arguments");
+        }
+        String text = context.redactor().redact(context.codeGraph().orElseThrow().explore().apply(query.orElseThrow()));
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+    }
+
+    /** The one accepted argument shape: an object holding only a non-blank, bounded {@code query} string. */
+    private static Optional<String> codeGraphQuery(JsonNode arguments)
+    {
+        if (arguments == null || !arguments.isObject() || arguments.size() != 1 || !arguments.has("query") || !arguments.get("query").isTextual()) {
+            return Optional.empty();
+        }
+        String query = arguments.get("query").asText().strip();
+        return query.isEmpty() || query.length() > CodeGraphBridge.MAXIMUM_QUERY_LENGTH ? Optional.empty() : Optional.of(query);
+    }
+
     private McpHttpResponse response(JsonNode id, Object result)
     {
         return new McpHttpResponse(200, Optional.of(objectMapper.valueToTree(new McpResponse("2.0", id, result))));
@@ -275,6 +301,20 @@ public final class ClaudePermissionBroker
         return objectMapper.treeToValue(params, InitializeParams.class).protocolVersion();
     }
 
+    private static ToolDefinition codeGraphTool()
+    {
+        return new ToolDefinition(
+                CodeGraphBridge.TOOL_NAME,
+                "Explore this task's code graph: callers, callees, implementations, routes, dependencies, and cross-file structure "
+                        + "for a natural-language query. Returns matching symbols with source and call paths. Navigation help only; verify in current source.",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of(
+                                "query", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", CodeGraphBridge.MAXIMUM_QUERY_LENGTH)),
+                        "required", ImmutableList.of("query"),
+                        "additionalProperties", false));
+    }
+
     private static ToolDefinition permissionTool()
     {
         return new ToolDefinition(
@@ -293,6 +333,9 @@ public final class ClaudePermissionBroker
     {
         ImmutableList.Builder<ToolDefinition> tools = ImmutableList.builder();
         tools.add(permissionTool());
+        if (context.codeGraph().isPresent()) {
+            tools.add(codeGraphTool());
+        }
         if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
@@ -504,7 +547,8 @@ public final class ClaudePermissionBroker
             Path worktree,
             AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
-            SecretRedactor redactor)
+            SecretRedactor redactor,
+            Optional<CodeGraphBridge> codeGraph)
     {
         private PermissionContext
         {
@@ -513,6 +557,7 @@ public final class ClaudePermissionBroker
             requireNonNull(permissionPolicy, "permissionPolicy is null");
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
+            requireNonNull(codeGraph, "codeGraph is null");
         }
     }
 

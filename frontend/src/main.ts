@@ -789,6 +789,14 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(quietHours),
     }));
+  ipcMain.handle('settings:codegraph', () =>
+    backendJson(`${BACKEND_BASE}/api/settings/codegraph`));
+  ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>
+    backendJson(`${BACKEND_BASE}/api/settings/codegraph`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(setting),
+    }));
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));

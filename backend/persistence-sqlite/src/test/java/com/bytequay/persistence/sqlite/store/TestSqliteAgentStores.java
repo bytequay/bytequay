@@ -26,6 +26,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.QueueAgentInputCommand;
@@ -35,6 +36,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
@@ -773,6 +775,7 @@ class TestSqliteAgentStores
                 metrics,
                 approvals,
                 runtimeRegistry,
+                new NoCodeGraphService(),
                 clock,
                 Duration.ofMinutes(5),
                 Runnable::run);
@@ -848,6 +851,35 @@ class TestSqliteAgentStores
                 AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")));
+    }
+
+    /** These store tests never touch the graph; the turn service only needs a service that reports itself unavailable. */
+    private static final class NoCodeGraphService
+            implements CodeGraphService
+    {
+        @Override
+        public boolean available()
+        {
+            return false;
+        }
+
+        @Override
+        public void refreshBaseline(RepositoryIdentity repository, Path repositoryDirectory, String defaultBranchCommit) {}
+
+        @Override
+        public void prepare(TaskWorktree worktree, TaskResources resources) {}
+
+        @Override
+        public String explore(TaskWorktree worktree, TaskResources resources, String query)
+        {
+            return "";
+        }
+
+        @Override
+        public void deleteIndex(TaskResources resources) {}
+
+        @Override
+        public void deleteBaseline(RepositoryIdentity repository) {}
     }
 
     private static final class RecordingDriver

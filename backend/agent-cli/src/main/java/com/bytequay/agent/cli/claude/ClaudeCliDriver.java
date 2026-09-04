@@ -36,6 +36,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -96,6 +97,7 @@ public final class ClaudeCliDriver
     private static final Set<String> REQUIRED_FLAGS = ImmutableSet.of(
             "--add-dir",
             "--allowedTools",
+            "--append-system-prompt",
             "--disable-slash-commands",
             "--include-hook-events",
             "--include-partial-messages",
@@ -339,7 +341,8 @@ public final class ClaudeCliDriver
                 context.permissionPolicy(),
                 context.textOnly(),
                 context.approvals(),
-                redactor);
+                redactor,
+                context.codeGraph());
         ClaudeSession session = new ClaudeSession(
                 new AgentSessionRef(LANE_ID, CONTRACT_VERSION, sessionId),
                 context,
@@ -359,6 +362,7 @@ public final class ClaudeCliDriver
 
     private List<String> argv(
             ClaudePermissionBroker.Registration registration,
+            Optional<CodeGraphBridge> codeGraph,
             AgentPermissionPolicy permissionPolicy,
             Optional<String> model,
             Optional<String> effort,
@@ -408,6 +412,10 @@ public final class ClaudeCliDriver
                     .map(ClaudeCliDriver::absoluteReadRule)
                     .iterator());
         }
+        codeGraph.ifPresent(bridge -> {
+            argv.add("--append-system-prompt", bridge.instruction());
+            allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME);
+        });
         List<String> allowed = allowedTools.build();
         if (!allowed.isEmpty()) {
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));
@@ -828,6 +836,7 @@ public final class ClaudeCliDriver
                     new ProcessOwner(ProcessOwner.Kind.CLAUDE_TURN, command.turnId()),
                     argv(
                             session.registration,
+                            session.context.codeGraph(),
                             session.context.permissionPolicy(),
                             command.model().or(session.context::model),
                             command.effort().or(session.context::effort),

@@ -495,24 +495,28 @@ Checkpoint gate (2026-09-05, lifecycle tests in agent-core, refresher and job te
 
 **Visible UI:** existing tool activity plus one setting
 
-- [ ] Fixed schema for `codegraph_explore(query)`; reject empty or oversized
+- [x] Fixed schema for `codegraph_explore(query)`; reject empty or oversized
   queries and every unknown argument.
-- [ ] One optional bridge value on `AgentSessionContext` with the task-bound
+- [x] One optional bridge value on `AgentSessionContext` with the task-bound
   callback; no task, path, project, or commit parameter.
-- [ ] Claude: add the tool to the task MCP endpoint and the allow rules;
+- [x] Claude: add the tool to the task MCP endpoint and the allow rules;
   managed instruction through the system-prompt channel on new and resumed
   sessions.
 - [ ] Codex: one `mcp_servers.bytequay` streamable-HTTP entry with the bearer
   header in the isolated per-task config; the isolation check and the
   compatibility fixture assert exactly that server; managed instruction
   through the developer-instruction channel; `mcpToolCall` items map to tool
-  activity.
+  activity. The pinned v0.151.0 bindings carry no instructions field on
+  `thread/start`, but the 0.152.1 binary accepts a `developer_instructions`
+  config key, so the instruction travels as a launch override.
 - [ ] Record invocation and bounded result or error through the existing
   `ToolActivity` events.
-- [ ] `codegraph` setting, `on` by default; `off` omits the bridge and
-  instruction and skips `prepare` and the scheduled job.
+- [x] `codegraph` setting, `on` by default; `off` omits the bridge and
+  instruction and skips `prepare` and the scheduled job. Implemented as one
+  switch: the adapter's `available()` consults the setting, so every caller
+  that already checks availability honors it without extra plumbing.
 - [ ] Preflight omission and the one-time provider retry without the tool.
-- [ ] Root agent only.
+- [x] Root agent only.
 
 Checkpoint gate:
 

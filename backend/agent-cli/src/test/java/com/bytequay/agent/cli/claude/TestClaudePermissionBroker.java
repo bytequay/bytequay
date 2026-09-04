@@ -15,11 +15,13 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,6 +42,64 @@ class TestClaudePermissionBroker
 
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void servesTheCodeGraphToolOnlyWhenBridged()
+            throws Exception
+    {
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory");
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
+        ClaudePermissionBroker.Registration bridged = broker.register(
+                "task-1",
+                temporaryDirectory,
+                temporaryDirectory,
+                temporaryDirectory,
+                AgentPermissionPolicy.AUTO,
+                false,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                redactor,
+                Optional.of(new CodeGraphBridge(query -> "graph for " + query + " known-secret", "use the graph")));
+        ClaudePermissionBroker.Registration plain = broker.register(
+                "task-2",
+                temporaryDirectory,
+                temporaryDirectory,
+                temporaryDirectory,
+                AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                redactor);
+
+        JsonNode listed = broker.handle(bridged.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                """)).body().orElseThrow();
+        assertThat(listed.at("/result/tools")).hasSize(2);
+        assertThat(listed.at("/result/tools/1/name").asText()).isEqualTo("codegraph_explore");
+        assertThat(listed.at("/result/tools/1/inputSchema/required/0").asText()).isEqualTo("query");
+
+        JsonNode called = broker.handle(bridged.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"who calls cleanup"}}}
+                """)).body().orElseThrow();
+        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("graph for who calls cleanup [REDACTED]");
+
+        for (String arguments : ImmutableList.of("{}", "{\"query\":\"  \"}", "{\"query\":\"x\",\"path\":\"/\"}", "{\"query\":5}")) {
+            JsonNode rejected = broker.handle(bridged.token(), objectMapper.readTree(
+                    "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"codegraph_explore\",\"arguments\":" + arguments + "}}")).body().orElseThrow();
+            assertThat(rejected.at("/error/code").asInt()).as(arguments).isEqualTo(-32602);
+        }
+
+        JsonNode unbridged = broker.handle(plain.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}
+                """)).body().orElseThrow();
+        assertThat(unbridged.at("/result/tools")).hasSize(1);
+        JsonNode denied = broker.handle(plain.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"x"}}}
+                """)).body().orElseThrow();
+        assertThat(denied.at("/error/code").asInt()).isEqualTo(-32602);
+        bridged.close();
+        plain.close();
+    }
 
     @Test
     void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()

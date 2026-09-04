@@ -1,5 +1,5 @@
 {
-  "ignorePatterns": ["vendor/"],
+  "ignorePatterns": ["vendor/", "out/"],
   "env": {
     "browser": true,
     "es6": true,

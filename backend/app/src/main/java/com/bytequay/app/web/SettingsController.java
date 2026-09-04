@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
 import com.bytequay.app.service.settings.QuietHours;
@@ -75,6 +76,18 @@ public class SettingsController
     public ModelSettings removeApiKey(@PathVariable String alias)
     {
         return models.removeApiKey(alias);
+    }
+
+    @GetMapping("/codegraph")
+    public CodeGraphSetting codeGraph()
+    {
+        return new CodeGraphSetting(settings.codeGraphEnabled());
+    }
+
+    @PutMapping("/codegraph")
+    public CodeGraphSetting saveCodeGraph(@RequestBody CodeGraphSetting request)
+    {
+        return settings.saveCodeGraph(request);
     }
 
     @GetMapping("/quiet-hours")

@@ -36,6 +36,9 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.CodeGraphException;
+import com.bytequay.agent.core.CodeGraphInstructions;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -50,6 +53,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskTitles;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
@@ -77,6 +81,7 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -128,6 +133,7 @@ public final class DefaultAgentTurnService
     private final AgentMetricsService metricsService;
     private final AgentApprovalService approvalService;
     private final AgentRuntimeRegistry runtimeRegistry;
+    private final CodeGraphService codeGraph;
     private final AgentFinalResponseReader finalResponseReader;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
@@ -151,6 +157,7 @@ public final class DefaultAgentTurnService
             AgentMetricsService metricsService,
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
+            CodeGraphService codeGraph,
             Clock clock,
             Duration maximumTurnRuntime,
             Executor queueStarter)
@@ -169,6 +176,7 @@ public final class DefaultAgentTurnService
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
@@ -1091,6 +1099,31 @@ public final class DefaultAgentTurnService
         unitOfWork.execute(() -> taskStore.update(requireTask(task.id()).releaseWorktreeMutation(claim.orElseThrow(), releasedAt)));
     }
 
+    /**
+     * The task-bound graph tool for this session, absent without a managed worktree or when the
+     * helper is off. The callback turns every expected graph failure into tool text so the provider
+     * adapter never sees it.
+     */
+    private Optional<CodeGraphBridge> codeGraphBridge(AgentTask task, TaskResources resources)
+    {
+        return task.taskWorktree()
+                .filter(worktree -> codeGraph.available())
+                .map(worktree -> new CodeGraphBridge(query -> exploreForAgent(worktree, resources, query), CodeGraphInstructions.MANAGED));
+    }
+
+    private String exploreForAgent(TaskWorktree worktree, TaskResources resources, String query)
+    {
+        try {
+            return codeGraph.explore(worktree, resources, query);
+        }
+        catch (CodeGraphException e) {
+            return "CodeGraph is unavailable: " + e.getMessage() + ". Continue with normal source and search tools.";
+        }
+        catch (IllegalArgumentException e) {
+            return "CodeGraph rejected the query: " + e.getMessage();
+        }
+    }
+
     private AgentSession session(AgentTask task, TurnId turnId, AgentTurnSettings settings)
     {
         Optional<AgentSession> existing = runtimeRegistry.session(task.id());
@@ -1113,7 +1146,8 @@ public final class DefaultAgentTurnService
                         (request, timeout) -> requestApproval(task.id(), request, timeout),
                         settings.model(),
                         settings.effort(),
-                        false),
+                        false,
+                        codeGraphBridge(task, resources)),
                 event -> routeEvent(task.id(), event)), "opened session is null");
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {

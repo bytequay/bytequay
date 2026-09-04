@@ -31,6 +31,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
@@ -68,6 +69,43 @@ class TestClaudeCliDriver
 
     @TempDir
     private Path worktree;
+
+    @Test
+    void advertisesTheCodeGraphToolAndInstructionOnlyWhenBridged()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty());
+        AgentSessionContext bridged = new AgentSessionContext(
+                plain.taskId(),
+                plain.worktree(),
+                plain.runtimeDirectory(),
+                plain.providerDirectory(),
+                plain.permissionPolicy(),
+                plain.sessionReference(),
+                plain.approvals(),
+                plain.model(),
+                plain.effort(),
+                plain.textOnly(),
+                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")));
+
+        AgentSession session = driver.open(bridged, event -> {});
+        await(session.start(command("first")));
+        ProcessSpec spec = supervisor.turns().getFirst().spec();
+        assertThat(spec.argv()).containsSequence("--append-system-prompt", "use the graph");
+        int allowed = spec.argv().indexOf("--allowedTools");
+        assertThat(allowed).isPositive();
+        assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__codegraph_explore");
+        session.close();
+
+        AgentSession unbridged = driver.open(plain, event -> {});
+        await(unbridged.start(command("second")));
+        ProcessSpec plainSpec = supervisor.turns().get(1).spec();
+        assertThat(plainSpec.argv()).doesNotContain("--append-system-prompt");
+        assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
+        unbridged.close();
+    }
 
     @Test
     void probesStreamsResumesHandlesMalformedAndTrailingEventsAndCancels()
@@ -748,7 +786,7 @@ class TestClaudeCliDriver
         private String helpOutput = """
                 --output-format --include-partial-messages --include-hook-events
                 --forward-subagent-text --permission-mode (choices: \"auto\" \"manual\") --mcp-config
-                --settings --setting-sources --strict-mcp-config --add-dir
+                --settings --setting-sources --strict-mcp-config --add-dir --append-system-prompt
                 --tools --no-session-persistence --disable-slash-commands --model --effort
                 --allowedTools --permission-prompt-tool --print --verbose --resume --session-id
                 """;

@@ -965,6 +965,8 @@ export type ModelSettingsDto = {
   keyProviders: Array<{ name: string; models: string[] }>;
 };
 
+export type CodeGraphSettingDto = { enabled: boolean };
+
 export type QuietHoursDto = {
   enabled: boolean;
   startMinute: number;
@@ -1294,6 +1296,8 @@ export type Bridge = {
   removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;
   getQuietHours: () => Promise<QuietHoursDto>;
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
+  getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
+  saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
   getGitHubAccount: () => Promise<GitHubAccountDto>;
   /** Copies the stored token to the clipboard in the main process; the renderer never sees it. */
   copyGitHubToken: () => Promise<boolean>;

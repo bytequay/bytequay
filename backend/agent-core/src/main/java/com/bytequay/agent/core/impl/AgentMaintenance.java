@@ -16,11 +16,13 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -29,6 +31,8 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -38,7 +42,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -54,6 +60,8 @@ public final class AgentMaintenance
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final QueuedInputStore queueStore;
+    private final SteerDeliveryStore steerStore;
     private final AgentUnitOfWork unitOfWork;
     private final AgentEventOutboxStore outboxStore;
     private final AgentApprovalService approvalService;
@@ -65,6 +73,8 @@ public final class AgentMaintenance
     public AgentMaintenance(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             AgentApprovalService approvalService,
@@ -75,6 +85,8 @@ public final class AgentMaintenance
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.queueStore = requireNonNull(queueStore, "queueStore is null");
+        this.steerStore = requireNonNull(steerStore, "steerStore is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
@@ -127,12 +139,14 @@ public final class AgentMaintenance
             }
         });
 
+        settleSteers();
         taskStore.listLive().forEach(task -> {
             synchronized (runtimeRegistry.taskLock(task.id())) {
                 AgentTask current = taskStore.find(task.id()).orElseThrow();
                 if (current.state().terminal()) {
                     return;
                 }
+                pauseQueue(current.id());
                 if (turnStore.findActive(current.id()).isPresent()) {
                     return;
                 }
@@ -148,6 +162,64 @@ public final class AgentMaintenance
                 }
             }
         });
+    }
+
+    /**
+     * A restart pauses the queue: nothing starts by itself until the user has seen what happened.
+     *
+     * <p>An input that was being claimed is settled by what its turn durably shows. Never sent
+     * means it waits again as paused; sent but never acknowledged means nobody knows, so it is
+     * uncertain and only the user may discard it; acknowledged means it was consumed.
+     */
+    private void pauseQueue(TaskId taskId)
+    {
+        Instant now = Instant.now(clock);
+        for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
+            switch (input.state()) {
+                case QUEUED -> queueStore.update(input.paused("Backend restarted", now));
+                case STARTING -> {
+                    AgentTurn turn = turnStore.find(input.turnId().orElseThrow()).orElseThrow();
+                    if (turn.knownUnsent() || turn.startedAt().isEmpty()) {
+                        queueStore.update(input.paused("Backend restarted before the input was sent", now));
+                    }
+                    else if (turn.providerTurnReference().isEmpty()) {
+                        queueStore.update(input.uncertain("Backend restarted while the input was being sent", now));
+                    }
+                    else {
+                        queueStore.update(input.started(now));
+                    }
+                }
+                default -> {}
+            }
+        }
+    }
+
+    /** A steer caught by the restart: not sent is a plain failure; sent without an answer stays unknown for good. */
+    private void settleSteers()
+    {
+        for (AgentInputDelivery delivery : steerStore.listUnsettled()) {
+            synchronized (runtimeRegistry.taskLock(delivery.taskId())) {
+                Instant now = Instant.now(clock);
+                AgentInputDelivery settled = delivery.state() == AgentInputDelivery.State.SENDING
+                        ? delivery.unknown("Backend restarted while the input was being sent", now)
+                        : delivery.failed("Backend restarted before the input was sent", now);
+                EventId eventId = EventId.random();
+                unitOfWork.execute(() -> {
+                    steerStore.update(settled);
+                    outboxStore.insert(pendingInline(
+                            eventId,
+                            settled.taskId(),
+                            Optional.of(settled.turnId()),
+                            root(),
+                            new AgentEventPayload.Error(
+                                    settled.state() == AgentInputDelivery.State.UNKNOWN ? "STEER_UNKNOWN" : "STEER_FAILED",
+                                    settled.failure().orElseThrow(),
+                                    false),
+                            now));
+                    return null;
+                });
+            }
+        }
     }
 
     /**

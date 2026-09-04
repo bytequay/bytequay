@@ -35,6 +35,7 @@ public record AgentTurn(
         Optional<Instant> endedAt,
         Optional<Instant> cancellationRequestedAt,
         Optional<ProviderTurnRef> providerTurnReference,
+        boolean knownUnsent,
         Optional<String> model,
         Optional<AgentTurnSettings> settings,
         Optional<String> terminalReason,
@@ -59,6 +60,8 @@ public record AgentTurn(
         checkArgument(providerTurnReference.isEmpty() || startedAt.isPresent(), "a provider reference requires delivery start time");
         checkArgument(state != TurnState.RUNNING || providerTurnReference.isPresent(), "a running turn requires a provider reference");
         checkArgument(state != TurnState.ACCEPTED || providerTurnReference.isEmpty(), "an accepted turn cannot have a provider reference");
+        checkArgument(!knownUnsent || (state == TurnState.FAILED && providerTurnReference.isEmpty()),
+                "known-unsent delivery requires an unacknowledged failed turn");
         checkArgument(state.active() != endedAt.isPresent(), "endedAt and turn state disagree");
         checkArgument((state != TurnState.COMPLETED && state.terminal()) == terminalReason.isPresent(), "terminalReason and turn state disagree");
         checkArgument(startedAt.isEmpty() || !startedAt.orElseThrow().isBefore(createdAt), "startedAt is before createdAt");
@@ -86,6 +89,7 @@ public record AgentTurn(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                false,
                 Optional.empty(),
                 Optional.of(requireNonNull(settings, "settings is null")),
                 Optional.empty(),
@@ -109,6 +113,7 @@ public record AgentTurn(
                 Optional.empty(),
                 cancellationRequestedAt,
                 Optional.of(reference),
+                knownUnsent,
                 providerModel,
                 Optional.empty(),
                 metrics);
@@ -121,7 +126,7 @@ public record AgentTurn(
         checkState(startedAt.isEmpty(), "provider delivery already started");
         checkArgument(!now.isBefore(createdAt), "delivery start is before turn acceptance");
         return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt,
-                providerTurnReference, model, terminalReason, metrics);
+                providerTurnReference, knownUnsent, model, terminalReason, metrics);
     }
 
     public AgentTurn requestCancellation(Instant now)
@@ -135,7 +140,7 @@ public record AgentTurn(
         }
         checkArgument(!now.isBefore(startedAt.orElse(createdAt)), "cancellation time is before turn start");
         return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference,
-                model, terminalReason, metrics);
+                knownUnsent, model, terminalReason, metrics);
     }
 
     public AgentTurn finish(
@@ -143,6 +148,23 @@ public record AgentTurn(
             TurnMetrics finalMetrics,
             Optional<String> reason,
             Instant now)
+    {
+        return finish(terminalState, finalMetrics, reason, now, false);
+    }
+
+    /** Finishes an accepted request that provably failed before the provider call. */
+    public AgentTurn finishKnownUnsent(TurnMetrics finalMetrics, String reason, Instant now)
+    {
+        checkNotBlank(reason, "reason");
+        return finish(TurnState.FAILED, finalMetrics, Optional.of(reason), now, true);
+    }
+
+    private AgentTurn finish(
+            TurnState terminalState,
+            TurnMetrics finalMetrics,
+            Optional<String> reason,
+            Instant now,
+            boolean updatedKnownUnsent)
     {
         requireNonNull(terminalState, "terminalState is null");
         requireNonNull(finalMetrics, "finalMetrics is null");
@@ -156,20 +178,20 @@ public record AgentTurn(
         checkState(state != TurnState.ACCEPTED || terminalState != TurnState.COMPLETED, "an accepted turn cannot complete before running");
         checkArgument((terminalState != TurnState.COMPLETED) == reason.isPresent(), "reason and terminalState disagree");
         return copy(terminalState, version, startedAt, Optional.of(now), cancellationRequestedAt,
-                providerTurnReference, model, reason, finalMetrics);
+                providerTurnReference, updatedKnownUnsent, model, reason, finalMetrics);
     }
 
     public AgentTurn withMetrics(TurnMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, version, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, model, terminalReason, updatedMetrics);
+                providerTurnReference, knownUnsent, model, terminalReason, updatedMetrics);
     }
 
     public AgentTurn withVersion(long updatedVersion)
     {
         return copy(state, updatedVersion, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, model, terminalReason, metrics);
+                providerTurnReference, knownUnsent, model, terminalReason, metrics);
     }
 
     private AgentTurn copy(
@@ -179,6 +201,7 @@ public record AgentTurn(
             Optional<Instant> updatedEndedAt,
             Optional<Instant> updatedCancellationRequestedAt,
             Optional<ProviderTurnRef> updatedProviderTurnReference,
+            boolean updatedKnownUnsent,
             Optional<String> updatedModel,
             Optional<String> updatedTerminalReason,
             TurnMetrics updatedMetrics)
@@ -194,6 +217,7 @@ public record AgentTurn(
                 updatedEndedAt,
                 updatedCancellationRequestedAt,
                 updatedProviderTurnReference,
+                updatedKnownUnsent,
                 updatedModel,
                 settings,
                 updatedTerminalReason,

@@ -19,7 +19,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
@@ -68,12 +67,14 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -93,7 +94,7 @@ class TestAgentHttpApi
     static class DeterministicLane
     {
         @Bean
-        AgentDriver deterministicAgentDriver()
+        DeterministicAgentDriver deterministicAgentDriver()
         {
             return new DeterministicAgentDriver(AgentLaneId.CODEX_CLI);
         }
@@ -139,6 +140,9 @@ class TestAgentHttpApi
     private AgentTaskService tasks;
 
     @Autowired
+    private DeterministicAgentDriver driver;
+
+    @Autowired
     private PullRequestStore pullRequests;
 
     private String workspaceId;
@@ -148,6 +152,7 @@ class TestAgentHttpApi
     void setUp()
             throws IOException, InterruptedException
     {
+        driver.reset();
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
@@ -282,14 +287,7 @@ class TestAgentHttpApi
 
         ResponseEntity<JsonNode> unknownModel = post(
                 "/agent/tasks",
-                ImmutableMap.of(
-                        "workspaceId", workspaceId,
-                        "laneId", "codex",
-                        "message", "Unknown model",
-                        "defaults", ImmutableMap.of(
-                                "model", "unknown-model",
-                                "effort", "high",
-                                "permissionPolicy", "AUTO")),
+                createTaskBody("codex", "unknown-model", "Unknown model"),
                 null);
         assertThat(unknownModel.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
@@ -307,6 +305,7 @@ class TestAgentHttpApi
                 "/agent/tasks/" + taskId + "/turns",
                 ImmutableMap.of(
                         "message", "inspect this image",
+                        "expectedVersion", taskVersion(taskId),
                         "attachments", ImmutableList.of(ImmutableMap.of(
                                 "name", "screen.png",
                                 "mediaType", "image/png",
@@ -314,6 +313,25 @@ class TestAgentHttpApi
                 "attachment-request");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void rejectsAStartWhenTaskDefaultsChangedAfterTheRendererObservedThem()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        long observedVersion = taskVersion(taskId);
+        updateDefaults(taskId, "text-only-model");
+
+        ResponseEntity<JsonNode> stale = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of("message", "stale", "expectedVersion", observedVersion),
+                "stale-defaults-start");
+
+        assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
+                .filteredOn(event -> event.required("type").asText().equals("user_message"))
+                .hasSize(1);
     }
 
     @Test
@@ -411,7 +429,7 @@ class TestAgentHttpApi
 
         JsonNode idle = get(impactPath).getBody();
         assertThat(idle.get("activeTurnId").isNull()).isTrue();
-        assertThat(idle.get("liveProcess").asBoolean()).isFalse();
+        assertThat(idle.get("liveProcess").asBoolean()).isTrue();
         assertThat(post(stopPath, ImmutableMap.of("generation", "task:999"), null).getStatusCode())
                 .isEqualTo(HttpStatus.CONFLICT);
 
@@ -439,7 +457,9 @@ class TestAgentHttpApi
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {
-        Map<String, Object> createRequest = createTaskBody("codex");
+        Map<String, Object> createRequest = new HashMap<>(createTaskBody("codex"));
+        createRequest.put("message", "first");
+        createRequest.put("idempotencyKey", "request-1");
         ResponseEntity<JsonNode> createResponse = post("/agent/tasks", createRequest, null);
         assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         JsonNode createdTask = createResponse.getBody();
@@ -455,7 +475,9 @@ class TestAgentHttpApi
         assertThat(get("/agent/tasks/" + taskId + "?workspaceId=another-workspace").getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
 
-        JsonNode first = startTurn(taskId, "first", "request-1");
+        String firstTurnId = get("/agent/tasks/" + taskId + "/events?after=0&limit=10")
+                .getBody().get(0).required("turnId").asText();
+        JsonNode first = get("/agent/turns/" + firstTurnId).getBody();
         JsonNode repeated = startTurn(taskId, "ignored", "request-1");
         assertThat(repeated.get("id").asText()).isEqualTo(first.get("id").asText());
         JsonNode firstTerminal = get("/agent/turns/" + first.get("id").asText()).getBody();
@@ -554,6 +576,32 @@ class TestAgentHttpApi
         assertThat(earlyCleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     }
 
+    @Test
+    void replaysCompositeTaskCreationAndRejectsAChangedIntent()
+            throws Exception
+    {
+        Map<String, Object> request = createTaskBody("codex");
+
+        ResponseEntity<JsonNode> first = post("/agent/tasks", request, null);
+        ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(first.getBody().required("id").asText()).isEqualTo(request.get("taskId"));
+        assertThat(replay.getBody().required("id").asText()).isEqualTo(first.getBody().required("id").asText());
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).hasSize(1);
+        assertThat(get("/agent/tasks/" + request.get("taskId") + "/events?after=0&limit=20").getBody())
+                .filteredOn(event -> event.required("type").asText().equals("user_message"))
+                .hasSize(1);
+
+        Map<String, Object> changed = new HashMap<>(request);
+        changed.put("message", "a different creation request");
+        assertThat(post("/agent/tasks", changed, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        changed = new HashMap<>(request);
+        changed.put("idempotencyKey", "a-different-first-turn-key");
+        assertThat(post("/agent/tasks", changed, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
     private void addTurnTranscript(
             ArrayNode turns,
             String idempotencyKey,
@@ -629,12 +677,19 @@ class TestAgentHttpApi
 
     private Map<String, Object> createTaskBody(String laneId)
     {
+        return createTaskBody(laneId, "test-model", "Agent HTTP test");
+    }
+
+    private Map<String, Object> createTaskBody(String laneId, String model, String message)
+    {
         return ImmutableMap.of(
+                "taskId", UUID.randomUUID().toString(),
                 "workspaceId", workspaceId,
                 "laneId", laneId,
-                "message", "Agent HTTP test",
+                "message", message,
+                "idempotencyKey", "create-" + UUID.randomUUID(),
                 "defaults", ImmutableMap.of(
-                        "model", "test-model",
+                        "model", model,
                         "effort", "high",
                         "permissionPolicy", "AUTO"));
     }
@@ -644,10 +699,69 @@ class TestAgentHttpApi
     {
         ResponseEntity<JsonNode> response = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of("message", message),
+                ImmutableMap.of("message", message, "expectedVersion", taskVersion(taskId)),
                 idempotencyKey);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         return response.getBody();
+    }
+
+    private long taskVersion(String taskId)
+    {
+        return get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId)
+                .getBody()
+                .required("version")
+                .asLong();
+    }
+
+    private String uploadImage(String taskId, String name)
+            throws Exception
+    {
+        HttpHeaders upload = headers();
+        upload.setContentType(MediaType.IMAGE_PNG);
+        upload.set("X-Attachment-Name", name);
+        return rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments?workspaceId=" + workspaceId),
+                HttpMethod.POST,
+                new HttpEntity<>(png(3, 3), upload),
+                JsonNode.class).getBody().required("id").asText();
+    }
+
+    private void deleteAttachment(String taskId, String attachmentId)
+    {
+        ResponseEntity<Void> deleted = rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments/" + attachmentId + "?workspaceId=" + workspaceId),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers()),
+                Void.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    private void updateDefaults(String taskId, String model)
+            throws Exception
+    {
+        HttpHeaders updateHeaders = headers();
+        updateHeaders.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<JsonNode> updated = rest.exchange(
+                url("/agent/tasks/" + taskId + "/defaults?workspaceId=" + workspaceId),
+                HttpMethod.PUT,
+                new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of(
+                        "expectedVersion", taskVersion(taskId),
+                        "defaults", ImmutableMap.of(
+                                "model", model,
+                                "effort", "high",
+                                "permissionPolicy", "AUTO"))), updateHeaders),
+                JsonNode.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    private void deleteQueued(String taskId, String queuedInputId)
+    {
+        ResponseEntity<JsonNode> deleted = rest.exchange(
+                url("/agent/tasks/" + taskId + "/queue/" + queuedInputId + "?workspaceId=" + workspaceId),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers()),
+                JsonNode.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     private ResponseEntity<JsonNode> get(String path)
@@ -668,6 +782,213 @@ class TestAgentHttpApi
                 HttpMethod.POST,
                 new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
                 JsonNode.class);
+    }
+
+    @Test
+    void queuesInputBehindARunningTurnAndStartsItAfterSuccess()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String taskId = created.required("id").asText();
+        String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
+        assertThat(post(queuePath, ImmutableMap.of("message", "too early", "expectedVersion", created.required("version").asLong()), "queue-idle").getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        driver.holdNextTurn();
+        JsonNode running = startTurn(taskId, "first", "request-1");
+        assertThat(running.required("state").asText()).isEqualTo("RUNNING");
+        long runningVersion = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().required("version").asLong();
+
+        ResponseEntity<JsonNode> queued = post(queuePath, ImmutableMap.of("message", "later", "expectedVersion", runningVersion), "queue-1");
+        assertThat(queued.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(queued.getBody().required("state").asText()).isEqualTo("QUEUED");
+        assertThat(queued.getBody().required("preview").asText()).isEqualTo("later");
+        assertThat(queued.getBody().required("settings").required("model").asText()).isEqualTo("test-model");
+        // Idempotent by key, and refused with the version this screen no longer holds.
+        ResponseEntity<JsonNode> repeated = post(queuePath, ImmutableMap.of("message", "ignored", "expectedVersion", runningVersion), "queue-1");
+        assertThat(repeated.getBody().required("id").asText()).isEqualTo(queued.getBody().required("id").asText());
+        assertThat(post(queuePath, ImmutableMap.of("message", "stale", "expectedVersion", runningVersion), "queue-2").getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get(queuePath).getBody()).hasSize(1);
+        assertThat(get("/agent/tasks/" + taskId + "/queue?workspaceId=another-workspace").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Completing must wait for the queue; the successful running turn starts its head once.
+        assertThat(post("/agent/tasks/" + taskId + "/complete?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        driver.completeHeldTurn();
+        awaitCondition(() -> get(queuePath).getBody().isEmpty());
+        awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().path("mutationClaim").isNull());
+        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
+        assertThat(events).anySatisfy(event -> {
+            assertThat(event.required("type").asText()).isEqualTo("user_message");
+            assertThat(event.required("payload").required("text").asText()).isEqualTo("later");
+            assertThat(event.required("payload").required("deliveryKind").asText()).isEqualTo("QUEUED");
+        });
+        assertThat(post("/agent/tasks/" + taskId + "/queue/resume?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+
+        driver.holdNextTurn();
+        startTurn(taskId, "hold removal", "request-2");
+        long version = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().required("version").asLong();
+        String removable = post(queuePath, ImmutableMap.of("message", "never mind", "expectedVersion", version), "queue-3").getBody().required("id").asText();
+        ResponseEntity<JsonNode> removed = rest.exchange(
+                url("/agent/tasks/" + taskId + "/queue/" + removable + "?workspaceId=" + workspaceId),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers()),
+                JsonNode.class);
+        assertThat(removed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(removed.getBody().required("state").asText()).isEqualTo("REMOVED");
+        assertThat(get(queuePath).getBody()).isEmpty();
+        driver.completeHeldTurn();
+    }
+
+    @Test
+    void cannotRemoveAnotherTasksQueuedInput()
+            throws Exception
+    {
+        String routeTaskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String ownerTaskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String ownerQueuePath = "/agent/tasks/" + ownerTaskId + "/queue?workspaceId=" + workspaceId;
+        driver.holdNextTurn();
+        startTurn(ownerTaskId, "hold", "owner-turn");
+        long version = get("/agent/tasks/" + ownerTaskId + "?workspaceId=" + workspaceId).getBody().required("version").asLong();
+        String queuedId = post(ownerQueuePath, ImmutableMap.of("message", "owned", "expectedVersion", version), "owner-queue")
+                .getBody().required("id").asText();
+
+        ResponseEntity<JsonNode> foreignDelete = rest.exchange(
+                url("/agent/tasks/" + routeTaskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers()),
+                JsonNode.class);
+
+        assertThat(foreignDelete.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get(ownerQueuePath).getBody()).singleElement().satisfies(input ->
+                assertThat(input.required("id").asText()).isEqualTo(queuedId));
+        rest.exchange(
+                url("/agent/tasks/" + ownerTaskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers()),
+                JsonNode.class);
+        driver.completeHeldTurn();
+    }
+
+    @Test
+    void refusesToSteerATurnThatIsNotRunning()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        JsonNode finished = startTurn(taskId, "first", "request-1");
+
+        ResponseEntity<JsonNode> steer = post("/agent/turns/" + finished.required("id").asText() + "/steer", ImmutableMap.of("message", "late"), "steer-1");
+
+        assertThat(steer.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
+                .noneSatisfy(event -> assertThat(event.required("payload").path("deliveryKind").asText()).isEqualTo("STEER"));
+    }
+
+    @Test
+    void validatesSteerImagesAgainstTheRunningTurnsModelSnapshot()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex", "text-only-model", "Text only"), null)
+                .getBody().required("id").asText();
+        HttpHeaders upload = headers();
+        upload.setContentType(MediaType.IMAGE_PNG);
+        upload.set("X-Attachment-Name", "shot.png");
+        String attachmentId = rest.exchange(
+                url("/agent/tasks/" + taskId + "/attachments?workspaceId=" + workspaceId),
+                HttpMethod.POST,
+                new HttpEntity<>(png(3, 3), upload),
+                JsonNode.class).getBody().required("id").asText();
+        driver.holdNextTurn();
+        JsonNode running = startTurn(taskId, "keep running", "running-text-turn");
+        long version = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().required("version").asLong();
+        HttpHeaders updateHeaders = headers();
+        updateHeaders.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<JsonNode> updated = rest.exchange(
+                url("/agent/tasks/" + taskId + "/defaults?workspaceId=" + workspaceId),
+                HttpMethod.PUT,
+                new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of(
+                        "expectedVersion", version,
+                        "defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO"))), updateHeaders),
+                JsonNode.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<JsonNode> refused = post(
+                "/agent/turns/" + running.required("id").asText() + "/steer",
+                ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId)),
+                "steer-image");
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refused.getBody().path("message").asText()).contains("text-only-model").contains("does not accept images");
+        driver.completeHeldTurn();
+    }
+
+    @Test
+    void replaysAnImageTurnBeforeReadingChangedDefaultsOrADeletedAttachment()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String attachmentId = uploadImage(taskId, "start.png");
+        Map<String, Object> body = ImmutableMap.of(
+                "message", "look",
+                "attachments", ImmutableList.of(attachmentId),
+                "expectedVersion", taskVersion(taskId));
+
+        ResponseEntity<JsonNode> first = post("/agent/tasks/" + taskId + "/turns", body, "image-turn-replay");
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        deleteAttachment(taskId, attachmentId);
+        updateDefaults(taskId, "text-only-model");
+
+        ResponseEntity<JsonNode> replay = post("/agent/tasks/" + taskId + "/turns", body, "image-turn-replay");
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(replay.getBody().required("id").asText()).isEqualTo(first.getBody().required("id").asText());
+    }
+
+    @Test
+    void replaysSteerAndQueueBeforeReadingChangedDefaultsOrADeletedAttachment()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String attachmentId = uploadImage(taskId, "running.png");
+        driver.holdNextTurn();
+        JsonNode running = startTurn(taskId, "hold", "held-for-replay");
+        Map<String, Object> steerBody = ImmutableMap.of(
+                "message", "steer image",
+                "attachments", ImmutableList.of(attachmentId));
+        Map<String, Object> queueBody = ImmutableMap.of(
+                "message", "queue image",
+                "attachments", ImmutableList.of(attachmentId),
+                "expectedVersion", taskVersion(taskId));
+
+        ResponseEntity<JsonNode> firstSteer = post(
+                "/agent/turns/" + running.required("id").asText() + "/steer",
+                steerBody,
+                "steer-image-replay");
+        ResponseEntity<JsonNode> firstQueue = post(
+                "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId,
+                queueBody,
+                "queue-image-replay");
+        assertThat(firstSteer.getBody().required("state").asText()).isEqualTo("DELIVERED");
+        assertThat(firstQueue.getBody().required("state").asText()).isEqualTo("QUEUED");
+        deleteAttachment(taskId, attachmentId);
+        updateDefaults(taskId, "text-only-model");
+
+        ResponseEntity<JsonNode> replaySteer = post(
+                "/agent/turns/" + running.required("id").asText() + "/steer",
+                steerBody,
+                "steer-image-replay");
+        ResponseEntity<JsonNode> replayQueue = post(
+                "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId,
+                queueBody,
+                "queue-image-replay");
+        assertThat(replaySteer.getBody().required("id").asText())
+                .isEqualTo(firstSteer.getBody().required("id").asText());
+        assertThat(replayQueue.getBody().required("id").asText())
+                .isEqualTo(firstQueue.getBody().required("id").asText());
+
+        deleteQueued(taskId, replayQueue.getBody().required("id").asText());
+        driver.completeHeldTurn();
     }
 
     @Test
@@ -702,13 +1023,21 @@ class TestAgentHttpApi
         // The turn's durable user message names the attachment by the reference the upload returned.
         JsonNode turn = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of("message", "What is in this screenshot?", "attachments", ImmutableList.of(attachmentId)),
+                ImmutableMap.of(
+                        "message", "What is in this screenshot?",
+                        "attachments", ImmutableList.of(attachmentId),
+                        "expectedVersion", taskVersion(taskId)),
                 "attach-1").getBody();
         assertThat(turn.required("settings").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
-        JsonNode userMessage = events.get(0);
-        assertThat(userMessage.required("type").asText()).isEqualTo("user_message");
-        assertThat(userMessage.required("payload").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
+        assertThat(events)
+                .filteredOn(event -> event.path("payload").path("attachments").size() == 1)
+                .singleElement()
+                .satisfies(userMessage -> {
+                    assertThat(userMessage.required("type").asText()).isEqualTo("user_message");
+                    assertThat(userMessage.required("payload").required("attachments").get(0).required("id").asText())
+                            .isEqualTo(attachmentId);
+                });
 
         // A reference nobody issued, and a task that does not own the image, get nothing.
         assertThat(rest.exchange(
@@ -728,11 +1057,7 @@ class TestAgentHttpApi
     void refusesAnImageForAModelThatDoesNotAcceptOne()
             throws Exception
     {
-        String taskId = post("/agent/tasks", ImmutableMap.of(
-                "workspaceId", workspaceId,
-                "laneId", "codex",
-                "message", "Text only",
-                "defaults", ImmutableMap.of("model", "text-only-model", "effort", "high", "permissionPolicy", "AUTO")), null)
+        String taskId = post("/agent/tasks", createTaskBody("codex", "text-only-model", "Text only"), null)
                 .getBody().required("id").asText();
         HttpHeaders upload = headers();
         upload.setContentType(MediaType.IMAGE_PNG);
@@ -745,7 +1070,10 @@ class TestAgentHttpApi
 
         ResponseEntity<JsonNode> refused = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId)),
+                ImmutableMap.of(
+                        "message", "look",
+                        "attachments", ImmutableList.of(attachmentId),
+                        "expectedVersion", taskVersion(taskId)),
                 "attach-2");
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -814,6 +1142,21 @@ class TestAgentHttpApi
         HttpHeaders headers = new HttpHeaders();
         headers.set(AgentController.SESSION_HEADER, SESSION_TOKEN);
         return headers;
+    }
+
+    private static void awaitCondition(BooleanSupplier condition)
+    {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (!condition.getAsBoolean()) {
+            checkState(System.nanoTime() < deadline, "condition was not met before the deadline");
+            try {
+                Thread.sleep(5);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted while waiting", e);
+            }
+        }
     }
 
     private String url(String path)

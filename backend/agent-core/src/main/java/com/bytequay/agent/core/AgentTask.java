@@ -31,6 +31,7 @@ public record AgentTask(
         TaskId id,
         Optional<String> workspaceId,
         boolean interactive,
+        Optional<String> creationFingerprint,
         String title,
         TitleSource titleSource,
         AgentLaneId laneId,
@@ -58,6 +59,7 @@ public record AgentTask(
         requireNonNull(id, "id is null");
         checkOptionalText(workspaceId, "workspaceId");
         checkArgument(!interactive || workspaceId.isPresent(), "interactive task has no workspaceId");
+        checkOptionalText(creationFingerprint, "creationFingerprint");
         checkNotBlank(title, "title");
         requireNonNull(titleSource, "titleSource is null");
         requireNonNull(laneId, "laneId is null");
@@ -118,6 +120,7 @@ public record AgentTask(
                 id,
                 workspaceId,
                 interactive,
+                Optional.empty(),
                 title,
                 TitleSource.USER,
                 laneId,
@@ -151,11 +154,26 @@ public record AgentTask(
             AgentTaskDefaults defaults,
             Instant now)
     {
+        return created(id, interactive, Optional.empty(), title, titleSource, laneId, taskWorktree, defaults, now);
+    }
+
+    public static AgentTask created(
+            TaskId id,
+            boolean interactive,
+            Optional<String> creationFingerprint,
+            String title,
+            TitleSource titleSource,
+            AgentLaneId laneId,
+            TaskWorktree taskWorktree,
+            AgentTaskDefaults defaults,
+            Instant now)
+    {
         requireNonNull(taskWorktree, "taskWorktree is null");
         return new AgentTask(
                 id,
                 Optional.of(taskWorktree.workspaceId()),
                 interactive,
+                creationFingerprint,
                 title,
                 titleSource,
                 laneId,
@@ -333,6 +351,7 @@ public record AgentTask(
                 id,
                 workspaceId,
                 interactive,
+                creationFingerprint,
                 updatedTitle,
                 source,
                 laneId,
@@ -366,6 +385,7 @@ public record AgentTask(
                 id,
                 workspaceId,
                 interactive,
+                creationFingerprint,
                 title,
                 titleSource,
                 laneId,
@@ -395,6 +415,21 @@ public record AgentTask(
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
+    /**
+     * The same task, written again so its version moves.
+     *
+     * <p>A queue write goes through this: enqueue and Complete both update the task row, so
+     * whichever commits second sees the version it was told and conflicts, and the queue can never
+     * gain a live row after the task has closed.
+     */
+    public AgentTask withUpdatedAt(Instant now)
+    {
+        requireNonNull(now, "now is null");
+        requireState(TaskState.OPEN);
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics,
+                summary, cleanupState, deleteAfter, cleanupFailure);
+    }
+
     public AgentTask withCleanupState(CleanupState updatedState, Optional<String> failure, Instant now)
     {
         requireNonNull(updatedState, "updatedState is null");
@@ -417,6 +452,7 @@ public record AgentTask(
                 id,
                 workspaceId,
                 interactive,
+                creationFingerprint,
                 title,
                 titleSource,
                 laneId,
@@ -489,6 +525,7 @@ public record AgentTask(
                 id,
                 workspaceId,
                 interactive,
+                creationFingerprint,
                 title,
                 titleSource,
                 laneId,

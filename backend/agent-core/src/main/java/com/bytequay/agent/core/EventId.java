@@ -54,6 +54,14 @@ public record EventId(UUID value)
         return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
     }
 
+    /** Stable identity for the user-message event coupled to one steer delivery. */
+    public static EventId steerMessage(InputDeliveryId deliveryId)
+    {
+        requireNonNull(deliveryId, "deliveryId is null");
+        String key = "bytequay-agent-steer-message-v2:" + deliveryId;
+        return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
+    }
+
     @Override
     public String toString()
     {

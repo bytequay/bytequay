@@ -1907,7 +1907,7 @@ Exit gate:
 - [x] `cd backend && mvn verify` passes.
 - [x] `cd frontend && npm run lint && npx tsc --noEmit && npm test` passes.
 
-## [ ] CP10 — Add steering and the durable next-turn queue
+## [x] CP10 — Add steering and the durable next-turn queue
 
 **Owners:** service/storage and runtime owners for delivery; desktop owner for
 controls
@@ -1916,48 +1916,96 @@ controls
 
 **Visible UI:** yes
 
-CP9.5 has already built this checkpoint's composer shell and marked its two
-controls with `data-fake`. CP10 puts them on real data; it does not restyle
+**Status: implemented and verified in the working tree on 2026-09-04.** Steering is a capability on the
+provider SPI (`AgentCapabilities.steering`, true for Codex, false for Claude)
+and one `RunningTurn.steer` call; the Codex driver sends `turn/steer` with the
+thread and the expected turn, which App Server itself refuses for any other
+turn, so a stale steer can never land in the next turn. The two wire records
+were added to the compact reference projection by regenerating
+`app-server-v0.151.0-bindings.json` against the pinned 0.151.0 binary. A steer
+is durable before its one send: the `agent_input_delivery` row and the
+user-message event (delivery kind `STEER`) commit together, the send runs
+outside the task lock because the process's reader thread may need that lock
+while the answer is pending, and the outcome is `DELIVERED`, `FAILED` for a
+refusal, or `UNKNOWN` for a timeout or lost connection. `FAILED` and `UNKNOWN`
+each also append an error event on the turn, so the message the transcript
+already shows is visibly not one the agent got, or not surely; a restart
+settles an `ACCEPTED` steer as failed and a `SENDING` one as unknown the same
+way. An explicit same-key retry may finish an `ACCEPTED` request that is known
+not to have reached the provider, using its persisted original payload; no
+automatic path resends it, and `SENDING` or `UNKNOWN` is never resent.
+
+The queue is one `agent_queued_input` table: FIFO position, state,
+per-task idempotency key, a reference to text in a task-owned blob, the settings
+snapshot, the message event id, and the current turn. Its bounded preview is
+derived from that owner-only blob when read rather than copied into SQLite.
+Enqueue writes the task row with the version the renderer saw, which is what
+serializes it against Complete; Complete refuses live rows and records
+uncertain ones as abandoned. Claiming the head, inserting its turn, taking the
+worktree claim and, on the first claim only, the queued user-message event are
+one unit of work; a second attempt after a known pre-send failure reuses that
+event, so the transcript shows one request. A turn that ends well and gives
+the worktree back starts the head on a fresh virtual thread — never on the
+provider's own thread; anything less pauses the rest, and a claimed row is
+settled by what its turn proves: never sent is paused, sent without an answer
+is uncertain and only the user may discard it. Restart recovery reconciles a
+claimed row and pauses untouched rows; explicit resume then runs them in FIFO
+order exactly once. The renderer reads the queue with the task on every
+lifecycle event instead of carrying a queue event kind; durable
+`QUEUE_CHANGED`, `QUEUED_INPUT_STARTED`, and `QUEUED_INPUT_PAUSED` lifecycle
+signals reconcile direct and background changes. The queue strip and the two
+composer controls are the design's, and the `data-fake` ledger now lists only
+the CP11 chips.
+
+Deliberately not built: the design's per-row **Edit** and **Send into the
+running turn now** buttons, the store's own claim operation (the unit of work
+composes plain reads and version-checked writes instead), a queue event kind,
+and Claude steering, which CP11 hides through the capability.
+
+CP9.5 had already built this checkpoint's composer shell and marked its two
+controls with `data-fake`. CP10 put them on real data; it did not restyle
 the composer.
 
 Implementation:
 
-- [ ] Add capability-gated steering against the exact active root thread and
+- [x] Add capability-gated steering against the exact active root thread and
   turn.
-- [ ] Persist steer user input and delivery state before one provider attempt.
-- [ ] Add `POST /agent/turns/{turnId}/steer` plus its typed Electron/preload
+- [x] Persist steer user input and delivery state before one provider attempt.
+- [x] Add `POST /agent/turns/{turnId}/steer` plus its typed Electron/preload
   operation; the renderer never calls App Server steering directly.
-- [ ] Add task-owned FIFO queue records with text/blob, attachments, effective
-  settings, state, idempotency key, and prior/current turn references.
-- [ ] Add create/list/remove/resume queue endpoints and typed IPC operations.
-- [ ] Atomically claim FIFO head, new turn, input delivery, user event, and
+- [x] Add task-owned FIFO queue records with text/blob, attachments, effective
+  settings, state, idempotency key, and the current turn reference.
+- [x] Add create/list/remove/resume queue endpoints and typed IPC operations.
+- [x] Atomically claim FIFO head, new turn, input delivery, user event, and
   worktree mutation claim.
-- [ ] Auto-start only after successful quiescent completion.
-- [ ] Pause after failure, cancellation, interruption, authentication loss, or
+- [x] Auto-start only after successful quiescent completion.
+- [x] Pause after failure, cancellation, interruption, authentication loss, or
   recovery.
-- [ ] Make `UNKNOWN`/`UNCERTAIN` delivery visible and never automatically retry
+- [x] Make `UNKNOWN`/`UNCERTAIN` delivery visible and never automatically retry
   it.
-- [ ] Serialize enqueue against Complete with expected task version and the
+- [x] Serialize enqueue against Complete with expected task version and the
   shared mutation claim.
-- [ ] Render **Steer**, **Run next**, queued/paused/starting/uncertain states,
+- [x] Render **Steer**, **Run next**, queued/paused/starting/uncertain states,
   remove, and explicit resume, in the design's queue strip above the composer.
   Do not add reorder, priority, or schedule.
-- [ ] Remove this checkpoint's `data-fake` markers and assert the queue and
+- [x] Remove this checkpoint's `data-fake` markers and assert the queue and
   steer surfaces no longer carry the class.
-- [ ] Show queued text preview, attachments, and effective settings in the
+- [x] Show queued text preview, attachments, and effective settings in the
   queue, not as a transcript user message. The atomic first claim emits exactly
   one durable user-message event and moves that item into the transcript.
 
 Exit gate:
 
-- [ ] A stale/different active-turn steer is rejected.
-- [ ] An untouched queued input survives restart and starts once in FIFO order.
-- [ ] Non-success pauses later work.
-- [ ] Unknown delivery is never silently resent.
-- [ ] Double-click/idempotency and enqueue-versus-Complete races cannot create
+- [x] A stale/different active-turn steer is rejected.
+- [x] An untouched queued input survives restart and starts once in FIFO order.
+- [x] Non-success pauses later work.
+- [x] Unknown delivery is never silently resent.
+- [x] Double-click/idempotency and enqueue-versus-Complete races cannot create
   duplicate turns or live work on a completed task.
-- [ ] Completing or discarding uncertain input records abandonment rather than
+- [x] Completing or discarding uncertain input records abandonment rather than
   claiming it was never delivered.
+- [x] Composite task creation and its first turn replay as one immutable
+  client-identified request, including after an ambiguous response.
 
 ## [ ] CP11 — Finish Claude parity and pass the release gate
 
@@ -2057,15 +2105,11 @@ checkpoint rather than reasons to reopen the compatibility spike.
 
 ## 8. Next implementation action
 
-CP0 through CP9.5 are complete. Next:
-
-1. begin CP10 by replacing the three `data-fake` placeholders' contracts that
-   belong to it — Steer and Run next in the task composer — with the steering
-   endpoint, the durable FIFO queue, and their typed IPC operations, then
-   render the queue strip above the composer; and
-2. carry the provider-choice placeholder into CP11, where Claude parity gives
-   the chip its second option.
+CP0 through CP10 are implemented and verified in this working tree. Next is
+CP11: the typed Claude readiness probe,
+Claude's event and approval mapping, the provider and permission chips that
+replace the last two `data-fake` placeholders, and the release gate.
 
 `grep -rn data-fake frontend/src` lists exactly those placeholders — the
-provider chip and the permission chip for CP11, Steer and Run next for CP10;
-the `.agt-fake` rule in `agents.css` goes when the last of them does.
+provider chip and the permission chip for CP11; the `.agt-fake` rule in
+`agents.css` goes when the last of them does.

@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
@@ -25,6 +26,9 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
@@ -33,6 +37,8 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.google.common.collect.ImmutableList;
 
@@ -48,10 +54,12 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 final class InMemoryAgentStores
-        implements AgentTaskStore, AgentTurnStore, AgentApprovalStore, AgentEventOutboxStore, AgentUnitOfWork
+        implements AgentTaskStore, AgentTurnStore, AgentApprovalStore, AgentEventOutboxStore, AgentUnitOfWork, QueuedInputStore, SteerDeliveryStore
 {
     private final Map<TaskId, AgentTask> tasks = new HashMap<>();
     private final Map<TurnId, AgentTurn> turns = new HashMap<>();
+    private final Map<QueuedInputId, QueuedAgentInput> queue = new LinkedHashMap<>();
+    private final Map<InputDeliveryId, AgentInputDelivery> steers = new LinkedHashMap<>();
     private final Map<ApprovalId, AgentApproval> approvals = new LinkedHashMap<>();
     private final Map<EventId, AgentEventOutboxEntry> outbox = new LinkedHashMap<>();
     private RuntimeException taskInsertFailure;
@@ -66,6 +74,7 @@ final class InMemoryAgentStores
     private RuntimeException turnUpdateFailure;
     private AgentEventPayload.Kind failingOutboxInsertKind;
     private RuntimeException outboxInsertFailure;
+    private RuntimeException taskPendingListFailure;
 
     @Override
     public synchronized <T> T execute(Work<T> work)
@@ -76,6 +85,8 @@ final class InMemoryAgentStores
         Map<TurnId, AgentTurn> turnSnapshot = new HashMap<>(turns);
         Map<ApprovalId, AgentApproval> approvalSnapshot = new LinkedHashMap<>(approvals);
         Map<EventId, AgentEventOutboxEntry> outboxSnapshot = new LinkedHashMap<>(outbox);
+        Map<QueuedInputId, QueuedAgentInput> queueSnapshot = new LinkedHashMap<>(queue);
+        Map<InputDeliveryId, AgentInputDelivery> steerSnapshot = new LinkedHashMap<>(steers);
         try {
             return work.run();
         }
@@ -88,6 +99,10 @@ final class InMemoryAgentStores
             approvals.putAll(approvalSnapshot);
             outbox.clear();
             outbox.putAll(outboxSnapshot);
+            queue.clear();
+            queue.putAll(queueSnapshot);
+            steers.clear();
+            steers.putAll(steerSnapshot);
             throw failure;
         }
     }
@@ -381,6 +396,11 @@ final class InMemoryAgentStores
     @Override
     public synchronized List<AgentEventOutboxEntry> listPending(TaskId taskId, int limit)
     {
+        if (taskPendingListFailure != null) {
+            RuntimeException failure = taskPendingListFailure;
+            taskPendingListFailure = null;
+            throw failure;
+        }
         return outbox.values().stream()
                 .filter(entry -> entry.taskId().equals(taskId))
                 .filter(entry -> entry.sequence().isEmpty())
@@ -411,6 +431,103 @@ final class InMemoryAgentStores
                 entry.payload(),
                 entry.occurredAt(),
                 Optional.of(sequence)));
+    }
+
+    @Override
+    public synchronized void insert(QueuedAgentInput input)
+    {
+        if (queue.containsKey(input.id())) {
+            throw new AgentConflictException("Queued input already exists: " + input.id());
+        }
+        if (findQueuedByIdempotencyKey(input.taskId(), input.idempotencyKey()).isPresent()) {
+            throw new AgentConflictException("Queued input idempotency key already exists");
+        }
+        queue.put(input.id(), input);
+    }
+
+    @Override
+    public synchronized Optional<QueuedAgentInput> find(QueuedInputId inputId)
+    {
+        return Optional.ofNullable(queue.get(inputId));
+    }
+
+    @Override
+    public synchronized Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        return queue.values().stream()
+                .filter(input -> input.taskId().equals(taskId))
+                .filter(input -> input.idempotencyKey().equals(idempotencyKey))
+                .findFirst();
+    }
+
+    @Override
+    public synchronized List<QueuedAgentInput> listQueued(TaskId taskId)
+    {
+        return queue.values().stream()
+                .filter(input -> input.taskId().equals(taskId))
+                .sorted(Comparator.comparingLong(QueuedAgentInput::position))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized QueuedAgentInput update(QueuedAgentInput input)
+    {
+        QueuedAgentInput current = queue.get(input.id());
+        if (current == null) {
+            throw new AgentConflictException("Queued input is absent: " + input.id());
+        }
+        if (current.version() != input.version()) {
+            throw new AgentConflictException("Queued input version changed: " + input.id());
+        }
+        QueuedAgentInput stored = input.withVersion(input.version() + 1);
+        queue.put(input.id(), stored);
+        return stored;
+    }
+
+    @Override
+    public synchronized void insert(AgentInputDelivery delivery)
+    {
+        if (steers.containsKey(delivery.id()) || findSteerByIdempotencyKey(delivery.taskId(), delivery.idempotencyKey()).isPresent()) {
+            throw new AgentConflictException("Steer delivery already exists: " + delivery.id());
+        }
+        steers.put(delivery.id(), delivery);
+    }
+
+    @Override
+    public synchronized Optional<AgentInputDelivery> findSteerByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        return steers.values().stream()
+                .filter(delivery -> delivery.taskId().equals(taskId))
+                .filter(delivery -> delivery.idempotencyKey().equals(idempotencyKey))
+                .findFirst();
+    }
+
+    @Override
+    public synchronized AgentInputDelivery update(AgentInputDelivery delivery)
+    {
+        AgentInputDelivery current = steers.get(delivery.id());
+        if (current == null) {
+            throw new AgentConflictException("Steer delivery is absent: " + delivery.id());
+        }
+        if (current.version() != delivery.version()) {
+            throw new AgentConflictException("Steer delivery version changed: " + delivery.id());
+        }
+        AgentInputDelivery stored = delivery.withVersion(delivery.version() + 1);
+        steers.put(delivery.id(), stored);
+        return stored;
+    }
+
+    @Override
+    public synchronized List<AgentInputDelivery> listUnsettled()
+    {
+        return steers.values().stream()
+                .filter(delivery -> !delivery.state().settled())
+                .collect(toImmutableList());
+    }
+
+    synchronized List<AgentInputDelivery> steers()
+    {
+        return ImmutableList.copyOf(steers.values());
     }
 
     synchronized List<AgentTask> tasks()
@@ -460,6 +577,11 @@ final class InMemoryAgentStores
     {
         failingOutboxInsertKind = requireNonNull(kind, "kind is null");
         outboxInsertFailure = requireNonNull(failure, "failure is null");
+    }
+
+    synchronized void failNextTaskPendingList(RuntimeException failure)
+    {
+        taskPendingListFailure = requireNonNull(failure, "failure is null");
     }
 
     synchronized void clearApprovalFindFailure()

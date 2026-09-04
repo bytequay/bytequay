@@ -41,6 +41,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static java.util.Objects.requireNonNull;
@@ -90,6 +91,7 @@ public final class DefaultAgentTaskService
                 TitleSource.PROVISIONAL,
                 command.laneId(),
                 command.defaults(),
+                Optional.of(command.creationFingerprint()),
                 worktree);
     }
 
@@ -106,7 +108,15 @@ public final class DefaultAgentTaskService
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit()));
-        return createManaged(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), command.defaults(), worktree);
+        return createManaged(
+                command.taskId(),
+                false,
+                command.title(),
+                TitleSource.USER,
+                command.laneId(),
+                command.defaults(),
+                Optional.empty(),
+                worktree);
     }
 
     @Override
@@ -214,6 +224,7 @@ public final class DefaultAgentTaskService
             TitleSource titleSource,
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
+            Optional<String> creationFingerprint,
             TaskWorktree worktree)
     {
         try {
@@ -221,6 +232,7 @@ public final class DefaultAgentTaskService
             AgentTask task = AgentTask.created(
                     taskId,
                     interactive,
+                    creationFingerprint,
                     title,
                     titleSource,
                     laneId,

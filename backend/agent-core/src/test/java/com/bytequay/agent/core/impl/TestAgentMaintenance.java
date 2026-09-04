@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -24,9 +25,14 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskCompletion;
@@ -242,6 +248,76 @@ class TestAgentMaintenance
     }
 
     @Test
+    void pausesTheQueueOnRestartAndSettlesAClaimedInputByWhatItsTurnProves()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId waitingTask = TaskId.random();
+        TaskId unsentTask = TaskId.random();
+        TaskId uncertainTask = TaskId.random();
+        stores.insert(managedTask(waitingTask));
+        stores.insert(managedTask(unsentTask));
+        stores.insert(managedTask(uncertainTask));
+        QueuedAgentInput waiting = queuedInput(waitingTask);
+        AgentTurn unsent = AgentTurn.accepted(TurnId.random(), unsentTask, "queue:unsent", turnSettings(), NOW)
+                .markDeliveryStarted(NOW.plusSeconds(1))
+                .finishKnownUnsent(TurnMetrics.empty(), "not sent", NOW.plusSeconds(2));
+        QueuedAgentInput claimedUnsent = queuedInput(unsentTask).starting(unsent.id(), EventId.random(), NOW);
+        AgentTurn sent = AgentTurn.accepted(TurnId.random(), uncertainTask, "queue:sent", turnSettings(), NOW).markDeliveryStarted(NOW.plusSeconds(1));
+        QueuedAgentInput claimedSent = queuedInput(uncertainTask).starting(sent.id(), EventId.random(), NOW);
+        stores.insert(waiting);
+        stores.insert(unsent);
+        stores.insert(claimedUnsent);
+        stores.insert(sent);
+        stores.insert(claimedSent);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+
+        assertThat(stores.find(waiting.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(stores.find(waiting.id()).orElseThrow().pauseReason()).contains("Backend restarted");
+        // Never sent: it waits again. Sent without an answer: nobody knows, so only the user may decide.
+        assertThat(stores.find(claimedUnsent.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(stores.find(claimedSent.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.UNCERTAIN);
+    }
+
+    @Test
+    void settlesSteersCaughtByARestartWithoutResendingThem()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        stores.insert(managedTask(taskId));
+        AgentTurn running = runningTurn(taskId);
+        stores.insert(running);
+        AgentInputDelivery accepted = AgentInputDelivery.accepted(InputDeliveryId.random(), taskId, running.id(), "steer-1", NOW);
+        AgentInputDelivery sending = AgentInputDelivery.accepted(InputDeliveryId.random(), taskId, running.id(), "steer-2", NOW).sending(NOW);
+        stores.insert(accepted);
+        stores.insert(sending);
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
+
+        assertThat(stores.steers()).extracting(AgentInputDelivery::state)
+                .containsExactly(AgentInputDelivery.State.FAILED, AgentInputDelivery.State.UNKNOWN);
+        assertThat(stores.listUnsettled()).isEmpty();
+        // Each outcome reaches the transcript as an error on the turn it was meant for.
+        assertThat(stores.outboxEntries().stream()
+                .map(entry -> entry.payload())
+                .filter(payload -> payload.kind() == AgentEventPayload.Kind.ERROR)
+                .count()).isEqualTo(2);
+    }
+
+    private static QueuedAgentInput queuedInput(TaskId taskId)
+    {
+        return QueuedAgentInput.queued(
+                QueuedInputId.random(),
+                taskId,
+                1,
+                "queue-1",
+                new BlobRef("blobs/queue-1", "text/plain; charset=utf-8", 5),
+                "later",
+                turnSettings(),
+                NOW);
+    }
+
+    @Test
     void releasesAbandonedCompletionClaim()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
@@ -400,6 +476,8 @@ class TestAgentMaintenance
             Clock clock)
     {
         return new AgentMaintenance(
+                stores,
+                stores,
                 stores,
                 stores,
                 stores,

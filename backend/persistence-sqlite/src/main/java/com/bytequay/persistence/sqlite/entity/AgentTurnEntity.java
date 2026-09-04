@@ -99,6 +99,8 @@ public class AgentTurnEntity
 
     private String providerTurnReference;
 
+    private Boolean knownUnsent;
+
     private String model;
 
     @Column(name = "requested_model")
@@ -163,6 +165,7 @@ public class AgentTurnEntity
         endedAt = turn.endedAt().orElse(null);
         cancellationRequestedAt = turn.cancellationRequestedAt().orElse(null);
         providerTurnReference = turn.providerTurnReference().map(ProviderTurnRef::value).orElse(null);
+        knownUnsent = turn.knownUnsent();
         model = turn.model().orElse(null);
         requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
@@ -203,6 +206,7 @@ public class AgentTurnEntity
                 Optional.ofNullable(endedAt),
                 Optional.ofNullable(cancellationRequestedAt),
                 Optional.ofNullable(providerTurnReference).map(ProviderTurnRef::new),
+                Boolean.TRUE.equals(knownUnsent),
                 Optional.ofNullable(model),
                 settings,
                 Optional.ofNullable(terminalReason),

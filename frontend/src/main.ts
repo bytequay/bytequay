@@ -18,6 +18,9 @@ import {
   parseAgentApproval,
   parseAgentAttachment,
   parseAgentCompletion,
+  parseAgentInputDelivery,
+  parseAgentQueue,
+  parseAgentQueuedInput,
   parseAgentRuntimeStopImpact,
   parseAgentTask,
   parseAgentTasks,
@@ -35,10 +38,12 @@ import type {
   CommitHistorySourceDto,
   CreateAgentTaskRequest,
   GitHubCodeSnippetRequest,
+  QueueAgentInputRequest,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
   StartAgentTurnRequest,
+  SteerAgentTurnRequest,
 } from './types';
 import {
   BACKEND_BASE,
@@ -409,8 +414,41 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
-      body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
+      body: JSON.stringify({
+        message: request.message,
+        expectedVersion: request.expectedTaskVersion,
+        attachments: request.attachments ?? [],
+      }),
     }).then((turn) => parseAgentTurn(turn)));
+  ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
+    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
+      method: 'POST',
+      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
+      body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
+    }).then((delivery) => parseAgentInputDelivery(delivery)));
+  ipcMain.handle('agent:queue:add', (_event, request: QueueAgentInputRequest) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/queue`
+      + `?${new URLSearchParams({ workspaceId: request.workspaceId })}`, {
+      method: 'POST',
+      headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
+      body: JSON.stringify({
+        message: request.message,
+        attachments: request.attachments ?? [],
+        expectedVersion: request.expectedVersion,
+      }),
+    }).then((queued) => parseAgentQueuedInput(queued)));
+  ipcMain.handle('agent:queue:list', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue`
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then((queue) => parseAgentQueue(queue)));
+  ipcMain.handle('agent:queue:remove', (_event, taskId: string, workspaceId: string, queuedInputId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue/${encodeURIComponent(queuedInputId)}`
+      + `?${new URLSearchParams({ workspaceId })}`, { method: 'DELETE', headers: agentHeaders() })
+      .then((queued) => parseAgentQueuedInput(queued)));
+  ipcMain.handle('agent:queue:resume', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
+      + `?${new URLSearchParams({ workspaceId })}`, { method: 'POST', headers: agentHeaders() })
+      .then((turn) => parseAgentTurn(turn)));
   // Main owns the file paths: it picks, reads and uploads; the renderer receives facts and references.
   ipcMain.handle('agent:attachments:pick', async (_event, taskId: string, workspaceId: string) => {
     if (mainWindow === null) return [];

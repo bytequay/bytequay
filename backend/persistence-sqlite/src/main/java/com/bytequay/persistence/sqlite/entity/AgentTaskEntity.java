@@ -63,6 +63,8 @@ public class AgentTaskEntity
     // Nullable so rows written before workspace-scoped tasks remain readable as internal.
     private Boolean interactive;
 
+    private String creationFingerprint;
+
     @Column(nullable = false)
     private String title;
 
@@ -180,6 +182,7 @@ public class AgentTaskEntity
     {
         workspaceId = task.workspaceId().orElse(null);
         interactive = task.interactive();
+        creationFingerprint = task.creationFingerprint().orElse(null);
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -227,6 +230,7 @@ public class AgentTaskEntity
                 TaskId.valueOf(id),
                 Optional.ofNullable(workspaceId),
                 Boolean.TRUE.equals(interactive),
+                Optional.ofNullable(creationFingerprint),
                 title,
                 titleSource == null ? TitleSource.USER : titleSource,
                 new AgentLaneId(laneId),

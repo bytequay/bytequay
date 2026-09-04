@@ -505,6 +505,14 @@ const referenceRecordBindings = [
     component("threadId"),
     component("turnId"),
   ]),
+  recordBinding("TurnSteerParams", "encode", [schemaSource("v2", "TurnSteerParams")], [
+    component("threadId"),
+    component("expectedTurnId"),
+    component("input", "input", [{ type: "text", text: "value" }]),
+  ]),
+  recordBinding("TurnSteerResponse", "decode", [
+    schemaSource("v2", "TurnSteerResponse"),
+  ], [component("turnId")]),
   recordBinding("CommandApprovalResponse", "encode", [
     schemaSource("all", "CommandExecutionRequestApprovalResponse"),
   ], [sampledComponent("decision")]),

@@ -233,6 +233,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:effective-settings', taskId, workspaceId),
   readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),
   startAgentTurn: request => ipcRenderer.invoke('agent:turns:start', request),
+  steerAgentTurn: request => ipcRenderer.invoke('agent:turns:steer', request),
+  queueAgentInput: request => ipcRenderer.invoke('agent:queue:add', request),
+  listAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:list', taskId, workspaceId),
+  removeAgentQueuedInput: (taskId, workspaceId, queuedInputId) =>
+    ipcRenderer.invoke('agent:queue:remove', taskId, workspaceId, queuedInputId),
+  resumeAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:resume', taskId, workspaceId),
   getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),
   cancelAgentTurn: turnId => ipcRenderer.invoke('agent:turns:cancel', turnId),
   resolveAgentApproval: (approvalId, decision, scopedPermission) =>

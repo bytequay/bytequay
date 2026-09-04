@@ -2924,6 +2924,57 @@
       ]
     },
     {
+      "javaType": "TurnSteerParams",
+      "mode": "encode",
+      "sources": [
+        "v2#TurnSteerParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "expectedTurnId",
+          "wireName": "expectedTurnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "input",
+          "wireName": "input",
+          "required": true,
+          "nullable": false,
+          "sample": [
+            {
+              "type": "text",
+              "text": "value"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "javaType": "TurnSteerResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#TurnSteerResponse"
+      ],
+      "components": [
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        }
+      ]
+    },
+    {
       "javaType": "CommandApprovalResponse",
       "mode": "encode",
       "sources": [

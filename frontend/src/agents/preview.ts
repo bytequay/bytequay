@@ -17,6 +17,7 @@ import eventFixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import type { AgentBridgePort } from './model';
 import type {
+  AgentQueuedInputDto,
   AgentStreamMessage,
   AgentTaskDefaultsDto,
   AgentTaskDto,
@@ -95,6 +96,7 @@ export function createPreviewBridge(
   const delivery = options.delivery ?? 'ordered';
   let turnState = 'COMPLETED';
   let previewVersion = 0;
+  const previewQueue: AgentQueuedInputDto[] = [];
   let previewDefaults: AgentTaskDefaultsDto = {
     model: 'gpt-5.6-codex',
     effort: 'high',
@@ -130,7 +132,7 @@ export function createPreviewBridge(
     },
     createAgentTask: async (request) => {
       record('createAgentTask', request);
-      return previewTask(request.workspaceId, FIXTURE_EVENTS[0].taskId);
+      return previewTask(request.workspaceId, request.taskId);
     },
     getAgentTask: async (taskId, id) => {
       record('getAgentTask', taskId, id);
@@ -179,6 +181,63 @@ export function createPreviewBridge(
       record('startAgentTurn', request);
       turnState = 'RUNNING';
       return previewTurn(request.taskId, turnState);
+    },
+    steerAgentTurn: async (request) => {
+      record('steerAgentTurn', request);
+      return {
+        id: 'delivery-preview',
+        taskId: FIXTURE_EVENTS[0].taskId,
+        turnId: request.turnId,
+        state: 'DELIVERED',
+        failure: null,
+        createdAt: '2026-08-20T10:00:03Z',
+        updatedAt: '2026-08-20T10:00:03Z',
+      };
+    },
+    queueAgentInput: async (request) => {
+      record('queueAgentInput', request);
+      if (request.expectedVersion !== previewVersion) {
+        throw new Error(`Task version changed: ${request.taskId}`);
+      }
+      previewVersion += 1;
+      const queued: AgentQueuedInputDto = {
+        id: `queued-${previewQueue.length + 1}`,
+        taskId: request.taskId,
+        position: previewQueue.length + 1,
+        state: 'QUEUED',
+        preview: request.message,
+        settings: {
+          model: previewDefaults.model,
+          effort: previewDefaults.effort,
+          permissionPolicy: previewDefaults.permissionPolicy,
+          sandboxPolicy: 'WORKSPACE_WRITE',
+          maximumRuntimeMillis: 3600000,
+          attachments: [],
+        },
+        turnId: null,
+        pauseReason: null,
+        createdAt: '2026-08-20T10:00:04Z',
+        updatedAt: '2026-08-20T10:00:04Z',
+      };
+      previewQueue.push(queued);
+      return queued;
+    },
+    listAgentQueue: async (taskId, id) => {
+      record('listAgentQueue', taskId, id);
+      return [...previewQueue];
+    },
+    removeAgentQueuedInput: async (taskId, id, queuedInputId) => {
+      record('removeAgentQueuedInput', taskId, id, queuedInputId);
+      const index = previewQueue.findIndex((queued) => queued.id === queuedInputId);
+      if (index < 0) throw new Error(`queued input not found: ${queuedInputId}`);
+      const [removed] = previewQueue.splice(index, 1);
+      return { ...removed, state: removed.state === 'UNCERTAIN' ? 'ABANDONED' : 'REMOVED' };
+    },
+    resumeAgentQueue: async (taskId, id) => {
+      record('resumeAgentQueue', taskId, id);
+      previewQueue.shift();
+      turnState = 'RUNNING';
+      return previewTurn(taskId, turnState);
     },
     getAgentTurn: async (turnId) => {
       record('getAgentTurn', turnId);

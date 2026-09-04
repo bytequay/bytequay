@@ -22,14 +22,17 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -135,6 +138,148 @@ class TestCodexCliDriver
         // inventory that can prove a thread owns no live process.
         assertThat(supervisor.servers()).allSatisfy(
                 server -> assertThat(server.experimentalApi()).containsExactly(true));
+
+        driver.close();
+    }
+
+    @Test
+    void steersOnlyTheActiveTurnAndTellsARefusalFromSilence()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.capabilities().steering()).isTrue();
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("steer"));
+
+        turn.steer(new AgentTurnInput("also this", ImmutableList.of()));
+
+        // The request names the turn it was meant for; App Server refuses it for any other.
+        assertThat(supervisor.server().steerRequests()).singleElement().satisfies(request -> {
+            assertThat(request).contains("\"threadId\":\"thread-1\"");
+            assertThat(request).contains("\"expectedTurnId\":\"" + turn.reference().value() + "\"");
+            assertThat(request).contains("\"type\":\"text\",\"text\":\"also this\"");
+        });
+
+        // The bytes were accepted and App Server answered, but the answer cannot prove whether it
+        // applied the input. That is still uncertain, not a safe retry.
+        supervisor.server().malformNextSteerResponse();
+        assertThatThrownBy(() -> turn.steer(new AgentTurnInput("malformed", ImmutableList.of())))
+                .isInstanceOf(AgentDeliveryUncertainException.class);
+
+        supervisor.server().refuseSteer();
+        assertThatThrownBy(() -> turn.steer(new AgentTurnInput("refused", ImmutableList.of())))
+                .isInstanceOf(AgentUnavailableException.class)
+                .isNotInstanceOf(AgentDeliveryUncertainException.class)
+                .hasMessageContaining("turn is not active");
+
+        // No answer and then the process gone: nothing says whether the input landed.
+        supervisor.server().ignoreSteer();
+        Thread.ofVirtual().start(() -> {
+            try {
+                Thread.sleep(200);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            supervisor.server().disconnect();
+        });
+        assertThatThrownBy(() -> turn.steer(new AgentTurnInput("silent", ImmutableList.of())))
+                .isInstanceOf(AgentDeliveryUncertainException.class);
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        // An ended turn cannot be steered at all.
+        assertThatThrownBy(() -> turn.steer(new AgentTurnInput("late", ImmutableList.of())))
+                .isInstanceOf(AgentUnavailableException.class)
+                .isNotInstanceOf(AgentDeliveryUncertainException.class);
+
+        driver.close();
+    }
+
+    @Test
+    void identifiesARequestRejectedBeforeAnyBytesAreSent()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexAppServerClient client = appServerClient(supervisor);
+
+        assertThatThrownBy(() -> client.request(
+                "turn/steer",
+                new CodexProtocol.EmptyParams(),
+                CodexProtocol.EmptyResponse.class,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
+        assertThat(supervisor.servers()).isEmpty();
+        client.close();
+        assertThatThrownBy(() -> client.request(
+                "turn/steer",
+                new CodexProtocol.EmptyParams(),
+                CodexProtocol.EmptyResponse.class,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
+    }
+
+    @Test
+    void identifiesEncodingFailureBeforeARequestWrite()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexAppServerClient client = appServerClient(supervisor);
+        client.start();
+
+        assertThatThrownBy(() -> client.request(
+                "turn/steer",
+                new UnencodableParams(),
+                CodexProtocol.EmptyResponse.class,
+                Duration.ofSeconds(1)))
+                .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
+        assertThat(supervisor.server().steerRequests()).isEmpty();
+        client.close();
+    }
+
+    @Test
+    void forgetsATimedOutRequestAndIgnoresItsLateResponse()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexAppServerClient client = appServerClient(supervisor);
+        client.start();
+        supervisor.server().ignoreSteer();
+        CodexProtocol.TurnSteerParams timedOut = new CodexProtocol.TurnSteerParams(
+                "thread-1",
+                "turn-timeout",
+                ImmutableList.of(new CodexProtocol.TextInput("text", "late")));
+
+        assertThatThrownBy(() -> client.request(
+                "turn/steer",
+                timedOut,
+                CodexProtocol.TurnSteerResponse.class,
+                Duration.ofMillis(20)))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("Timed out");
+        assertThat(client.pendingRequestCount()).isZero();
+
+        supervisor.server().respondToIgnoredSteer();
+        CodexProtocol.TurnSteerResponse response = client.request(
+                "turn/steer",
+                new CodexProtocol.TurnSteerParams(
+                        "thread-1",
+                        "turn-next",
+                        ImmutableList.of(new CodexProtocol.TextInput("text", "next"))),
+                CodexProtocol.TurnSteerResponse.class,
+                Duration.ofSeconds(1));
+        assertThat(response.turnId()).isEqualTo("turn-next");
+        client.close();
+    }
+
+    @Test
+    void treatsAWriteStageFailureAsUncertainDelivery()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("write-failure"));
+        supervisor.server().failNextSteerWrite();
+
+        assertThatThrownBy(() -> turn.steer(new AgentTurnInput("maybe written", ImmutableList.of())))
+                .isInstanceOf(AgentDeliveryUncertainException.class);
 
         driver.close();
     }
@@ -1098,6 +1243,24 @@ class TestCodexCliDriver
         return driver(supervisor, Duration.ofSeconds(30));
     }
 
+    private CodexAppServerClient appServerClient(ProcessSupervisor supervisor)
+    {
+        ProcessSpec spec = new ProcessSpec(
+                new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "task-1"),
+                ImmutableList.of("/fake/codex", "app-server"),
+                worktree,
+                ImmutableMap.of(),
+                1024,
+                1024,
+                Duration.ofMinutes(1),
+                Duration.ZERO);
+        return new CodexAppServerClient(
+                supervisor,
+                spec,
+                objectMapper,
+                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+    }
+
     private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
     {
         return new CodexCliDriver(
@@ -1390,6 +1553,14 @@ class TestCodexCliDriver
         }
     }
 
+    private static final class UnencodableParams
+    {
+        public String getValue()
+        {
+            throw new IllegalStateException("cannot encode");
+        }
+    }
+
     private static final class AppServerProcess
             implements ManagedProcess
     {
@@ -1410,6 +1581,12 @@ class TestCodexCliDriver
         private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final List<String> turnInputs = new CopyOnWriteArrayList<>();
+        private final List<String> steerRequests = new CopyOnWriteArrayList<>();
+        private volatile boolean refuseSteer;
+        private volatile boolean ignoreSteer;
+        private volatile boolean malformNextSteerResponse;
+        private volatile boolean failNextSteerWrite;
+        private volatile long ignoredSteerRequestId;
         private final List<String> sandboxes = new CopyOnWriteArrayList<>();
 
         private List<String> sandboxes()
@@ -1502,6 +1679,10 @@ class TestCodexCliDriver
         {
             try {
                 JsonNode message = objectMapper.readTree(StandardCharsets.UTF_8.decode(bytes).toString());
+                if (failNextSteerWrite && message.path("method").asText().equals("turn/steer")) {
+                    failNextSteerWrite = false;
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("write outcome is unknown"));
+                }
                 receive(message);
                 return CompletableFuture.completedFuture(null);
             }
@@ -1566,6 +1747,24 @@ class TestCodexCliDriver
                     activeTurn = "turn-" + turns.incrementAndGet();
                     respond(id, "{\"turn\":{\"id\":\"" + activeTurn
                             + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");
+                }
+                case "turn/steer" -> {
+                    steerRequests.add(message.path("params").toString());
+                    if (malformNextSteerResponse) {
+                        malformNextSteerResponse = false;
+                        respond(id, "{}");
+                        return;
+                    }
+                    if (ignoreSteer) {
+                        ignoredSteerRequestId = id;
+                        return;
+                    }
+                    if (refuseSteer) {
+                        emit("{\"id\":" + id + ",\"error\":{\"code\":-32600,\"message\":\"turn is not active\"}}");
+                    }
+                    else {
+                        respond(id, "{\"turnId\":\"" + message.path("params").path("expectedTurnId").asText() + "\"}");
+                    }
                 }
                 case "turn/interrupt" -> {
                     String interruptedTurn = activeTurn;
@@ -1678,6 +1877,42 @@ class TestCodexCliDriver
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
                     + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2,\"items\":[]}}}");
+        }
+
+        private List<String> steerRequests()
+        {
+            return steerRequests;
+        }
+
+        private void refuseSteer()
+        {
+            refuseSteer = true;
+        }
+
+        private void ignoreSteer()
+        {
+            ignoreSteer = true;
+        }
+
+        private void respondToIgnoredSteer()
+        {
+            long requestId = ignoredSteerRequestId;
+            if (requestId == 0) {
+                throw new IllegalStateException("no ignored steer request");
+            }
+            ignoredSteerRequestId = 0;
+            ignoreSteer = false;
+            respond(requestId, "{\"turnId\":\"turn-timeout\"}");
+        }
+
+        private void malformNextSteerResponse()
+        {
+            malformNextSteerResponse = true;
+        }
+
+        private void failNextSteerWrite()
+        {
+            failNextSteerWrite = true;
         }
 
         private void failTurn()

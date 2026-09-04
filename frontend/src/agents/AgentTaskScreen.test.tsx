@@ -82,6 +82,7 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
     endedAt: null,
     cancellationRequestedAt: null,
     delivered: true,
+    knownUnsent: false,
     settings: null,
     terminalReason: null,
     metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT0S' },
@@ -363,12 +364,12 @@ describe('placeholders for later checkpoints', () => {
   const fakes = (markup: string): string[] =>
     (markup.match(/data-fake="([^"]+)"/g) ?? []).map((match) => match.replace(/^data-fake="|"$/g, ''));
 
-  it('leaves exactly the three placeholders later checkpoints retire, and none anywhere else', () => {
+  it('leaves only the two CP11 placeholders, and none anywhere else', () => {
     const list = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
     const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
     // The ledger: grep -rn data-fake frontend/src must list these and only these.
     expect([...new Set([...fakes(list), ...fakes(drafting)])].sort())
-      .toEqual(['CP10 · queue', 'CP10 · steer', 'CP11 · permission choice', 'CP11 · provider choice']);
+      .toEqual(['CP11 · permission choice', 'CP11 · provider choice']);
     // Idle, only the permission chip stands in; a finished task ships nothing that does.
     expect(fakes(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'x' }))).toEqual(['CP11 · permission choice']);
     expect(fakes(body({ task: task('t-1', 'COMPLETED', 'x'), connection: 'open' }))).toEqual([]);
@@ -436,7 +437,7 @@ describe('agent task side panel', () => {
         pullRequests={[{ ...pullRequest(482, 'Fix preview output limit'), ciStatus: 'PENDING' }]}
         {...props}
       />);
-    expect(checked).toMatch(/<span class="agt-state is-waiting"><span class="agt-spin"[^>]*><\/span>Checks</);
+    expect(checked).toMatch(/<span class="agt-state is-waiting"><svg[^>]*class="[^"]*agt-spin[^"]*"[^>]*>[^]*?<\/svg>Checks</);
     // The row is a control: selecting it opens the pull-request page rather than a panel copy of it.
     expect(markup).toMatch(/<button[^>]*class="agt-panel__row"[^>]*title="Open this pull request"/);
     expect(markup).not.toContain('Description');
@@ -501,6 +502,64 @@ describe('agent task detail', () => {
     expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
 
+  it('uses semantic Lucide icons for activity and keeps state icons for outcomes', () => {
+    const openActivity = { '00000000-0000-4000-8000-000000000005': true };
+    const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' }, openActivity);
+
+    expect(markup).toContain('lucide-square-terminal');
+    expect(markup).toContain('lucide-file-pen-line');
+    expect(markup).toContain('lucide-wrench');
+    expect(markup).toContain('lucide-shield-check');
+    expect(markup).toContain('lucide-circle-check');
+    expect(markup).not.toMatch(/[✓✕○]/);
+
+    const parsed = events.map((event) => event.type !== 'command' ? event : ({
+      ...event,
+      payload: {
+        ...event.payload,
+        actions: [
+          { kind: 'READ' as const, path: 'src/auth.ts', query: null as string | null },
+          { kind: 'LIST_FILES' as const, path: 'src', query: null as string | null },
+          { kind: 'SEARCH' as const, path: 'src', query: 'token' },
+        ],
+      },
+    }));
+    const parsedMarkup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: parsed, connection: 'open' }, openActivity);
+    expect(parsedMarkup).toContain('lucide-book-open');
+    expect(parsedMarkup).toContain('lucide-folder-open');
+    expect(parsedMarkup).toContain('lucide-search');
+
+    const toolIcons = [
+      ['Web search', 'lucide-globe'],
+      ['Image view', 'lucide-image'],
+      ['Context compaction', 'lucide-chevrons-down-up'],
+    ] as const;
+    for (const [name, icon] of toolIcons) {
+      const named = events.map((event) => event.type === 'tool' ? { ...event, payload: { ...event.payload, name } } : event);
+      expect(body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: named, connection: 'open' }, openActivity)).toContain(icon);
+    }
+  });
+
+  it('lets running and failed state override an activity type icon', () => {
+    const openActivity = { '00000000-0000-4000-8000-000000000005': true };
+    const commandState = (state: 'STARTED' | 'FAILED', exitCode: number | null) => events.map((event) => event.type !== 'command' ? event : ({
+      ...event,
+      payload: { ...event.payload, state, exitCode },
+    }));
+
+    const running = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: commandState('STARTED', null), connection: 'open' }, openActivity);
+    expect(running).toContain('lucide-loader-circle');
+
+    const failed = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: commandState('FAILED', 1), connection: 'open' }, openActivity);
+    expect(failed).toContain('lucide-circle-x');
+  });
+
+  it('turns off transcript motion when reduced motion is requested', () => {
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain('.agt-icon.is-outcome > svg');
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[^]*?\.agt-spin[^]*?animation: none/);
+  });
+
   it('anchors the composer card with one round button that sends, or stops while a turn runs', () => {
     const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
     const idle = body({ task: vision, connection: 'open', composer: 'go' });
@@ -529,10 +588,11 @@ describe('agent task detail', () => {
     expect(running).not.toContain('Stop server');
     expect(running).not.toContain('CP10');
 
-    // Steering and queueing are placeholders until their checkpoint, and say so on the control.
-    const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests' });
-    expect(drafting).toMatch(/<button[^>]*class="agt-steer agt-fake"[^>]*data-fake="CP10 · steer"[^>]*disabled/);
-    expect(drafting).toMatch(/<button[^>]*class="agt-compose__chip agt-fake"[^>]*data-fake="CP10 · queue"[^>]*disabled/);
+    // CP10 has replaced both placeholders with real, capability-gated controls.
+    const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests', steering: true });
+    expect(drafting).toMatch(/<button[^>]*class="agt-steer"(?![^>]*disabled)[^>]*>Steer<\/button>/);
+    expect(drafting).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*>Run next<\/button>/);
+    expect(drafting).not.toContain('CP10');
   });
 
   it('replaces the mutation controls with the recovery card while the checkout is reserved', () => {
@@ -681,6 +741,30 @@ describe('agent task detail', () => {
     const textOnly = { ...vision, defaults: { ...vision.defaults, model: 'text-only' } };
     const noImages = body({ task: textOnly, connection: 'open' });
     expect(noImages).toMatch(/<button[^>]*class="agt-attach"[^>]*title="Text only does not accept images"[^>]*disabled/);
+
+    const attachment = { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 };
+    const currentVision = body({
+      task: textOnly,
+      turn: turn('RUNNING', { settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 3600000, attachments: [] } }),
+      connection: 'open',
+      composer: 'look here',
+      attachments: [attachment],
+      steering: true,
+    });
+    expect(currentVision).not.toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
+    expect(currentVision).toMatch(/<button[^>]*class="agt-steer"(?![^>]*disabled)/);
+    expect(currentVision).toMatch(/<button[^>]*class="agt-compose__chip"[^>]*disabled[^>]*title="The next-turn model does not accept images"/);
+
+    const nextVision = body({
+      task: vision,
+      turn: turn('RUNNING', { settings: { model: 'text-only', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 3600000, attachments: [] } }),
+      connection: 'open',
+      composer: 'look later',
+      attachments: [attachment],
+      steering: true,
+    });
+    expect(nextVision).toMatch(/<button[^>]*class="agt-steer"[^>]*disabled[^>]*title="The running turn’s model does not accept images"/);
+    expect(nextVision).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*title="Runs after this turn finishes"/);
 
     // A sent message shows its image once the bytes arrived, and says so when they never will.
     const ready = renderToStaticMarkup(

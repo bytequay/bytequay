@@ -15,7 +15,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createPreviewBridge, type PreviewCommand } from './preview';
 import {
-  agentIdempotencyKey,
   agentTaskReducer,
   initialAgentTaskState,
   startAgentTaskSession,
@@ -100,6 +99,7 @@ describe('preview journey', () => {
     const codex = catalog.providers.find((provider) => provider.id === 'codex');
     expect(codex?.models.map((model) => model.id)).toContain(codex?.selectedModel);
     const created = await bridge.createAgentTask({
+      taskId: '00000000-0000-0000-0000-000000000001',
       workspaceId: 'workspace-1',
       message: 'Review the authentication change',
       laneId: 'codex',
@@ -108,13 +108,15 @@ describe('preview journey', () => {
         effort: codex?.selectedEffort ?? null,
         permissionPolicy: 'AUTO',
       },
+      idempotencyKey: 'create-first-turn',
     });
     const session = await open(bridge, created.id);
 
     const turn = await bridge.startAgentTurn({
       taskId: created.id,
       message: 'do the thing',
-      idempotencyKey: agentIdempotencyKey(created.id, session.state().lastSequence),
+      expectedTaskVersion: created.version,
+      idempotencyKey: 'send-intent-1',
     });
     const cancelled = await bridge.cancelAgentTurn(turn.id);
     await bridge.completeAgentTask(created.id, 'workspace-1');
@@ -132,17 +134,16 @@ describe('preview journey', () => {
       'completeAgentTask',
       'unsubscribeAgentTask',
     ]);
-    // A retry of the same send reuses the key; a send from a later transcript does not.
+    // The bridge forwards the random intent key unchanged; its lifecycle is tested in model.ts.
     const start = bridge.commands.find((command) => command.name === 'startAgentTurn');
     expect((start?.args[0] as { idempotencyKey: string }).idempotencyKey)
-      .toBe(agentIdempotencyKey(created.id, session.state().lastSequence));
-    expect(agentIdempotencyKey(created.id, 1)).not.toBe(agentIdempotencyKey(created.id, 2));
+      .toBe('send-intent-1');
   });
 
   it('stops a runtime only with the generation it was shown, then fails the task explicitly', async () => {
     const bridge = createPreviewBridge('workspace-1');
     const session = await open(bridge, 'task-1');
-    await bridge.startAgentTurn({ taskId: 'task-1', message: 'hang', idempotencyKey: 'k' });
+    await bridge.startAgentTurn({ taskId: 'task-1', message: 'hang', expectedTaskVersion: 0, idempotencyKey: 'k' });
 
     const impact = await bridge.getAgentRuntimeStopImpact('task-1', 'workspace-1');
     // The impact names what the stop interrupts; the stop echoes exactly that generation.
@@ -206,5 +207,41 @@ describe('preview journey', () => {
     expect(names(bridge.commands).filter((name) => name === 'unsubscribeAgentTask')).toHaveLength(1);
     // Nothing is remembered between visits: the reopened screen rebuilds from replay plus stream.
     expect(reopened.state().events.length).toBe(beforeStop);
+  });
+});
+
+describe('steering and queueing through the bridge', () => {
+  it('queues behind the running turn with the version it saw, then resumes and removes as typed commands', async () => {
+    const bridge = createPreviewBridge('workspace-1');
+    const taskId = bridge.events[0].taskId;
+    const session = await open(bridge, taskId);
+    const task = await bridge.getAgentTask(taskId, 'workspace-1');
+
+    const queued = await bridge.queueAgentInput({
+      taskId,
+      workspaceId: 'workspace-1',
+      message: 'then update the design doc',
+      expectedVersion: task.version,
+      idempotencyKey: 'queue-intent-1',
+    });
+    // The write moved the version: the same version again is a conflict, the fresh one is not.
+    await expect(bridge.queueAgentInput({ taskId, workspaceId: 'workspace-1', message: 'x', expectedVersion: task.version, idempotencyKey: 'k' }))
+      .rejects.toThrow(/version/);
+    const listed = await bridge.listAgentQueue(taskId, 'workspace-1');
+    expect(listed.map((input) => input.id)).toEqual([queued.id]);
+    const removed = await bridge.removeAgentQueuedInput(taskId, 'workspace-1', queued.id);
+    expect(removed.state).toBe('REMOVED');
+    expect(await bridge.listAgentQueue(taskId, 'workspace-1')).toEqual([]);
+
+    const steered = await bridge.steerAgentTurn({
+      turnId: 'turn-1',
+      message: 'skip the flaky suite',
+      idempotencyKey: 'steer-intent-1',
+    });
+    expect(steered.state).toBe('DELIVERED');
+    session.stop();
+
+    expect(names(bridge.commands).filter((name) => !['getAgentTask', 'readAgentEvents', 'subscribeAgentTask', 'unsubscribeAgentTask'].includes(name)))
+      .toEqual(['queueAgentInput', 'queueAgentInput', 'listAgentQueue', 'removeAgentQueuedInput', 'listAgentQueue', 'steerAgentTurn']);
   });
 });

@@ -103,6 +103,12 @@ describe('projecting the transcript', () => {
     sequence = 0;
   });
 
+  it('does not render the task-level queue refresh signal as transcript content', () => {
+    expect(projectTranscript([
+      event('lifecycle', { phase: 'QUEUE_CHANGED', message: 'Queued input added' }, { turnId: null }),
+    ])).toEqual([]);
+  });
+
   it('accumulates streamed deltas and lets the completed item replace them', () => {
     const turns = projectTranscript([
       event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'I am ' }, { itemId: 'm-1', complete: false }),

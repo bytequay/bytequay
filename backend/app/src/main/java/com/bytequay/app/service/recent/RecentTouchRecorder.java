@@ -92,7 +92,7 @@ public class RecentTouchRecorder
     }
 
     /** Records a task the user prompted. Tasks carry no repository number of their own. */
-    public void taskPrompted(String taskId, String prompt, String repo, String lane)
+    public void taskPrompted(String taskId, String requestId, String prompt, String repo, String lane)
     {
         guard(() -> {
             String itemKey = RecentItemType.TASK.prefix() + ":" + taskId;
@@ -101,7 +101,7 @@ public class RecentTouchRecorder
             save(item, RecentReason.PROMPTED, 0);
             // The prompt is the user's own words, so it belongs in Words mode
             // beside their comments. Keyed per turn, not per task.
-            write(item, RecentTextKind.TASK_PROMPT, itemKey + ":prompt:" + clock.millis(), prompt, clock.instant());
+            write(item, RecentTextKind.TASK_PROMPT, itemKey + ":prompt:" + requestId, prompt, clock.instant());
         });
     }
 

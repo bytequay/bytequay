@@ -21,6 +21,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -30,6 +31,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
@@ -68,6 +70,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -169,6 +172,7 @@ public final class CodexCliDriver
             true,
             false,
             false,
+            true,
             true,
             true,
             CostProvenance.UNAVAILABLE,
@@ -702,18 +706,14 @@ public final class CodexCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Codex session already has a running turn");
             }
-            ImmutableList.Builder<CodexProtocol.UserInput> input = ImmutableList.builder();
-            input.add(new CodexProtocol.TextInput("text", command.message()));
-            for (AgentAttachment attachment : command.attachments()) {
-                input.add(new CodexProtocol.LocalImageInput("localImage", taskOwnedImage(attachment).toString()));
-            }
+            List<CodexProtocol.UserInput> input = userInput(command.message(), command.attachments());
 
             // Re-checked before every turn, not once per session: a turn runs under workspace-write
             // and could leave a hook or policy file behind that a later turn would inherit.
             isolation.verify(context.worktree());
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
-                    input.build(),
+                    input,
                     // The turn carries the settings that were snapshotted when it was accepted, so
                     // a default changed after acceptance cannot rewrite the turn that is starting.
                     command.model().or(context::model),
@@ -734,8 +734,19 @@ public final class CodexCliDriver
             // An item the previous turn left unresolved belonged to that turn's outcome, which is
             // already decided. Carrying it forward would fail every later turn for the same reason.
             liveItems.clear();
-            running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime());
+            running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime(), this::userInput);
             return running;
+        }
+
+        /** A turn's input: the text, then each attachment as the task-owned image it was verified to be. */
+        private List<CodexProtocol.UserInput> userInput(String message, List<AgentAttachment> attachments)
+        {
+            ImmutableList.Builder<CodexProtocol.UserInput> input = ImmutableList.builder();
+            input.add(new CodexProtocol.TextInput("text", message));
+            for (AgentAttachment attachment : attachments) {
+                input.add(new CodexProtocol.LocalImageInput("localImage", taskOwnedImage(attachment).toString()));
+            }
+            return input.build();
         }
 
         @Override
@@ -1471,6 +1482,7 @@ public final class CodexCliDriver
         private final CodexAppServerClient client;
         private final ProviderTurnRef reference;
         private final String threadId;
+        private final BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput;
         private final Instant startedAt = Instant.now();
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
@@ -1481,11 +1493,13 @@ public final class CodexCliDriver
                 CodexAppServerClient client,
                 String threadId,
                 String turnId,
-                Duration maximumRuntime)
+                Duration maximumRuntime,
+                BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput)
         {
             this.client = requireNonNull(client, "client is null");
             this.threadId = requireNonNull(threadId, "threadId is null");
             this.reference = new ProviderTurnRef(turnId);
+            this.userInput = requireNonNull(userInput, "userInput is null");
             CompletableFuture.delayedExecutor(maximumRuntime.toMillis(), TimeUnit.MILLISECONDS)
                     .execute(() -> {
                         if (!completion.isDone()) {
@@ -1504,6 +1518,43 @@ public final class CodexCliDriver
         public CompletionStage<AgentTurnResult> completion()
         {
             return completion;
+        }
+
+        /**
+         * Steers this turn, and only this turn: App Server checks the expected turn id itself, so
+         * input for a turn that has since ended is refused rather than delivered to its successor.
+         * The call is not synchronized, because the process's reader thread may need this session
+         * while the response is pending.
+         */
+        @Override
+        public void steer(AgentTurnInput input)
+        {
+            requireNonNull(input, "input is null");
+            if (completion.isDone()) {
+                throw new AgentUnavailableException("Codex turn " + reference + " has already ended");
+            }
+            CodexProtocol.TurnSteerParams params = new CodexProtocol.TurnSteerParams(
+                    threadId,
+                    reference.value(),
+                    userInput.apply(input.message(), input.attachments()));
+            CodexProtocol.TurnSteerResponse response;
+            try {
+                response = client.request("turn/steer", params, CodexProtocol.TurnSteerResponse.class, REQUEST_TIMEOUT);
+            }
+            catch (CodexAppServerClient.RequestNotSent notSent) {
+                throw appServerFailure("turn/steer", notSent);
+            }
+            catch (CodexAppServerClient.RequestRefused refused) {
+                throw appServerFailure("turn/steer", refused);
+            }
+            catch (RuntimeException failure) {
+                // The request left this process and no answer came back, so it may have landed.
+                throw new AgentDeliveryUncertainException(appServerFailure("turn/steer", failure).getMessage(), failure);
+            }
+            if (!response.turnId().equals(reference.value())) {
+                throw new AgentDeliveryUncertainException(
+                        "Codex CLI " + rememberAppServerVersion() + " steered turn " + response.turnId() + " instead of " + reference, null);
+            }
         }
 
         @Override

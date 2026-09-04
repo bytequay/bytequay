@@ -199,6 +199,7 @@ public final class ClaudeCliDriver
                 forwardSubagentText,
                 true,
                 true,
+                false,
                 CostProvenance.CLI_ESTIMATE,
                 ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));

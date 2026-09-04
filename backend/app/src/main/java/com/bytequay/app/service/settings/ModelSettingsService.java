@@ -307,6 +307,7 @@ public class ModelSettingsService
                 status.version(),
                 status.diagnostic(),
                 status.signInCommand(),
+                status.capabilities().steering(),
                 catalog.models(),
                 selection.model(),
                 selection.effort() == null ? "" : selection.effort(),
@@ -468,6 +469,8 @@ public class ModelSettingsService
             Optional<String> version,
             String diagnostic,
             Optional<String> signInCommand,
+            /** Whether a running turn on this lane accepts more input. */
+            boolean steering,
             List<ModelOption> models,
             String selectedModel,
             String selectedEffort,

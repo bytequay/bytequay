@@ -30,6 +30,8 @@ public record AgentCapabilities(
         boolean nestedAgentActivity,
         boolean interactiveApprovals,
         boolean tokenUsage,
+        /** Whether input can be added to a turn already running, through the provider's own steer call. */
+        boolean steering,
         CostProvenance costProvenance,
         Set<AgentPermissionPolicy> permissionPolicies,
         Set<String> attachmentMediaTypes)
@@ -47,6 +49,7 @@ public record AgentCapabilities(
     public static AgentCapabilities none()
     {
         return new AgentCapabilities(
+                false,
                 false,
                 false,
                 false,

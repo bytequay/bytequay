@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import { ModelPicker } from './ModelPicker';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
-import { agentIdempotencyKey, type AgentBridgePort } from './model';
+import { createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 
 export interface AgentTasksViewProps {
   workspaceId: string;
@@ -113,6 +113,9 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [selection, setSelection] = useState<{ model: string; effort: string | null } | null>(null);
   const [draft, setDraft] = useState('');
+  const submissionRef = useRef<TaskCreationTracker | null>(null);
+  if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
+  const submissions = submissionRef.current;
 
   useEffect(() => {
     let active = true;
@@ -159,24 +162,36 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
   const create = useCallback(async () => {
     const message = draft.trim();
     if (selection === null || blocker !== null || message === '') return;
-    try {
-      const task = await bridge().createAgentTask({
-        workspaceId,
-        message,
-        laneId,
-        defaults: { model: selection.model, effort: selection.effort, permissionPolicy: 'AUTO' },
-      });
+    const request = submissions.requestFor(workspaceId, message, laneId, {
+      model: selection.model,
+      effort: selection.effort,
+      permissionPolicy: 'AUTO',
+    });
+    const acceptCreatedTask = (task: AgentTaskDto) => {
+      submissions.settled(request.taskId);
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
-      // The message that created the task is also its first turn; the task screen shows it arrive.
-      await bridge().startAgentTurn({ taskId: task.id, message, idempotencyKey: agentIdempotencyKey(task.id, 0) });
       setDraft('');
+      setError(null);
       onOpenTask(task.id);
+    };
+    try {
+      // Creation and its first turn are one replay-safe backend operation.
+      acceptCreatedTask(await bridge().createAgentTask(request));
     }
     catch (failure) {
-      // Creation is gated on a fresh readiness probe, so this is the probe saying no.
+      // The retained request makes the same click safe when the backend answer was lost.
       setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
+      try {
+        // A failed IPC answer is ambiguous. Replaying the whole composite request is what finishes
+        // a task that persisted just before a crash; task existence alone does not prove its first
+        // turn was accepted.
+        acceptCreatedTask(await bridge().createAgentTask(request));
+      }
+      catch {
+        // Still unresolved: keep the exact request for a safe retry.
+      }
     }
-  }, [blocker, bridge, draft, laneId, onOpenTask, selection, workspaceId]);
+  }, [blocker, bridge, draft, laneId, onOpenTask, selection, submissions, workspaceId]);
 
   return { tasks, loading, error, models, selection, setSelection, draft, setDraft, blocker, create };
 }

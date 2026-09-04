@@ -51,16 +51,18 @@ class TestInteractiveAgentHttpContract
             throws Exception
     {
         JsonNode request = objectMapper.valueToTree(new InteractiveAgentHttpContract.CreateTaskRequest(
+                "11111111-1111-1111-1111-111111111111",
                 "workspace-1",
                 "Review the pull request",
                 "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(
                         Optional.of("gpt-5.6-codex"),
                         Optional.of("high"),
-                        "AUTO")));
+                        "AUTO"),
+                "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("workspaceId", "message", "laneId", "defaults");
+                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
@@ -108,6 +110,7 @@ class TestInteractiveAgentHttpContract
                         "endedAt",
                         "cancellationRequestedAt",
                         "delivered",
+                        "knownUnsent",
                         "settings",
                         "terminalReason",
                         "metrics");
@@ -140,13 +143,15 @@ class TestInteractiveAgentHttpContract
     void keepsInteractiveCreationCodexOnlyUntilClaudeParityExists()
     {
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                "11111111-1111-1111-1111-111111111111",
                 "workspace-1",
                 "Task",
                 "claude",
                 new InteractiveAgentHttpContract.TaskDefaults(
                         Optional.of("claude-opus-4-1"),
                         Optional.empty(),
-                        "AUTO")))
+                        "AUTO"),
+                "create-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Codex");
     }
@@ -155,23 +160,27 @@ class TestInteractiveAgentHttpContract
     void rejectsMissingModelAndInternalPermissionPolicies()
     {
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                "11111111-1111-1111-1111-111111111111",
                 "workspace-1",
                 "Task",
                 "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(
                         Optional.empty(),
                         Optional.empty(),
-                        "AUTO")))
+                        "AUTO"),
+                "create-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("model");
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                "11111111-1111-1111-1111-111111111111",
                 "workspace-1",
                 "Task",
                 "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(
                         Optional.of("gpt-5.6-codex"),
                         Optional.empty(),
-                        "CI_AUTOFIX")))
+                        "CI_AUTOFIX"),
+                "create-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AUTO");
     }
@@ -228,6 +237,7 @@ class TestInteractiveAgentHttpContract
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

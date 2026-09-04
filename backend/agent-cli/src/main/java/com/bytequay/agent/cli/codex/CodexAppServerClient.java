@@ -131,15 +131,15 @@ final class CodexAppServerClient
         // would be waiting on itself. Fail loudly instead of stalling until the timeout.
         checkState(Thread.currentThread() != readerThread,
                 "Codex request %s was issued from the App Server reader thread", method);
-        // The lazy start this used to do was also the only closed-state check, so the guard is
-        // explicit now rather than a side effect of starting.
-        if (closed) {
-            throw new AgentUnavailableException("Codex App Server is closed");
+        // These guards run before request bytes exist, so delivery-sensitive callers can safely
+        // distinguish them from a failed write or a missing response.
+        if (closed || disconnected.get()) {
+            throw new RequestNotSent("Codex App Server is unavailable");
         }
         if (process == null) {
-            throw new AgentUnavailableException("Codex App Server has not been started");
+            throw new RequestNotSent("Codex App Server has not been started");
         }
-        CodexProtocol.JsonRpcEnvelope response = await(sendRequest(method, params), timeout, method);
+        CodexProtocol.JsonRpcEnvelope response = awaitRequest(method, params, timeout);
         return codec.decodeResult(
                 response.result().orElseThrow(() -> new AgentUnavailableException(
                         "Codex response has no result: " + method)),
@@ -194,8 +194,7 @@ final class CodexAppServerClient
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
                         new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.4.0"),
                         new CodexProtocol.InitializeCapabilities(true));
-                CodexProtocol.JsonRpcEnvelope initialized =
-                        await(sendRequest("initialize", initialize), START_TIMEOUT, "initialize");
+                CodexProtocol.JsonRpcEnvelope initialized = awaitRequest("initialize", initialize, START_TIMEOUT);
                 codexHome.set(initialized.result()
                         .map(result -> codec.decodeResult(result, CodexProtocol.InitializeResponse.class))
                         .map(CodexProtocol.InitializeResponse::codexHome)
@@ -210,19 +209,25 @@ final class CodexAppServerClient
         }
     }
 
-    private CompletableFuture<CodexProtocol.JsonRpcEnvelope> sendRequest(String method, Object params)
+    private CodexProtocol.JsonRpcEnvelope awaitRequest(String method, Object params, Duration timeout)
     {
         long id = requestIds.incrementAndGet();
         CompletableFuture<CodexProtocol.JsonRpcEnvelope> response = new CompletableFuture<>();
         pending.put(id, response);
         try {
-            send(new CodexProtocol.JsonRpcRequest(id, method, params));
+            sendRequest(new CodexProtocol.JsonRpcRequest(id, method, params));
+            return await(response, timeout, method);
         }
-        catch (RuntimeException failure) {
+        finally {
+            // A timeout must not retain its future forever. Match the exact future so a response
+            // racing this cleanup cannot remove anything else.
             pending.remove(id, response);
-            response.completeExceptionally(failure);
         }
-        return response;
+    }
+
+    int pendingRequestCount()
+    {
+        return pending.size();
     }
 
     private void sendNotification(String method, Object params)
@@ -230,14 +235,36 @@ final class CodexAppServerClient
         send(new CodexProtocol.JsonRpcNotification(method, params));
     }
 
+    private void sendRequest(Object message)
+    {
+        send(message, true);
+    }
+
     private void send(Object message)
+    {
+        send(message, false);
+    }
+
+    private void send(Object message, boolean request)
     {
         synchronized (writeLock) {
             ManagedProcess current = process;
+            if (request && (closed || disconnected.get() || current == null)) {
+                throw new RequestNotSent("Codex App Server input is unavailable");
+            }
             if (current == null) {
                 throw new AgentUnavailableException("Codex App Server input is unavailable");
             }
-            byte[] bytes = (codec.encode(message) + "\n").getBytes(StandardCharsets.UTF_8);
+            byte[] bytes;
+            try {
+                bytes = (codec.encode(message) + "\n").getBytes(StandardCharsets.UTF_8);
+            }
+            catch (RuntimeException failure) {
+                if (request) {
+                    throw new RequestNotSent("Unable to encode Codex request", failure);
+                }
+                throw failure;
+            }
             try {
                 await(current.write(ByteBuffer.wrap(bytes)).toCompletableFuture(), WRITE_TIMEOUT, "input write");
             }
@@ -348,7 +375,7 @@ final class CodexAppServerClient
             return;
         }
         if (envelope.error().isPresent()) {
-            response.completeExceptionally(new AgentUnavailableException(
+            response.completeExceptionally(new RequestRefused(
                     "Codex request failed: " + envelope.error().orElseThrow().message()));
         }
         else {
@@ -506,5 +533,36 @@ final class CodexAppServerClient
         CompletionStage<?> onRequest(CodexProtocol.ServerRequest request);
 
         void onDisconnect(Throwable failure);
+    }
+
+    /**
+     * App Server answered the request with an error, so it did not act on it.
+     *
+     * <p>Distinct from a timeout or a lost connection, after which nothing says whether the request
+     * was acted on; a caller that must not repeat an already-applied request needs to tell the two
+     * apart.
+     */
+    static final class RequestRefused
+            extends AgentUnavailableException
+    {
+        RequestRefused(String message)
+        {
+            super(message);
+        }
+    }
+
+    /** A request rejected locally before its bytes were offered to the process. */
+    static final class RequestNotSent
+            extends AgentUnavailableException
+    {
+        RequestNotSent(String message)
+        {
+            super(message);
+        }
+
+        RequestNotSent(String message, Throwable cause)
+        {
+            super(message, cause);
+        }
     }
 }

@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -30,8 +32,17 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Optional;
+import java.util.concurrent.locks.Lock;
+
+import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static java.util.Objects.requireNonNull;
 
 /** Resolves trusted workspace Git facts before core creates an interactive task. */
@@ -43,6 +54,7 @@ public final class InteractiveAgentTaskCreator
     private final ModelSettingsService models;
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
+    private final Striped<Lock> creationLocks = Striped.lock(64);
 
     public InteractiveAgentTaskCreator(
             AgentTaskService tasks,
@@ -59,12 +71,42 @@ public final class InteractiveAgentTaskCreator
     }
 
     public AgentTask create(
+            TaskId taskId,
             String workspaceId,
             String message,
             AgentLaneId laneId,
-            AgentTaskDefaults defaults)
+            AgentTaskDefaults defaults,
+            String idempotencyKey)
     {
+        requireNonNull(taskId, "taskId is null");
+        Lock lock = creationLocks.get(taskId);
+        lock.lock();
+        try {
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey);
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private AgentTask createLocked(
+            TaskId taskId,
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey)
+    {
+        checkNotBlank(workspaceId, "workspaceId");
+        checkNotBlank(message, "message");
+        requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
+        checkNotBlank(idempotencyKey, "idempotencyKey");
+        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey);
+        Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
+        if (replay.isPresent()) {
+            return requireReplay(replay.orElseThrow(), fingerprint);
+        }
         requireReady(laneId, defaults);
         models.validateSelection(laneId.value(), defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")), defaults.effort());
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
@@ -73,16 +115,76 @@ public final class InteractiveAgentTaskCreator
         if (!head.successful() || head.truncated() || head.output().isBlank()) {
             throw new AgentStorageException("Cannot resolve the workspace start commit");
         }
-        return tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
-                TaskId.random(),
-                workspace.workspaceId(),
-                laneId,
-                new RepositoryIdentity(
-                        workspace.selectedRepository().owner(),
-                        workspace.selectedRepository().repo()),
-                head.output().strip(),
-                message,
-                defaults));
+        try {
+            return tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
+                    taskId,
+                    workspace.workspaceId(),
+                    laneId,
+                    new RepositoryIdentity(
+                            workspace.selectedRepository().owner(),
+                            workspace.selectedRepository().repo()),
+                    head.output().strip(),
+                    message,
+                    defaults,
+                    fingerprint));
+        }
+        catch (AgentConflictException conflict) {
+            return interactiveTask(workspaceId, taskId)
+                    .map(task -> requireReplay(task, fingerprint))
+                    .orElseThrow(() -> conflict);
+        }
+    }
+
+    private Optional<AgentTask> interactiveTask(String workspaceId, TaskId taskId)
+    {
+        try {
+            return Optional.of(tasks.getInteractive(workspaceId, taskId));
+        }
+        catch (AgentTaskNotFoundException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static AgentTask requireReplay(AgentTask task, String fingerprint)
+    {
+        if (!task.creationFingerprint().equals(Optional.of(fingerprint))) {
+            throw new AgentConflictException("Task creation request changed: " + task.id());
+        }
+        return task;
+    }
+
+    private static String fingerprint(
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey)
+    {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        }
+        catch (NoSuchAlgorithmException impossible) {
+            throw new AssertionError("SHA-256 is unavailable", impossible);
+        }
+        add(digest, workspaceId);
+        add(digest, message);
+        add(digest, laneId.value());
+        add(digest, defaults.model().orElse(""));
+        add(digest, defaults.effort().orElse(""));
+        add(digest, defaults.permissionPolicy().name());
+        add(digest, idempotencyKey);
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void add(MessageDigest digest, String value)
+    {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update((byte) (bytes.length >>> 24));
+        digest.update((byte) (bytes.length >>> 16));
+        digest.update((byte) (bytes.length >>> 8));
+        digest.update((byte) bytes.length);
+        digest.update(bytes);
     }
 
     private void requireReady(AgentLaneId laneId, AgentTaskDefaults defaults)

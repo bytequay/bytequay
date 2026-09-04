@@ -26,7 +26,8 @@ public record CreateInteractiveAgentTaskCommand(
         RepositoryIdentity physicalRepository,
         String startCommit,
         String message,
-        AgentTaskDefaults defaults)
+        AgentTaskDefaults defaults,
+        String creationFingerprint)
 {
     public CreateInteractiveAgentTaskCommand
     {
@@ -37,5 +38,6 @@ public record CreateInteractiveAgentTaskCommand(
         ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
         checkNotBlank(message, "message");
         requireNonNull(defaults, "defaults is null");
+        checkNotBlank(creationFingerprint, "creationFingerprint");
     }
 }

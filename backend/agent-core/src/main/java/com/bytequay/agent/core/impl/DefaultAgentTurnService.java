@@ -20,10 +20,12 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
@@ -35,9 +37,15 @@ import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProviderAgentEventAdapter;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
+import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
@@ -52,7 +60,11 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -60,6 +72,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -70,6 +83,7 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -79,6 +93,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -87,7 +102,9 @@ import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
 import static com.bytequay.agent.core.impl.AgentFailures.failureMessage;
+import static com.bytequay.agent.core.impl.AgentFailures.message;
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
+import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -98,6 +115,8 @@ public final class DefaultAgentTurnService
 {
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final QueuedInputStore queueStore;
+    private final SteerDeliveryStore steerStore;
     private final AgentUnitOfWork unitOfWork;
     private final AgentEventOutboxStore outboxStore;
     private final TaskLogStore logStore;
@@ -110,6 +129,8 @@ public final class DefaultAgentTurnService
     private final AgentFinalResponseReader finalResponseReader;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
+    /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
+    private final Executor queueStarter;
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -117,6 +138,8 @@ public final class DefaultAgentTurnService
     public DefaultAgentTurnService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             TaskLogStore logStore,
@@ -127,10 +150,13 @@ public final class DefaultAgentTurnService
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
             Clock clock,
-            Duration maximumTurnRuntime)
+            Duration maximumTurnRuntime,
+            Executor queueStarter)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.queueStore = requireNonNull(queueStore, "queueStore is null");
+        this.steerStore = requireNonNull(steerStore, "steerStore is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.logStore = requireNonNull(logStore, "logStore is null");
@@ -144,6 +170,7 @@ public final class DefaultAgentTurnService
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
+        this.queueStarter = requireNonNull(queueStarter, "queueStarter is null");
     }
 
     @Override
@@ -151,10 +178,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(command, "command is null");
         retryCompletedTurn(command.taskId());
-        StartedTurn started = null;
-        RunningTurn failedRunningTurn = null;
-        AgentTurn failedTurn = null;
-        RuntimeException startFailure = null;
+        Launch launch;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPending(outboxStore, eventService, command.taskId());
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
@@ -165,41 +189,548 @@ public final class DefaultAgentTurnService
             }
 
             AgentTask task = requireStartableTask(command.taskId());
-            TurnAcceptance acceptance = acceptTurnLocked(task, command);
-            AgentTurn accepted = acceptance.turn();
-            boolean deliveryAttempted = false;
-            try {
+            command.expectedTaskVersion().ifPresent(expectedVersion -> {
+                if (task.version() != expectedVersion) {
+                    throw new AgentConflictException("Task version changed: " + task.id());
+                }
+            });
+            launch = launchLocked(task, acceptTurnLocked(task, command), command.message(), command.attachments());
+        }
+        return settleLaunch(command.taskId(), launch);
+    }
+
+    @Override
+    public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        requireNonNull(taskId, "taskId is null");
+        checkNotBlank(idempotencyKey, "idempotencyKey");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            requireTask(taskId);
+            return turnStore.findByIdempotencyKey(taskId, idempotencyKey);
+        }
+    }
+
+    /**
+     * Sends an accepted turn to the provider.
+     *
+     * <p>A failure before the send is recorded as a known-unsent failed turn here; a failure after
+     * it leaves the turn as it is, because the provider may be running it.
+     */
+    private Launch launchLocked(AgentTask task, TurnAcceptance acceptance, String message, List<AgentAttachment> attachments)
+    {
+        AgentTurn accepted = acceptance.turn();
+        boolean deliveryAttempted = false;
+        RunningTurn failedRunningTurn = null;
+        try {
+            eventService.drain(acceptance.deliveryEventId());
+            AgentSession session = session(task, accepted.id());
+            metricsService.beginTurn(task.id(), accepted.id());
+            markDeliveryStarted(accepted.id());
+            deliveryAttempted = true;
+            RunningTurn runningTurn = session.start(new AgentTurnCommand(
+                    accepted.id().toString(),
+                    message,
+                    attachments,
+                    acceptance.settings().maximumRuntime(),
+                    acceptance.settings().model(),
+                    acceptance.settings().effort()));
+            failedRunningTurn = runningTurn;
+            return new Launch(accepted, registerRunningTurn(accepted, runningTurn, session.reference()), null, null);
+        }
+        catch (RuntimeException failure) {
+            if (!deliveryAttempted) {
+                recordKnownUnsentFailure(accepted, failure);
+            }
+            return new Launch(accepted, null, failedRunningTurn, failure);
+        }
+    }
+
+    /** Finishes a launch outside the task lock: watches the run, or cleans up and rethrows. */
+    private AgentTurn settleLaunch(TaskId taskId, Launch launch)
+    {
+        if (launch.failure() != null) {
+            cleanupFailedStart(launch.turn(), launch.failedRunningTurn(), launch.failure());
+            throw launch.failure();
+        }
+        return observeStartedTurn(taskId, launch.started());
+    }
+
+    @Override
+    public AgentInputDelivery steer(SteerAgentTurnCommand command)
+    {
+        requireNonNull(command, "command is null");
+        TaskId taskId = requireTurn(command.turnId()).taskId();
+        retryCompletedTurn(taskId);
+        // The provider has no steer idempotency key. Keep acceptance and the corresponding send in
+        // one task-local order, while leaving the task state lock free during provider I/O.
+        synchronized (runtimeRegistry.steerLock(taskId)) {
+            SteerAcceptance acceptance;
+            RunningTurn running;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                drainPending(outboxStore, eventService, taskId);
+                Optional<AgentInputDelivery> repeated = steerStore.findSteerByIdempotencyKey(taskId, command.idempotencyKey());
+                if (repeated.isPresent()) {
+                    AgentInputDelivery existing = repeated.orElseThrow();
+                    if (!existing.turnId().equals(command.turnId())) {
+                        throw new AgentConflictException("Steer idempotency key belongs to another turn: " + existing.turnId());
+                    }
+                    if (existing.state() == AgentInputDelivery.State.SENDING) {
+                        return settleSteer(
+                                existing,
+                                AgentInputDelivery.State.UNKNOWN,
+                                Optional.of("Previous steer attempt ended without a recorded provider response"));
+                    }
+                    if (existing.state() != AgentInputDelivery.State.ACCEPTED) {
+                        return existing;
+                    }
+                }
+                AgentTurn turn = requireTurn(command.turnId());
+                // The turn the user was looking at, and only that one: a turn that has since ended
+                // is stale, and its successor must not receive input meant for it.
+                if (turn.state() != TurnState.RUNNING) {
+                    throw new AgentConflictException("Turn is not running: " + turn.id());
+                }
+                AgentTask task = requireTask(taskId);
+                if (!driverRegistry.require(task.laneId()).capabilities().steering()) {
+                    throw new AgentUnavailableException("Provider " + task.laneId() + " cannot add input to a running turn");
+                }
+                running = runtimeRegistry.running(turn.id())
+                        .orElseThrow(() -> new AgentConflictException("Turn has no live provider handle: " + turn.id()));
+                if (repeated.isPresent()) {
+                    AgentInputDelivery accepted = repeated.orElseThrow();
+                    acceptance = new SteerAcceptance(accepted, EventId.steerMessage(accepted.id()), persistedSteerInput(accepted));
+                }
+                else {
+                    acceptance = acceptSteerLocked(task, turn, command);
+                }
                 eventService.drain(acceptance.messageEventId());
-                AgentSession session = session(task, accepted.id());
-                metricsService.beginTurn(task.id(), accepted.id());
-                markDeliveryStarted(accepted.id());
-                deliveryAttempted = true;
-                RunningTurn runningTurn = session.start(new AgentTurnCommand(
-                        accepted.id().toString(),
-                        command.message(),
-                        command.attachments(),
-                        acceptance.settings().maximumRuntime(),
-                        acceptance.settings().model(),
-                        acceptance.settings().effort()));
-                failedRunningTurn = runningTurn;
-                started = registerRunningTurn(accepted, runningTurn, session.reference());
+                steerStore.update(acceptance.delivery().sending(Instant.now(clock)));
+            }
+
+            try {
+                running.steer(acceptance.input());
+            }
+            catch (AgentDeliveryUncertainException uncertain) {
+                return settleSteer(acceptance.delivery(), AgentInputDelivery.State.UNKNOWN, Optional.of(message(uncertain)));
+            }
+            catch (RuntimeException refused) {
+                return settleSteer(acceptance.delivery(), AgentInputDelivery.State.FAILED, Optional.of(message(refused)));
+            }
+            return settleSteer(acceptance.delivery(), AgentInputDelivery.State.DELIVERED, Optional.empty());
+        }
+    }
+
+    @Override
+    public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
+    {
+        requireNonNull(turnId, "turnId is null");
+        checkNotBlank(idempotencyKey, "idempotencyKey");
+        AgentTurn requestedTurn = requireTurn(turnId);
+        TaskId taskId = requestedTurn.taskId();
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            Optional<AgentInputDelivery> found = steerStore.findSteerByIdempotencyKey(taskId, idempotencyKey);
+            found.filter(delivery -> !delivery.turnId().equals(turnId)).ifPresent(delivery -> {
+                throw new AgentConflictException("Steer idempotency key belongs to another turn: " + delivery.turnId());
+            });
+            return found;
+        }
+    }
+
+    private SteerAcceptance acceptSteerLocked(AgentTask task, AgentTurn turn, SteerAgentTurnCommand command)
+    {
+        Instant acceptedAt = Instant.now(clock);
+        BlobRef messageBlob = logStore.writeBlob(
+                task.id(),
+                ByteBuffer.wrap(command.message().getBytes(UTF_8)),
+                "text/plain; charset=utf-8");
+        InputDeliveryId deliveryId = InputDeliveryId.random();
+        EventId messageEventId = EventId.steerMessage(deliveryId);
+        AgentInputDelivery delivery = AgentInputDelivery.accepted(
+                deliveryId, task.id(), turn.id(), command.idempotencyKey(), acceptedAt);
+        unitOfWork.execute(() -> {
+            steerStore.insert(delivery);
+            outboxStore.insert(new AgentEventOutboxEntry(
+                    messageEventId,
+                    task.id(),
+                    Optional.of(turn.id()),
+                    root(),
+                    new AgentEventOutboxPayload.UserMessageBlob(
+                            messageBlob,
+                            references(command.attachments()),
+                            AgentEventPayload.DeliveryKind.STEER),
+                    acceptedAt,
+                    Optional.empty()));
+            return null;
+        });
+        return new SteerAcceptance(delivery, messageEventId, new AgentTurnInput(command.message(), command.attachments()));
+    }
+
+    private AgentTurnInput persistedSteerInput(AgentInputDelivery delivery)
+    {
+        AgentEventOutboxEntry entry = outboxStore.find(EventId.steerMessage(delivery.id()))
+                .orElseThrow(() -> new AgentStorageException("Steer message event is absent: " + delivery.id()));
+        if (!(entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob message)
+                || message.deliveryKind() != AgentEventPayload.DeliveryKind.STEER) {
+            throw new AgentStorageException("Steer message event has an invalid payload: " + delivery.id());
+        }
+        List<AgentAttachment> attachments = message.attachments().stream()
+                .map(reference -> resourceService.readAttachment(delivery.taskId(), reference.id()).input())
+                .collect(toImmutableList());
+        return new AgentTurnInput(readUtf8(delivery.taskId(), message.textBlob()), attachments);
+    }
+
+    /**
+     * Records how a steer ended. A failure is also an error event on the turn, so the message the
+     * transcript already shows is visibly not one the agent received, or not surely.
+     */
+    private AgentInputDelivery settleSteer(
+            AgentInputDelivery accepted,
+            AgentInputDelivery.State outcome,
+            Optional<String> failure)
+    {
+        checkArgument(outcome == AgentInputDelivery.State.DELIVERED
+                || outcome == AgentInputDelivery.State.FAILED
+                || outcome == AgentInputDelivery.State.UNKNOWN, "outcome is not terminal");
+        synchronized (runtimeRegistry.taskLock(accepted.taskId())) {
+            AgentInputDelivery current = steerStore.findSteerByIdempotencyKey(accepted.taskId(), accepted.idempotencyKey()).orElseThrow();
+            Instant now = Instant.now(clock);
+            AgentInputDelivery settled = switch (outcome) {
+                case DELIVERED -> current.delivered(now);
+                case FAILED -> current.failed(failure.orElseThrow(), now);
+                case UNKNOWN -> current.unknown(failure.orElseThrow(), now);
+                case ACCEPTED, SENDING -> throw new IllegalArgumentException("outcome is not terminal: " + outcome);
+            };
+            Optional<String> errorCode = switch (outcome) {
+                case FAILED -> Optional.of("STEER_FAILED");
+                case UNKNOWN -> Optional.of("STEER_UNKNOWN");
+                case DELIVERED -> Optional.empty();
+                case ACCEPTED, SENDING -> throw new IllegalArgumentException("outcome is not terminal: " + outcome);
+            };
+            EventId eventId = EventId.random();
+            AgentInputDelivery stored = unitOfWork.execute(() -> {
+                AgentInputDelivery updated = steerStore.update(settled);
+                if (errorCode.isPresent()) {
+                    outboxStore.insert(pendingInline(
+                            eventId,
+                            updated.taskId(),
+                            Optional.of(updated.turnId()),
+                            root(),
+                            new AgentEventPayload.Error(errorCode.orElseThrow(), failure.orElseThrow(), false),
+                            now));
+                }
+                return updated;
+            });
+            if (errorCode.isPresent()) {
+                eventService.drain(eventId);
+            }
+            return stored;
+        }
+    }
+
+    @Override
+    public QueuedAgentInput enqueue(QueueAgentInputCommand command)
+    {
+        requireNonNull(command, "command is null");
+        retryCompletedTurn(command.taskId());
+        synchronized (runtimeRegistry.taskLock(command.taskId())) {
+            drainPending(outboxStore, eventService, command.taskId());
+            Optional<QueuedAgentInput> repeated = queueStore.findQueuedByIdempotencyKey(command.taskId(), command.idempotencyKey());
+            if (repeated.isPresent()) {
+                return displayInput(repeated.orElseThrow());
+            }
+            AgentTask task = requireTask(command.taskId());
+            if (task.state() != TaskState.OPEN) {
+                throw new AgentConflictException("Task cannot queue input in state " + task.state());
+            }
+            if (task.version() != command.expectedVersion()) {
+                throw new AgentConflictException("Task version changed: " + task.id());
+            }
+            // A queue is later work behind the task's own active turn. Accepting one after that
+            // turn released its claim would leave an idle QUEUED row with nothing to start it.
+            Optional<WorktreeMutationClaim> claim = task.worktreeMutationClaim();
+            Optional<AgentTurn> activeTurn = turnStore.findActive(task.id());
+            boolean ownTurnRunning = claim
+                    .filter(held -> held.kind() == WorktreeMutationClaim.Kind.TURN)
+                    .filter(held -> activeTurn.stream().anyMatch(turn -> held.ownerId().equals(turn.id().toString())))
+                    .isPresent();
+            if (!ownTurnRunning) {
+                throw new AgentConflictException(claim.isPresent()
+                        ? "Task worktree is claimed by " + claim.orElseThrow().kind()
+                        : "Task has no active turn to queue behind: " + task.id());
+            }
+            Instant queuedAt = Instant.now(clock);
+            BlobRef textBlob = logStore.writeBlob(
+                    task.id(),
+                    ByteBuffer.wrap(command.message().getBytes(UTF_8)),
+                    "text/plain; charset=utf-8");
+            long position = queueStore.listQueued(task.id()).stream().mapToLong(QueuedAgentInput::position).max().orElse(0) + 1;
+            QueuedAgentInput input = QueuedAgentInput.queued(
+                    QueuedInputId.random(),
+                    task.id(),
+                    position,
+                    command.idempotencyKey(),
+                    textBlob,
+                    command.message(),
+                    turnSettings(task, references(command.attachments())),
+                    queuedAt);
+            EventId eventId = EventId.random();
+            QueuedAgentInput queued = unitOfWork.execute(() -> {
+                // The version write is what serializes this against Complete.
+                taskStore.update(task.withUpdatedAt(queuedAt));
+                queueStore.insert(input);
+                outboxStore.insert(pendingLifecycle(
+                        eventId,
+                        task.id(),
+                        Optional.empty(),
+                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
+                        "Queued input added",
+                        queuedAt));
+                return input;
+            });
+            eventService.drain(eventId);
+            return queued;
+        }
+    }
+
+    @Override
+    public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        requireNonNull(taskId, "taskId is null");
+        checkNotBlank(idempotencyKey, "idempotencyKey");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            requireTask(taskId);
+            return queueStore.findQueuedByIdempotencyKey(taskId, idempotencyKey).map(this::displayInput);
+        }
+    }
+
+    @Override
+    public List<QueuedAgentInput> queued(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireTask(taskId);
+        return queueStore.listQueued(taskId).stream()
+                .filter(input -> !input.state().historical())
+                .map(this::displayInput)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(queuedInputId, "queuedInputId is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            drainPending(outboxStore, eventService, taskId);
+            requireTask(taskId);
+            QueuedAgentInput input = requireQueued(queuedInputId);
+            if (!input.taskId().equals(taskId)) {
+                throw new AgentConflictException("Queued input does not belong to task " + taskId + ": " + queuedInputId);
+            }
+            Instant now = Instant.now(clock);
+            QueuedAgentInput removed = switch (input.state()) {
+                case QUEUED, PAUSED -> input.removed(now);
+                // The user is declining to resend it, which says nothing about whether it arrived.
+                case UNCERTAIN -> input.abandoned("Discarded without resending it", now);
+                // A lost HTTP response must not turn the same removal into a conflict on retry.
+                case REMOVED, ABANDONED -> input;
+                case STARTING, STARTED -> throw new AgentConflictException("Queued input can no longer be removed: " + input.state());
+            };
+            if (removed == input) {
+                return displayInput(input);
+            }
+            EventId eventId = EventId.random();
+            QueuedAgentInput stored = unitOfWork.execute(() -> {
+                QueuedAgentInput updated = queueStore.update(removed);
+                outboxStore.insert(pendingLifecycle(
+                        eventId,
+                        taskId,
+                        Optional.empty(),
+                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
+                        removed.state() == QueuedAgentInput.State.ABANDONED
+                                ? "Queued input abandoned"
+                                : "Queued input removed",
+                        now));
+                return updated;
+            });
+            eventService.drain(eventId);
+            return displayInput(stored);
+        }
+    }
+
+    @Override
+    public AgentTurn resumeQueued(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        retryCompletedTurn(taskId);
+        Launch launch;
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            drainPending(outboxStore, eventService, taskId);
+            AgentTask task = requireStartableTask(taskId);
+            QueuedAgentInput head = queueHead(taskId)
+                    .orElseThrow(() -> new AgentConflictException("Task has no queued input: " + taskId));
+            if (head.state() == QueuedAgentInput.State.UNCERTAIN) {
+                throw new AgentConflictException("The next queued input may already have been delivered; discard it first: " + head.id());
+            }
+            launch = launchQueuedLocked(task, head);
+        }
+        return settleLaunch(taskId, launch);
+    }
+
+    /** The next input that is not history: waiting, paused, or uncertain. */
+    private Optional<QueuedAgentInput> queueHead(TaskId taskId)
+    {
+        return queueStore.listQueued(taskId).stream()
+                .filter(input -> !input.state().historical())
+                .findFirst();
+    }
+
+    /**
+     * Starts the queue head after a turn ended well.
+     *
+     * <p>Only a waiting input starts by itself; a paused one waits for the user, and an uncertain
+     * one for a decision. Whatever stops the start is written on the input as its pause reason,
+     * because this runs on no request that could carry the failure back to anyone.
+     */
+    private void startQueuedHead(TaskId taskId)
+    {
+        Launch launch;
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            Optional<QueuedAgentInput> head = queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED);
+            if (head.isEmpty()) {
+                return;
+            }
+            try {
+                drainPending(outboxStore, eventService, taskId);
+            }
+            catch (RuntimeException unavailable) {
+                pauseQueuedHead(head.orElseThrow(), "Not started: " + message(unavailable));
+                return;
+            }
+            AgentTask task;
+            try {
+                task = requireStartableTask(taskId);
+            }
+            catch (AgentConflictException busy) {
+                // A turn the user sent got there first; the queue waits for it like any other.
+                return;
+            }
+            catch (RuntimeException unavailable) {
+                pauseQueuedHead(head.orElseThrow(), "Not started: " + message(unavailable));
+                return;
+            }
+            try {
+                launch = launchQueuedLocked(task, head.orElseThrow());
             }
             catch (RuntimeException failure) {
-                if (!deliveryAttempted) {
-                    recordKnownUnsentFailure(accepted, failure);
-                }
-                failedTurn = accepted;
-                startFailure = failure;
+                pauseQueuedHead(requireQueued(head.orElseThrow().id()), "Not started: " + message(failure));
+                return;
             }
         }
-        if (startFailure != null) {
-            cleanupFailedStart(
-                    requireNonNull(failedTurn, "failed turn is null"),
-                    failedRunningTurn,
-                    startFailure);
-            throw startFailure;
+        try {
+            settleLaunch(taskId, launch);
         }
-        return observeStartedTurn(command.taskId(), requireNonNull(started, "started turn is null"));
+        catch (RuntimeException failure) {
+            // Already on the turn and its input; there is no caller to tell.
+        }
+    }
+
+    /** Persists a background queue mutation and only then publishes the refresh signal for it. */
+    private void pauseQueuedHead(QueuedAgentInput input, String reason)
+    {
+        Instant pausedAt = Instant.now(clock);
+        EventId eventId = EventId.random();
+        unitOfWork.execute(() -> {
+            queueStore.update(input.paused(reason, pausedAt));
+            outboxStore.insert(pendingLifecycle(
+                    eventId,
+                    input.taskId(),
+                    Optional.empty(),
+                    AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
+                    reason,
+                    pausedAt));
+            return null;
+        });
+        eventService.drain(eventId);
+    }
+
+    private Launch launchQueuedLocked(AgentTask task, QueuedAgentInput head)
+    {
+        List<AgentAttachment> attachments = head.settings().attachments().stream()
+                .map(reference -> resourceService.readAttachment(task.id(), reference.id()).input())
+                .collect(toImmutableList());
+        String text = readUtf8(task.id(), head.textBlob());
+        return launchLocked(task, acceptQueuedLocked(task, head), text, attachments);
+    }
+
+    /**
+     * Claims the queue head for a new turn: the input, the task's worktree, and the turn move
+     * together. The one user-message event is emitted on the first claim; a later attempt after a
+     * known pre-send failure reuses it, so the transcript shows one request, not two.
+     */
+    private TurnAcceptance acceptQueuedLocked(AgentTask task, QueuedAgentInput head)
+    {
+        TurnId turnId = TurnId.random();
+        Instant acceptedAt = Instant.now(clock);
+        AgentTurnSettings settings = head.settings();
+        AgentTurn turn = AgentTurn.accepted(turnId, task.id(), "queue:" + head.id() + ":" + turnId, settings, acceptedAt);
+        EventId messageEventId = head.messageEventId().orElseGet(EventId::random);
+        EventId deliveryEventId = head.messageEventId().isPresent() ? EventId.random() : messageEventId;
+        unitOfWork.execute(() -> {
+            taskStore.update(task.claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, acceptedAt), acceptedAt));
+            turnStore.insert(turn);
+            queueStore.update(head.starting(turnId, messageEventId, acceptedAt));
+            if (head.messageEventId().isEmpty()) {
+                outboxStore.insert(new AgentEventOutboxEntry(
+                        messageEventId,
+                        task.id(),
+                        Optional.of(turnId),
+                        root(),
+                        new AgentEventOutboxPayload.UserMessageBlob(
+                                head.textBlob(),
+                                settings.attachments(),
+                                AgentEventPayload.DeliveryKind.QUEUED),
+                        acceptedAt,
+                        Optional.empty()));
+            }
+            else {
+                outboxStore.insert(pendingLifecycle(
+                        deliveryEventId,
+                        task.id(),
+                        Optional.of(turnId),
+                        AgentEventPayload.LifecyclePhase.RETRYING,
+                        "Retrying queued input",
+                        acceptedAt));
+            }
+            return null;
+        });
+        return new TurnAcceptance(turn, settings, deliveryEventId);
+    }
+
+    private String readUtf8(TaskId taskId, BlobRef blobRef)
+    {
+        try {
+            return UTF_8.newDecoder().decode(logStore.readBlob(taskId, blobRef)).toString();
+        }
+        catch (CharacterCodingException e) {
+            throw new InvalidAgentRequestException("Queued text is not valid UTF-8");
+        }
+    }
+
+    private QueuedAgentInput displayInput(QueuedAgentInput input)
+    {
+        return input.withPreview(readUtf8(input.taskId(), input.textBlob()));
+    }
+
+    private static List<AgentAttachmentReference> references(List<AgentAttachment> attachments)
+    {
+        return attachments.stream()
+                .map(attachment -> new AgentAttachmentReference(attachment.id(), attachment.name(), attachment.mediaType()))
+                .collect(toImmutableList());
+    }
+
+    private QueuedAgentInput requireQueued(QueuedInputId queuedInputId)
+    {
+        return queueStore.find(queuedInputId).orElseThrow(() -> new QueuedInputNotFoundException(queuedInputId));
     }
 
     private void cleanupFailedStart(AgentTurn turn, RunningTurn runningTurn, RuntimeException failure)
@@ -261,14 +792,7 @@ public final class DefaultAgentTurnService
     {
         TurnId turnId = TurnId.random();
         Instant acceptedAt = Instant.now(clock);
-        AgentTurnSettings settings = turnSettings(
-                task,
-                command.attachments().stream()
-                        .map(attachment -> new AgentAttachmentReference(
-                                attachment.id(),
-                                attachment.name(),
-                                attachment.mediaType()))
-                        .collect(toImmutableList()));
+        AgentTurnSettings settings = turnSettings(task, references(command.attachments()));
         AgentTurn turn = AgentTurn.accepted(
                 turnId,
                 task.id(),
@@ -302,17 +826,45 @@ public final class DefaultAgentTurnService
     private StartedTurn registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn, AgentSessionRef reference)
     {
         ProviderTurnRef providerTurnReference = runningTurn.reference();
-        AgentTurn running = turnStore.update(requireTurn(accepted.id()).running(
-                providerTurnReference,
-                Optional.empty()));
-        // The thread reference is persisted only now that a turn has run on it. A thread that was
-        // opened but never turned has no rollout, so resuming it after a restart fails forever;
-        // forgetting it means the next turn starts a fresh thread instead.
-        AgentTask task = requireTask(running.taskId());
-        if (task.sessionReference().isEmpty()) {
-            taskStore.update(task.withSessionReference(reference, Instant.now(clock)));
-        }
+        Instant acknowledgedAt = Instant.now(clock);
+        Optional<QueuedAgentInput> queuedInput = queueStore.listQueued(accepted.taskId()).stream()
+                .filter(input -> input.state() == QueuedAgentInput.State.STARTING && input.turnId().equals(Optional.of(accepted.id())))
+                .findFirst();
+        Optional<EventId> queueEventId = queuedInput.map(input -> EventId.random());
+        AgentTurn running = unitOfWork.execute(() -> {
+            AgentTurn updated = turnStore.update(requireTurn(accepted.id()).running(
+                    providerTurnReference,
+                    Optional.empty()));
+            // The thread reference is persisted only now that a turn has run on it. A thread that
+            // was opened but never turned has no rollout, so resuming it after a restart fails
+            // forever; forgetting it means the next turn starts a fresh thread instead.
+            AgentTask task = requireTask(updated.taskId());
+            if (task.sessionReference().isEmpty()) {
+                taskStore.update(task.withSessionReference(reference, acknowledgedAt));
+            }
+            // The provider acknowledged the turn, so a queued input that became it is consumed for
+            // good, whatever that turn does next.
+            queuedInput.ifPresent(input -> queueStore.update(input.started(acknowledgedAt)));
+            queueEventId.ifPresent(eventId -> outboxStore.insert(pendingLifecycle(
+                    eventId,
+                    updated.taskId(),
+                    Optional.of(updated.id()),
+                    AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED,
+                    "Queued input started",
+                    acknowledgedAt)));
+            return updated;
+        });
         runtimeRegistry.registerRunning(running.id(), runningTurn);
+        queueEventId.ifPresent(eventId -> {
+            try {
+                eventService.drain(eventId);
+            }
+            catch (RuntimeException ignored) {
+                // The provider already acknowledged the turn. The outbox row is durable and a
+                // later request/recovery drain can publish it; delivery failure must not cancel a
+                // provider execution that is now writing to the task worktree.
+            }
+        });
         return new StartedTurn(running, runningTurn);
     }
 
@@ -631,6 +1183,8 @@ public final class DefaultAgentTurnService
             AgentTurnResult providerResult,
             Throwable completionFailure)
     {
+        // Completion may arrive on the provider's response reader. It must not wait for the steer
+        // lock: the request holding that lock can itself be waiting for this callback to return.
         synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
             AgentTurn turn = requireTurn(observedTurn.id());
             if (!turn.state().terminal()) {
@@ -653,6 +1207,18 @@ public final class DefaultAgentTurnService
             }
         }
         finishTerminalCallbacks(observedTurn, runningTurn);
+        if (queueMayStart(observedTurn)) {
+            queueStarter.execute(() -> startQueuedHead(observedTurn.taskId()));
+        }
+    }
+
+    /** Only a turn that ended well and gave the worktree back may start what waits behind it. */
+    private boolean queueMayStart(AgentTurn observedTurn)
+    {
+        synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
+            return requireTurn(observedTurn.id()).state() == TurnState.COMPLETED
+                    && requireTask(observedTurn.taskId()).worktreeMutationClaim().isEmpty();
+        }
     }
 
     private void finishTerminalCallbacks(AgentTurn turn, RunningTurn runningTurn)
@@ -689,7 +1255,7 @@ public final class DefaultAgentTurnService
             AgentTurn turn = requireTurn(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 Optional<String> reason = Optional.of(failureMessage(failure));
-                persistTerminalTurn(turn, TurnState.FAILED, reason, true);
+                persistTerminalTurn(turn, TurnState.FAILED, reason, true, true);
                 drainPending(outboxStore, eventService, turn.taskId());
             }
         });
@@ -708,12 +1274,25 @@ public final class DefaultAgentTurnService
             Optional<String> reason,
             boolean providerQuiescent)
     {
+        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, false);
+    }
+
+    private void persistTerminalTurn(
+            AgentTurn turn,
+            TurnState terminalState,
+            Optional<String> reason,
+            boolean providerQuiescent,
+            boolean knownUnsent)
+    {
         EventId eventId = EventId.random();
         unitOfWork.execute(() -> {
             TurnMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
             Instant endedAt = Instant.now(clock);
             AgentTurn latest = requireTurn(turn.id());
-            AgentTurn terminal = turnStore.update(latest.finish(terminalState, finalMetrics, reason, endedAt));
+            AgentTurn finished = knownUnsent
+                    ? latest.finishKnownUnsent(finalMetrics, reason.orElseThrow(), endedAt)
+                    : latest.finish(terminalState, finalMetrics, reason, endedAt);
+            AgentTurn terminal = turnStore.update(finished);
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
             AgentTask task = requireTask(terminal.taskId());
             AgentTask updated = providerQuiescent ? task.releaseWorktreeMutation(claim, endedAt) : task;
@@ -723,6 +1302,13 @@ public final class DefaultAgentTurnService
             if (updated != task) {
                 taskStore.update(updated);
             }
+            settleQueue(
+                    terminal,
+                    terminalState,
+                    providerQuiescent,
+                    lifecycleMessage(terminalState, reason),
+                    endedAt);
+            settleSteersForTerminalTurn(terminal.id(), endedAt);
             outboxStore.insert(pendingLifecycle(
                     eventId,
                     terminal.taskId(),
@@ -732,6 +1318,63 @@ public final class DefaultAgentTurnService
                     endedAt));
             return null;
         });
+    }
+
+    /** A turn cannot finish with steer input that is known not to have reached the provider. */
+    private void settleSteersForTerminalTurn(TurnId turnId, Instant endedAt)
+    {
+        for (AgentInputDelivery delivery : steerStore.listUnsettled()) {
+            if (!delivery.turnId().equals(turnId) || delivery.state() != AgentInputDelivery.State.ACCEPTED) {
+                continue;
+            }
+            AgentInputDelivery settled = delivery.failed("Turn ended before the input was sent", endedAt);
+            steerStore.update(settled);
+            outboxStore.insert(pendingInline(
+                    EventId.random(),
+                    settled.taskId(),
+                    Optional.of(settled.turnId()),
+                    root(),
+                    new AgentEventPayload.Error(
+                            "STEER_FAILED",
+                            settled.failure().orElseThrow(),
+                            false),
+                    endedAt));
+        }
+    }
+
+    /**
+     * What a turn's end means for the queue behind it.
+     *
+     * <p>The input this turn was claimed from is settled by what the turn proves: never sent, it
+     * waits again as paused; sent but never acknowledged, nobody knows, so it is uncertain and
+     * only the user may discard it. Anything less than a clean success pauses the rest.
+     */
+    private void settleQueue(
+            AgentTurn terminal,
+            TurnState terminalState,
+            boolean providerQuiescent,
+            String outcome,
+            Instant endedAt)
+    {
+        boolean success = terminalState == TurnState.COMPLETED && providerQuiescent;
+        for (QueuedAgentInput input : queueStore.listQueued(terminal.taskId())) {
+            if (input.state() == QueuedAgentInput.State.STARTING && input.turnId().equals(Optional.of(terminal.id()))) {
+                if (terminal.knownUnsent() || terminal.startedAt().isEmpty()) {
+                    queueStore.update(input.paused(outcome, endedAt));
+                }
+                else if (terminal.providerTurnReference().isEmpty()) {
+                    queueStore.update(input.uncertain(outcome, endedAt));
+                }
+                else {
+                    queueStore.update(input.started(endedAt));
+                }
+            }
+            else if (input.state() == QueuedAgentInput.State.QUEUED && !success) {
+                queueStore.update(input.paused(
+                        terminalState == TurnState.COMPLETED ? "Turn completed but its work could not be shown stopped" : outcome,
+                        endedAt));
+            }
+        }
     }
 
     /**
@@ -850,13 +1493,13 @@ public final class DefaultAgentTurnService
     private record TurnAcceptance(
             AgentTurn turn,
             AgentTurnSettings settings,
-            EventId messageEventId)
+            EventId deliveryEventId)
     {
         private TurnAcceptance
         {
             requireNonNull(turn, "turn is null");
             requireNonNull(settings, "settings is null");
-            requireNonNull(messageEventId, "messageEventId is null");
+            requireNonNull(deliveryEventId, "deliveryEventId is null");
         }
     }
 
@@ -866,6 +1509,26 @@ public final class DefaultAgentTurnService
         {
             requireNonNull(turn, "turn is null");
             requireNonNull(runningTurn, "runningTurn is null");
+        }
+    }
+
+    /** What launching an accepted turn produced: a watched run, or the failure and what it left behind. */
+    private record Launch(AgentTurn turn, StartedTurn started, RunningTurn failedRunningTurn, RuntimeException failure)
+    {
+        private Launch
+        {
+            requireNonNull(turn, "turn is null");
+            checkArgument((started == null) != (failure == null), "a launch either started or failed");
+        }
+    }
+
+    private record SteerAcceptance(AgentInputDelivery delivery, EventId messageEventId, AgentTurnInput input)
+    {
+        private SteerAcceptance
+        {
+            requireNonNull(delivery, "delivery is null");
+            requireNonNull(messageEventId, "messageEventId is null");
+            requireNonNull(input, "input is null");
         }
     }
 }

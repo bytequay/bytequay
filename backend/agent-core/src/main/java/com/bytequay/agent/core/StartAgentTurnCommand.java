@@ -17,12 +17,15 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.OptionalLong;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record StartAgentTurnCommand(
         TaskId taskId,
+        OptionalLong expectedTaskVersion,
         String message,
         List<AgentAttachment> attachments,
         String idempotencyKey)
@@ -30,9 +33,31 @@ public record StartAgentTurnCommand(
     public StartAgentTurnCommand
     {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(expectedTaskVersion, "expectedTaskVersion is null");
+        expectedTaskVersion.ifPresent(version -> checkArgument(version >= 0, "expectedTaskVersion is negative"));
         checkNotBlank(message, "message");
-        requireNonNull(attachments, "attachments is null");
         attachments = ImmutableList.copyOf(attachments);
         checkNotBlank(idempotencyKey, "idempotencyKey");
+    }
+
+    /** Starts against an exact task snapshot, for callers that validated its mutable defaults. */
+    public StartAgentTurnCommand(
+            TaskId taskId,
+            long expectedTaskVersion,
+            String message,
+            List<AgentAttachment> attachments,
+            String idempotencyKey)
+    {
+        this(taskId, OptionalLong.of(expectedTaskVersion), message, attachments, idempotencyKey);
+    }
+
+    /** Starts with the latest defaults; suitable when the caller made no decision from them. */
+    public StartAgentTurnCommand(
+            TaskId taskId,
+            String message,
+            List<AgentAttachment> attachments,
+            String idempotencyKey)
+    {
+        this(taskId, OptionalLong.empty(), message, attachments, idempotencyKey);
     }
 }

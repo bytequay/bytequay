@@ -16,8 +16,10 @@ import type {
   AgentApprovalDto,
   AgentAttachmentDto,
   AgentCompletionDto,
+  AgentInputDeliveryDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
+  AgentQueuedInputDto,
   AgentRuntimeStopImpactDto,
   AgentTaskDefaultsDto,
   AgentTaskDto,
@@ -203,11 +205,48 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     endedAt: optionalText(source.endedAt, `${path}.endedAt`),
     cancellationRequestedAt: optionalText(source.cancellationRequestedAt, `${path}.cancellationRequestedAt`),
     delivered: source.delivered === true,
+    knownUnsent: source.knownUnsent === true,
     settings: source.settings === null || source.settings === undefined
       ? null
       : parseAgentTurnSettings(source.settings, `${path}.settings`),
     terminalReason: optionalText(source.terminalReason, `${path}.terminalReason`),
     metrics: metrics(source.metrics, `${path}.metrics`),
+  };
+}
+
+export function parseAgentQueuedInput(value: unknown, path = 'queuedInput'): AgentQueuedInputDto {
+  const source = object(value, path);
+  return {
+    id: text(source.id, `${path}.id`),
+    taskId: text(source.taskId, `${path}.taskId`),
+    position: count(source.position, `${path}.position`),
+    state: text(source.state, `${path}.state`),
+    preview: text(source.preview, `${path}.preview`),
+    settings: parseAgentTurnSettings(source.settings, `${path}.settings`),
+    turnId: optionalText(source.turnId, `${path}.turnId`),
+    pauseReason: optionalText(source.pauseReason, `${path}.pauseReason`),
+    createdAt: text(source.createdAt, `${path}.createdAt`),
+    updatedAt: text(source.updatedAt, `${path}.updatedAt`),
+  };
+}
+
+export function parseAgentQueue(value: unknown): AgentQueuedInputDto[] {
+  if (!Array.isArray(value)) {
+    throw new Error('queue is not an array');
+  }
+  return value.map((entry, index) => parseAgentQueuedInput(entry, `queue[${index}]`));
+}
+
+export function parseAgentInputDelivery(value: unknown, path = 'delivery'): AgentInputDeliveryDto {
+  const source = object(value, path);
+  return {
+    id: text(source.id, `${path}.id`),
+    taskId: text(source.taskId, `${path}.taskId`),
+    turnId: text(source.turnId, `${path}.turnId`),
+    state: text(source.state, `${path}.state`),
+    failure: optionalText(source.failure, `${path}.failure`),
+    createdAt: text(source.createdAt, `${path}.createdAt`),
+    updatedAt: text(source.updatedAt, `${path}.updatedAt`),
   };
 }
 

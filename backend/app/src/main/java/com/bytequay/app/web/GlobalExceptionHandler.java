@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
@@ -104,6 +105,7 @@ public class GlobalExceptionHandler
             AgentTaskNotFoundException.class,
             AgentAttachmentNotFoundException.class,
             AgentTurnNotFoundException.class,
+            QueuedInputNotFoundException.class,
             ApprovalNotFoundException.class,
             CherryPickNotFoundException.class,
             CiAutofixNotFoundException.class})

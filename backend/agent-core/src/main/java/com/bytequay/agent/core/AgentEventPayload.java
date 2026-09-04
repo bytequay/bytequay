@@ -403,6 +403,9 @@ public sealed interface AgentEventPayload
     {
         SESSION_OPENED,
         TURN_STARTED,
+        QUEUE_CHANGED,
+        QUEUED_INPUT_STARTED,
+        QUEUED_INPUT_PAUSED,
         TURN_COMPLETED,
         TASK_COMPLETED,
         TASK_FAILED,

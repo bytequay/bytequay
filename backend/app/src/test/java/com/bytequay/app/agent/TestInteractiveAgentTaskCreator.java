@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -42,6 +45,7 @@ import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -74,6 +78,9 @@ class TestInteractiveAgentTaskCreator
         git = mock(GitCommandRunner.class);
         when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
+        when(tasks.getInteractive(eq("workspace-1"), any())).thenAnswer(invocation -> {
+            throw new AgentTaskNotFoundException(invocation.getArgument(1));
+        });
         ready();
         creator = new InteractiveAgentTaskCreator(tasks, drivers, models, workspaces, git);
     }
@@ -87,11 +94,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
 
-        creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                new AgentTaskDefaults(
+        create(new AgentTaskDefaults(
                         Optional.of("model-a"),
                         Optional.of("high"),
                         AgentPermissionPolicy.AUTO));
@@ -124,11 +127,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
 
-        creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                new AgentTaskDefaults(
+        create(new AgentTaskDefaults(
                         Optional.of("model-a"),
                         Optional.of("high"),
                         AgentPermissionPolicy.AUTO));
@@ -147,14 +146,10 @@ class TestInteractiveAgentTaskCreator
                 "login required",
                 AgentCapabilities.none()));
 
-        assertThatThrownBy(() -> creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                defaults()))
+        assertThatThrownBy(() -> create(defaults()))
                 .isInstanceOf(AgentUnavailableException.class);
 
-        verifyNoInteractions(workspaces, git, tasks);
+        verifyNoInteractions(workspaces, git);
     }
 
     @Test
@@ -168,16 +163,12 @@ class TestInteractiveAgentTaskCreator
                 .when(models)
                 .validateSelection("codex", "unknown-model", Optional.of("high"));
 
-        assertThatThrownBy(() -> creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                defaults))
+        assertThatThrownBy(() -> create(defaults))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unknown model");
 
         verify(driver).probe();
-        verifyNoInteractions(workspaces, git, tasks);
+        verifyNoInteractions(workspaces, git);
     }
 
     @Test
@@ -191,16 +182,12 @@ class TestInteractiveAgentTaskCreator
                 .when(models)
                 .validateSelection("codex", "model-a", Optional.of("unsupported"));
 
-        assertThatThrownBy(() -> creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                defaults))
+        assertThatThrownBy(() -> create(defaults))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unknown effort");
 
         verify(driver).probe();
-        verifyNoInteractions(workspaces, git, tasks);
+        verifyNoInteractions(workspaces, git);
     }
 
     @Test
@@ -211,11 +198,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(GitCommandRunner.Result.failed("missing ref"));
 
-        assertThatThrownBy(() -> creator.create(
-                "workspace-1",
-                "Review",
-                AgentLaneId.CODEX_CLI,
-                defaults()))
+        assertThatThrownBy(() -> create(defaults()))
                 .hasMessageContaining("start commit");
 
         verify(tasks, never()).createInteractive(any());
@@ -229,6 +212,17 @@ class TestInteractiveAgentTaskCreator
                 Optional.of("test"),
                 "ready",
                 AgentCapabilities.none()));
+    }
+
+    private AgentTask create(AgentTaskDefaults defaults)
+    {
+        return creator.create(
+                TaskId.valueOf("11111111-1111-1111-1111-111111111111"),
+                "workspace-1",
+                "Review",
+                AgentLaneId.CODEX_CLI,
+                defaults,
+                "create-key");
     }
 
     private static AgentTaskDefaults defaults()

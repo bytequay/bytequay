@@ -583,26 +583,77 @@ export type AgentTurnDto = {
   cancellationRequestedAt: string | null;
   /** Whether the provider acknowledged the input; a started but unacknowledged turn is uncertain. */
   delivered: boolean;
+  /** Core proved the request failed before the provider call, so an explicit retry is safe. */
+  knownUnsent: boolean;
   settings: AgentTurnSettingsDto | null;
   terminalReason: string | null;
   metrics: AgentMetricsDto;
 };
 
 export type CreateAgentTaskRequest = {
+  /** Client-generated identity makes task provisioning safe to replay after a lost response. */
+  taskId: string;
   workspaceId: string;
   /** The first message; it creates the task and names it until the agent answers. */
   message: string;
   laneId: string;
   defaults: AgentTaskDefaultsDto;
+  /** The composite request also starts the first turn exactly once. */
+  idempotencyKey: string;
 };
 
 export type StartAgentTurnRequest = {
   taskId: string;
   message: string;
+  /** Defaults must be the version the composer displayed, not a later cross-window update. */
+  expectedTaskVersion: number;
   /** Makes a retried start return the original turn instead of creating a second one. */
   idempotencyKey: string;
   /** Opaque references the backend issued for images stored on this task; never paths. */
   attachments?: string[];
+};
+
+/** Input for the turn running now; the turn named is the one on screen, any other is refused. */
+export type SteerAgentTurnRequest = {
+  turnId: string;
+  message: string;
+  idempotencyKey: string;
+  attachments?: string[];
+};
+
+/** What became of one steer. UNKNOWN is final: it was sent and nothing says whether it arrived. */
+export type AgentInputDeliveryDto = {
+  id: string;
+  taskId: string;
+  turnId: string;
+  state: string;
+  failure: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** A request to run after the current turn; the version is the one this screen saw. */
+export type QueueAgentInputRequest = {
+  taskId: string;
+  workspaceId: string;
+  message: string;
+  expectedVersion: number;
+  idempotencyKey: string;
+  attachments?: string[];
+};
+
+/** A request waiting in the task's queue. The preview is bounded; the whole text reaches the transcript when it runs. */
+export type AgentQueuedInputDto = {
+  id: string;
+  taskId: string;
+  position: number;
+  state: string;
+  preview: string;
+  settings: AgentTurnSettingsDto;
+  turnId: string | null;
+  pauseReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 /** A stored, verified image the task owns; the renderer only ever sees these facts. */
@@ -853,6 +904,8 @@ export type ModelProviderDto = {
   diagnostic: string;
   /** The exact command that signs this lane in, when a generic login would land elsewhere. */
   signInCommand?: string | null;
+  /** Whether a running turn on this lane accepts more input; absent on catalogs recorded before it was carried. */
+  steering?: boolean;
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort: string;
@@ -1255,6 +1308,15 @@ export type Bridge = {
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
   startAgentTurn: (request: StartAgentTurnRequest) => Promise<AgentTurnDto>;
+  /** Adds input to the running turn; the reply says whether it arrived, and UNKNOWN is never retried. */
+  steerAgentTurn: (request: SteerAgentTurnRequest) => Promise<AgentInputDeliveryDto>;
+  /** Queues a request behind the current turn; version-checked so it cannot race Complete. */
+  queueAgentInput: (request: QueueAgentInputRequest) => Promise<AgentQueuedInputDto>;
+  listAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentQueuedInputDto[]>;
+  /** Removes a waiting input, or records an uncertain one as abandoned. */
+  removeAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string) => Promise<AgentQueuedInputDto>;
+  /** Starts the paused queue head on an idle task. */
+  resumeAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentTurnDto>;
   getAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
   cancelAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
   resolveAgentApproval: (

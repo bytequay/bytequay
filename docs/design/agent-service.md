@@ -118,9 +118,10 @@ provider reference confirms receipt. A failure before that marker is known
 unsent; a failure after it without a provider reference is uncertain and
 retains the blocking turn and mutation claim, so neither Send nor Complete can
 silently race or resend it. Startup derives the same facts from the turn; the
-task remains `OPEN`. Codex image inputs,
-steering, and durable queueing are absent, and Electron has no agent REST/SSE
-bridge. These are implementation prerequisites, not optional renderer polish.
+task remains `OPEN`. Codex image inputs, steering, and the durable queue ship
+behind the authenticated Electron bridge: a steer is its own delivery row and
+is never resent, and a queued input is claimed with its turn and the worktree
+in one unit of work.
 
 Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
 pushes, and user-confirmation gates remain application-owned invariants. The

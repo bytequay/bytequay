@@ -14,10 +14,12 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentAttachmentReference;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TestFact;
@@ -25,6 +27,7 @@ import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
@@ -103,9 +106,39 @@ final class InteractiveAgentHttpContract
                 // acknowledged may or may not have been received, so a retry must not be offered
                 // as if the message were known unsent.
                 turn.providerTurnReference().isPresent(),
+                turn.knownUnsent(),
                 turn.settings().map(InteractiveAgentHttpContract::settings),
                 turn.terminalReason(),
                 turn.metrics());
+    }
+
+    static QueuedInputResponse queuedInput(QueuedAgentInput input)
+    {
+        requireNonNull(input, "input is null");
+        return new QueuedInputResponse(
+                input.id().toString(),
+                input.taskId().toString(),
+                input.position(),
+                input.state().name(),
+                input.preview(),
+                settings(input.settings()),
+                input.turnId().map(Object::toString),
+                input.pauseReason(),
+                input.createdAt(),
+                input.updatedAt());
+    }
+
+    static InputDeliveryResponse delivery(AgentInputDelivery delivery)
+    {
+        requireNonNull(delivery, "delivery is null");
+        return new InputDeliveryResponse(
+                delivery.id().toString(),
+                delivery.taskId().toString(),
+                delivery.turnId().toString(),
+                delivery.state().name(),
+                delivery.failure(),
+                delivery.createdAt(),
+                delivery.updatedAt());
     }
 
     static TaskSummaryResponse summary(TaskSummary summary)
@@ -163,17 +196,21 @@ final class InteractiveAgentHttpContract
 
     /** The first message creates the task; there is no title field, the message names it for now. */
     record CreateTaskRequest(
+            String taskId,
             String workspaceId,
             String message,
             String laneId,
-            TaskDefaults defaults)
+            TaskDefaults defaults,
+            String idempotencyKey)
     {
         CreateTaskRequest
         {
+            checkNotBlank(taskId, "taskId");
             checkNotBlank(workspaceId, "workspaceId");
             checkNotBlank(message, "message");
             checkNotBlank(laneId, "laneId");
             requireNonNull(defaults, "defaults is null");
+            checkNotBlank(idempotencyKey, "idempotencyKey");
             if (!AgentLaneId.CODEX_CLI.value().equals(laneId)) {
                 throw new IllegalArgumentException("Interactive tasks currently support only the Codex lane");
             }
@@ -281,9 +318,43 @@ final class InteractiveAgentHttpContract
             Optional<Instant> endedAt,
             Optional<Instant> cancellationRequestedAt,
             boolean delivered,
+            boolean knownUnsent,
             Optional<TurnSettings> settings,
             Optional<String> terminalReason,
             TurnMetrics metrics) {}
+
+    /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */
+    record InputRequest(String message, List<String> attachments, Long expectedVersion)
+    {
+        InputRequest
+        {
+            checkNotBlank(message, "message");
+            attachments = attachments == null ? ImmutableList.of() : ImmutableList.copyOf(attachments);
+        }
+    }
+
+    /** A request waiting in the queue. Its text is a bounded preview; the whole message reaches the transcript when it runs. */
+    record QueuedInputResponse(
+            String id,
+            String taskId,
+            long position,
+            String state,
+            String preview,
+            TurnSettings settings,
+            Optional<String> turnId,
+            Optional<String> pauseReason,
+            Instant createdAt,
+            Instant updatedAt) {}
+
+    /** What became of one steer. UNKNOWN is final: the input was sent and nothing says whether it arrived. */
+    record InputDeliveryResponse(
+            String id,
+            String taskId,
+            String turnId,
+            String state,
+            Optional<String> failure,
+            Instant createdAt,
+            Instant updatedAt) {}
 
     record TurnSettings(
             Optional<String> model,

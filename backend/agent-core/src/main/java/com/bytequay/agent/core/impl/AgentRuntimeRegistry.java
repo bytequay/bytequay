@@ -18,10 +18,12 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.RunningTurn;
+import com.google.common.util.concurrent.Striped;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
 
@@ -37,13 +39,21 @@ public final class AgentRuntimeRegistry
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
-    private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
+    private final Striped<Lock> taskLocks = Striped.lock(64);
+    private final Striped<Lock> steerLocks = Striped.lock(64);
     private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
 
     Object taskLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        return taskLocks.computeIfAbsent(taskId, ignored -> new Object());
+        return taskLocks.get(taskId);
+    }
+
+    /** Serializes provider steer requests without holding the task state lock while awaiting I/O. */
+    Object steerLock(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return steerLocks.get(taskId);
     }
 
     public Optional<AgentSession> session(TaskId taskId)

@@ -15,6 +15,7 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
@@ -27,8 +28,12 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -236,6 +241,48 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentInputDelivery steer(SteerAgentTurnCommand command)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public QueuedAgentInput enqueue(QueueAgentInputCommand command)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public List<QueuedAgentInput> queued(TaskId taskId)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public AgentTurn resumeQueued(TaskId taskId)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
     public AgentTurn start(StartAgentTurnCommand command)
     {
         prompts.add(command.message());
@@ -247,6 +294,12 @@ final class ScriptedCherryPickAgent
         AgentTurn turn = turn(scripted.state());
         started.add(turn);
         return turn;
+    }
+
+    @Override
+    public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
+    {
+        return Optional.empty();
     }
 
     @Override
@@ -325,6 +378,7 @@ final class ScriptedCherryPickAgent
                 Optional.of(NOW),
                 Optional.empty(),
                 Optional.empty(),
+                false,
                 Optional.empty(),
                 Optional.of(new AgentTurnSettings(
                         task.defaults().model(),

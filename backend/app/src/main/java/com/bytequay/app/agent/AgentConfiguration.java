@@ -45,6 +45,8 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -213,6 +215,8 @@ public class AgentConfiguration
     public AgentTurnService agentTurnService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             TaskLogStore logStore,
@@ -228,6 +232,8 @@ public class AgentConfiguration
         return new DefaultAgentTurnService(
                 taskStore,
                 turnStore,
+                queueStore,
+                steerStore,
                 unitOfWork,
                 outboxStore,
                 logStore,
@@ -238,13 +244,17 @@ public class AgentConfiguration
                 approvalService,
                 runtimeRegistry,
                 agentClock,
-                properties.maximumTurnRuntime());
+                properties.maximumTurnRuntime(),
+                // A queued turn starts from whatever thread ended the last one, which may be the
+                // provider's own reader; it must not block that thread on a provider call.
+                command -> Thread.ofVirtual().name("bytequay-agent-queue").start(command));
     }
 
     @Bean
     public AgentCompletionService agentCompletionService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             AgentEventService eventService,
@@ -258,6 +268,7 @@ public class AgentConfiguration
         return new DefaultAgentCompletionService(
                 taskStore,
                 turnStore,
+                queueStore,
                 unitOfWork,
                 outboxStore,
                 eventService,
@@ -273,6 +284,8 @@ public class AgentConfiguration
     public AgentMaintenance agentMaintenance(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             AgentApprovalService approvalService,
@@ -284,6 +297,8 @@ public class AgentConfiguration
         return new AgentMaintenance(
                 taskStore,
                 turnStore,
+                queueStore,
+                steerStore,
                 unitOfWork,
                 outboxStore,
                 approvalService,

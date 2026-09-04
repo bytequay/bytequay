@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
@@ -21,8 +22,12 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -682,6 +687,48 @@ class TestBranchRebaseService
         }
 
         @Override
+        public AgentInputDelivery steer(SteerAgentTurnCommand command)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
+        public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public QueuedAgentInput enqueue(QueueAgentInputCommand command)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
+        public List<QueuedAgentInput> queued(TaskId taskId)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
+        public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
+        public AgentTurn resumeQueued(TaskId taskId)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
         public AgentTurn start(StartAgentTurnCommand command)
         {
             lastPrompt = command.message();
@@ -703,6 +750,12 @@ class TestBranchRebaseService
                 throw new BranchRebaseException("turn result was lost");
             }
             return turn;
+        }
+
+        @Override
+        public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
+        {
+            return Optional.empty();
         }
 
         private static AgentTurnSettings turnSettings()

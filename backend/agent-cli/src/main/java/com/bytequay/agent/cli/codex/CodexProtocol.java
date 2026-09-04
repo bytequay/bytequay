@@ -1440,6 +1440,30 @@ final class CodexProtocol
         }
     }
 
+    /**
+     * Adds input to the turn that is running now. The turn id is a precondition: App Server
+     * refuses the request when that turn is no longer the active one, so input meant for one turn
+     * can never land in the next.
+     */
+    record TurnSteerParams(String threadId, String expectedTurnId, List<UserInput> input)
+    {
+        TurnSteerParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(expectedTurnId, "expectedTurnId");
+            input = ImmutableList.copyOf(input);
+            checkArgument(!input.isEmpty(), "input is empty");
+        }
+    }
+
+    record TurnSteerResponse(String turnId)
+    {
+        TurnSteerResponse
+        {
+            checkIdentifier(turnId, "turnId");
+        }
+    }
+
     record TurnStartParams(
             String threadId,
             List<UserInput> input,

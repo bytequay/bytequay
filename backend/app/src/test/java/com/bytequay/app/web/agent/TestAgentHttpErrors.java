@@ -100,7 +100,7 @@ class TestAgentHttpErrors
         mvc.perform(post("/agent/tasks/{taskId}/turns", taskId)
                         .header("Idempotency-Key", "request-1")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"hello\"}"))
+                        .content("{\"message\":\"hello\",\"expectedVersion\":0}"))
                 .andExpect(status().isConflict());
 
         when(driverRegistry.statuses()).thenThrow(new AgentUnavailableException("provider unavailable"));

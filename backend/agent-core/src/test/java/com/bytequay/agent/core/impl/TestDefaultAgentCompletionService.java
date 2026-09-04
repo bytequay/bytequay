@@ -30,6 +30,8 @@ import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
@@ -189,6 +191,50 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void refusesToCompleteWhileInputWaitsInTheQueue()
+    {
+        stores.insert(queuedInput(taskId, 1, "queue-1"));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("queued input");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+    }
+
+    @Test
+    void abandonsUncertainInputWhenTheTaskCompletes()
+    {
+        QueuedAgentInput uncertain = queuedInput(taskId, 1, "queue-1")
+                .starting(TurnId.random(), EventId.random(), NOW)
+                .uncertain("Backend restarted while the input was being sent", NOW);
+        stores.insert(uncertain);
+        // A consumed input is history and blocks nothing.
+        stores.insert(queuedInput(taskId, 2, "queue-2").starting(TurnId.random(), EventId.random(), NOW).started(NOW));
+        runtimeRegistry.registerSession(taskId, new RecordingSession());
+
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        // Completing declined to resend it; it does not claim the provider never got it.
+        assertThat(stores.find(uncertain.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
+        assertThat(stores.find(uncertain.id()).orElseThrow().pauseReason()).contains("Task completed without resending it");
+    }
+
+    private static QueuedAgentInput queuedInput(TaskId taskId, long position, String idempotencyKey)
+    {
+        return QueuedAgentInput.queued(
+                QueuedInputId.random(),
+                taskId,
+                position,
+                idempotencyKey,
+                new BlobRef("blobs/queue-" + position, "text/plain; charset=utf-8", 5),
+                "later",
+                turnSettings(),
+                NOW);
+    }
+
+    @Test
     void abandonsATaskStuckHoldingAWorktreeClaim()
     {
         TurnId turnId = TurnId.random();
@@ -209,6 +255,42 @@ class TestDefaultAgentCompletionService
         assertThat(worktrees.cleaned).isEmpty();
         // The task's own process is stopped before the task is given up on.
         assertThat(session.closed).isTrue();
+    }
+
+    @Test
+    void removesWaitingQueueRowsAndAbandonsUncertainOnMarkFailed()
+    {
+        QueuedAgentInput waiting = queuedInput(taskId, 1, "queue-1");
+        QueuedAgentInput paused = queuedInput(taskId, 2, "queue-2").paused("provider unavailable", NOW);
+        QueuedAgentInput uncertain = queuedInput(taskId, 3, "queue-3")
+                .starting(TurnId.random(), EventId.random(), NOW)
+                .uncertain("delivery was not acknowledged", NOW);
+        AgentTurn knownUnsentTurn = AgentTurn.accepted(TurnId.random(), taskId, "known-unsent", turnSettings(), NOW)
+                .markDeliveryStarted(NOW)
+                .finishKnownUnsent(TurnMetrics.empty(), "not sent", NOW);
+        AgentTurn attemptedTurn = AgentTurn.accepted(TurnId.random(), taskId, "attempted", turnSettings(), NOW)
+                .markDeliveryStarted(NOW)
+                .finish(TurnState.INTERRUPTED, TurnMetrics.empty(), Optional.of("response lost"), NOW);
+        QueuedAgentInput knownUnsent = queuedInput(taskId, 4, "queue-4")
+                .starting(knownUnsentTurn.id(), EventId.random(), NOW);
+        QueuedAgentInput attempted = queuedInput(taskId, 5, "queue-5")
+                .starting(attemptedTurn.id(), EventId.random(), NOW);
+        stores.insert(waiting);
+        stores.insert(paused);
+        stores.insert(uncertain);
+        stores.insert(knownUnsentTurn);
+        stores.insert(attemptedTurn);
+        stores.insert(knownUnsent);
+        stores.insert(attempted);
+
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).abandon(taskId, "provider cannot recover");
+
+        assertThat(stores.find(waiting.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.REMOVED);
+        assertThat(stores.find(paused.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.REMOVED);
+        assertThat(stores.find(uncertain.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
+        assertThat(stores.find(knownUnsent.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.REMOVED);
+        assertThat(stores.find(attempted.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.FAILED);
     }
 
     @Test
@@ -368,6 +450,7 @@ class TestDefaultAgentCompletionService
     private DefaultAgentCompletionService service(Clock clock, StaticTaskLog log)
     {
         return new DefaultAgentCompletionService(
+                stores,
                 stores,
                 stores,
                 stores,

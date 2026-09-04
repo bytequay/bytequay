@@ -16,9 +16,11 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
@@ -30,19 +32,30 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
+import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
+import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
@@ -50,9 +63,11 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -72,14 +87,18 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -106,6 +125,8 @@ class TestDefaultAgentTurnService
     private AgentTask task;
     private DefaultAgentTaskService taskService;
     private DefaultAgentTurnService service;
+    private AgentRuntimeRegistry runtimeRegistry;
+    private FixedWorktreeService worktrees;
 
     @BeforeEach
     void setUp()
@@ -114,9 +135,10 @@ class TestDefaultAgentTurnService
         resources = new FileAgentResourceService(temporaryDirectory.resolve("runtime"));
         driver = new DeterministicAgentDriver();
         Path worktree = temporaryDirectory.resolve("worktree").toAbsolutePath();
+        worktrees = new FixedWorktreeService(worktree);
         taskService = new DefaultAgentTaskService(
                 stores,
-                new FixedWorktreeService(worktree),
+                worktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 CLOCK);
@@ -136,7 +158,8 @@ class TestDefaultAgentTurnService
         metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
         approvals = new RecordingApprovalService();
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        service = service(driver, new AgentRuntimeRegistry());
+        runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry);
     }
 
     @AfterEach
@@ -170,7 +193,7 @@ class TestDefaultAgentTurnService
         @Override
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            throw new UnsupportedOperationException();
+            return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false);
         }
 
         @Override
@@ -296,7 +319,8 @@ class TestDefaultAgentTurnService
                 new AgentTaskDefaults(
                         Optional.of("model-a"),
                         Optional.of("low"),
-                        AgentPermissionPolicy.AUTO)));
+                        AgentPermissionPolicy.AUTO),
+                "test-creation-fingerprint"));
     }
 
     @Test
@@ -662,6 +686,10 @@ class TestDefaultAgentTurnService
                 assertThat(turn.startedAt()).isPresent();
                 assertThat(turn.providerTurnReference()).isEmpty();
             });
+            assertThat(events.readAfter(task.id(), 0, 100))
+                    .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                            && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TURN_STARTED)
+                    .hasSize(1);
         });
 
         AgentTurn turn = service.start(command("first", "key-1"));
@@ -669,6 +697,10 @@ class TestDefaultAgentTurnService
         assertThat(turn.state()).isEqualTo(TurnState.RUNNING);
         assertThat(turn.startedAt()).isPresent();
         assertThat(turn.providerTurnReference()).isPresent();
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TURN_STARTED)
+                .hasSize(1);
         driver.complete("done");
         assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
     }
@@ -992,6 +1024,7 @@ class TestDefaultAgentTurnService
             assertThat(turn.state()).isEqualTo(TurnState.CANCELLED);
             assertThat(turn.startedAt()).isPresent();
             assertThat(turn.providerTurnReference()).isEmpty();
+            assertThat(turn.knownUnsent()).isFalse();
         });
 
         AgentTurn repeated = service.start(command("do not resend", "key-1"));
@@ -1082,6 +1115,643 @@ class TestDefaultAgentTurnService
                 .containsExactly(attachmentPath);
     }
 
+    @Test
+    void steersTheRunningTurnAndRecordsTheDelivery()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+
+        AgentInputDelivery delivery = service.steer(new SteerAgentTurnCommand(first.id(), "also this", ImmutableList.of(), "steer-1"));
+
+        assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("also this");
+        // The message was durable before the send, as a steer into the same turn.
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).deliveryKind())
+                .containsExactly(AgentEventPayload.DeliveryKind.TURN, AgentEventPayload.DeliveryKind.STEER);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .allSatisfy(event -> assertThat(event.turnId()).contains(first.id()));
+        // A repeated key is the same delivery, not a second send.
+        assertThat(service.steer(new SteerAgentTurnCommand(first.id(), "ignored", ImmutableList.of(), "steer-1")).id()).isEqualTo(delivery.id());
+        assertThat(driver.steers()).hasSize(1);
+
+        driver.complete("done");
+        // The turn the user was looking at has ended: a steer for it is stale, never delivered to the next one.
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(first.id(), "late", ImmutableList.of(), "steer-2")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("not running");
+        assertThat(driver.steers()).hasSize(1);
+    }
+
+    @Test
+    void findsAcceptedRequestsBeforeACallerRevalidatesMutableInput()
+    {
+        AgentTurn turn = service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
+        AgentInputDelivery steer = service.steer(new SteerAgentTurnCommand(
+                turn.id(), "more", ImmutableList.of(), "steer-1"));
+
+        assertThat(service.findTurnByIdempotencyKey(task.id(), "key-1")).contains(turn);
+        assertThat(service.findQueuedByIdempotencyKey(task.id(), "queue-1")).contains(queued);
+        assertThat(service.findSteerByIdempotencyKey(turn.id(), "steer-1")).contains(steer);
+        assertThat(service.findTurnByIdempotencyKey(task.id(), "missing")).isEmpty();
+        assertThat(service.findQueuedByIdempotencyKey(task.id(), "missing")).isEmpty();
+        assertThat(service.findSteerByIdempotencyKey(turn.id(), "missing")).isEmpty();
+    }
+
+    @Test
+    void retriesAnAcceptedSteerThatFailedBeforeTheProviderSend()
+    {
+        AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry);
+        AgentTurn first = service.start(command("first", "key-1"));
+        FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, false);
+        failingEvents.failNextDrain();
+        service = service(driver, runtimeRegistry, failingEvents);
+        var originalAttachment = resources.storeAttachment(new StoreAgentAttachmentCommand(
+                task.id(),
+                "original.png",
+                "image/png",
+                Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")));
+        SteerAgentTurnCommand steer = new SteerAgentTurnCommand(
+                first.id(),
+                "also this",
+                ImmutableList.of(originalAttachment.input()),
+                "steer-1");
+
+        assertThatThrownBy(() -> service.steer(steer))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked event log");
+        assertThat(stores.steers()).singleElement().satisfies(delivery ->
+                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
+        assertThat(driver.steers()).isEmpty();
+        assertThat(service.findSteerByIdempotencyKey(first.id(), "steer-1"))
+                .hasValueSatisfying(delivery -> assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
+
+        AgentInputDelivery retried = service.steer(new SteerAgentTurnCommand(
+                first.id(),
+                "different text",
+                ImmutableList.of(new AgentAttachment("different.png", "image/png", temporaryDirectory.resolve("different.png").toAbsolutePath())),
+                "steer-1"));
+
+        assertThat(retried.state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("also this");
+        assertThat(driver.steers().getFirst().attachments()).containsExactly(originalAttachment.input());
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("first", "also this");
+    }
+
+    @Test
+    void failsAnAcceptedSteerWhenItsTurnEndsBeforeRetry()
+    {
+        AgentRuntimeRegistry sharedRuntime = new AgentRuntimeRegistry();
+        service = service(driver, sharedRuntime);
+        AgentTurn first = service.start(command("first", "key-1"));
+        FailOnceDrainEventService failingEvents = new FailOnceDrainEventService(events, false);
+        failingEvents.failNextDrain();
+        service = service(driver, sharedRuntime, failingEvents);
+
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(
+                first.id(), "never sent", ImmutableList.of(), "steer-1")))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked event log");
+        assertThat(stores.steers()).singleElement().satisfies(delivery ->
+                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
+
+        driver.complete("done");
+
+        assertThat(stores.steers()).singleElement().satisfies(delivery -> {
+            assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.FAILED);
+            assertThat(delivery.failure()).hasValueSatisfying(reason -> assertThat(reason).contains("before the input was sent"));
+        });
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Error error
+                        && error.code().equals("STEER_FAILED"))
+                .hasSize(1);
+    }
+
+    @Test
+    void treatsAStrandedSendingSteerAsUnknownWithoutResending()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        AgentInputDelivery stranded = AgentInputDelivery.accepted(
+                        InputDeliveryId.random(), task.id(), first.id(), "steer-1", NOW)
+                .sending(NOW);
+        stores.insert(stranded);
+        assertThat(service.findSteerByIdempotencyKey(first.id(), "steer-1")).contains(stranded);
+
+        AgentInputDelivery recovered = service.steer(new SteerAgentTurnCommand(
+                first.id(), "must not resend", ImmutableList.of(), "steer-1"));
+
+        assertThat(recovered.state()).isEqualTo(AgentInputDelivery.State.UNKNOWN);
+        assertThat(driver.steers()).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Error error
+                        && error.code().equals("STEER_UNKNOWN"))
+                .hasSize(1);
+    }
+
+    @Test
+    void refusesASettledSteerKeyReusedForAnotherTurn()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        service.steer(new SteerAgentTurnCommand(first.id(), "one", ImmutableList.of(), "steer-1"));
+        driver.complete("first done");
+        AgentTurn second = service.start(command("second", "key-2"));
+
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(
+                second.id(), "two", ImmutableList.of(), "steer-1")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("belongs to another turn");
+        assertThatThrownBy(() -> service.findSteerByIdempotencyKey(second.id(), "steer-1"))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("belongs to another turn");
+        assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("one");
+    }
+
+    @Test
+    void completionCanFinishBeforeTheSteerResponseWithoutDeadlocking()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        driver.beforeSteer(() -> {
+            try {
+                CompletableFuture.runAsync(() -> driver.complete("done")).get(5, TimeUnit.SECONDS);
+            }
+            catch (Exception failure) {
+                throw new AssertionError("completion callback waited for the steer response", failure);
+            }
+        });
+
+        AgentInputDelivery delivery = service.steer(new SteerAgentTurnCommand(
+                first.id(), "too late", ImmutableList.of(), "steer-1"));
+
+        assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.FAILED);
+        assertThat(service.get(first.id()).state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(stores.steers()).noneMatch(candidate -> candidate.state() == AgentInputDelivery.State.SENDING);
+    }
+
+    @Test
+    void serializesSteerAcceptanceAndProviderDeliveryOrder()
+            throws Exception
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        AtomicInteger calls = new AtomicInteger();
+        CompletableFuture<Void> firstEntered = new CompletableFuture<>();
+        CompletableFuture<Void> releaseFirst = new CompletableFuture<>();
+        CompletableFuture<Void> secondEntered = new CompletableFuture<>();
+        driver.beforeSteer(() -> {
+            if (calls.incrementAndGet() == 1) {
+                firstEntered.complete(null);
+                releaseFirst.join();
+            }
+            else {
+                secondEntered.complete(null);
+            }
+        });
+
+        CompletableFuture<AgentInputDelivery> firstSteer = CompletableFuture.supplyAsync(() ->
+                service.steer(new SteerAgentTurnCommand(first.id(), "one", ImmutableList.of(), "steer-1")));
+        firstEntered.get(5, TimeUnit.SECONDS);
+        CompletableFuture<AgentInputDelivery> secondSteer = CompletableFuture.supplyAsync(() ->
+                service.steer(new SteerAgentTurnCommand(first.id(), "two", ImmutableList.of(), "steer-2")));
+
+        assertThatThrownBy(() -> secondEntered.get(200, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        assertThat(stores.steers()).singleElement().satisfies(delivery ->
+                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.SENDING));
+
+        releaseFirst.complete(null);
+        assertThat(firstSteer.get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(secondSteer.get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("one", "two");
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.UserMessage message
+                        && message.deliveryKind() == AgentEventPayload.DeliveryKind.STEER)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("one", "two");
+    }
+
+    @Test
+    void recordsARefusedSteerAsFailedAndAnUnansweredOneAsUnknown()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+
+        driver.failNextSteer(new AgentUnavailableException("provider refused the input"));
+        AgentInputDelivery refused = service.steer(new SteerAgentTurnCommand(first.id(), "refused", ImmutableList.of(), "steer-1"));
+        driver.failNextSteer(new AgentDeliveryUncertainException("no answer before the timeout", null));
+        AgentInputDelivery unanswered = service.steer(new SteerAgentTurnCommand(first.id(), "silent", ImmutableList.of(), "steer-2"));
+
+        assertThat(refused.state()).isEqualTo(AgentInputDelivery.State.FAILED);
+        assertThat(refused.failure()).contains("provider refused the input");
+        assertThat(unanswered.state()).isEqualTo(AgentInputDelivery.State.UNKNOWN);
+        assertThat(unanswered.failure()).contains("no answer before the timeout");
+        // Both outcomes are visible on the turn, beside the messages that were already shown.
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.ERROR)
+                .extracting(event -> ((AgentEventPayload.Error) event.payload()).code())
+                .containsExactly("STEER_FAILED", "STEER_UNKNOWN");
+        // Nothing resends: repeating the unknown key returns the unknown delivery as it is.
+        assertThat(service.steer(new SteerAgentTurnCommand(first.id(), "silent", ImmutableList.of(), "steer-2")).state())
+                .isEqualTo(AgentInputDelivery.State.UNKNOWN);
+        assertThat(driver.steers()).isEmpty();
+        driver.complete("done");
+    }
+
+    @Test
+    void startsQueuedInputInOrderOnlyAfterASuccessfulTurn()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        long version = taskService.get(task.id()).version();
+        QueuedAgentInput second = service.enqueue(new QueueAgentInputCommand(task.id(), version, "second", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput third = service.enqueue(new QueueAgentInputCommand(task.id(), version + 1, "third", ImmutableList.of(), "queue-2"));
+
+        // Queued input waits in the queue, not in the transcript, and repeating a key adds nothing.
+        assertThat(service.enqueue(new QueueAgentInputCommand(task.id(), version + 2, "ignored", ImmutableList.of(), "queue-1")).id()).isEqualTo(second.id());
+        assertThat(service.queued(task.id())).extracting(QueuedAgentInput::preview).containsExactly("second", "third");
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .hasSize(1);
+
+        driver.complete("first response");
+
+        // Success starts the head by itself: one turn, one user-message event, in queue order.
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+        assertThat(stores.find(second.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED)
+                .singleElement()
+                .satisfies(event -> assertThat(event.turnId()).contains(stores.find(second.id()).orElseThrow().turnId().orElseThrow()));
+        assertThat(service.queued(task.id())).extracting(QueuedAgentInput::preview).containsExactly("third");
+        AgentTurn secondTurn = stores.findActive(task.id()).orElseThrow();
+        assertThat(stores.find(second.id()).orElseThrow().turnId()).contains(secondTurn.id());
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).deliveryKind())
+                .containsExactly(AgentEventPayload.DeliveryKind.TURN, AgentEventPayload.DeliveryKind.QUEUED);
+        assertThat(stores.find(first.id()).orElseThrow().state()).isEqualTo(TurnState.COMPLETED);
+
+        driver.complete("second response");
+        driver.complete("third response");
+
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second", "third");
+        assertThat(service.queued(task.id())).isEmpty();
+        assertThat(stores.find(third.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void keepsAnAcknowledgedQueuedTurnRunningWhenItsRefreshEventCannotDrain()
+    {
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
+                events, stores, AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED);
+        service = service(driver, runtimeRegistry, failingEvents);
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+
+        driver.complete("first response");
+
+        AgentTurn second = stores.findActive(task.id()).orElseThrow();
+        assertThat(second.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(runtimeRegistry.running(second.id())).isPresent();
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+        AgentEventOutboxEntry pendingRefresh = stores.outboxEntries().stream()
+                .filter(entry -> entry.sequence().isEmpty())
+                .filter(entry -> entry.payload() instanceof AgentEventOutboxPayload.Inline inline
+                        && inline.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED)
+                .findFirst()
+                .orElseThrow();
+
+        failingEvents.drain(pendingRefresh.eventId());
+
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED)
+                .hasSize(1);
+    }
+
+    @Test
+    void pausesTheQueueAfterANonSuccessAndResumesOnlyOnRequest()
+    {
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+
+        driver.failCompletion(new IllegalStateException("provider crashed"));
+
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(service.queued(task.id())).singleElement().satisfies(input -> {
+            assertThat(input.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+            assertThat(input.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("interrupted"));
+        });
+
+        AgentTurn resumed = service.resumeQueued(task.id());
+
+        assertThat(resumed.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        assertThatThrownBy(() -> service.resumeQueued(task.id())).isInstanceOf(AgentConflictException.class);
+        driver.complete("second response");
+        // Nothing waits any more, and an empty queue is not something to resume.
+        assertThatThrownBy(() -> service.resumeQueued(task.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("no queued input");
+    }
+
+    @Test
+    void publishesARefreshAfterBackgroundAutoStartPausesTheQueue()
+    {
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        driver.unavailable();
+
+        driver.complete("first response");
+
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        List<AgentEventEnvelope> replay = events.readAfter(task.id(), 0, 100);
+        AgentEventEnvelope completed = replay.stream()
+                .filter(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.TURN_COMPLETED)
+                .findFirst()
+                .orElseThrow();
+        AgentEventEnvelope paused = replay.stream()
+                .filter(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(paused.sequence()).isGreaterThan(completed.sequence());
+        assertThat(replay)
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("first");
+    }
+
+    @Test
+    void pausesTheQueueWhenPendingEventsCannotDrainBeforeAutoStart()
+    {
+        service = service(driver, runtimeRegistry, events, approvals, CLOCK, command -> {
+            stores.failNextTaskPendingList(new AgentStorageException("blocked outbox read"));
+            command.run();
+        });
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+
+        driver.complete("first response");
+
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(stores.find(queued.id()).orElseThrow()).satisfies(input -> {
+            assertThat(input.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+            assertThat(input.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("blocked outbox read"));
+        });
+        AgentTurn resumed = service.resumeQueued(task.id());
+        assertThat(resumed.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+        driver.complete("second response");
+    }
+
+    @Test
+    void removesWaitingInputAndAbandonsUncertainInputWithoutResendingIt()
+    {
+        service.start(command("first", "key-1"));
+        long version = taskService.get(task.id()).version();
+        QueuedAgentInput waiting = service.enqueue(new QueueAgentInputCommand(task.id(), version, "waiting", ImmutableList.of(), "queue-1"));
+        // A claim that was sent and never acknowledged: the turn has a start time and no provider reference.
+        TurnId uncertainTurn = TurnId.random();
+        stores.insert(AgentTurn.accepted(uncertainTurn, task.id(), "queue:uncertain", waiting.settings(), NOW)
+                .markDeliveryStarted(NOW)
+                .finish(TurnState.INTERRUPTED, TurnMetrics.empty(), Optional.of("restarted"), NOW));
+        QueuedAgentInput uncertain = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 0 + 2, "queue-2", waiting.textBlob(), "uncertain", waiting.settings(), NOW)
+                .starting(uncertainTurn, EventId.random(), NOW)
+                .uncertain("Backend restarted while the input was being sent", NOW);
+        stores.insert(uncertain);
+
+        QueuedAgentInput removed = service.removeQueued(task.id(), waiting.id());
+        assertThat(removed.state()).isEqualTo(QueuedAgentInput.State.REMOVED);
+        assertThat(service.removeQueued(task.id(), waiting.id())).isEqualTo(removed);
+        driver.failCompletion(new IllegalStateException("provider failed"));
+        // The uncertain head blocks the queue until the user decides; resuming never resends it.
+        assertThatThrownBy(() -> service.resumeQueued(task.id()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("may already have been delivered");
+        assertThat(driver.commands()).hasSize(1);
+        QueuedAgentInput abandoned = service.removeQueued(task.id(), uncertain.id());
+        assertThat(abandoned.state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
+        assertThat(service.removeQueued(task.id(), uncertain.id())).isEqualTo(abandoned);
+        assertThat(service.queued(task.id())).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.QUEUE_CHANGED)
+                .extracting(event -> ((AgentEventPayload.Lifecycle) event.payload()).message())
+                .containsExactly("Queued input added", "Queued input removed", "Queued input abandoned");
+        assertThatThrownBy(() -> service.removeQueued(task.id(), QueuedInputId.random())).isInstanceOf(QueuedInputNotFoundException.class);
+    }
+
+    @Test
+    void refusesToRemoveAnotherTasksQueuedInputBeforeMutatingIt()
+    {
+        QueuedAgentInput foreign = QueuedAgentInput.queued(
+                QueuedInputId.random(),
+                TaskId.random(),
+                1,
+                "foreign-queue",
+                new BlobRef("blobs/queue/foreign", "text/plain; charset=utf-8", 7),
+                "foreign",
+                service.effectiveSettings(task.id()),
+                NOW);
+        stores.insert(foreign);
+
+        assertThatThrownBy(() -> service.removeQueued(task.id(), foreign.id()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("does not belong");
+        assertThat(stores.find(foreign.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.QUEUED);
+    }
+
+    @Test
+    void rejectsAQueueWriteWithAStaleVersionOrAClosingTask()
+    {
+        long version = taskService.get(task.id()).version();
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), version + 1, "stale", ImmutableList.of(), "queue-1")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("version");
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), version, "idle", ImmutableList.of(), "queue-idle")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("no active turn");
+
+        AgentTask claimed = stores.update(stores.find(task.id()).orElseThrow().claimWorktreeMutation(
+                new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "completion-1", NOW), NOW));
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), claimed.version(), "closing", ImmutableList.of(), "queue-2")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("COMPLETION");
+        assertThat(service.queued(task.id())).isEmpty();
+    }
+
+    @Test
+    void rejectsAQueueBehindAnActiveTurnThatDoesNotOwnTheTaskClaim()
+    {
+        service.start(command("first", "key-1"));
+        AgentTask claimed = stores.find(task.id()).orElseThrow();
+        WorktreeMutationClaim actualClaim = claimed.worktreeMutationClaim().orElseThrow();
+        AgentTask released = stores.update(claimed.releaseWorktreeMutation(actualClaim, NOW));
+        AgentTask mismatched = stores.update(released.claimWorktreeMutation(
+                WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
+
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(
+                task.id(), mismatched.version(), "must not queue", ImmutableList.of(), "queue-1")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("claimed by TURN");
+        assertThat(service.queued(task.id())).isEmpty();
+    }
+
+    @Test
+    void rejectsAStartWhenDefaultsCouldHaveChangedAfterCallerValidation()
+    {
+        long validatedVersion = taskService.get(task.id()).version();
+        taskService.rename(new RenameAgentTaskCommand(task.id(), validatedVersion, "Changed task"));
+
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
+                task.id(),
+                validatedVersion,
+                "image prompt",
+                ImmutableList.of(),
+                "key-1")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("version changed");
+        assertThat(driver.commands()).isEmpty();
+    }
+
+    @Test
+    void concurrentIdleEnqueueAndCompleteCannotLeaveQueuedWorkOnATerminalTask()
+            throws Exception
+    {
+        AgentTurn turn = service.start(command("first", "key-1"));
+        driver.complete("done");
+        assertThat(service.get(turn.id()).state()).isEqualTo(TurnState.COMPLETED);
+        long idleVersion = taskService.get(task.id()).version();
+        DefaultAgentCompletionService completion = completionService();
+        CompletableFuture<Void> start = new CompletableFuture<>();
+
+        CompletableFuture<Object> enqueue = CompletableFuture.supplyAsync(() -> {
+            start.join();
+            try {
+                return service.enqueue(new QueueAgentInputCommand(task.id(), idleVersion, "stale queue", ImmutableList.of(), "queue-race"));
+            }
+            catch (RuntimeException failure) {
+                return failure;
+            }
+        });
+        CompletableFuture<Object> complete = CompletableFuture.supplyAsync(() -> {
+            start.join();
+            try {
+                return completion.complete(new CompleteAgentTaskCommand(task.id(), Optional.empty()));
+            }
+            catch (RuntimeException failure) {
+                return failure;
+            }
+        });
+
+        start.complete(null);
+        assertThat(enqueue.get(5, TimeUnit.SECONDS)).isInstanceOf(AgentConflictException.class);
+        assertThat(complete.get(5, TimeUnit.SECONDS)).isInstanceOf(TaskCompletion.class);
+        assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(stores.listQueued(task.id())).isEmpty();
+    }
+
+    @Test
+    void pausesTheQueueHeadWhenItsOwnStartFailsBeforeSendingAndRetriesWithoutASecondMessage()
+    {
+        service = service(driver, new AgentRuntimeRegistry(), new FailQueuedMessageDrainEventService(events, stores));
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+
+        driver.complete("first response");
+
+        // The claimed turn failed before anything was sent, so the input is known unsent and waits again.
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        AgentTurn failed = stores.list(task.id()).stream().filter(turn -> turn.idempotencyKey().startsWith("queue:")).findFirst().orElseThrow();
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.startedAt()).isEmpty();
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+
+        // The explicit resume is a second attempt on the same request, not a second message.
+        AgentTurn retried = service.resumeQueued(task.id());
+        assertThat(retried.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(retried.id()).isNotEqualTo(failed.id());
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("first", "second");
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle
+                        && lifecycle.phase() == AgentEventPayload.LifecyclePhase.RETRYING)
+                .singleElement()
+                .satisfies(event -> assertThat(event.turnId()).contains(retried.id()));
+        driver.complete("second response");
+    }
+
+    @Test
+    void keepsAQueuedInputRetryableWhenItsStartedLifecycleCannotPublish()
+    {
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
+                events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED, false);
+        service = service(driver, runtimeRegistry, failingEvents);
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        failingEvents.failNextDrain();
+
+        driver.complete("first response");
+
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(stores.find(queued.id()).orElseThrow()).satisfies(input -> {
+            assertThat(input.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+            assertThat(input.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("blocked lifecycle event"));
+        });
+        assertThat(stores.list(task.id())).filteredOn(turn -> turn.idempotencyKey().startsWith("queue:"))
+                .singleElement()
+                .satisfies(turn -> assertThat(turn.knownUnsent()).isTrue());
+        AgentTurn resumed = service.resumeQueued(task.id());
+        assertThat(resumed.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
+        driver.complete("second response");
+    }
+
+    @Test
+    void marksTheQueueHeadUncertainWhenItsStartWasNeverAcknowledged()
+    {
+        service.start(command("first", "key-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        driver.failNextStart();
+
+        driver.complete("first response");
+
+        // Sent, never acknowledged: the turn holds the worktree and the input stays claimed.
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTING);
+        assertThat(stores.findActive(task.id())).hasValueSatisfying(turn -> {
+            assertThat(turn.startedAt()).isPresent();
+            assertThat(turn.providerTurnReference()).isEmpty();
+        });
+
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        // Once the turn is settled, nobody can say whether the provider ran it; only the user may decide.
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.UNCERTAIN);
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThatThrownBy(() -> service.resumeQueued(task.id()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("may already have been delivered");
+        assertThat(service.removeQueued(task.id(), queued.id()).state()).isEqualTo(QueuedAgentInput.State.ABANDONED);
+        assertThat(driver.commands()).hasSize(1);
+    }
+
     private DefaultAgentTurnService service(
             DeterministicAgentDriver configuredDriver,
             AgentRuntimeRegistry runtimeRegistry)
@@ -1113,7 +1783,20 @@ class TestDefaultAgentTurnService
             AgentApprovalService configuredApprovals,
             Clock clock)
     {
+        return service(configuredDriver, runtimeRegistry, configuredEvents, configuredApprovals, clock, Runnable::run);
+    }
+
+    private DefaultAgentTurnService service(
+            DeterministicAgentDriver configuredDriver,
+            AgentRuntimeRegistry runtimeRegistry,
+            AgentEventService configuredEvents,
+            AgentApprovalService configuredApprovals,
+            Clock clock,
+            Executor queueStarter)
+    {
         return new DefaultAgentTurnService(
+                stores,
+                stores,
                 stores,
                 stores,
                 stores,
@@ -1126,7 +1809,25 @@ class TestDefaultAgentTurnService
                 configuredApprovals,
                 runtimeRegistry,
                 clock,
-                Duration.ofMinutes(5));
+                Duration.ofMinutes(5),
+                queueStarter);
+    }
+
+    private DefaultAgentCompletionService completionService()
+    {
+        return new DefaultAgentCompletionService(
+                stores,
+                stores,
+                stores,
+                stores,
+                stores,
+                events,
+                logs,
+                worktrees,
+                resources,
+                runtimeRegistry,
+                metrics,
+                CLOCK);
     }
 
     private DefaultAgentApprovalService durableApprovals(AgentRuntimeRegistry runtimeRegistry)
@@ -1239,6 +1940,124 @@ class TestDefaultAgentTurnService
         private void beforeDeny(Runnable action)
         {
             beforeDeny = action;
+        }
+    }
+
+    /** Fails the first drain of a queued user message, which is the last step before the provider is reached. */
+    private static final class FailQueuedMessageDrainEventService
+            implements AgentEventService
+    {
+        private final AgentEventService delegate;
+        private final InMemoryAgentStores stores;
+        private boolean failed;
+
+        private FailQueuedMessageDrainEventService(AgentEventService delegate, InMemoryAgentStores stores)
+        {
+            this.delegate = delegate;
+            this.stores = stores;
+        }
+
+        @Override
+        public AgentEventEnvelope append(UnsequencedAgentEvent event)
+        {
+            return delegate.append(event);
+        }
+
+        @Override
+        public AgentEventEnvelope drain(EventId eventId)
+        {
+            boolean queuedMessage = stores.find(eventId)
+                    .map(entry -> entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob blob
+                            && blob.deliveryKind() == AgentEventPayload.DeliveryKind.QUEUED)
+                    .orElse(false);
+            if (queuedMessage && !failed) {
+                failed = true;
+                throw new AgentStorageException("blocked event log");
+            }
+            return delegate.drain(eventId);
+        }
+
+        @Override
+        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
+        {
+            return delegate.readAfter(taskId, afterSequence, limit);
+        }
+
+        @Override
+        public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
+        {
+            return delegate.subscribe(taskId, afterSequence);
+        }
+    }
+
+    private static final class FailLifecycleDrainEventService
+            implements AgentEventService
+    {
+        private final AgentEventService delegate;
+        private final InMemoryAgentStores stores;
+        private final AgentEventPayload.LifecyclePhase phase;
+        private boolean fail;
+
+        private FailLifecycleDrainEventService(
+                AgentEventService delegate,
+                InMemoryAgentStores stores,
+                AgentEventPayload.LifecyclePhase phase)
+        {
+            this(delegate, stores, phase, true);
+        }
+
+        private FailLifecycleDrainEventService(
+                AgentEventService delegate,
+                InMemoryAgentStores stores,
+                AgentEventPayload.LifecyclePhase phase,
+                boolean fail)
+        {
+            this.delegate = delegate;
+            this.stores = stores;
+            this.phase = phase;
+            this.fail = fail;
+        }
+
+        private void failNextDrain()
+        {
+            fail = true;
+        }
+
+        @Override
+        public AgentEventEnvelope append(UnsequencedAgentEvent event)
+        {
+            return delegate.append(event);
+        }
+
+        @Override
+        public AgentEventEnvelope drain(EventId eventId)
+        {
+            boolean targetLifecycle = stores.find(eventId)
+                    .map(AgentEventOutboxEntry::payload)
+                    .filter(AgentEventOutboxPayload.Inline.class::isInstance)
+                    .map(AgentEventOutboxPayload.Inline.class::cast)
+                    .map(AgentEventOutboxPayload.Inline::payload)
+                    .filter(AgentEventPayload.Lifecycle.class::isInstance)
+                    .map(AgentEventPayload.Lifecycle.class::cast)
+                    .filter(lifecycle -> lifecycle.phase() == phase)
+                    .isPresent();
+            if (targetLifecycle && fail) {
+                fail = false;
+                throw new AgentStorageException("blocked lifecycle event");
+            }
+            return delegate.drain(eventId);
+        }
+
+        @Override
+        public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
+        {
+            return delegate.readAfter(taskId, afterSequence, limit);
+        }
+
+        @Override
+        public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
+        {
+            return delegate.subscribe(taskId, afterSequence);
         }
     }
 

@@ -37,6 +37,8 @@ import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.google.common.collect.ImmutableList;
@@ -331,6 +333,8 @@ class TestAgentStartupRecovery
         return new AgentMaintenance(
                 taskStore,
                 turnStore,
+                mock(QueuedInputStore.class),
+                mock(SteerDeliveryStore.class),
                 mock(AgentUnitOfWork.class),
                 mock(AgentEventOutboxStore.class),
                 mock(AgentApprovalService.class),

@@ -13,15 +13,26 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentAttachmentReference;
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
@@ -33,15 +44,34 @@ import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.impl.AgentMaintenance;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.impl.DefaultAgentEventService;
+import com.bytequay.agent.core.impl.DefaultAgentMetricsService;
+import com.bytequay.agent.core.impl.DefaultAgentTurnService;
+import com.bytequay.agent.core.impl.FileAgentResourceService;
+import com.bytequay.agent.core.impl.FileTaskLogStore;
+import com.bytequay.agent.core.impl.StaticAgentDriverRegistry;
+import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentSession;
+import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -52,13 +82,22 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -76,10 +115,25 @@ class TestSqliteAgentStores
     private SqliteAgentTurnStore turnStore;
 
     @Autowired
+    private SqliteQueuedInputStore queueStore;
+
+    @Autowired
+    private SqliteSteerDeliveryStore steerStore;
+
+    @Autowired
+    private SqliteAgentEventOutboxStore outboxStore;
+
+    @Autowired
+    private SqliteAgentUnitOfWork unitOfWork;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     @Autowired
     private EntityManager entityManager;
+
+    @TempDir
+    private Path runtimeDirectory;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -351,6 +405,7 @@ class TestSqliteAgentStores
         AgentTask task = AgentTask.created(
                 taskId,
                 true,
+                Optional.of("creation-fingerprint"),
                 "Managed agent task",
                 TitleSource.USER,
                 AgentLaneId.CODEX_CLI,
@@ -361,7 +416,9 @@ class TestSqliteAgentStores
         taskStore.insert(task);
         entityManager.clear();
 
-        assertThat(taskStore.find(taskId).orElseThrow().taskWorktree()).contains(worktree);
+        AgentTask restored = taskStore.find(taskId).orElseThrow();
+        assertThat(restored.creationFingerprint()).contains("creation-fingerprint");
+        assertThat(restored.taskWorktree()).contains(worktree);
         assertThat(taskStore.hasWorktreeReference("workspace-a")).isTrue();
         assertThat(taskStore.hasWorktreeReference("workspace-b")).isFalse();
     }
@@ -378,14 +435,18 @@ class TestSqliteAgentStores
         jdbc.update("""
                 UPDATE agent_turn
                 SET requested_model = NULL, effort = NULL, permission_policy = NULL,
-                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL
+                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL,
+                    known_unsent = NULL
                 WHERE id = ?
                 """, turn.id().toString());
         entityManager.clear();
 
         assertThat(taskStore.find(task.id()).orElseThrow().defaults())
                 .isEqualTo(AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO));
-        assertThat(turnStore.find(turn.id()).orElseThrow().settings()).isEmpty();
+        assertThat(turnStore.find(turn.id()).orElseThrow()).satisfies(restored -> {
+            assertThat(restored.settings()).isEmpty();
+            assertThat(restored.knownUnsent()).isFalse();
+        });
     }
 
     @Test
@@ -422,6 +483,25 @@ class TestSqliteAgentStores
         entityManager.clear();
 
         assertThat(turnStore.find(turn.id())).contains(turn);
+    }
+
+    @Test
+    void roundTripsKnownUnsentDelivery()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .finishKnownUnsent(TurnMetrics.empty(), "not sent", now.plusSeconds(2));
+        turnStore.insert(turn);
+        entityManager.clear();
+
+        assertThat(turnStore.find(turn.id()).orElseThrow()).satisfies(restored -> {
+            assertThat(restored.knownUnsent()).isTrue();
+            assertThat(restored.startedAt()).isPresent();
+            assertThat(restored.providerTurnReference()).isEmpty();
+        });
     }
 
     @Test
@@ -494,6 +574,197 @@ class TestSqliteAgentStores
                 .isInstanceOf(AgentConflictException.class);
     }
 
+    @Test
+    void roundTripsQueuedInputInQueueOrderAndEnforcesItsIdempotencyKey()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        QueuedAgentInput second = queuedInput(task.id(), 2, "queue-2", now.plusSeconds(1));
+        QueuedAgentInput first = queuedInput(task.id(), 1, "queue-1", now)
+                .starting(TurnId.random(), EventId.random(), now.plusSeconds(2))
+                .uncertain("Backend restarted while the input was being sent", now.plusSeconds(3));
+        queueStore.insert(second);
+        queueStore.insert(first);
+        entityManager.clear();
+
+        assertThat(queueStore.listQueued(task.id())).extracting(QueuedAgentInput::id).containsExactly(first.id(), second.id());
+        assertThat(queueStore.find(first.id())).hasValueSatisfying(stored -> {
+            assertThat(stored.state()).isEqualTo(first.state());
+            assertThat(stored.preview()).isEqualTo("Queued input");
+        });
+        assertThat(queueStore.findQueuedByIdempotencyKey(task.id(), "queue-2"))
+                .hasValueSatisfying(stored -> assertThat(stored.id()).isEqualTo(second.id()));
+        assertThat(jdbc.queryForList("SELECT * FROM agent_queued_input").toString())
+                .doesNotContain("later  on", "later on");
+
+        QueuedAgentInput removed = queueStore.update(second.removed(now.plusSeconds(4)));
+        assertThat(removed.version()).isEqualTo(1);
+        assertThat(removed.state()).isEqualTo(QueuedAgentInput.State.REMOVED);
+        assertThatThrownBy(() -> queueStore.update(second.removed(now.plusSeconds(5))))
+                .isInstanceOf(AgentConflictException.class);
+        // Last, because the rejected row stays in the persistence context and would be flushed again.
+        assertThatThrownBy(() -> queueStore.insert(queuedInput(task.id(), 3, "queue-2", now)))
+                .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void roundTripsSteerDeliveriesAndListsOnlyUnsettledOnes()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        TurnId turnId = TurnId.random();
+        AgentInputDelivery sending = AgentInputDelivery.accepted(InputDeliveryId.random(), task.id(), turnId, "steer-1", now).sending(now.plusSeconds(1));
+        AgentInputDelivery unknown = AgentInputDelivery.accepted(InputDeliveryId.random(), task.id(), turnId, "steer-2", now)
+                .sending(now.plusSeconds(1))
+                .unknown("no answer", now.plusSeconds(2));
+        steerStore.insert(sending);
+        steerStore.insert(unknown);
+        entityManager.clear();
+
+        assertThat(steerStore.findSteerByIdempotencyKey(task.id(), "steer-2")).contains(unknown);
+        assertThat(steerStore.listUnsettled()).containsExactly(sending);
+
+        AgentInputDelivery delivered = steerStore.update(sending.delivered(now.plusSeconds(3)));
+        assertThat(delivered.state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(steerStore.listUnsettled()).isEmpty();
+        assertThatThrownBy(() -> steerStore.update(sending.delivered(now.plusSeconds(4))))
+                .isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> steerStore.insert(AgentInputDelivery.accepted(InputDeliveryId.random(), task.id(), turnId, "steer-1", now)))
+                .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void resumesPersistedQueueInFifoOrderExactlyOnceAfterRestart()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        AgentTask task = managedTask(now);
+        taskStore.insert(task);
+        FileAgentResourceService resources = new FileAgentResourceService(runtimeDirectory);
+        resources.allocate(task.id());
+        FileTaskLogStore logs = new FileTaskLogStore(resources);
+        AgentApprovalService approvals = mock(AgentApprovalService.class);
+        DefaultAgentMetricsService metrics = new DefaultAgentMetricsService(taskStore, turnStore, clock);
+
+        RecordingDriver firstProcess = new RecordingDriver();
+        DefaultAgentTurnService beforeRestart = turnService(
+                firstProcess,
+                new AgentRuntimeRegistry(),
+                new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
+                logs,
+                resources,
+                metrics,
+                approvals,
+                clock);
+        beforeRestart.start(new StartAgentTurnCommand(task.id(), "current", ImmutableList.of(), "turn-1"));
+        QueuedAgentInput first = beforeRestart.enqueue(new QueueAgentInputCommand(
+                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued one", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput second = beforeRestart.enqueue(new QueueAgentInputCommand(
+                task.id(), taskStore.find(task.id()).orElseThrow().version(), "queued two", ImmutableList.of(), "queue-2"));
+        entityManager.flush();
+        entityManager.clear();
+
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry();
+        AgentMaintenance maintenance = new AgentMaintenance(
+                taskStore,
+                turnStore,
+                queueStore,
+                steerStore,
+                unitOfWork,
+                outboxStore,
+                approvals,
+                metrics,
+                mock(AgentCompletionService.class),
+                restartedRuntime,
+                clock);
+        maintenance.recover();
+        maintenance.settleAfterProcessRecovery(Map.of(), Set.of(), true);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(queueStore.listQueued(task.id())).extracting(QueuedAgentInput::state)
+                .containsExactly(QueuedAgentInput.State.PAUSED, QueuedAgentInput.State.PAUSED);
+        RecordingDriver restartedDriver = new RecordingDriver();
+        DefaultAgentEventService restartedEvents = new DefaultAgentEventService(logs, outboxStore, taskStore, clock);
+        DefaultAgentTurnService afterRestart = turnService(
+                restartedDriver,
+                restartedRuntime,
+                restartedEvents,
+                logs,
+                resources,
+                metrics,
+                approvals,
+                clock);
+
+        afterRestart.resumeQueued(task.id());
+        restartedDriver.completeCurrent();
+        afterRestart.resumeQueued(task.id());
+        restartedDriver.completeCurrent();
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(restartedDriver.commands()).extracting(AgentTurnCommand::message)
+                .containsExactly("queued one", "queued two");
+        assertThat(queueStore.listQueued(task.id())).satisfiesExactly(
+                queued -> {
+                    assertThat(queued.id()).isEqualTo(first.id());
+                    assertThat(queued.state()).isEqualTo(QueuedAgentInput.State.STARTED);
+                },
+                queued -> {
+                    assertThat(queued.id()).isEqualTo(second.id());
+                    assertThat(queued.state()).isEqualTo(QueuedAgentInput.State.STARTED);
+                });
+        assertThat(restartedEvents.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.UserMessage message
+                        && message.deliveryKind() == AgentEventPayload.DeliveryKind.QUEUED)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("queued one", "queued two");
+    }
+
+    private DefaultAgentTurnService turnService(
+            RecordingDriver driver,
+            AgentRuntimeRegistry runtimeRegistry,
+            DefaultAgentEventService events,
+            FileTaskLogStore logs,
+            FileAgentResourceService resources,
+            DefaultAgentMetricsService metrics,
+            AgentApprovalService approvals,
+            Clock clock)
+    {
+        return new DefaultAgentTurnService(
+                taskStore,
+                turnStore,
+                queueStore,
+                steerStore,
+                unitOfWork,
+                outboxStore,
+                logs,
+                resources,
+                new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                events,
+                metrics,
+                approvals,
+                runtimeRegistry,
+                clock,
+                Duration.ofMinutes(5),
+                Runnable::run);
+    }
+
+    private static QueuedAgentInput queuedInput(TaskId taskId, long position, String idempotencyKey, Instant now)
+    {
+        return QueuedAgentInput.queued(
+                QueuedInputId.random(),
+                taskId,
+                position,
+                idempotencyKey,
+                new BlobRef("blobs/queue-" + position, "text/plain; charset=utf-8", 5),
+                "later  on",
+                turnSettings(),
+                now);
+    }
+
     private static AgentTask newTask(Instant now)
     {
         return newTask(now, Optional.empty(), false);
@@ -551,5 +822,115 @@ class TestSqliteAgentStores
                 AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")));
+    }
+
+    private static final class RecordingDriver
+            implements AgentDriver
+    {
+        private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
+                true,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                CostProvenance.UNAVAILABLE,
+                ImmutableSet.of(AgentPermissionPolicy.AUTO),
+                ImmutableSet.of());
+
+        private final List<AgentTurnCommand> commands = new ArrayList<>();
+        private CompletableFuture<AgentTurnResult> current;
+
+        @Override
+        public AgentLaneId id()
+        {
+            return AgentLaneId.CODEX_CLI;
+        }
+
+        @Override
+        public AgentCapabilities capabilities()
+        {
+            return CAPABILITIES;
+        }
+
+        @Override
+        public AgentProviderStatus probe()
+        {
+            return new AgentProviderStatus(id(), AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", CAPABILITIES);
+        }
+
+        @Override
+        public AgentSession open(AgentSessionContext context, AgentEventSink events)
+        {
+            AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(id(), 1, "session-1"));
+            return new AgentSession()
+            {
+                @Override
+                public AgentSessionRef reference()
+                {
+                    return reference;
+                }
+
+                @Override
+                public RunningTurn start(AgentTurnCommand command)
+                {
+                    CompletableFuture<AgentTurnResult> completion;
+                    synchronized (RecordingDriver.this) {
+                        commands.add(command);
+                        current = new CompletableFuture<>();
+                        completion = current;
+                    }
+                    ProviderTurnRef turnReference = new ProviderTurnRef("turn-" + command.turnId());
+                    return new RunningTurn()
+                    {
+                        @Override
+                        public ProviderTurnRef reference()
+                        {
+                            return turnReference;
+                        }
+
+                        @Override
+                        public CompletionStage<AgentTurnResult> completion()
+                        {
+                            return completion;
+                        }
+
+                        @Override
+                        public void cancel()
+                        {
+                            completion.complete(new AgentTurnResult(
+                                    AgentTurnResult.State.CANCELLED,
+                                    Optional.empty(),
+                                    Optional.of("cancelled"),
+                                    Duration.ZERO));
+                        }
+                    };
+                }
+
+                @Override
+                public void close() {}
+            };
+        }
+
+        private synchronized void completeCurrent()
+        {
+            if (current == null) {
+                throw new IllegalStateException("no turn is running");
+            }
+            current.complete(new AgentTurnResult(
+                    AgentTurnResult.State.COMPLETED,
+                    Optional.of("done"),
+                    Optional.empty(),
+                    Duration.ZERO));
+        }
+
+        private synchronized List<AgentTurnCommand> commands()
+        {
+            return ImmutableList.copyOf(commands);
+        }
     }
 }

@@ -651,6 +651,132 @@
 }
 
 /*
+ * The queue strip: what runs after this turn. Tucked under the composer card while a turn runs,
+ * the way the design attaches it; bordered rows of their own once the queue has stopped, when
+ * each row carries the state that stopped it.
+ */
+.agt-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 760px;
+  margin: 0 auto 8px;
+}
+
+.agt-queue.is-attached {
+  gap: 0;
+  box-sizing: border-box;
+  max-width: 732px;
+  margin-bottom: -14px;
+  padding-bottom: 14px;
+  border-radius: 14px;
+  background: #f6f8fa;
+}
+
+.agt-queue__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: #1f2328;
+}
+
+.agt-queue.is-attached .agt-queue__row {
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 0;
+}
+
+.agt-queue.is-attached .agt-queue__row + .agt-queue__row {
+  border-top: 1px solid #ececef;
+}
+
+.agt-queue__row.is-uncertain {
+  border-color: #e8d59a;
+}
+
+.agt-queue__icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+  color: #57606a;
+}
+
+.agt-queue__row.is-uncertain .agt-queue__icon {
+  color: #9a6700;
+}
+
+.agt-queue__pill {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #eceff2;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-queue__row.is-uncertain .agt-queue__pill {
+  background: #fff8c5;
+  color: #9a6700;
+}
+
+.agt-queue__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agt-queue__meta {
+  flex: none;
+  font-size: 10.5px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-queue__link {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: #57606a;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agt-queue__link.is-danger {
+  font-size: 12px;
+  font-weight: 600;
+  color: #cf222e;
+}
+
+.agt-queue__remove {
+  flex: none;
+  display: inline-flex;
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-queue__remove > svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
+}
+
+/*
  * A control standing in for a backend that does not exist yet. Striped and labelled with the
  * checkpoint that retires it, so it is obvious in the app and in any screenshot; deleted with
  * the last placeholder.
@@ -770,8 +896,7 @@
 }
 
 .agt-spin.is-warn {
-  border-color: #eed888;
-  border-top-color: #9a6700;
+  color: #9a6700;
 }
 
 .agt-recovery__actions {
@@ -902,6 +1027,19 @@
   margin-top: 4px;
 }
 
+.agt-user__delivery {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.agt-user__delivery .agt-icon,
+.agt-user__delivery .agt-icon > svg {
+  width: 13px;
+  height: 13px;
+}
+
 .agt-right {
   font-size: 11px;
   color: #8c959f;
@@ -928,16 +1066,27 @@
   50% { opacity: 0; }
 }
 
+@keyframes agt-icon-pop {
+  0% { opacity: 0; transform: scale(0.72); }
+  65% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes agt-icon-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  55% { transform: translateX(2px); }
+  78% { transform: translateX(-1px); }
+}
+
 .agt-spin {
   width: 14px;
   height: 14px;
   flex: none;
-  box-sizing: border-box;
-  border: 2px solid #b6d4f7;
-  border-top-color: #0969da;
-  border-radius: 50%;
-  display: inline-block;
-  animation: agt-spin 1s linear infinite;
+  color: #0969da;
+  stroke-width: 1.75;
+  transform-origin: center;
+  animation: agt-spin 0.9s linear infinite;
 }
 
 .agt-state .agt-spin {
@@ -972,10 +1121,23 @@
 
 .agt-icon {
   width: 16px;
+  height: 16px;
   flex: none;
   display: inline-flex;
+  align-items: center;
   justify-content: center;
   color: #8c959f;
+}
+
+.agt-icon > svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+  transform-origin: center;
+}
+
+.agt-icon.is-running {
+  color: #0969da;
 }
 
 .agt-icon.is-ok {
@@ -988,6 +1150,18 @@
 
 .agt-icon.is-pending {
   color: #8c959f;
+}
+
+.agt-icon.is-warn {
+  color: #9a6700;
+}
+
+.agt-icon.is-outcome.is-ok > svg {
+  animation: agt-icon-pop 0.42s cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.agt-icon.is-outcome.is-failed > svg {
+  animation: agt-icon-shake 0.36s ease-out both;
 }
 
 .agt-stamp {
@@ -1053,7 +1227,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 10px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 8px 14px 0;
   font-size: 11.5px;
   color: #8c959f;
@@ -1378,6 +1556,9 @@
 }
 
 .agt-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 14px;
   font-size: 12.5px;
   line-height: 1.5;
@@ -1385,6 +1566,9 @@
 }
 
 .agt-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 12px;
   font-size: 12px;
   color: #9a6700;
@@ -1413,6 +1597,9 @@
 
 .agt-todos__head > svg:first-child {
   flex: none;
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
   color: #57606a;
 }
 
@@ -1499,6 +1686,13 @@
   font-size: 12px;
   cursor: pointer;
   padding: 1px 3px;
+}
+
+.agt-draft__remove > svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.75;
 }
 
 .agt-attach {
@@ -1622,6 +1816,12 @@
   box-shadow: 0 1px 2px rgba(27, 31, 36, 0.06);
 }
 
+.agt-headbtn > svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+
 .agt-headbtn[aria-pressed="true"] {
   background: #e4e4e8;
   border-color: #c6ccd2;
@@ -1723,6 +1923,9 @@
 }
 
 .agt-panel__outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10.5px;
   font-weight: 600;
   border-radius: 10px;
@@ -1730,6 +1933,12 @@
   white-space: nowrap;
   color: #57606a;
   background: #eceff2;
+}
+
+.agt-panel__outcome > svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.75;
 }
 
 .agt-panel__outcome.is-done {
@@ -2192,4 +2401,20 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agt-spin,
+  .agt-state__dot,
+  .agt-skeleton__bar,
+  .agt-skeleton__block,
+  .agt-cursor,
+  .agt-icon.is-outcome > svg,
+  .agt-overview {
+    animation: none;
+  }
+
+  .agt-screen .chev {
+    transition: none;
+  }
 }

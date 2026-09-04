@@ -26,6 +26,7 @@ import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -38,12 +39,14 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,6 +63,7 @@ public final class DefaultAgentCompletionService
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final QueuedInputStore queueStore;
     private final AgentUnitOfWork unitOfWork;
     private final AgentEventOutboxStore outboxStore;
     private final AgentEventService eventService;
@@ -73,6 +77,7 @@ public final class DefaultAgentCompletionService
     public DefaultAgentCompletionService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
             AgentUnitOfWork unitOfWork,
             AgentEventOutboxStore outboxStore,
             AgentEventService eventService,
@@ -85,6 +90,7 @@ public final class DefaultAgentCompletionService
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.queueStore = requireNonNull(queueStore, "queueStore is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -136,9 +142,20 @@ public final class DefaultAgentCompletionService
             task.worktreeMutationClaim().ifPresent(owner -> {
                 throw new AgentConflictException("Task worktree is claimed by " + owner.kind());
             });
+            List<QueuedAgentInput> queue = queueStore.listQueued(task.id());
+            queue.stream().filter(input -> input.state().live()).findFirst().ifPresent(input -> {
+                throw new AgentConflictException("Task still has queued input: " + input.id());
+            });
             Instant claimedAt = Instant.now(clock);
             WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, UUID.randomUUID().toString(), claimedAt);
-            return unitOfWork.execute(() -> taskStore.update(task.claimWorktreeMutation(claim, claimedAt)));
+            return unitOfWork.execute(() -> {
+                // Completing is the user declining to resend what may never have arrived. Recorded
+                // as abandoned, not removed: nothing here knows the provider did not run it.
+                queue.stream()
+                        .filter(input -> input.state() == QueuedAgentInput.State.UNCERTAIN)
+                        .forEach(input -> queueStore.update(input.abandoned("Task completed without resending it", claimedAt)));
+                return taskStore.update(task.claimWorktreeMutation(claim, claimedAt));
+            });
         }
     }
 
@@ -200,6 +217,7 @@ public final class DefaultAgentCompletionService
             EventId eventId = EventId.random();
             AgentTask failed = unitOfWork.execute(() -> {
                 AgentTask current = requireTask(taskId);
+                settleQueueForFailedTask(taskId, failedAt);
                 // The worktree is kept, not cleaned: the reason this task is stuck is that
                 // something may still have been writing to it, and that evidence is the point.
                 AgentTask terminal = taskStore.update(current.worktreeMutationClaim()
@@ -221,6 +239,34 @@ public final class DefaultAgentCompletionService
             eventService.drain(eventId);
             return failed;
         }
+    }
+
+    /** A terminal task cannot retain work that still looks resumable. */
+    private void settleQueueForFailedTask(TaskId taskId, Instant failedAt)
+    {
+        for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
+            switch (input.state()) {
+                case QUEUED, PAUSED -> queueStore.update(input.removed(failedAt));
+                case UNCERTAIN -> queueStore.update(input.abandoned("Task was marked failed without resending it", failedAt));
+                case STARTING -> settleStartingInputForFailedTask(input, failedAt);
+                case STARTED, REMOVED, ABANDONED -> {}
+            }
+        }
+    }
+
+    private void settleStartingInputForFailedTask(QueuedAgentInput input, Instant failedAt)
+    {
+        boolean knownUnsent = turnStore.find(input.turnId().orElseThrow())
+                .map(turn -> turn.knownUnsent() || turn.startedAt().isEmpty())
+                .orElse(false);
+        if (knownUnsent) {
+            QueuedAgentInput paused = queueStore.update(input.paused("Task was marked failed before the input was sent", failedAt));
+            queueStore.update(paused.removed(failedAt));
+            return;
+        }
+        QueuedAgentInput uncertain = queueStore.update(input.uncertain(
+                "Task was marked failed while input delivery was unresolved", failedAt));
+        queueStore.update(uncertain.abandoned("Task was marked failed without resending it", failedAt));
     }
 
     /**

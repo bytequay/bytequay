@@ -18,6 +18,9 @@ import {
   parseAgentApproval,
   parseAgentAttachment,
   parseAgentCompletion,
+  parseAgentInputDelivery,
+  parseAgentQueue,
+  parseAgentQueuedInput,
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
@@ -123,5 +126,45 @@ describe('attachment contract', () => {
     expect(() => parseAgentAttachment({ ...stored, width: 0 })).toThrow('width');
     expect(() => parseAgentAttachment({ ...stored, byteSize: '2048' })).toThrow('byteSize');
     expect(() => parseAgentAttachment({ id: 'att-1' })).toThrow();
+  });
+});
+
+describe('queue and steer contract parsing', () => {
+  const queued: Record<string, unknown> = {
+    id: 'q-1',
+    taskId: fixture.task.id,
+    position: 1,
+    state: 'PAUSED',
+    preview: 'Then update the design doc',
+    settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 60000, attachments: [] },
+    turnId: null,
+    pauseReason: 'Backend restarted',
+    createdAt: '2026-08-20T10:00:02Z',
+    updatedAt: '2026-08-20T10:00:03Z',
+  };
+
+  it('reads a queued input with the settings it will run with', () => {
+    const parsed = parseAgentQueuedInput(queued);
+    expect(parsed.state).toBe('PAUSED');
+    expect(parsed.pauseReason).toBe('Backend restarted');
+    expect(parsed.settings.model).toBe('gpt-5.6-codex');
+    expect(parseAgentQueue([queued, { ...queued, id: 'q-2', position: 2 }]).map((input) => input.id)).toEqual(['q-1', 'q-2']);
+    expect(() => parseAgentQueuedInput({ ...queued, preview: 7 })).toThrow(/preview/);
+    expect(() => parseAgentQueue([queued, { ...queued, settings: null }])).toThrow(/queue\[1\]\.settings/);
+  });
+
+  it('reads a steer delivery and its failure', () => {
+    const delivery = parseAgentInputDelivery({
+      id: 'd-1',
+      taskId: fixture.task.id,
+      turnId: fixture.turn.id,
+      state: 'UNKNOWN',
+      failure: 'Timed out waiting for Codex turn/steer',
+      createdAt: '2026-08-20T10:00:02Z',
+      updatedAt: '2026-08-20T10:00:33Z',
+    });
+    expect(delivery.state).toBe('UNKNOWN');
+    expect(delivery.failure).toContain('Timed out');
+    expect(() => parseAgentInputDelivery({ id: 'd-1' })).toThrow(/taskId/);
   });
 });

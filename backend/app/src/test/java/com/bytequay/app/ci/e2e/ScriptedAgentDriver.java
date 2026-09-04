@@ -173,6 +173,7 @@ final class ScriptedAgentDriver
                 false,
                 false,
                 true,
+                false,
                 CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("text/plain"));

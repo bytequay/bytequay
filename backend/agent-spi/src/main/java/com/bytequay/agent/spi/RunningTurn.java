@@ -42,6 +42,23 @@ public interface RunningTurn
     CompletionStage<AgentTurnResult> completion();
 
     /**
+     * Adds input to this exact running turn.
+     *
+     * <p>The input cannot change the turn's model, effort, or policy. A provider without native
+     * steering refuses it; a transport loss that leaves delivery unproven is reported as
+     * {@link AgentDeliveryUncertainException}, and any other failure means the provider did not
+     * take the input.
+     *
+     * @param input text and task-owned attachments
+     * @throws AgentUnavailableException when the provider refused the input or cannot steer
+     * @throws AgentDeliveryUncertainException when the provider may or may not have received it
+     */
+    default void steer(AgentTurnInput input)
+    {
+        throw new AgentUnavailableException("This provider does not support steering a running turn");
+    }
+
+    /**
      * Requests provider cancellation without blocking for process exit.
      *
      * <p>The operation is idempotent; {@link #completion()} reports the eventual

@@ -13,6 +13,9 @@
  */
 package com.bytequay.agent.core;
 
+import java.util.List;
+import java.util.Optional;
+
 /**
  * Serializes turns and coordinates execution in a task's provider session.
  *
@@ -36,6 +39,9 @@ public interface AgentTurnService
      */
     AgentTurn start(StartAgentTurnCommand command);
 
+    /** Returns a turn already accepted under the task-scoped request key. */
+    Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey);
+
     /**
      * Returns the settings the next turn on this task would be given.
      *
@@ -48,6 +54,74 @@ public interface AgentTurnService
      * @throws AgentTaskNotFoundException when the task does not exist
      */
     AgentTurnSettings effectiveSettings(TaskId taskId);
+
+    /**
+     * Adds input to the turn running now, without creating another turn.
+     *
+     * <p>The delivery row and the user-message event are durable before the one send attempt.
+     * Refused when the provider does not steer or the named turn is not the task's running turn.
+     * A repeated idempotency key returns the durable delivery. A send that got no answer is
+     * {@code UNKNOWN} and is never retried by ByteQuay, because the provider has no key that would
+     * let it drop a duplicate.
+     *
+     * @param command turn, text, attachments, and idempotency key
+     * @return the delivery and its outcome
+     * @throws AgentTurnNotFoundException when the turn does not exist
+     * @throws AgentConflictException when the turn is not the running one
+     * @throws com.bytequay.agent.spi.AgentUnavailableException when the provider cannot steer
+     */
+    AgentInputDelivery steer(SteerAgentTurnCommand command);
+
+    /**
+     * Finds a steer key before a caller resolves mutable request resources.
+     *
+     * <p>A settled result may be returned directly. {@code ACCEPTED} and {@code SENDING} are only
+     * a signal to skip request prevalidation and re-enter {@link #steer}: core must resume the
+     * original durable input or settle the in-progress attempt under its delivery lock.
+     *
+     * @throws AgentConflictException when the key belongs to another turn on the same task
+     */
+    Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey);
+
+    /**
+     * Adds a request to the task's FIFO queue, to run after the current turn.
+     *
+     * <p>Snapshots the text, attachments, and the settings in force. Bumps the task version it was
+     * given, so an enqueue racing Complete either lands before completion checks the queue or
+     * conflicts. Idempotent by key; never calls the provider.
+     *
+     * @throws AgentConflictException when the version is stale or the task cannot take later work
+     */
+    QueuedAgentInput enqueue(QueueAgentInputCommand command);
+
+    /** Returns queued input already accepted under the task-scoped request key. */
+    Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey);
+
+    /** The inputs still waiting, being claimed, or uncertain, in queue order. */
+    List<QueuedAgentInput> queued(TaskId taskId);
+
+    /**
+     * Removes a waiting input, or abandons an uncertain one.
+     *
+     * <p>Abandoning records that the user chose not to resend it; it does not claim the provider
+     * never received it.
+     *
+     * @param taskId task that owns the input
+     * @param queuedInputId input to remove
+     * @throws AgentConflictException when the input belongs to another task or was already consumed
+     */
+    QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId);
+
+    /**
+     * Starts the queue head on an idle task after a non-success terminal turn or a restart.
+     *
+     * <p>A successful turn starts the next input by itself; this is the explicit path for a queue
+     * that paused. An uncertain head is refused until it is discarded.
+     *
+     * @return the turn created from the head
+     * @throws AgentConflictException when the task is not idle, the queue is empty, or its head is uncertain
+     */
+    AgentTurn resumeQueued(TaskId taskId);
 
     /**
      * Requests cancellation of an accepted or running turn.

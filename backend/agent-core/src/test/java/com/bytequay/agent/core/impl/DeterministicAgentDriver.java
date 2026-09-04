@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
@@ -59,6 +60,7 @@ final class DeterministicAgentDriver
             false,
             true,
             true,
+            true,
             CostProvenance.UNAVAILABLE,
             ImmutableSet.of(
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,
@@ -67,6 +69,8 @@ final class DeterministicAgentDriver
 
     private final List<AgentSessionRef> openedReferences = new ArrayList<>();
     private final List<AgentTurnCommand> commands = new ArrayList<>();
+    private final List<AgentTurnInput> steers = new ArrayList<>();
+    private RuntimeException nextSteerFailure;
     private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
     private RuntimeException probeFailure;
     private RuntimeException nextSessionReferenceAndCloseFailure;
@@ -77,6 +81,7 @@ final class DeterministicAgentDriver
     private boolean failNextCloseVerification;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
+    private Runnable beforeSteer = () -> {};
     private Runnable beforeCancel = () -> {};
 
     @Override
@@ -179,6 +184,11 @@ final class DeterministicAgentDriver
         beforeCancel = action;
     }
 
+    synchronized void beforeSteer(Runnable action)
+    {
+        beforeSteer = action;
+    }
+
     synchronized void emit(ProviderAgentEvent event)
     {
         requireCurrentTurn().emit(event);
@@ -220,6 +230,17 @@ final class DeterministicAgentDriver
     synchronized List<AgentTurnCommand> commands()
     {
         return ImmutableList.copyOf(commands);
+    }
+
+    synchronized List<AgentTurnInput> steers()
+    {
+        return ImmutableList.copyOf(steers);
+    }
+
+    /** Makes the next steer fail the way the given failure says: refused, or never answered. */
+    synchronized void failNextSteer(RuntimeException failure)
+    {
+        nextSteerFailure = failure;
     }
 
     private DeterministicRunningTurn requireCurrentTurn()
@@ -309,7 +330,7 @@ final class DeterministicAgentDriver
         }
     }
 
-    private static final class DeterministicRunningTurn
+    private final class DeterministicRunningTurn
             implements RunningTurn
     {
         private final AgentSessionContext context;
@@ -348,6 +369,25 @@ final class DeterministicAgentDriver
         public CompletionStage<AgentTurnResult> completion()
         {
             return completion;
+        }
+
+        @Override
+        public void steer(AgentTurnInput input)
+        {
+            Runnable action;
+            synchronized (DeterministicAgentDriver.this) {
+                action = beforeSteer;
+            }
+            action.run();
+            synchronized (DeterministicAgentDriver.this) {
+                checkState(!completion.isDone(), "deterministic turn has ended");
+                if (nextSteerFailure != null) {
+                    RuntimeException failure = nextSteerFailure;
+                    nextSteerFailure = null;
+                    throw failure;
+                }
+                steers.add(input);
+            }
         }
 
         @Override

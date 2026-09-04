@@ -56,6 +56,15 @@ describe('agent event contract', () => {
     expect(approval?.payload.availableDecisions).toEqual(['ALLOW_ONCE', 'DENY']);
   });
 
+  it.each(['QUEUE_CHANGED', 'QUEUED_INPUT_STARTED', 'QUEUED_INPUT_PAUSED'])('accepts the queued-input lifecycle signal %s', (phase) => {
+    const acknowledged = structuredClone(fixture.events[1]);
+    acknowledged.sequence = 1;
+    acknowledged.payload.phase = phase;
+
+    const [event] = parseAgentEventSequence([acknowledged]);
+    expect(event.type === 'lifecycle' && event.payload.phase).toBe(phase);
+  });
+
   it('reads a task-wide allow, and defaults it off on resolutions stored before it existed', () => {
     const stored = parseAgentEventSequence(fixture.events).find(event => event.type === 'approval_resolved');
     expect(stored?.payload.forTask).toBe(false);

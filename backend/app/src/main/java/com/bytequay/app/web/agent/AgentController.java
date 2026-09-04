@@ -16,6 +16,7 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -26,9 +27,13 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.QueueAgentInputCommand;
+import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
@@ -128,12 +133,28 @@ public class AgentController
                 request.defaults().model(),
                 request.defaults().effort(),
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()));
-        AgentTask task = taskCreator.create(
+        TaskId taskId = TaskId.valueOf(request.taskId());
+        taskCreator.create(
+                taskId,
                 request.workspaceId(),
                 request.message(),
                 new AgentLaneId(request.laneId()),
-                defaults);
-        return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.task(task));
+                defaults,
+                request.idempotencyKey());
+        boolean replay = turnService.findTurnByIdempotencyKey(taskId, request.idempotencyKey()).isPresent();
+        // Creation's first turn belongs to the immutable version-zero request. Core resolves an
+        // accepted replay before checking that version, so this one guarded command serves both.
+        turnService.start(new StartAgentTurnCommand(
+                taskId,
+                0,
+                request.message(),
+                ImmutableList.of(),
+                request.idempotencyKey()));
+        if (!replay) {
+            recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                InteractiveAgentHttpContract.task(taskService.get(taskId)));
     }
 
     @GetMapping("/tasks/{taskId}")
@@ -198,10 +219,9 @@ public class AgentController
      * Refuses images for a model that does not advertise image input, so the catalog gates the
      * turn the same way it gates the composer's attach button.
      */
-    private void requireImageInput(TaskId taskId)
+    private void requireImageInput(AgentTask task, Optional<String> selectedModel)
     {
-        AgentTask task = taskService.get(taskId);
-        String model = turnService.effectiveSettings(taskId).model().orElse("");
+        String model = selectedModel.orElse("");
         boolean accepted = modelSettings.get().providers().stream()
                 .filter(provider -> provider.id().equals(task.laneId().value()))
                 .flatMap(provider -> provider.models().stream())
@@ -279,33 +299,152 @@ public class AgentController
     public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> startTurn(
             @PathVariable String taskId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @RequestBody StartTurnRequest request)
+            @RequestBody InteractiveAgentHttpContract.InputRequest request)
     {
-        requireNotBlank(request.message(), "message must not be blank");
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkArgument(request.expectedVersion() != null, "expectedVersion is null");
+        checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
         TaskId id = TaskId.valueOf(taskId);
-        List<String> attachmentIds = request.attachments() == null ? ImmutableList.of() : request.attachments();
-        List<AgentAttachment> attachments = attachmentIds.stream()
-                .map(attachmentId -> resourceService.readAttachment(id, attachmentId).input())
-                .collect(toImmutableList());
-        if (!attachments.isEmpty()) {
-            requireImageInput(id);
-        }
+        boolean replay = turnService.findTurnByIdempotencyKey(id, idempotencyKey).isPresent();
+        // A replay owns its persisted attachments. Re-enter core so its completion/outbox recovery
+        // still runs, while mutable files and defaults cannot block the accepted request.
+        List<AgentAttachment> attachments = replay || request.attachments().isEmpty()
+                ? ImmutableList.of()
+                : attachments(taskService.get(id), request.attachments());
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
+                id,
+                request.expectedVersion(),
+                request.message(),
+                attachments,
+                idempotencyKey));
+        if (!replay) {
+            recordPrompt(taskId, idempotencyKey, request.message());
+        }
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
+    }
+
+    /** The stored images a message names, resolved to the provider inputs only the backend may build. */
+    private List<AgentAttachment> attachments(AgentTask task, List<String> attachmentIds)
+    {
+        List<AgentAttachment> attachments = resolveAttachments(task.id(), attachmentIds);
+        if (!attachments.isEmpty()) {
+            requireImageInput(task, task.defaults().model());
+        }
+        return attachments;
+    }
+
+    /** Resolves steer images against the model snapshotted by that turn, not mutable task defaults. */
+    private List<AgentAttachment> attachments(AgentTurn turn, List<String> attachmentIds)
+    {
+        List<AgentAttachment> attachments = resolveAttachments(turn.taskId(), attachmentIds);
+        if (!attachments.isEmpty()) {
+            requireImageInput(
+                    taskService.get(turn.taskId()),
+                    turn.settings().flatMap(settings -> settings.model()));
+        }
+        return attachments;
+    }
+
+    private List<AgentAttachment> resolveAttachments(TaskId taskId, List<String> attachmentIds)
+    {
+        return attachmentIds.stream()
+                .map(attachmentId -> resourceService.readAttachment(taskId, attachmentId).input())
+                .collect(toImmutableList());
+    }
+
+    /** Adds to the turn running now. Refused for any turn that is not the task's running one. */
+    @PostMapping("/turns/{turnId}/steer")
+    public ResponseEntity<InteractiveAgentHttpContract.InputDeliveryResponse> steerTurn(
+            @PathVariable String turnId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody InteractiveAgentHttpContract.InputRequest request)
+    {
+        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        TurnId id = TurnId.valueOf(turnId);
+        var repeated = turnService.findSteerByIdempotencyKey(id, idempotencyKey);
+        List<AgentAttachment> attachments = repeated.isPresent()
+                ? ImmutableList.of()
+                : attachments(turnService.get(id), request.attachments());
+        AgentInputDelivery delivery = turnService.steer(new SteerAgentTurnCommand(
                 id,
                 request.message(),
                 attachments,
                 idempotencyKey));
-        recordPrompt(taskId, request.message());
-        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
+        TaskId taskId = delivery.taskId();
+        if (repeated.isEmpty()) {
+            recordPrompt(taskId.toString(), idempotencyKey, request.message());
+        }
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.delivery(delivery));
+    }
+
+    @PostMapping("/tasks/{taskId}/queue")
+    public ResponseEntity<InteractiveAgentHttpContract.QueuedInputResponse> enqueue(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody InteractiveAgentHttpContract.InputRequest request)
+    {
+        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkArgument(request.expectedVersion() != null, "expectedVersion is null");
+        checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
+        TaskId id = TaskId.valueOf(taskId);
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        boolean replay = turnService.findQueuedByIdempotencyKey(id, idempotencyKey).isPresent();
+        List<AgentAttachment> attachments = replay
+                ? ImmutableList.of()
+                : attachments(task, request.attachments());
+        QueuedAgentInput queued = turnService.enqueue(new QueueAgentInputCommand(
+                id,
+                request.expectedVersion(),
+                request.message(),
+                attachments,
+                idempotencyKey));
+        return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.queuedInput(queued));
+    }
+
+    @GetMapping("/tasks/{taskId}/queue")
+    public List<InteractiveAgentHttpContract.QueuedInputResponse> queue(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return turnService.queued(id).stream()
+                .map(InteractiveAgentHttpContract::queuedInput)
+                .collect(toImmutableList());
+    }
+
+    /** Removes a waiting input, or records an uncertain one as abandoned; a consumed one cannot be removed. */
+    @DeleteMapping("/tasks/{taskId}/queue/{queuedInputId}")
+    public InteractiveAgentHttpContract.QueuedInputResponse removeQueued(
+            @PathVariable String taskId,
+            @PathVariable String queuedInputId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        QueuedInputId inputId = QueuedInputId.valueOf(queuedInputId);
+        var removed = turnService.removeQueued(id, inputId);
+        return InteractiveAgentHttpContract.queuedInput(removed);
+    }
+
+    /** Starts the paused queue head on an idle task; a successful turn starts the next one by itself. */
+    @PostMapping("/tasks/{taskId}/queue/resume")
+    public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> resumeQueue(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turnService.resumeQueued(id)));
     }
 
     /** Files the user's prompt in Recent. Never on the path that decides the response. */
-    private void recordPrompt(String taskId, String message)
+    private void recordPrompt(String taskId, String requestId, String message)
     {
         try {
             AgentTask task = taskService.get(TaskId.valueOf(taskId));
-            recent.taskPrompted(taskId, message, task.repository().toString(), task.laneId().value());
+            recent.taskPrompted(taskId, requestId, message, task.repository().toString(), task.laneId().value());
         }
         catch (RuntimeException failure) {
             log.debug("Prompt not recorded for task {}: {}", taskId, failure.toString());
@@ -469,8 +608,6 @@ public class AgentController
                 .map(AgentHttpModels::providerStatus)
                 .collect(toImmutableList());
     }
-
-    public record StartTurnRequest(String message, List<String> attachments) {}
 
     public record ResolveApprovalRequest(
             ApprovalDecision.Decision decision,

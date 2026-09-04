@@ -223,6 +223,7 @@ class TestDefaultCiAutofixService
                 false,
                 false,
                 false,
+                false,
                 CostProvenance.UNAVAILABLE,
                 Set.of(AgentPermissionPolicy.CI_AUTOFIX),
                 Set.of());

@@ -56,6 +56,7 @@ class TestAgentSpiValues
                 true,
                 true,
                 true,
+                false,
                 CostProvenance.UNAVAILABLE,
                 permissionPolicies,
                 mediaTypes);

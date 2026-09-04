@@ -98,6 +98,7 @@ class TestDefaultAgentTaskService
         assertThat(task.id()).isEqualTo(taskId);
         assertThat(task.workspaceId()).contains(WORKSPACE_ID);
         assertThat(task.interactive()).isTrue();
+        assertThat(task.creationFingerprint()).contains("creation-fingerprint");
         assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
         assertThat(resources.allocated).containsExactly(taskId);
         assertThat(managedWorktrees.cleaned).isEmpty();
@@ -352,7 +353,8 @@ class TestDefaultAgentTaskService
                 REPOSITORY,
                 "0123456789012345678901234567890123456789",
                 "Interactive task",
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO));
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                "creation-fingerprint");
     }
 
     private static final class RecordingWorktreeService

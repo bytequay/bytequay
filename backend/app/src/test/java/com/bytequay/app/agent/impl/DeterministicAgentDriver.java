@@ -17,29 +17,38 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static com.google.common.base.Preconditions.checkState;
 
 public final class DeterministicAgentDriver
         implements AgentDriver
 {
     private final AgentLaneId laneId;
+    private final AtomicBoolean holdNextTurn = new AtomicBoolean();
+    private final AtomicReference<HeldTurn> heldTurn = new AtomicReference<>();
 
     public DeterministicAgentDriver()
     {
@@ -60,7 +69,20 @@ public final class DeterministicAgentDriver
     @Override
     public AgentCapabilities capabilities()
     {
-        return AgentCapabilities.none();
+        return new AgentCapabilities(
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true,
+                CostProvenance.UNAVAILABLE,
+                ImmutableSet.of(AgentPermissionPolicy.AUTO),
+                ImmutableSet.of("image/png"));
     }
 
     @Override
@@ -95,6 +117,32 @@ public final class DeterministicAgentDriver
                         false));
     }
 
+    /** Keeps the next turn running until {@link #completeHeldTurn()} is called. */
+    public void holdNextTurn()
+    {
+        checkState(holdNextTurn.compareAndSet(false, true), "a turn is already waiting to be held");
+    }
+
+    public void completeHeldTurn()
+    {
+        HeldTurn held = heldTurn.getAndSet(null);
+        checkState(held != null, "no turn is held");
+        held.completion().complete(result(held.response()));
+    }
+
+    public void reset()
+    {
+        holdNextTurn.set(false);
+        HeldTurn held = heldTurn.getAndSet(null);
+        if (held != null) {
+            held.completion().complete(new AgentTurnResult(
+                    AgentTurnResult.State.INTERRUPTED,
+                    Optional.empty(),
+                    Optional.of("test reset"),
+                    Duration.ZERO));
+        }
+    }
+
     @Override
     public AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
@@ -102,30 +150,51 @@ public final class DeterministicAgentDriver
                 laneId,
                 1,
                 "deterministic-" + UUID.randomUUID()));
-        return new DeterministicSession(reference, events);
+        return new DeterministicSession(this, reference, events);
     }
 
-    private record DeterministicSession(AgentSessionRef reference, AgentEventSink events)
+    private RunningTurn start(AgentTurnCommand command, AgentEventSink events)
+    {
+        String response = "deterministic: " + command.message();
+        events.emit(new ProviderAgentEvent.Message(
+                Optional.of("message-" + command.turnId()),
+                Optional.empty(),
+                ProviderAgentEvent.MessagePhase.FINAL,
+                response,
+                Optional.empty()));
+        CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
+        if (holdNextTurn.compareAndSet(true, false)) {
+            checkState(heldTurn.compareAndSet(null, new HeldTurn(response, completion)), "a turn is already held");
+        }
+        else {
+            completion.complete(result(response));
+        }
+        return new DeterministicTurn(command.turnId(), completion);
+    }
+
+    private static AgentTurnResult result(String response)
+    {
+        return new AgentTurnResult(
+                AgentTurnResult.State.COMPLETED,
+                Optional.of(response),
+                Optional.empty(),
+                Duration.ZERO);
+    }
+
+    private record DeterministicSession(DeterministicAgentDriver driver, AgentSessionRef reference, AgentEventSink events)
             implements AgentSession
     {
         @Override
         public RunningTurn start(AgentTurnCommand command)
         {
-            String response = "deterministic: " + command.message();
-            events.emit(new ProviderAgentEvent.Message(
-                    Optional.of("message-" + command.turnId()),
-                    Optional.empty(),
-                    ProviderAgentEvent.MessagePhase.FINAL,
-                    response,
-                    Optional.empty()));
-            return new CompletedTurn(command.turnId(), response);
+            return driver.start(command, events);
         }
 
         @Override
         public void close() {}
     }
 
-    private record CompletedTurn(String turnId, String response)
+    private record DeterministicTurn(String turnId, CompletableFuture<AgentTurnResult> completion)
             implements RunningTurn
     {
         @Override
@@ -135,16 +204,11 @@ public final class DeterministicAgentDriver
         }
 
         @Override
-        public CompletionStage<AgentTurnResult> completion()
-        {
-            return CompletableFuture.completedFuture(new AgentTurnResult(
-                    AgentTurnResult.State.COMPLETED,
-                    Optional.of(response),
-                    Optional.empty(),
-                    Duration.ZERO));
-        }
+        public void steer(AgentTurnInput input) {}
 
         @Override
         public void cancel() {}
     }
+
+    private record HeldTurn(String response, CompletableFuture<AgentTurnResult> completion) {}
 }

@@ -25,8 +25,6 @@ import { agentProviderUnavailableFrom } from './contracts';
 
 export interface AgentTasksViewProps {
   workspaceId: string;
-  /** The branch new tasks start from; shown on the composer as a fact. */
-  branch?: string;
   /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
   children?: React.ReactNode;
   /** Electron's bridge unless a test supplies its own. */
@@ -244,7 +242,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
 export default function AgentTasksView({
   workspaceId,
-  branch,
   children,
   bridge: explicitBridge,
   onOpenTask,
@@ -265,7 +262,6 @@ export default function AgentTasksView({
       selection={creation.selection}
       draft={creation.draft}
       blocker={creation.blocker}
-      branch={branch}
       onDraftChange={creation.setDraft}
       onSelectProvider={creation.selectProvider}
       onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
@@ -278,13 +274,12 @@ export default function AgentTasksView({
   );
 }
 
-/** The card that creates a task: the first message above the branch, provider, permission and model facts. */
+/** The card that creates a task: the first message above its provider, permission and model facts. */
 export function TaskComposer({
-  draft, blocker, branch, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
+  draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
 }: {
   draft: string;
   blocker: string | null;
-  branch?: string;
   laneId: string;
   providers: ModelProviderDto[];
   models: ModelOptionDto[];
@@ -308,19 +303,12 @@ export function TaskComposer({
           )}
         </div>
       )}
-      <div className="agt-compose">
-        {branch !== undefined && (
-          <div className="agt-compose__bar">
-            <span className="agt-compose__branch" title="Branch the task starts from">
-              <span className="agt-compose__branch-mark" aria-hidden="true">⑂</span>{branch}
-            </span>
-          </div>
-        )}
+      <div className="agt-compose is-new-task">
         <input
           className="agt-compose__input"
           type="text"
           aria-label="Describe a task"
-          placeholder="Describe a task — sending the first message creates it…"
+          placeholder="Let's ship..."
           value={draft}
           disabled={blocker !== null}
           onChange={(event) => onDraftChange(event.target.value)}
@@ -361,7 +349,7 @@ export function TaskComposer({
 }
 
 export function AgentTaskList({
-  tasks, loading, error, laneId, providers, models, selection, draft, blocker, branch, children,
+  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings,
 }: {
   tasks: AgentTaskDto[];
@@ -375,7 +363,6 @@ export function AgentTaskList({
   draft: string;
   /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
-  branch?: string;
   children?: React.ReactNode;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
@@ -441,7 +428,6 @@ export function AgentTaskList({
       <TaskComposer
         draft={draft}
         blocker={blocker}
-        branch={branch}
         laneId={laneId}
         providers={providers}
         models={models}

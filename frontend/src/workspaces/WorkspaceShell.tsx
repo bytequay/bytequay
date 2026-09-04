@@ -189,7 +189,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return stage(
       <AgentTasksView
         workspaceId={workspace.id}
-        branch={workspace.defaultBranch}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
         onOpenSettings={() => onSelectTab('settings')}
       >
@@ -211,7 +210,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     <AgentHome
       workspaceId={workspace.id}
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-      branch={workspace.defaultBranch}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
       onOpenSettings={() => onSelectTab('settings')}
       onShowAll={() => setOverviewOpen(true)}

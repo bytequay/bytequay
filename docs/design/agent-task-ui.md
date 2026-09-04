@@ -346,9 +346,11 @@ product tool.
 The existing Tasks screen keeps cherry-pick executions and adds a separate
 **Agent tasks** section. It does not broaden `CherryPickExecution` into a
 generic task DTO. There is no New-agent-task dialog and no title field: the
-Tasks screen anchors a composer under that section — "Describe a task —
-sending the first message creates it" — carrying the branch, provider, model,
-and permission chips, and sending that first message is what creates the task.
+Tasks screen anchors a composer under that section with the provider, model,
+and permission controls, and sending its first message is what creates the
+task. The composer uses the concise `Let's ship...` prompt without repeating
+the starting branch or a creation hint; the surrounding screen supplies that
+context while the input keeps its accessible name.
 The workspace is already fixed by the route, so the HTTP request carries
 `workspaceId` and the message, never a title or a worktree path. `app`
 resolves and validates that workspace's managed repository and exact starting

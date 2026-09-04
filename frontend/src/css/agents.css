@@ -402,18 +402,6 @@
   box-shadow: 0 1px 3px rgba(27, 31, 36, 0.06);
 }
 
-.agt-compose__bar {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 9px 14px;
-  background: #f6f8fa;
-  border-bottom: 1px solid #f0f0f2;
-  border-radius: 11px 11px 0 0;
-  font-size: 12.5px;
-  color: #24292f;
-}
-
 .agt-compose__input {
   display: block;
   width: 100%;
@@ -433,6 +421,59 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px 10px;
+}
+
+.agt-compose.is-new-task {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  border-color: #647181;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.14);
+}
+
+.agt-compose.is-new-task .agt-compose__row {
+  margin-top: auto;
+  padding: 12px 10px 6px;
+}
+
+.agt-compose.is-new-task .agt-compose__input {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.agt-compose.is-new-task .agt-compose__chip,
+.agt-compose.is-new-task .agt-picker__chip,
+.agt-compose.is-new-task .agt-picker__heading,
+.agt-compose.is-new-task .agt-picker__row,
+.agt-compose.is-new-task .agt-picker__item,
+.agt-compose.is-new-task .agt-picker__single,
+.agt-compose.is-new-task .agt-picker__value,
+.agt-compose.is-new-task .agt-picker__effort,
+.agt-compose.is-new-task .chev {
+  font-size: 14px;
+  font-weight: 400;
+  color: #1f2328;
+}
+
+.agt-compose.is-new-task .agt-picker__chip:disabled,
+.agt-compose.is-new-task .agt-picker__row:disabled,
+.agt-compose.is-new-task .agt-picker__item:disabled {
+  color: #a8b0b9;
+}
+
+.agt-compose.is-new-task .agt-compose__chip,
+.agt-compose.is-new-task .agt-picker__chip,
+.agt-compose.is-new-task .agt-send {
+  transform: translateY(2px);
+}
+
+.agt-compose.is-new-task .agt-attach {
+  font: inherit;
+  color: #1f2328;
+  font-size: 24px;
+  font-weight: 300;
+  transform: translateY(-2px);
 }
 
 .agt-compose__chip {
@@ -632,7 +673,8 @@
   border-radius: 50%;
   background: #24292f;
   color: #ffffff;
-  font-size: 14px;
+  font-size: 18px;
+  font-weight: 400;
   cursor: pointer;
 }
 
@@ -657,23 +699,6 @@
 
 .agt-compose-dock.is-task .agt-compose {
   border-radius: 14px;
-}
-
-.agt-compose__branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin: -3px 0;
-  padding: 3px 10px;
-  border-radius: 14px;
-  background: #eceff2;
-  font-size: 12.5px;
-  color: #24292f;
-  white-space: nowrap;
-}
-
-.agt-compose__branch-mark {
-  color: #57606a;
 }
 
 .agt-compose-dock.is-task .agt-drafts {
@@ -1762,7 +1787,6 @@
   color: #57606a;
   cursor: pointer;
   padding: 2px 6px;
-  align-self: flex-end;
 }
 
 .agt-attach:disabled {

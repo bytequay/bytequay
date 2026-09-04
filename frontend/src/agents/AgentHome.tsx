@@ -30,7 +30,6 @@ export interface AgentHomeProps {
   workspaceId: string;
   /** "owner/repo", named in the question the hero asks. */
   repository: string;
-  branch?: string;
   bridge?: AgentBridgePort;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
@@ -39,14 +38,13 @@ export interface AgentHomeProps {
 }
 
 export default function AgentHome({
-  workspaceId, repository, branch, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, laneId = INTERACTIVE_LANE_ID,
+  workspaceId, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
   return (
     <AgentHomeView
       repository={repository}
-      branch={branch}
       laneId={creation.laneId}
       providers={creation.catalog?.providers ?? []}
       bridge={live}
@@ -67,11 +65,10 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, branch, laneId, providers, bridge, tasks, models, selection, draft, blocker,
+  repository, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
 }: {
   repository: string;
-  branch?: string;
   laneId: string;
   providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
@@ -120,7 +117,6 @@ export function AgentHomeView({
       <TaskComposer
         draft={draft}
         blocker={blocker}
-        branch={branch}
         laneId={laneId}
         providers={providers}
         models={models}

@@ -1647,7 +1647,8 @@
   border-radius: 50%;
   background: #24292f;
   color: #ffffff;
-  font-size: 13px;
+  font-size: 18px;
+  font-weight: 400;
   cursor: pointer;
 }
 

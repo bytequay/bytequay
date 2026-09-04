@@ -166,6 +166,42 @@ function declarations(selector: string): string[] {
 }
 
 describe('agent task layout', () => {
+  it('keeps the new-task controls low and aligned without branch or creation-hint rows', () => {
+    expect(declarations('.agt-compose.is-new-task')).toEqual(expect.arrayContaining([
+      'display: flex',
+      'min-height: 112px',
+      'flex-direction: column',
+      'border-color: #647181',
+      'border-radius: 14px',
+      'box-shadow: 0 1px 3px rgba(27, 31, 36, 0.14)',
+    ]));
+    expect(declarations('.agt-compose.is-new-task .agt-compose__row')).toEqual(expect.arrayContaining([
+      'margin-top: auto',
+      'padding: 12px 10px 6px',
+    ]));
+    expect(declarations('.agt-compose.is-new-task .agt-compose__input')).toEqual(expect.arrayContaining([
+      'font-size: 13px',
+      'font-weight: 400',
+    ]));
+    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.chev \{\s*font-size: 14px;\s*font-weight: 400;\s*color: #1f2328/s);
+    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.agt-send \{\s*transform: translateY\(2px\)/s);
+    expect(declarations('.agt-compose.is-new-task .agt-attach')).toEqual(expect.arrayContaining([
+      'font: inherit',
+      'color: #1f2328',
+      'font-size: 24px',
+      'font-weight: 300',
+      'transform: translateY(-2px)',
+    ]));
+    expect(css).toMatch(/^\.agt-send \{[^}]*font-size: 18px;[^}]*font-weight: 400/m);
+    expect(declarations('.agt-compose__row')).toContain('align-items: center');
+    expect(declarations('.agt-attach')).not.toContain('align-self: flex-end');
+
+    const markup = renderToStaticMarkup(
+      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+    expect(markup).not.toContain('Branch the task starts from');
+    expect(markup).toContain('placeholder="Let&#x27;s ship..."');
+  });
+
   it('reads a held checkout as loading, not recovery, until the history has arrived', () => {
     const held = {
       ...task('t-1', 'OPEN', 'x'),

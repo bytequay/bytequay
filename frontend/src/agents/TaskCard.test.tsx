@@ -88,7 +88,6 @@ describe('agent home and overview', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView
         repository="jackchen/trino"
-        branch="master"
         laneId="codex"
         providers={PROVIDERS}
         bridge={bridge}
@@ -110,8 +109,9 @@ describe('agent home and overview', () => {
     expect(markup).toContain('Open tasks · 2');
     expect(markup).toContain('⇧⌘\\');
     expect(markup).toContain('style="--card-w:200"');
-    expect(markup).toContain('Describe a task — sending the first message creates it…');
-    expect(markup).toContain('master');
+    expect(markup).toContain('aria-label="Describe a task"');
+    expect(markup).not.toContain('Describe a task — sending the first message creates it…');
+    expect(markup).not.toContain('master');
   });
 
   it('lays every open task out as a closable window with a place to start another', () => {

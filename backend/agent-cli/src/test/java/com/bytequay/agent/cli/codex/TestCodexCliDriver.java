@@ -41,6 +41,8 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -101,6 +103,30 @@ class TestCodexCliDriver
         assertThat(resumedServer.resumeCount()).isOne();
 
         RunningTurn turn = resumed.start(command("complete"));
+        JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
+        assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
+        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
+        assertThat(startedThread.path("dynamicTools")).isEmpty();
+        assertThat(startedThread.path("selectedCapabilityRoots")).isEmpty();
+        assertThat(startedThread.path("config").path("mcp_servers")).isEmpty();
+        assertThat(startedThread.path("config").path("features").path("multi_agent").asBoolean()).isTrue();
+
+        JsonNode resumedThread = resumedServer.threadRequests().getFirst();
+        assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
+        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
+
+        JsonNode startedTurn = resumedServer.turnRequests().getFirst();
+        assertThat(startedTurn.path("approvalPolicy").asText()).isEqualTo("on-request");
+        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
+        assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
+        assertThat(startedTurn.path("sandboxPolicy").path("writableRoots").get(0).asText())
+                .isEqualTo(worktree.toRealPath().toString());
+        assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+        assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").asBoolean()).isTrue();
+        assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").asBoolean()).isTrue();
         resumedServer.completeTurn();
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -145,6 +171,19 @@ class TestCodexCliDriver
                 server -> assertThat(server.experimentalApi()).containsExactly(true));
 
         driver.close();
+    }
+
+    @Test
+    void probeKeepsRecoveryEvidenceWhenItsProcessTreeIsUnverifiable()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.leaveProbeTreeUnverifiable();
+
+        AgentProviderStatus status = driver(supervisor).probe();
+
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+        assertThat(status.diagnostic()).contains("process tree could not be verified stopped");
+        assertThat(supervisor.acknowledgements).isEmpty();
     }
 
     @Test
@@ -821,6 +860,56 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportHooks("[{\"name\":\"stop\"}]")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
+    }
+
+    @Test
+    void provesTheLaunchProfileAndItsLayersBeforeCreatingAThread()
+    {
+        ScriptedProcessSupervisor noLayers = new ScriptedProcessSupervisor(objectMapper);
+        noLayers.configLayers = "[]";
+        assertThatThrownBy(() -> driver(noLayers).open(
+                context(Optional.empty(), new AtomicReference<>()),
+                event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("exactly one isolated user layer");
+        assertThat(noLayers.server().threadRequests()).isEmpty();
+
+        ScriptedProcessSupervisor wrongEffectiveProfile = new ScriptedProcessSupervisor(objectMapper);
+        wrongEffectiveProfile.configBody = "{\"web_search\":\"enabled\"}";
+        assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(
+                context(Optional.empty(), new AtomicReference<>()),
+                event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("web_search");
+        assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
+
+        ScriptedProcessSupervisor wrongSessionFlags = new ScriptedProcessSupervisor(objectMapper);
+        ArrayNode layers = objectMapper.createArrayNode();
+        ObjectNode userLayer = layers.addObject();
+        userLayer.putObject("name")
+                .put("type", "user")
+                .put("file", codexHome().resolve("config.toml").toString());
+        userLayer.set("config", objectMapper.createObjectNode());
+        ObjectNode sessionLayer = layers.addObject();
+        sessionLayer.putObject("name").put("type", "sessionFlags");
+        sessionLayer.set("config", objectMapper.createObjectNode());
+        wrongSessionFlags.configLayers = layers.toString();
+        assertThatThrownBy(() -> driver(wrongSessionFlags).open(
+                context(Optional.empty(), new AtomicReference<>()),
+                event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("web_search");
+        assertThat(wrongSessionFlags.server().threadRequests()).isEmpty();
+
+        ScriptedProcessSupervisor inheritedThreadServer = new ScriptedProcessSupervisor(objectMapper);
+        inheritedThreadServer.mcpStatuses = "{\"data\":[{\"name\":\"ambient\",\"pluginId\":null}],"
+                + "\"nextCursor\":null}";
+        assertThatThrownBy(() -> driver(inheritedThreadServer).open(
+                context(Optional.empty(), new AtomicReference<>()),
+                event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("thread inherited an MCP server");
+        assertThat(inheritedThreadServer.server().threadRequests()).hasSize(1);
     }
 
     @Test
@@ -1552,10 +1641,9 @@ class TestCodexCliDriver
         // about the second.
         supervisor.reportHooks("[{\"name\":\"stop\"}]");
 
-        AgentSession resumed = driver.open(
+        assertThatThrownBy(() -> driver.open(
                 context(Optional.of(session.reference()), new AtomicReference<>()),
-                event -> {});
-        assertThatThrownBy(() -> resumed.start(command("second")))
+                event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
@@ -1620,12 +1708,11 @@ class TestCodexCliDriver
         // A hook can appear while a task is unloaded, so a resumed thread proves nothing about the
         // process now serving it.
         supervisor.reportHooks("[{\"name\":\"stop\"}]");
-        AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
-
-        assertThatThrownBy(() -> resumed.start(command("after-resume")))
+        assertThatThrownBy(() -> driver.open(
+                context(Optional.of(reference), new AtomicReference<>()),
+                event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
-        resumed.close();
     }
 
     /** Opens a session and starts a turn against a scripted App Server configured by {@code setup}. */
@@ -1681,6 +1768,12 @@ class TestCodexCliDriver
 
     private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
     {
+        try {
+            CodexHome.prepare(codexHome());
+        }
+        catch (IOException e) {
+            throw new AssertionError("unable to prepare test Codex home", e);
+        }
         return new CodexCliDriver(
                 "/fake/codex",
                 objectMapper,
@@ -1899,17 +1992,26 @@ class TestCodexCliDriver
         private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
         private volatile String hooks = "[]";
-        private volatile String configLayers = "[]";
+        private volatile String configLayers;
+        private volatile String configBody = "{}";
+        private volatile String mcpStatuses;
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
         private final ConcurrentMap<String, String> historyItems = new ConcurrentHashMap<>();
         private volatile String models = modelCatalog(Optional.of("v1"));
         private volatile ProcessExit.TreeTermination termination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
+        private volatile ProcessExit.TreeTermination probeTermination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
+        private final List<String> acknowledgements = new CopyOnWriteArrayList<>();
 
         /** Makes every App Server exit report a process tree that could not be observed gone. */
         private void leaveProcessTreeUnverifiable()
         {
             termination = ProcessExit.TreeTermination.UNVERIFIABLE;
+        }
+
+        private void leaveProbeTreeUnverifiable()
+        {
+            probeTermination = ProcessExit.TreeTermination.UNVERIFIABLE;
         }
 
         /** Names a subagent thread in history that the notification stream never mentioned. */
@@ -2180,7 +2282,10 @@ class TestCodexCliDriver
         }
 
         @Override
-        public void acknowledge(String launchId) {}
+        public void acknowledge(String launchId)
+        {
+            acknowledgements.add(launchId);
+        }
 
         private final class ScriptedLaunch
                 implements PreparedProcess
@@ -2218,25 +2323,31 @@ class TestCodexCliDriver
                 output.onOutput(
                         ProcessStream.STDOUT,
                         StandardCharsets.UTF_8.encode(versionOutput + "\n"));
-                return ImmediateProcess.success();
+                return ImmediateProcess.success(probeTermination);
             }
             if (spec.argv().contains("update")) {
                 updateRuns.incrementAndGet();
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("updated\n"));
-                return ImmediateProcess.success();
+                return ImmediateProcess.success(probeTermination);
             }
             if (spec.argv().contains("login")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
-                return loggedIn ? ImmediateProcess.success() : ImmediateProcess.failure();
+                return loggedIn
+                        ? ImmediateProcess.success(probeTermination)
+                        : ImmediateProcess.failure(probeTermination);
             }
             boolean catalog = spec.owner().id().equals("codex-model-catalog");
             AppServerProcess server = new AppServerProcess(
                     objectMapper,
                     output,
                     failThreadStart,
+                    Path.of(spec.environment().getOrDefault("CODEX_HOME", spec.workingDirectory().toString())),
+                    spec.argv(),
                     () -> managedRequirements,
                     () -> hooks,
                     () -> configLayers,
+                    () -> configBody,
+                    () -> mcpStatuses,
                     () -> skills,
                     () -> backgroundTerminals,
                     this::reportNoBackgroundTerminals,
@@ -2316,6 +2427,8 @@ class TestCodexCliDriver
         private final ObjectMapper objectMapper;
         private final ProcessOutputSink output;
         private final boolean failThreadStart;
+        private final Path codexHome;
+        private final List<String> argv;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final ExecutorService reader = Executors.newSingleThreadExecutor(
                 Thread.ofVirtual().name("scripted-app-server-reader").factory());
@@ -2326,10 +2439,14 @@ class TestCodexCliDriver
         private final Supplier<String> managedRequirements;
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
+        private final Supplier<String> configBody;
+        private final Supplier<String> mcpStatuses;
         private final Supplier<String> skills;
         private final Supplier<String> backgroundTerminals;
         private final List<String> turnSettings = new CopyOnWriteArrayList<>();
         private final List<String> turnInputs = new CopyOnWriteArrayList<>();
+        private final List<JsonNode> threadRequests = new CopyOnWriteArrayList<>();
+        private final List<JsonNode> turnRequests = new CopyOnWriteArrayList<>();
         private final List<String> steerRequests = new CopyOnWriteArrayList<>();
         private volatile boolean refuseSteer;
         private volatile boolean ignoreSteer;
@@ -2368,9 +2485,13 @@ class TestCodexCliDriver
                 ObjectMapper objectMapper,
                 ProcessOutputSink output,
                 boolean failThreadStart,
+                Path codexHome,
+                List<String> argv,
                 Supplier<String> managedRequirements,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
+                Supplier<String> configBody,
+                Supplier<String> mcpStatuses,
                 Supplier<String> skills,
                 Supplier<String> backgroundTerminals,
                 Runnable clearBackgroundTerminals,
@@ -2382,9 +2503,13 @@ class TestCodexCliDriver
             this.objectMapper = objectMapper;
             this.output = output;
             this.failThreadStart = failThreadStart;
+            this.codexHome = codexHome;
+            this.argv = ImmutableList.copyOf(argv);
             this.managedRequirements = managedRequirements;
             this.hooks = hooks;
             this.configLayers = configLayers;
+            this.configBody = configBody;
+            this.mcpStatuses = mcpStatuses;
             this.skills = skills;
             this.backgroundTerminals = backgroundTerminals;
             this.clearBackgroundTerminals = clearBackgroundTerminals;
@@ -2409,9 +2534,90 @@ class TestCodexCliDriver
             return turnSettings;
         }
 
+        private List<JsonNode> threadRequests()
+        {
+            return threadRequests;
+        }
+
+        private List<JsonNode> turnRequests()
+        {
+            return turnRequests;
+        }
+
         private List<Boolean> experimentalApi()
         {
             return experimentalApi;
+        }
+
+        private JsonNode configReadResponse()
+        {
+            try {
+                CodexLaunchProfile.ChildProfile childProfile = childProfile();
+                ObjectNode config = objectMapper.valueToTree(
+                        CodexLaunchProfile.threadConfig(childProfile));
+                ObjectNode shell = (ObjectNode) config.path("shell_environment_policy");
+                shell.putNull("exclude");
+                shell.putNull("set");
+                shell.putNull("filters");
+                JsonNode override = objectMapper.readTree(configBody.get());
+                if (!override.isObject()) {
+                    throw new AssertionError("scripted config override is not an object");
+                }
+                config.setAll((ObjectNode) override);
+
+                ArrayNode layers;
+                if (configLayers.get() != null) {
+                    JsonNode configured = objectMapper.readTree(configLayers.get());
+                    if (!configured.isArray()) {
+                        throw new AssertionError("scripted config layers are not an array");
+                    }
+                    layers = (ArrayNode) configured;
+                }
+                else {
+                    layers = objectMapper.createArrayNode();
+                    ObjectNode userLayer = layers.addObject();
+                    userLayer.putObject("name")
+                            .put("type", "user")
+                            .put("file", codexHome.resolve("config.toml").toString());
+                    userLayer.set("config", objectMapper.createObjectNode());
+
+                    ObjectNode sessionLayer = layers.addObject();
+                    sessionLayer.putObject("name").put("type", "sessionFlags");
+                    sessionLayer.set(
+                            "config",
+                            objectMapper.valueToTree(CodexLaunchProfile.threadConfig(childProfile)));
+                    sessionLayer.putNull("disabledReason");
+                }
+                ObjectNode response = objectMapper.createObjectNode();
+                response.set("config", config);
+                response.set("origins", objectMapper.createObjectNode());
+                response.set("layers", layers);
+                return response;
+            }
+            catch (IOException e) {
+                throw new AssertionError("invalid scripted config", e);
+            }
+        }
+
+        private CodexLaunchProfile.ChildProfile childProfile()
+        {
+            if (hasArguments("--enable", "multi_agent")) {
+                return CodexLaunchProfile.ChildProfile.V1;
+            }
+            if (hasArguments("--enable", "multi_agent_v2")) {
+                return CodexLaunchProfile.ChildProfile.V2;
+            }
+            return CodexLaunchProfile.ChildProfile.NONE;
+        }
+
+        private boolean hasArguments(String first, String second)
+        {
+            for (int index = 0; index + 1 < argv.size(); index++) {
+                if (argv.get(index).equals(first) && argv.get(index + 1).equals(second)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         @Override
@@ -2451,10 +2657,12 @@ class TestCodexCliDriver
                 case "initialize" -> {
                     experimentalApi.add(message.path("params").path("capabilities")
                             .path("experimentalApi").asBoolean());
-                    respond(id, "{\"codexHome\":\"/codex-home\"}");
+                    respond(id, objectMapper.createObjectNode()
+                            .put("codexHome", codexHome.toString())
+                            .toString());
                 }
                 case "configRequirements/read" -> respond(id, managedRequirements.get());
-                case "config/read" -> respond(id, "{\"config\":{},\"origins\":{},\"layers\":" + configLayers.get() + "}");
+                case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"skills\":" + skills.get() + ",\"errors\":[]}]}");
@@ -2474,8 +2682,14 @@ class TestCodexCliDriver
                     respond(id, "{\"terminated\":true}");
                 }
                 case "model/list" -> respond(id, models.get());
+                case "mcpServerStatus/list" -> respond(
+                        id,
+                        mcpStatuses.get() != null
+                                ? mcpStatuses.get()
+                                : "{\"data\":[],\"nextCursor\":null}");
                 case "initialized" -> {}
                 case "thread/start" -> {
+                    threadRequests.add(message.path("params").deepCopy());
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
                     sandboxes.add(message.path("params").path("sandbox").asText());
                     if (failThreadStart) {
@@ -2486,6 +2700,7 @@ class TestCodexCliDriver
                     }
                 }
                 case "thread/resume" -> {
+                    threadRequests.add(message.path("params").deepCopy());
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
                     sandboxes.add(message.path("params").path("sandbox").asText());
                     resumes.incrementAndGet();
@@ -2493,6 +2708,7 @@ class TestCodexCliDriver
                 }
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
+                    turnRequests.add(message.path("params").deepCopy());
                     turnSettings.add(message.path("params").path("model").asText("none")
                             + "/" + message.path("params").path("effort").asText("none"));
                     turnInputs.add(message.path("params").path("input").toString());
@@ -2792,14 +3008,28 @@ class TestCodexCliDriver
     {
         private static ImmediateProcess success()
         {
-            return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false)));
+            return success(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+
+        private static ImmediateProcess success(ProcessExit.TreeTermination termination)
+        {
+            return exited(0, termination);
         }
 
         private static ImmediateProcess failure()
         {
+            return failure(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+
+        private static ImmediateProcess failure(ProcessExit.TreeTermination termination)
+        {
+            return exited(1, termination);
+        }
+
+        private static ImmediateProcess exited(int exitCode, ProcessExit.TreeTermination termination)
+        {
             return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false)));
+                    new ProcessExit(exitCode, ProcessExit.Reason.EXITED, termination, Duration.ZERO, false, false)));
         }
 
         @Override

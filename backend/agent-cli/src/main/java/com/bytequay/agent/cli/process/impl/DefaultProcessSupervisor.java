@@ -128,10 +128,24 @@ public final class DefaultProcessSupervisor
                 .build();
         return launches.stream()
                 .sorted()
-                .map(launchId -> recover(launchId, Optional.ofNullable(committed.get(launchId))))
+                .map(launchId -> recover(launchId, Optional.ofNullable(committed.get(launchId)), false))
                 .filter(Optional::isPresent)
                 .map(Optional::orElseThrow)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public OwnedProcessRecovery recoverOwnedProcess(String launchId)
+    {
+        requireNonNull(launchId, "launchId is null");
+        Optional<Boolean> attempted = Optional.ofNullable(intents.committedLaunches().get(launchId));
+        return recover(launchId, attempted, true)
+                .orElseGet(() -> new OwnedProcessRecovery(
+                        launchId,
+                        Optional.empty(),
+                        Optional.empty(),
+                        OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                        "Launch belongs to the current backend instance"));
     }
 
     @Override
@@ -142,7 +156,10 @@ public final class DefaultProcessSupervisor
         store.delete(launchId);
     }
 
-    private Optional<OwnedProcessRecovery> recover(String launchId, Optional<Boolean> attempted)
+    private Optional<OwnedProcessRecovery> recover(
+            String launchId,
+            Optional<Boolean> attempted,
+            boolean retryUnverifiable)
     {
         Optional<LaunchMarker> found = store.read(launchId);
         if (found.isEmpty()) {
@@ -165,7 +182,7 @@ public final class DefaultProcessSupervisor
         if (marker.backendId().equals(backendId)) {
             return Optional.empty();
         }
-        return Optional.of(reconcile(marker, attempted));
+        return Optional.of(reconcile(marker, attempted, retryUnverifiable));
     }
 
     /**
@@ -182,7 +199,10 @@ public final class DefaultProcessSupervisor
         return !attempted.orElse(false);
     }
 
-    private OwnedProcessRecovery reconcile(LaunchMarker marker, Optional<Boolean> attempted)
+    private OwnedProcessRecovery reconcile(
+            LaunchMarker marker,
+            Optional<Boolean> attempted,
+            boolean retryUnverifiable)
     {
         String launchId = marker.launchId();
         boolean released = store.gateReleased(launchId);
@@ -192,7 +212,15 @@ public final class DefaultProcessSupervisor
                     "Recorded process facts do not follow the committed launch intent");
         }
         if (phase == LaunchPhase.TERMINAL) {
-            return result(marker, marker.treeTermination()
+            if (retryUnverifiable
+                    && (marker.descendants().isEmpty()
+                            || marker.treeTermination().orElse(ProcessExit.TreeTermination.UNVERIFIABLE)
+                            == ProcessExit.TreeTermination.UNVERIFIABLE)) {
+                return stopRecordedTree(marker);
+            }
+            return result(marker, marker.descendants().isEmpty()
+                            ? OwnedProcessRecovery.Outcome.UNVERIFIABLE
+                            : marker.treeTermination()
                             .map(termination -> termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                                     ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
                                     : OwnedProcessRecovery.Outcome.UNVERIFIABLE)
@@ -240,34 +268,34 @@ public final class DefaultProcessSupervisor
     {
         Optional<ProcessIdentity> identity = marker.identity();
         Optional<Long> group = marker.processGroup();
+        Optional<List<ProcessIdentity>> descendants = marker.descendants();
         if (identity.isEmpty() || group.isEmpty()) {
             return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Released marker has no process receipt");
         }
         ProcessIdentity leader = identity.orElseThrow();
-        Optional<ProcessHandle> live = ProcessHandle.of(leader.pid());
-        if (live.isPresent()) {
-            switch (leader.liveness()) {
-                case UNKNOWN -> {
-                    return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                            "Recorded PID exists but its start token cannot be read");
-                }
-                case GONE -> {
-                    // The recorded group leader exited and its identifier was reused, which a POSIX
-                    // system only allows once the whole group is empty.
-                    return result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "Recorded process tree already exited");
-                }
-                case MATCHES -> {
-                    if (!matchesRecordedExecutable(marker, live.orElseThrow().info())) {
-                        return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded PID runs an unrecognized executable");
-                    }
-                }
+        ProcessIdentity.Liveness leaderLiveness = leader.liveness();
+        if (leaderLiveness == ProcessIdentity.Liveness.UNKNOWN) {
+            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                    "Recorded PID exists but its start token cannot be read");
+        }
+        boolean liveLeader = leaderLiveness == ProcessIdentity.Liveness.MATCHES;
+        if (liveLeader) {
+            ProcessHandle handle = ProcessHandle.of(leader.pid()).orElseThrow();
+            if (!matchesRecordedExecutable(marker, handle.info())) {
+                return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded PID runs an unrecognized executable");
             }
         }
-        return result(marker, terminateGroup(group.orElseThrow(), Duration.ofSeconds(1))
-                        == ProcessExit.TreeTermination.VERIFIED_STOPPED
+        ProcessExit.TreeTermination groupTermination = liveLeader
+                ? terminateGroup(group.orElseThrow(), Duration.ofSeconds(1))
+                : verifyGroupEmpty(group.orElseThrow());
+        ProcessExit.TreeTermination descendantTermination = descendants
+                .map(identities -> terminateIdentities(identities, Duration.ofSeconds(1)))
+                .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
+        return result(marker, groupTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
+                        && descendantTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                         ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
                         : OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                "Reconciled the recorded process group");
+                "Reconciled the recorded process group and descendants");
     }
 
     private static boolean matchesRecordedExecutable(LaunchMarker marker, ProcessHandle.Info info)
@@ -318,6 +346,47 @@ public final class DefaultProcessSupervisor
         return awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)
                 ? ProcessExit.TreeTermination.VERIFIED_STOPPED
                 : ProcessExit.TreeTermination.UNVERIFIABLE;
+    }
+
+    private static ProcessExit.TreeTermination verifyGroupEmpty(long processGroup)
+    {
+        return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent()
+                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
+                : ProcessExit.TreeTermination.UNVERIFIABLE;
+    }
+
+    private static ProcessExit.TreeTermination terminateIdentities(List<ProcessIdentity> identities, Duration grace)
+    {
+        identities.stream()
+                .filter(identity -> identity.liveness() == ProcessIdentity.Liveness.MATCHES)
+                .map(ProcessIdentity::pid)
+                .map(ProcessHandle::of)
+                .flatMap(Optional::stream)
+                .forEach(ProcessHandle::destroy);
+        if (!awaitIdentitiesDead(identities, grace)) {
+            identities.stream()
+                    .filter(identity -> identity.liveness() == ProcessIdentity.Liveness.MATCHES)
+                    .map(ProcessIdentity::pid)
+                    .map(ProcessHandle::of)
+                    .flatMap(Optional::stream)
+                    .forEach(ProcessHandle::destroyForcibly);
+        }
+        return awaitIdentitiesDead(identities, TREE_VERIFICATION_TIMEOUT)
+                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
+                : ProcessExit.TreeTermination.UNVERIFIABLE;
+    }
+
+    private static boolean awaitIdentitiesDead(List<ProcessIdentity> identities, Duration timeout)
+    {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (true) {
+            if (identities.stream().allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE)) {
+                return true;
+            }
+            if (System.nanoTime() >= deadline || !sleep(50)) {
+                return false;
+            }
+        }
     }
 
     private static boolean awaitGroupEmpty(long processGroup, Duration timeout)
@@ -519,26 +588,29 @@ public final class DefaultProcessSupervisor
 
         private Process spawnLauncher()
         {
-            ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
-                    .add(
-                            LAUNCHER_SHELL,
-                            "-c",
-                            LAUNCHER_SCRIPT,
-                            "bytequay-launch",
-                            store.gateFile(launchId()).toString(),
-                            store.identityFile(launchId()).toString(),
-                            Long.toString(ProcessHandle.current().pid()),
-                            executable);
-            spec.argv().stream().skip(1).forEach(argv::add);
-            ProcessBuilder builder = new ProcessBuilder(argv.build())
-                    .directory(spec.workingDirectory().toFile())
-                    .redirectErrorStream(false);
-            builder.environment().clear();
-            builder.environment().putAll(spec.environment());
             try {
+                ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
+                        .add(
+                                LAUNCHER_SHELL,
+                                "-c",
+                                LAUNCHER_SCRIPT,
+                                "bytequay-launch",
+                                store.gateFile(launchId()).toString(),
+                                store.identityFile(launchId()).toString(),
+                                Long.toString(ProcessHandle.current().pid()),
+                                executable);
+                spec.argv().stream().skip(1).forEach(argv::add);
+                ProcessBuilder builder = new ProcessBuilder(argv.build())
+                        .directory(spec.workingDirectory().toFile())
+                        .redirectErrorStream(false);
+                builder.environment().clear();
+                builder.environment().putAll(spec.environment());
                 return builder.start();
             }
-            catch (IOException e) {
+            catch (IOException | RuntimeException e) {
+                // ProcessBuilder failed before a launcher existed, so the ATTEMPTING intent is
+                // known unlaunched and must not survive as an unexplained recovery claim.
+                intents.forget(launchId());
                 store.delete(launchId());
                 throw new AgentUnavailableException("Unable to start process: " + executable, e);
             }
@@ -575,7 +647,7 @@ public final class DefaultProcessSupervisor
         private static final int BUFFER_BYTES = 8 * 1024;
         private static final int OUTPUT_QUEUE_CAPACITY = 256;
 
-        private final LaunchMarker marker;
+        private volatile LaunchMarker marker;
         private final Process launcher;
         private final long payloadPid;
         private final long processGroup;
@@ -585,6 +657,7 @@ public final class DefaultProcessSupervisor
         private final Object inputLock = new Object();
         private final Object outputLock = new Object();
         private final Object terminationLock = new Object();
+        private final Object markerLock = new Object();
         private final ExecutorService inputExecutor;
         private final BlockingQueue<OutputChunk> outputQueue =
                 new LinkedBlockingQueue<>(OUTPUT_QUEUE_CAPACITY);
@@ -600,9 +673,11 @@ public final class DefaultProcessSupervisor
         private final AtomicBoolean inputClosed = new AtomicBoolean();
         private final AtomicBoolean terminating = new AtomicBoolean();
         private final AtomicBoolean verifiedStopped = new AtomicBoolean();
+        private final AtomicBoolean observingDescendants = new AtomicBoolean(true);
         private final AtomicReference<ProcessExit.Reason> reason =
                 new AtomicReference<>(ProcessExit.Reason.EXITED);
         private final Thread outputDispatcher;
+        private final Thread descendantObserver;
 
         private DefaultManagedProcess(
                 LaunchMarker marker,
@@ -623,6 +698,9 @@ public final class DefaultProcessSupervisor
             this.outputDispatcher = Thread.ofVirtual()
                     .name("bytequay-process-output-" + payloadPid)
                     .start(this::dispatchOutput);
+            this.descendantObserver = Thread.ofVirtual()
+                    .name("bytequay-process-descendants-" + payloadPid)
+                    .start(this::observeDescendants);
             Thread.ofVirtual().name("bytequay-process-stdout-" + payloadPid).start(() ->
                     drain(launcher.getInputStream(), ProcessStream.STDOUT, stdoutDone));
             Thread.ofVirtual().name("bytequay-process-stderr-" + payloadPid).start(() ->
@@ -807,8 +885,61 @@ public final class DefaultProcessSupervisor
             }
         }
 
+        private void observeDescendants()
+        {
+            while (observingDescendants.get()) {
+                try {
+                    launcher.toHandle().descendants().forEach(this::rememberDescendant);
+                }
+                catch (RuntimeException failure) {
+                    markDescendantTrackingIncomplete();
+                    return;
+                }
+                if (!sleep(10)) {
+                    return;
+                }
+            }
+        }
+
+        private void rememberDescendant(ProcessHandle descendant)
+        {
+            if (descendant.pid() == payloadPid) {
+                return;
+            }
+            Optional<Instant> startToken = descendant.info().startInstant();
+            if (startToken.isEmpty()) {
+                markDescendantTrackingIncomplete();
+                return;
+            }
+            ProcessIdentity identity = new ProcessIdentity(descendant.pid(), startToken.orElseThrow());
+            synchronized (markerLock) {
+                if (marker.descendants().stream().flatMap(List::stream).anyMatch(identity::equals)) {
+                    return;
+                }
+                marker = marker.withDescendant(identity);
+                store.write(marker);
+            }
+        }
+
+        private void markDescendantTrackingIncomplete()
+        {
+            observingDescendants.set(false);
+            synchronized (markerLock) {
+                marker = marker.withIncompleteDescendantTracking();
+                store.write(marker);
+            }
+        }
+
         private void finish()
         {
+            observingDescendants.set(false);
+            try {
+                descendantObserver.join();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                markDescendantTrackingIncomplete();
+            }
             CompletableFuture.allOf(stdoutDone, stderrDone).whenComplete((ignored, failure) -> {
                 try {
                     outputDispatcher.join();
@@ -835,12 +966,15 @@ public final class DefaultProcessSupervisor
          */
         private ProcessExit record(ProcessExit result)
         {
-            try {
-                store.write(marker.terminal(result));
-            }
-            catch (RuntimeException ignored) {
-                // The in-process result still stands; recovery treats a missing marker as
-                // unverifiable, which is the conservative outcome.
+            synchronized (markerLock) {
+                try {
+                    marker = marker.terminal(result);
+                    store.write(marker);
+                }
+                catch (RuntimeException ignored) {
+                    // The in-process result still stands; recovery treats a missing marker as
+                    // unverifiable, which is the conservative outcome.
+                }
             }
             return result;
         }
@@ -851,6 +985,11 @@ public final class DefaultProcessSupervisor
                 return ProcessExit.TreeTermination.VERIFIED_STOPPED;
             }
             if (!awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)) {
+                return ProcessExit.TreeTermination.UNVERIFIABLE;
+            }
+            Optional<List<ProcessIdentity>> descendants = marker.descendants();
+            if (descendants.isEmpty()
+                    || !awaitIdentitiesDead(descendants.orElseThrow(), TREE_VERIFICATION_TIMEOUT)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
             verifiedStopped.set(true);
@@ -881,6 +1020,7 @@ public final class DefaultProcessSupervisor
                 closeInput();
                 terminateGroup(processGroup, spec.cancellationGrace());
                 launcher.descendants().forEach(ProcessHandle::destroyForcibly);
+                marker.descendants().ifPresent(identities -> terminateIdentities(identities, spec.cancellationGrace()));
                 launcher.destroyForcibly();
                 closeOutputStreams();
                 ProcessExit.TreeTermination termination = verifyTreeStopped();

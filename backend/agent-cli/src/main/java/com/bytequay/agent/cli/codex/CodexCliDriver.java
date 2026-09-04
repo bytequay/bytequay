@@ -563,6 +563,9 @@ public final class CodexCliDriver
         try {
             ProcessExit result = process.exit().toCompletableFuture()
                     .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
+            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                return new CommandResult(-1, "Codex CLI process tree could not be verified stopped");
+            }
             supervisor.acknowledge(process.launchId());
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
                 return new CommandResult(-1, "Codex CLI command timed out");
@@ -721,12 +724,19 @@ public final class CodexCliDriver
             this.events = requireNonNull(events, "events is null");
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
-            this.isolation = new CodexIsolationGuard(client);
+            this.isolation = new CodexIsolationGuard(
+                    client,
+                    codexHome,
+                    modelProfile.childProfile());
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
             client.start();
-            this.reference = new AgentSessionRef(LANE_ID, CONTRACT_VERSION, openThread(context));
+            Path worktree = canonicalWorktree();
+            isolation.verify(worktree);
+            String threadId = openThread(context, worktree);
+            isolation.verifyThread(threadId, worktree);
+            this.reference = new AgentSessionRef(LANE_ID, CONTRACT_VERSION, threadId);
             observedThreads.add(reference.providerValue());
             if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
                 v2AgentPaths.put(reference.providerValue(), "/");
@@ -739,9 +749,12 @@ public final class CodexCliDriver
          * @param context the task
          * @return the provider thread identifier
          */
-        private String openThread(AgentSessionContext context)
+        private String openThread(AgentSessionContext context, Path worktree)
         {
             Optional<AgentSessionRef> existing = context.sessionReference();
+            String approvalPolicy = approvalPolicy();
+            String sandbox = "workspace-write";
+            Map<String, Object> config = CodexLaunchProfile.threadConfig(modelProfile.childProfile());
             String method;
             Object params;
             if (existing.isPresent()) {
@@ -752,17 +765,26 @@ public final class CodexCliDriver
                 method = "thread/resume";
                 params = new CodexProtocol.ThreadResumeParams(
                         previous.providerValue(),
-                        context.worktree().toString(),
-                        "on-request",
-                        "workspace-write");
+                        worktree.toString(),
+                        modelProfile.id(),
+                        approvalPolicy,
+                        "user",
+                        config,
+                        sandbox);
             }
             else {
                 method = "thread/start";
                 params = new CodexProtocol.ThreadStartParams(
-                        context.worktree().toString(),
-                        "on-request",
-                        "workspace-write",
-                        "ByteQuay");
+                        worktree.toString(),
+                        modelProfile.id(),
+                        approvalPolicy,
+                        "user",
+                        config,
+                        sandbox,
+                        false,
+                        "ByteQuay",
+                        ImmutableList.of(),
+                        ImmutableList.of());
             }
             try {
                 return client.request(method, params, CodexProtocol.ThreadResponse.class, REQUEST_TIMEOUT)
@@ -794,7 +816,8 @@ public final class CodexCliDriver
 
             // Re-checked before every turn, not once per session: a turn runs under workspace-write
             // and could leave a hook or policy file behind that a later turn would inherit.
-            isolation.verify(context.worktree());
+            Path worktree = canonicalWorktree();
+            isolation.verify(worktree);
             Optional<String> requestedModel = command.model().or(context::model);
             if (requestedModel.isPresent() && !requestedModel.orElseThrow().equals(modelProfile.id())) {
                 throw new AgentUnavailableException("Turn model does not match the Codex process launch profile");
@@ -805,7 +828,11 @@ public final class CodexCliDriver
                     // The turn carries the settings that were snapshotted when it was accepted, so
                     // a default changed after acceptance cannot rewrite the turn that is starting.
                     Optional.of(modelProfile.id()),
-                    command.effort().or(context::effort));
+                    command.effort().or(context::effort),
+                    approvalPolicy(),
+                    "user",
+                    worktree.toString(),
+                    sandboxPolicy(worktree));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {
@@ -824,6 +851,31 @@ public final class CodexCliDriver
             liveItems.clear();
             running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime(), this::userInput);
             return running;
+        }
+
+        private String approvalPolicy()
+        {
+            return "on-request";
+        }
+
+        private Map<String, Object> sandboxPolicy(Path worktree)
+        {
+            return ImmutableMap.of(
+                    "type", "workspaceWrite",
+                    "writableRoots", ImmutableList.of(worktree.toString()),
+                    "networkAccess", false,
+                    "excludeTmpdirEnvVar", true,
+                    "excludeSlashTmp", true);
+        }
+
+        private Path canonicalWorktree()
+        {
+            try {
+                return context.worktree().toRealPath();
+            }
+            catch (IOException e) {
+                throw new AgentUnavailableException("Unable to resolve the task worktree", e);
+            }
         }
 
         /** A turn's input: the text, then each attachment as the task-owned image it was verified to be. */

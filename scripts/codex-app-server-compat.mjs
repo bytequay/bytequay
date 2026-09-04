@@ -419,9 +419,15 @@ const referenceRecordBindings = [
   ]),
   recordBinding("ThreadStartParams", "encode", [schemaSource("v2", "ThreadStartParams")], [
     component("cwd"),
+    component("model"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
+    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
+    component("ephemeral", "ephemeral", false),
     component("serviceName"),
+    component("dynamicTools", "dynamicTools", []),
+    component("selectedCapabilityRoots", "selectedCapabilityRoots", []),
   ]),
   recordBinding("CwdsParams", "encode", [
     schemaSource("v2", "HooksListParams"),
@@ -483,7 +489,10 @@ const referenceRecordBindings = [
   ], [
     component("threadId"),
     component("cwd"),
+    component("model"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
+    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
   ]),
   recordBinding("TextInput", "encode", [
@@ -497,6 +506,16 @@ const referenceRecordBindings = [
     component("input", "input", [{ type: "text", text: "value" }]),
     component("model"),
     component("effort", "effort", "minimal"),
+    component("approvalPolicy", "approvalPolicy", "on-request"),
+    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("cwd"),
+    component("sandboxPolicy", "sandboxPolicy", {
+      type: "workspaceWrite",
+      writableRoots: ["/value"],
+      networkAccess: false,
+      excludeTmpdirEnvVar: true,
+      excludeSlashTmp: true,
+    }),
   ]),
   recordBinding("ThreadParams", "encode", [
     schemaSource("v2", "ThreadUnsubscribeParams"),

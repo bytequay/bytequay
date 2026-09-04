@@ -340,8 +340,8 @@ describe('projecting the transcript', () => {
   it('orders turns by first appearance and folds approvals into their requests', () => {
     const turns = projectTranscript(fixtureEvents);
     expect(turns).toHaveLength(1);
-    expect(turns[0].user?.text).toBe('Review the authentication change');
-    expect(turns[0].user?.attachments).toEqual([{ id: 'attachment-1', name: 'flow.png', mediaType: 'image/png' }]);
+    expect(turns[0].users[0].text).toBe('Review the authentication change');
+    expect(turns[0].users[0].attachments).toEqual([{ id: 'attachment-1', name: 'flow.png', mediaType: 'image/png' }]);
     const approvals = turns[0].blocks.filter((block) => block.kind === 'approval');
     expect(approvals.map((block) => block.kind === 'approval' ? [block.approvalId, block.outcome, block.actionable] : null)).toEqual([
       ['approval-1', 'ALLOWED', false],
@@ -354,5 +354,19 @@ describe('projecting the transcript', () => {
       event('user_message', { text: 'Again', attachments: [], deliveryKind: 'TURN' }, { turnId: 'turn-2', itemId: 'user-2' }),
     ]);
     expect(second.map((turn) => turn.ordinal)).toEqual([1, 2]);
+  });
+
+  it('keeps every message sent into one running turn in sequence order', () => {
+    const turns = projectTranscript([
+      event('user_message', { text: 'Start here', attachments: [], deliveryKind: 'TURN' }),
+      event('user_message', { text: 'Also check the tests', attachments: [], deliveryKind: 'STEER' }),
+      event('user_message', { text: 'And the docs', attachments: [], deliveryKind: 'STEER' }),
+    ]);
+
+    expect(turns[0].users.map((user) => [user.text, user.delivery])).toEqual([
+      ['Start here', 'TURN'],
+      ['Also check the tests', 'STEER'],
+      ['And the docs', 'STEER'],
+    ]);
   });
 });

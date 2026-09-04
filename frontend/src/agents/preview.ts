@@ -295,6 +295,14 @@ export function createPreviewBridge(
         deleteAfter: '2026-08-27T10:05:00Z',
       };
     },
+    cleanupAgentTaskWorktree: async (taskId, id) => {
+      record('cleanupAgentTaskWorktree', taskId, id);
+      return {
+        ...previewTask(id, taskId),
+        state: 'COMPLETED',
+        checkoutRemovedAt: '2026-08-20T10:05:01Z',
+      };
+    },
     pickAgentAttachments: async (taskId, id) => {
       record('pickAgentAttachments', taskId, id);
       return [{ id: 'attachment-preview', name: 'preview.png', mediaType: 'image/png', byteSize: 1024, width: 16, height: 16 }];

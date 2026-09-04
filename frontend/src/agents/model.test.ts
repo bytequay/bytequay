@@ -370,7 +370,7 @@ describe('projecting rows', () => {
     const turns = projectTranscript(all);
 
     // The preview must not quietly lose a part of the transcript it is expected to show.
-    expect(turns[0].user).not.toBeNull();
+    expect(turns[0].users).not.toHaveLength(0);
     expect(turns[0].answer).not.toBeNull();
     // The streamed partial answer is gone: the final answer replaced it rather than sitting beside it.
     expect(new Set(turns[0].blocks.map((block) => block.kind))).toEqual(new Set(['plan', 'activity', 'approval', 'error']));

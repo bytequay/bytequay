@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -156,6 +158,9 @@ class TestAgentHttpApi
 
     @Autowired
     private AgentResourceService resources;
+
+    @Autowired
+    private AgentCompletionService completions;
 
     @Autowired
     private InteractiveAgentTaskCreator taskCreator;
@@ -596,11 +601,43 @@ class TestAgentHttpApi
             assertThat(sanitizedTranscript).isEqualTo(objectMapper.readTree(fixture));
         }
 
-        ResponseEntity<JsonNode> earlyCleanup = post(
+        ResponseEntity<JsonNode> repeatedCleanup = post(
                 "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
                 ImmutableMap.of(),
                 null);
-        assertThat(earlyCleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(repeatedCleanup.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(repeatedCleanup.getBody().required("state").asText()).isEqualTo("COMPLETED");
+        assertThat(repeatedCleanup.getBody().required("checkoutRemovedAt").isTextual()).isTrue();
+    }
+
+    @Test
+    void retriesImmediateWorktreeCleanupWithoutWaitingForRuntimeRetention()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        TaskId taskId = TaskId.valueOf(created.required("id").asText());
+        Path worktree = tasks.get(taskId).taskWorktree().orElseThrow().canonicalWorktree();
+        completions.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        Path retained = worktree.resolve("inspect-me.txt");
+        Files.writeString(retained, "retained\n");
+
+        ResponseEntity<JsonNode> failed = post(
+                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
+                ImmutableMap.of(),
+                null);
+        assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(tasks.get(taskId).state().name()).isEqualTo("COMPLETED");
+        assertThat(tasks.get(taskId).worktreeRemovedAt()).isEmpty();
+
+        Files.delete(retained);
+        ResponseEntity<JsonNode> retried = post(
+                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
+                ImmutableMap.of(),
+                null);
+
+        assertThat(retried.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(retried.getBody().required("checkoutRemovedAt").isTextual()).isTrue();
+        assertThat(worktree).doesNotExist();
     }
 
     @Test

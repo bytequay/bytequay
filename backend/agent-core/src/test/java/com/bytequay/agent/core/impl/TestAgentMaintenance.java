@@ -205,6 +205,50 @@ class TestAgentMaintenance
     }
 
     @Test
+    void movesARecoveryClaimToAnotherUnverifiableLaunchFromTheSameTask()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
+                .settleAfterProcessRecovery(
+                        ImmutableMap.of(taskId, "launch-2"),
+                        ImmutableSet.of("launch-1"),
+                        true);
+
+        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.recovery("launch-2", NOW.plusSeconds(10)));
+    }
+
+    @Test
+    void explicitRecoveryCheckReleasesOrRetargetsTheClaimWithoutRuntimeState()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId taskId = TaskId.random();
+        AgentTask blocked = managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW);
+        stores.insert(blocked);
+        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10));
+
+        AgentTask stillBlocked = maintenance.settleRecoveryClaim(
+                taskId,
+                blocked.version(),
+                "launch-1",
+                Optional.of("launch-2"));
+
+        assertThat(stillBlocked.worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.recovery("launch-2", NOW.plusSeconds(10)));
+
+        AgentTask released = maintenance.settleRecoveryClaim(
+                taskId,
+                stillBlocked.version(),
+                "launch-2",
+                Optional.empty());
+
+        assertThat(released.worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
     void leavesOtherRestartedTurnsAloneWhileAProcessRemainsUnattributed()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();

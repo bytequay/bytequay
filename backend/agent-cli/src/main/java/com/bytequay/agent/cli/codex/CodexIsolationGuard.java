@@ -16,14 +16,18 @@ package com.bytequay.agent.cli.codex;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
@@ -47,10 +51,21 @@ final class CodexIsolationGuard
     private static final String REQUIREMENTS_FIELD = "requirements";
 
     private final CodexAppServerClient client;
+    private final Path codexHome;
+    private final CodexLaunchProfile.ChildProfile childProfile;
 
-    CodexIsolationGuard(CodexAppServerClient client)
+    /**
+     * @param codexHome the isolated home ByteQuay assigned to this process
+     * @param childProfile the exact feature profile selected from the model catalog
+     */
+    CodexIsolationGuard(
+            CodexAppServerClient client,
+            Path codexHome,
+            CodexLaunchProfile.ChildProfile childProfile)
     {
         this.client = requireNonNull(client, "client is null");
+        this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
+        this.childProfile = requireNonNull(childProfile, "childProfile is null");
     }
 
     /**
@@ -62,10 +77,19 @@ final class CodexIsolationGuard
     void verify(Path cwd)
     {
         requireNonNull(cwd, "cwd is null");
+        verifyReportedCodexHome();
         verifyNoManagedRequirements();
         verifyNoLifecycleHooks(cwd);
         verifyNoAmbientExecPolicyRules(cwd);
         verifySkillOrigin(cwd);
+    }
+
+    /** Verifies the thread-scoped inventory after start or resume, before the session is usable. */
+    void verifyThread(String threadId, Path cwd)
+    {
+        requireNonNull(threadId, "threadId is null");
+        verifyMcpServerStatus(threadId);
+        verify(cwd);
     }
 
     /**
@@ -93,12 +117,40 @@ final class CodexIsolationGuard
         catch (RuntimeException failure) {
             throw unavailable("config/read could not be verified: " + failure.getMessage());
         }
+        JsonNode config = response.path("config");
+        verifyLaunchPolicy(config, true);
         JsonNode layers = response.path("layers");
         if (!layers.isArray()) {
             throw unavailable("config/read omitted the requested layer details");
         }
+        int userLayers = 0;
+        int sessionFlagLayers = 0;
         for (JsonNode layer : layers) {
-            rulesFolder(layer.path("name")).ifPresent(CodexIsolationGuard::rejectRuleFiles);
+            JsonNode source = layer.path("name");
+            if (source.path("type").asText("").equals("user")) {
+                userLayers++;
+                Path configFile = Path.of(requireText(source, "file", "user"));
+                Path folder = Optional.ofNullable(configFile.getParent())
+                        .orElseThrow(() -> unavailable("Codex user config layer has no parent folder"));
+                if (!canonical(folder, "Codex user config folder").equals(canonical(codexHome, "isolated Codex home"))) {
+                    throw unavailable("Codex loaded a user config outside the isolated home");
+                }
+            }
+            if (source.path("type").asText("").equals("sessionFlags")) {
+                sessionFlagLayers++;
+                JsonNode disabledReason = layer.path("disabledReason");
+                if (!disabledReason.isMissingNode() && !disabledReason.isNull()) {
+                    throw unavailable("Codex disabled the session-flags layer");
+                }
+                verifyLaunchPolicy(layer.path("config"), false);
+            }
+            rulesFolder(source).ifPresent(CodexIsolationGuard::rejectRuleFiles);
+        }
+        if (userLayers != 1) {
+            throw unavailable("config/read did not report exactly one isolated user layer");
+        }
+        if (sessionFlagLayers != 1) {
+            throw unavailable("config/read did not report exactly one session-flags layer");
         }
     }
 
@@ -148,6 +200,153 @@ final class CodexIsolationGuard
      * <p>Discovery is forced rather than cached, because an earlier workspace-write turn could have
      * added a skill that a cached listing would not show.
      */
+    private void verifyReportedCodexHome()
+    {
+        Path reported = client.codexHome()
+                .map(Path::of)
+                .orElseThrow(() -> unavailable("App Server reported no Codex home"));
+        if (!canonical(reported, "reported Codex home").equals(canonical(codexHome, "isolated Codex home"))) {
+            throw unavailable("App Server did not use the isolated Codex home");
+        }
+    }
+
+    /** Verifies the effective config, or the launch layer that must produce that config. */
+    private void verifyLaunchPolicy(JsonNode config, boolean effective)
+    {
+        if (!config.isObject()) {
+            throw unavailable("config/read omitted the launch policy");
+        }
+        requireTextValue(config, "web_search", "disabled");
+
+        JsonNode features = config.path("features");
+        if (!features.isObject()) {
+            throw unavailable("config/read omitted the feature policy");
+        }
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile).entrySet()) {
+            JsonNode value = features.path(feature.getKey());
+            if (!value.isBoolean() || value.asBoolean() != feature.getValue()) {
+                throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");
+            }
+        }
+        CodexLaunchProfile.expectedAgentMaxDepth(childProfile).ifPresent(expected -> {
+            JsonNode depth = config.path("agents").path("max_depth");
+            if (!depth.isIntegralNumber() || depth.asInt() != expected) {
+                throw unavailable("Codex agent depth does not match the launch profile");
+            }
+        });
+
+        JsonNode shell = config.path("shell_environment_policy");
+        if (!shell.isObject()) {
+            throw unavailable("config/read omitted the shell environment policy");
+        }
+        requireTextValue(shell, "inherit", "core");
+        requireBooleanValue(shell, "ignore_default_excludes", false);
+        requireBooleanValue(shell, "experimental_use_profile", false);
+        JsonNode includeOnly = shell.path("include_only");
+        if (!includeOnly.isArray()
+                || includeOnly.size() != CodexLaunchProfile.expectedShellEnvironmentIncludeOnly().size()) {
+            throw unavailable("Codex shell environment allowlist does not match the launch profile");
+        }
+        int index = 0;
+        for (String expected : CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()) {
+            if (!includeOnly.get(index++).isTextual()
+                    || !includeOnly.get(index - 1).asText().equals(expected)) {
+                throw unavailable("Codex shell environment allowlist does not match the launch profile");
+            }
+        }
+        if (effective) {
+            requireNullValue(shell, "exclude");
+            requireNullValue(shell, "set");
+            requireNullValue(shell, "filters");
+            verifyNoMcpServers(config.path("mcp_servers"));
+        }
+    }
+
+    private void verifyMcpServerStatus(String threadId)
+    {
+        Optional<String> cursor = Optional.empty();
+        Set<String> seenCursors = new HashSet<>();
+        do {
+            ImmutableMap.Builder<String, Object> params = ImmutableMap.<String, Object>builder()
+                    .put("threadId", threadId)
+                    .put("limit", 100)
+                    .put("detail", "toolsAndAuthOnly");
+            cursor.ifPresent(value -> params.put("cursor", value));
+            JsonNode response;
+            try {
+                response = client.request(
+                        "mcpServerStatus/list",
+                        params.buildOrThrow(),
+                        JsonNode.class,
+                        REQUEST_TIMEOUT);
+            }
+            catch (RuntimeException failure) {
+                throw unavailable("mcpServerStatus/list could not be verified: " + failure.getMessage());
+            }
+            JsonNode data = response.path("data");
+            if (!data.isArray()) {
+                throw unavailable("mcpServerStatus/list omitted its data array");
+            }
+            if (!data.isEmpty()) {
+                throw unavailable("thread inherited an MCP server");
+            }
+            JsonNode nextCursor = response.path("nextCursor");
+            if (nextCursor.isMissingNode() || nextCursor.isNull()) {
+                cursor = Optional.empty();
+            }
+            else if (nextCursor.isTextual() && !nextCursor.asText().isBlank()) {
+                cursor = Optional.of(nextCursor.asText());
+                if (!seenCursors.add(cursor.orElseThrow())) {
+                    throw unavailable("mcpServerStatus/list repeated a page cursor");
+                }
+            }
+            else {
+                throw unavailable("mcpServerStatus/list returned an invalid page cursor");
+            }
+        }
+        while (cursor.isPresent());
+    }
+
+    private static void verifyNoMcpServers(JsonNode servers)
+    {
+        if (!servers.isObject() || !servers.isEmpty()) {
+            throw unavailable("config/read exposes MCP servers on an isolated launch");
+        }
+    }
+
+    private static void requireTextValue(JsonNode object, String field, String expected)
+    {
+        JsonNode value = object.path(field);
+        if (!value.isTextual() || !value.asText().equals(expected)) {
+            throw unavailable("Codex " + field + " does not match the launch profile");
+        }
+    }
+
+    private static void requireBooleanValue(JsonNode object, String field, boolean expected)
+    {
+        JsonNode value = object.path(field);
+        if (!value.isBoolean() || value.asBoolean() != expected) {
+            throw unavailable("Codex " + field + " does not match the launch profile");
+        }
+    }
+
+    private static void requireNullValue(JsonNode object, String field)
+    {
+        if (!object.has(field) || !object.get(field).isNull()) {
+            throw unavailable("Codex shell environment policy carries " + field);
+        }
+    }
+
+    private static Path canonical(Path path, String description)
+    {
+        try {
+            return path.toRealPath();
+        }
+        catch (IOException e) {
+            throw unavailable("Unable to resolve " + description);
+        }
+    }
+
     private void verifySkillOrigin(Path cwd)
     {
         CodexProtocol.SkillsListResponse response = client.request(

@@ -50,7 +50,13 @@ public record ProcessIdentity(long pid, Instant startToken)
         if (handle.isEmpty()) {
             return Liveness.GONE;
         }
-        Optional<Instant> observed = handle.orElseThrow().info().startInstant();
+        Optional<Instant> observed;
+        try {
+            observed = handle.orElseThrow().info().startInstant();
+        }
+        catch (RuntimeException failure) {
+            return Liveness.UNKNOWN;
+        }
         if (observed.isEmpty()) {
             return Liveness.UNKNOWN;
         }

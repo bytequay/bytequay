@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.process;
 import com.bytequay.agent.spi.AgentUnavailableException;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Starts and reconciles bounded argv-based child processes for CLI-backed agent drivers. */
 public interface ProcessSupervisor
@@ -43,6 +44,27 @@ public interface ProcessSupervisor
      * @return one terminal or unverifiable result per foreign launch marker
      */
     List<OwnedProcessRecovery> recoverOwnedProcesses();
+
+    /**
+     * Retries recovery for one durable launch without acknowledging its marker.
+     *
+     * <p>This is the stateless counterpart to startup recovery: callers name the launch retained
+     * by their own durable claim, commit any safe release, and only then call
+     * {@link #acknowledge(String)}. An unverifiable result leaves the marker available for another
+     * explicit retry.
+     *
+     * @param launchId agent-cli-local opaque launch identifier
+     * @return current recovery result for that launch
+     */
+    default OwnedProcessRecovery recoverOwnedProcess(String launchId)
+    {
+        return new OwnedProcessRecovery(
+                launchId,
+                Optional.empty(),
+                Optional.empty(),
+                OwnedProcessRecovery.Outcome.UNVERIFIABLE,
+                "Targeted recovery is not supported by this supervisor");
+    }
 
     /**
      * Deletes a terminal launch marker and its receipt only after the owning state transition has

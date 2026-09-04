@@ -25,10 +25,15 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentProcessLaunch;
+import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
@@ -41,6 +46,7 @@ import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,10 +54,12 @@ import org.mockito.InOrder;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -83,7 +91,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
@@ -112,7 +120,7 @@ class TestAgentStartupRecovery
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -134,7 +142,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -156,7 +164,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         // An old process may still be writing to a worktree, so no agent operation may be served.
@@ -182,7 +190,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         // The launch names one task, so only that task's worktree is held and every other task can
@@ -196,6 +204,61 @@ class TestAgentStartupRecovery
         // The marker is kept for inspection, so the block survives another restart.
         verify(supervisor).acknowledge("clean");
         verify(supervisor, never()).acknowledge("leaked");
+    }
+
+    @Test
+    void resolvesAnUnverifiableClaudeTurnToItsDurableTask()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        TurnId turnId = TurnId.random();
+        AgentTurn turn = AgentTurn.accepted(
+                turnId,
+                taskId,
+                "recovery-turn",
+                new AgentTurnSettings(
+                        Optional.empty(),
+                        Optional.empty(),
+                        AgentPermissionPolicy.AUTO,
+                        AgentSandboxPolicy.WORKSPACE_WRITE,
+                        Duration.ofMinutes(5),
+                        ImmutableList.of()),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        when(turnStore.find(turnId)).thenReturn(Optional.of(turn));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        AgentProcessLaunch launch = new AgentProcessLaunch(
+                "claude-leaked",
+                LaunchOwnerKind.CLAUDE_TURN,
+                turnId.toString(),
+                true,
+                "/usr/local/bin/claude",
+                "argv-digest",
+                Instant.parse("2026-09-01T00:00:00Z"));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("claude-leaked")));
+
+        new AgentStartupRecovery(
+                outboxStore,
+                eventService,
+                maintenance(taskStore, turnStore),
+                supervisor,
+                servingGate,
+                launchStore(launch),
+                taskStore,
+                turnStore)
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isTrue();
+        ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+        verify(taskStore).update(held.capture());
+        assertThat(held.getValue().worktreeMutationClaim())
+                .contains(WorktreeMutationClaim.recovery("claude-leaked", held.getValue().updatedAt()));
+        verify(supervisor, never()).acknowledge("claude-leaked");
     }
 
     @Test
@@ -215,7 +278,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         // A turn that was mid-flight is judged by the process verdict, so it can only be looked at
@@ -242,7 +305,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("orphan")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         // The stray process could be this task's own, so its turn must not be treated as stopped.
@@ -268,13 +331,85 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore)
+                launchStore(), taskStore, turnStore)
                 .afterSingletonsInstantiated();
 
         // Nothing can be pinned to a worktree, so something may still be writing somewhere nobody
         // can name and no agent operation may be served.
         assertThat(servingGate.isReady()).isFalse();
         verify(taskStore, never()).update(any());
+    }
+
+    @Test
+    void explicitRetryChecksEveryDurableTaskLaunchBeforeReleasingTheClaim()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        TaskId taskId = TaskId.random();
+        AgentTask blocked = openTask(taskId).claimWorktreeMutation(
+                WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
+        when(taskStore.update(any())).thenAnswer(invocation -> ((AgentTask) invocation.getArgument(0)).withVersion(blocked.version() + 1));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("launch-1")).thenReturn(stopped("launch-1"));
+        when(supervisor.recoverOwnedProcess("launch-2")).thenReturn(stopped("launch-2"));
+        AgentStartupRecovery recovery = new AgentStartupRecovery(
+                outboxStore,
+                eventService,
+                maintenance(taskStore, turnStore),
+                supervisor,
+                new AgentServingGate(),
+                launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
+                taskStore,
+                turnStore);
+
+        AgentTask stopped = recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version());
+
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        InOrder order = inOrder(supervisor, taskStore);
+        order.verify(supervisor).recoverOwnedProcess("launch-1");
+        order.verify(supervisor).recoverOwnedProcess("launch-2");
+        order.verify(taskStore).update(any());
+        order.verify(supervisor).acknowledge("launch-1");
+        order.verify(supervisor).acknowledge("launch-2");
+    }
+
+    @Test
+    void explicitRetryKeepsTheTaskBlockedByAnotherUnverifiableLaunch()
+    {
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        TaskId taskId = TaskId.random();
+        AgentTask blocked = openTask(taskId).claimWorktreeMutation(
+                WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
+        when(taskStore.update(any())).thenAnswer(invocation -> ((AgentTask) invocation.getArgument(0)).withVersion(blocked.version() + 1));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("launch-1")).thenReturn(stopped("launch-1"));
+        when(supervisor.recoverOwnedProcess("launch-2")).thenReturn(unverifiableFor("launch-2", taskId.toString()));
+        AgentStartupRecovery recovery = new AgentStartupRecovery(
+                mock(AgentEventOutboxStore.class),
+                mock(AgentEventService.class),
+                maintenance(taskStore, turnStore),
+                supervisor,
+                new AgentServingGate(),
+                launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
+                taskStore,
+                turnStore);
+
+        assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("launch-2");
+
+        ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+        verify(taskStore).update(held.capture());
+        assertThat(held.getValue().worktreeMutationClaim().orElseThrow().ownerId()).isEqualTo("launch-2");
+        verify(supervisor).acknowledge("launch-1");
+        verify(supervisor, never()).acknowledge("launch-2");
     }
 
     private static AgentTask openTask(TaskId taskId)
@@ -296,6 +431,18 @@ class TestAgentStartupRecovery
         AgentProcessLaunchStore store = mock(AgentProcessLaunchStore.class);
         when(store.list()).thenReturn(ImmutableList.copyOf(rows));
         return store;
+    }
+
+    private static AgentProcessLaunch appServerLaunch(String launchId, TaskId taskId)
+    {
+        return new AgentProcessLaunch(
+                launchId,
+                LaunchOwnerKind.APP_SERVER,
+                taskId.toString(),
+                true,
+                "/usr/local/bin/codex",
+                "argv-digest",
+                Instant.parse("2026-09-01T00:00:00Z"));
     }
 
     private static OwnedProcessRecovery unverifiableFor(String launchId, String taskId)

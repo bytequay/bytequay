@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
-import { belongsToSubscription } from './agents/sse';
+import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppNavState } from './types';
 
 const bridge: Bridge = {
@@ -246,6 +246,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
+  cleanupAgentTaskWorktree: (taskId, workspaceId) =>
+    ipcRenderer.invoke('agent:task:cleanup', taskId, workspaceId),
   pickAgentAttachments: (taskId, workspaceId) => ipcRenderer.invoke('agent:attachments:pick', taskId, workspaceId),
   readAgentAttachment: (taskId, workspaceId, attachmentId) =>
     ipcRenderer.invoke('agent:attachments:read', taskId, workspaceId, attachmentId),
@@ -258,14 +260,20 @@ const bridge: Bridge = {
   stopAgentRuntime: (taskId, workspaceId, generation) =>
     ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
   subscribeAgentTask: async (taskId, after, listener) => {
-    const subscriptionId: string = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after);
     // Main pushes every task on one channel, so each listener keeps only what it asked for.
-    const receive = (_event: unknown, message: AgentStreamMessage): void => {
-      if (belongsToSubscription(subscriptionId, message)) {
-        listener(message);
-      }
-    };
+    const receiver = createAgentStreamReceiver(listener);
+    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
     ipcRenderer.on('agent:stream:message', receive);
+    let subscriptionId: string | null = null;
+    try {
+      subscriptionId = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after);
+      receiver.activate(subscriptionId);
+    }
+    catch (failure) {
+      ipcRenderer.removeListener('agent:stream:message', receive);
+      if (subscriptionId !== null) void ipcRenderer.invoke('agent:stream:unsubscribe', subscriptionId);
+      throw failure;
+    }
     return () => {
       ipcRenderer.removeListener('agent:stream:message', receive);
       void ipcRenderer.invoke('agent:stream:unsubscribe', subscriptionId);

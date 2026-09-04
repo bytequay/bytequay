@@ -2519,11 +2519,32 @@
           "sample": "value"
         },
         {
+          "javaName": "model",
+          "wireName": "model",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
           "javaName": "approvalPolicy",
           "wireName": "approvalPolicy",
           "required": false,
           "nullable": true,
           "sample": "on-request"
+        },
+        {
+          "javaName": "approvalsReviewer",
+          "wireName": "approvalsReviewer",
+          "required": false,
+          "nullable": true,
+          "sample": "user"
+        },
+        {
+          "javaName": "config",
+          "wireName": "config",
+          "required": false,
+          "nullable": true,
+          "sample": {}
         },
         {
           "javaName": "sandbox",
@@ -2533,11 +2554,32 @@
           "sample": "workspace-write"
         },
         {
+          "javaName": "ephemeral",
+          "wireName": "ephemeral",
+          "required": false,
+          "nullable": true,
+          "sample": false
+        },
+        {
           "javaName": "serviceName",
           "wireName": "serviceName",
           "required": false,
           "nullable": true,
           "sample": "value"
+        },
+        {
+          "javaName": "dynamicTools",
+          "wireName": "dynamicTools",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        },
+        {
+          "javaName": "selectedCapabilityRoots",
+          "wireName": "selectedCapabilityRoots",
+          "required": false,
+          "nullable": true,
+          "sample": []
         }
       ]
     },
@@ -2781,11 +2823,32 @@
           "sample": "value"
         },
         {
+          "javaName": "model",
+          "wireName": "model",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
           "javaName": "approvalPolicy",
           "wireName": "approvalPolicy",
           "required": false,
           "nullable": true,
           "sample": "on-request"
+        },
+        {
+          "javaName": "approvalsReviewer",
+          "wireName": "approvalsReviewer",
+          "required": false,
+          "nullable": true,
+          "sample": "user"
+        },
+        {
+          "javaName": "config",
+          "wireName": "config",
+          "required": false,
+          "nullable": true,
+          "sample": {}
         },
         {
           "javaName": "sandbox",
@@ -2881,6 +2944,42 @@
           "required": false,
           "nullable": true,
           "sample": "minimal"
+        },
+        {
+          "javaName": "approvalPolicy",
+          "wireName": "approvalPolicy",
+          "required": false,
+          "nullable": true,
+          "sample": "on-request"
+        },
+        {
+          "javaName": "approvalsReviewer",
+          "wireName": "approvalsReviewer",
+          "required": false,
+          "nullable": true,
+          "sample": "user"
+        },
+        {
+          "javaName": "cwd",
+          "wireName": "cwd",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "sandboxPolicy",
+          "wireName": "sandboxPolicy",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "type": "workspaceWrite",
+            "writableRoots": [
+              "/value"
+            ],
+            "networkAccess": false,
+            "excludeTmpdirEnvVar": true,
+            "excludeSlashTmp": true
+          }
         }
       ]
     },

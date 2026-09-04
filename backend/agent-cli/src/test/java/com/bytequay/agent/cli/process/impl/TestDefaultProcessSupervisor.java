@@ -254,6 +254,36 @@ class TestDefaultProcessSupervisor
     }
 
     @Test
+    void recordsAndStopsADescendantThatLeavesTheProcessGroup()
+            throws Exception
+    {
+        StringBuilder stdout = new StringBuilder();
+        CountDownLatch reported = new CountDownLatch(1);
+        ManagedProcess process = supervisor
+                .prepare(spec("/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; sleep 1'"))
+                .start((stream, bytes) -> {
+                    stdout.append(StandardCharsets.UTF_8.decode(bytes));
+                    if (stdout.indexOf("\n") >= 0) {
+                        reported.countDown();
+                    }
+                });
+        assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
+        long descendantPid = Long.parseLong(stdout.toString().trim());
+
+        ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+
+        assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+        assertThat(ProcessHandle.of(descendantPid)).isPresent();
+        assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants().orElseThrow())
+                .extracting(ProcessIdentity::pid)
+                .contains(descendantPid);
+
+        assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS))
+                .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        assertThat(awaitDead(descendantPid, Duration.ofSeconds(5))).isTrue();
+    }
+
+    @Test
     void preparesADurableMarkerBeforeAnyProcessExists()
     {
         PreparedProcess prepared = supervisor.prepare(spec("exit 0"));
@@ -328,6 +358,21 @@ class TestDefaultProcessSupervisor
         assertThat(supervisor.recoverOwnedProcesses()).isEmpty();
         Thread.sleep(500);
         assertThat(sentinel).doesNotExist();
+    }
+
+    @Test
+    void forgetsTheAttemptWhenTheLauncherCannotSpawn()
+            throws Exception
+    {
+        PreparedProcess prepared = supervisor.prepare(spec("exit 0"));
+        Files.delete(worktree);
+
+        assertThatThrownBy(() -> prepared.start((stream, bytes) -> {}))
+                .isInstanceOf(AgentUnavailableException.class);
+
+        assertThat(new LaunchMarkerStore(launches).read(prepared.launchId())).isEmpty();
+        assertThat(intents.attempted(prepared.launchId())).isEmpty();
+        assertThat(supervisor.recoverOwnedProcesses()).isEmpty();
     }
 
     @Test

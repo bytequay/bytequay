@@ -1362,6 +1362,8 @@ export type Bridge = {
     scopedPermission?: string,
   ) => Promise<AgentApprovalDto>;
   completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
+  /** Retries immediate removal of a terminal task's verified clean checkout. */
+  cleanupAgentTaskWorktree: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */
   markAgentTaskFailed: (taskId: string, workspaceId: string, reason: string) => Promise<AgentTaskDto>;
   getAgentRuntimeStopImpact: (taskId: string, workspaceId: string) => Promise<AgentRuntimeStopImpactDto>;

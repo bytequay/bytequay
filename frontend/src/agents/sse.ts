@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { AgentStreamMessage } from '../types';
 import { AgentEventEnvelope, parseAgentEventSequence } from './events';
 
 /** What the renderer is told about the stream itself, as opposed to its events. */
@@ -236,6 +237,27 @@ export function belongsToSubscription(
   message: { subscriptionId: string },
 ): boolean {
   return message.subscriptionId === subscriptionId;
+}
+
+/** Holds pushes that arrive before Electron returns the subscription id that identifies them. */
+export function createAgentStreamReceiver(
+  listener: (message: AgentStreamMessage) => void,
+): { receive: (message: AgentStreamMessage) => void; activate: (subscriptionId: string) => void } {
+  let subscriptionId: string | null = null;
+  const pending: AgentStreamMessage[] = [];
+  const deliver = (message: AgentStreamMessage): void => {
+    if (subscriptionId !== null && belongsToSubscription(subscriptionId, message)) listener(message);
+  };
+  return {
+    receive: (message) => {
+      if (subscriptionId === null) pending.push(message);
+      else deliver(message);
+    },
+    activate: (id) => {
+      subscriptionId = id;
+      pending.splice(0).forEach(deliver);
+    },
+  };
 }
 
 /** A frame the renderer's contract cannot represent, which reconnecting cannot fix. */

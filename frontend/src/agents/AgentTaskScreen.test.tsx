@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentTaskList, creationBlocker } from './AgentTasksView';
 import { AgentTaskBody, providerStatusFromUnavailable } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
-import { parseAgentEventSequence } from './events';
+import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
@@ -794,7 +794,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('workspace reserved');
   });
 
-  it('cannot stop a process that predates this run, and says so', () => {
+  it('can retry stopping a recovered process without requiring another restart', () => {
     const reserved = {
       ...task('t-1', 'OPEN', 'x'),
       mutationClaim: { kind: 'RECOVERY', ownerId: 'launch-9', acquiredAt: '2026-08-20T10:00:00Z' },
@@ -802,8 +802,9 @@ describe('agent task detail', () => {
     const markup = body({ task: reserved, connection: 'open' });
 
     expect(markup).toContain('from before the restart');
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
-    expect(markup).toContain('restart ByteQuay');
+    expect(markup).not.toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
+    expect(markup).toContain('to retry shutdown and verification');
+    expect(markup).not.toContain('restart ByteQuay');
   });
 
   it('shows the kept result instead of a composer once the task is closed', () => {
@@ -827,6 +828,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('bytequay/task/t-1');
     expect(markup).toContain('abc123');
     expect(markup).toContain('the branch remains');
+    expect(markup).not.toContain('Retry checkout cleanup');
     expect(markup).not.toContain('Message the agent');
     expect(markup).not.toContain('agt-headbtn is-labelled');
 
@@ -835,7 +837,24 @@ describe('agent task detail', () => {
       connection: 'open',
     });
     expect(failed).toContain('Marked failed by the user');
-    expect(failed).toContain('kept for inspection');
+    expect(failed).toContain('Cleanup required — kept for inspection');
+    expect(failed).toContain('Retry checkout cleanup');
+  });
+
+  it('shows every message steered into the same turn', () => {
+    const first = events.find((event) => event.type === 'user_message');
+    if (first === undefined) throw new Error('fixture has no user message');
+    const steered = {
+      ...first,
+      eventId: '00000000-0000-4000-8000-000000000099',
+      sequence: first.sequence + 1,
+      occurredAt: '2026-08-20T10:00:02Z',
+      payload: { text: 'Also check the tests', attachments: [], deliveryKind: 'STEER' },
+    } as AgentEventEnvelope;
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: [first, steered], connection: 'open' });
+
+    expect(markup.indexOf('Review the authentication change')).toBeLessThan(markup.indexOf('Also check the tests'));
+    expect(markup).toContain('Steered into the running turn');
   });
 
   it('shows the settings each message actually ran with, from its durable turn', () => {

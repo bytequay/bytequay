@@ -46,6 +46,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'cancelAgentTurn'
   | 'resolveAgentApproval'
   | 'completeAgentTask'
+  | 'cleanupAgentTaskWorktree'
   | 'markAgentTaskFailed'
   | 'getAgentRuntimeStopImpact'
   | 'stopAgentRuntime'

@@ -548,6 +548,12 @@ function registerIpc(): void {
       headers: agentHeaders(true),
       body: JSON.stringify({ notes: notes ?? null }),
     }).then((completion) => parseAgentCompletion(completion)));
+  ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'POST',
+      headers: agentHeaders(),
+    }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
       + `?${new URLSearchParams({ workspaceId })}`, {

@@ -19,6 +19,7 @@ import {
   AgentStreamStatus,
   SseFrameParser,
   belongsToSubscription,
+  createAgentStreamReceiver,
   isTerminalStatus,
   readAgentStream,
 } from './sse';
@@ -230,6 +231,19 @@ describe('belongsToSubscription', () => {
     // otherwise render into the new one.
     expect(belongsToSubscription('sub-2', current)).toBe(true);
     expect(belongsToSubscription('sub-2', stale)).toBe(false);
+  });
+
+  it('buffers the first pushes until the matching subscription id is known', () => {
+    const delivered: string[] = [];
+    const receiver = createAgentStreamReceiver((message) => delivered.push(message.subscriptionId));
+
+    receiver.receive({ subscriptionId: 'sub-2', taskId: 'task-2', kind: 'state', state: 'connecting' });
+    receiver.receive({ subscriptionId: 'sub-1', taskId: 'task-1', kind: 'state', state: 'connecting' });
+    expect(delivered).toEqual([]);
+
+    receiver.activate('sub-2');
+    receiver.receive({ subscriptionId: 'sub-2', taskId: 'task-2', kind: 'state', state: 'open' });
+    expect(delivered).toEqual(['sub-2', 'sub-2']);
   });
 });
 

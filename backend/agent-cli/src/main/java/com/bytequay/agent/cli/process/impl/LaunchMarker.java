@@ -19,8 +19,12 @@ import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -47,16 +51,17 @@ record LaunchMarker(
         Optional<String> startToken,
         Optional<String> launcherCommand,
         Optional<Long> processGroup,
+        Optional<Map<Long, String>> descendantStartTokens,
         Optional<Integer> exitCode,
         Optional<ProcessExit.Reason> exitReason,
         Optional<ProcessExit.TreeTermination> treeTermination)
 {
     /** Only this exact format proves what a marker's absent fields mean. */
-    static final int CURRENT_FORMAT = 1;
+    static final int CURRENT_FORMAT = 2;
 
     LaunchMarker
     {
-        checkArgument(format == CURRENT_FORMAT, "unsupported launch marker format");
+        checkArgument(format == 1 || format == CURRENT_FORMAT, "unsupported launch marker format");
         requireNonNull(launchId, "launchId is null");
         requireNonNull(backendId, "backendId is null");
         requireNonNull(ownerKind, "ownerKind is null");
@@ -69,6 +74,8 @@ record LaunchMarker(
         requireNonNull(startToken, "startToken is null");
         requireNonNull(launcherCommand, "launcherCommand is null");
         requireNonNull(processGroup, "processGroup is null");
+        requireNonNull(descendantStartTokens, "descendantStartTokens is null");
+        descendantStartTokens = descendantStartTokens.map(ImmutableMap::copyOf);
         requireNonNull(exitCode, "exitCode is null");
         requireNonNull(exitReason, "exitReason is null");
         requireNonNull(treeTermination, "treeTermination is null");
@@ -99,6 +106,7 @@ record LaunchMarker(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 
@@ -118,6 +126,7 @@ record LaunchMarker(
                 Optional.of(identity.startToken().toString()),
                 Optional.of(launcherCommand),
                 Optional.of(processGroup),
+                Optional.of(ImmutableMap.of()),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
@@ -139,6 +148,54 @@ record LaunchMarker(
                 startToken,
                 launcherCommand,
                 processGroup,
+                descendantStartTokens,
+                exitCode,
+                exitReason,
+                treeTermination);
+    }
+
+    LaunchMarker withDescendant(ProcessIdentity identity)
+    {
+        ImmutableMap.Builder<Long, String> descendants = ImmutableMap.builder();
+        descendantStartTokens.ifPresent(descendants::putAll);
+        descendants.put(identity.pid(), identity.startToken().toString());
+        return new LaunchMarker(
+                format,
+                launchId,
+                backendId,
+                ownerKind,
+                ownerId,
+                profile,
+                executable,
+                argvDigest,
+                phase,
+                pid,
+                startToken,
+                launcherCommand,
+                processGroup,
+                Optional.of(descendants.buildKeepingLast()),
+                exitCode,
+                exitReason,
+                treeTermination);
+    }
+
+    LaunchMarker withIncompleteDescendantTracking()
+    {
+        return new LaunchMarker(
+                format,
+                launchId,
+                backendId,
+                ownerKind,
+                ownerId,
+                profile,
+                executable,
+                argvDigest,
+                phase,
+                pid,
+                startToken,
+                launcherCommand,
+                processGroup,
+                Optional.empty(),
                 exitCode,
                 exitReason,
                 treeTermination);
@@ -160,6 +217,7 @@ record LaunchMarker(
                 startToken,
                 launcherCommand,
                 processGroup,
+                descendantStartTokens,
                 Optional.of(exit.exitCode()),
                 Optional.of(exit.reason()),
                 Optional.of(exit.treeTermination()));
@@ -182,6 +240,21 @@ record LaunchMarker(
         }
         try {
             return Optional.of(new ProcessIdentity(pid.orElseThrow(), Instant.parse(startToken.orElseThrow())));
+        }
+        catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    Optional<List<ProcessIdentity>> descendants()
+    {
+        if (descendantStartTokens.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(descendantStartTokens.orElseThrow().entrySet().stream()
+                    .map(entry -> new ProcessIdentity(entry.getKey(), Instant.parse(entry.getValue())))
+                    .collect(ImmutableList.toImmutableList()));
         }
         catch (RuntimeException e) {
             return Optional.empty();

@@ -16,15 +16,21 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.LaunchOwnerKind;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -39,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -55,6 +62,7 @@ public final class AgentStartupRecovery
     private final AgentServingGate servingGate;
     private final AgentProcessLaunchStore launchStore;
     private final AgentTaskStore taskStore;
+    private final AgentTurnStore turnStore;
 
     public AgentStartupRecovery(
             AgentEventOutboxStore outboxStore,
@@ -63,7 +71,8 @@ public final class AgentStartupRecovery
             ProcessSupervisor supervisor,
             AgentServingGate servingGate,
             AgentProcessLaunchStore launchStore,
-            AgentTaskStore taskStore)
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore)
     {
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -72,6 +81,7 @@ public final class AgentStartupRecovery
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
         this.launchStore = requireNonNull(launchStore, "launchStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
     }
 
     @Override
@@ -95,6 +105,67 @@ public final class AgentStartupRecovery
         catch (RuntimeException failure) {
             log.error("Agent startup recovery failed; agent operations remain unavailable", failure);
         }
+    }
+
+    /**
+     * Explicitly retries process verification for a task blocked during startup recovery.
+     *
+     * <p>All durable launches attributable to the task are checked, not only the launch currently
+     * named by its single recovery claim. Safe markers are acknowledged only after the claim is
+     * released or moved to another unverifiable launch. The operation derives everything from
+     * durable task, turn, launch, and marker facts and adds no in-memory recovery state.
+     *
+     * @param taskId task whose retained provider processes should be stopped and verified
+     * @param generation task generation returned by the stop-impact endpoint
+     * @return task after its recovery claim is released
+     */
+    public AgentTask stopRecoveredRuntime(TaskId taskId, String generation)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (generation == null || generation.isBlank()) {
+            throw new InvalidAgentRequestException("generation must not be blank");
+        }
+        AgentTask task = taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+        if (task.state().terminal()) {
+            throw new AgentConflictException("Task is already terminal: " + taskId);
+        }
+        if (!generation.equals("task:" + task.version())) {
+            throw new AgentConflictException("Task runtime changed since the stop was confirmed: " + taskId);
+        }
+        if (turnStore.findActive(taskId).isPresent()) {
+            throw new AgentConflictException("Task has an active turn: " + taskId);
+        }
+        WorktreeMutationClaim claim = task.worktreeMutationClaim()
+                .filter(held -> held.kind() == WorktreeMutationClaim.Kind.RECOVERY)
+                .orElseThrow(() -> new AgentConflictException("Task has no recovered provider runtime to stop: " + taskId));
+
+        ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
+        launchIds.add(claim.ownerId());
+        launchStore.list().stream()
+                .filter(launch -> ownerTask(launch).filter(taskId::equals).isPresent())
+                .map(AgentProcessLaunch::launchId)
+                .forEach(launchIds::add);
+        List<OwnedProcessRecovery> recoveries = launchIds.build().stream()
+                .map(supervisor::recoverOwnedProcess)
+                .collect(toImmutableList());
+        Optional<OwnedProcessRecovery> blocking = recoveries.stream()
+                .filter(recovery -> recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE)
+                .findFirst();
+        AgentTask settled = maintenance.settleRecoveryClaim(
+                taskId,
+                task.version(),
+                claim.ownerId(),
+                blocking.map(OwnedProcessRecovery::launchId));
+        recoveries.stream()
+                .filter(recovery -> recovery.outcome() != OwnedProcessRecovery.Outcome.UNVERIFIABLE)
+                .map(OwnedProcessRecovery::launchId)
+                .forEach(supervisor::acknowledge);
+        if (blocking.isPresent()) {
+            OwnedProcessRecovery unresolved = blocking.orElseThrow();
+            throw new AgentUnavailableException(
+                    "Provider process " + unresolved.launchId() + " could not be verified stopped: " + unresolved.detail());
+        }
+        return settled;
     }
 
     /**
@@ -156,9 +227,9 @@ public final class AgentStartupRecovery
      * Resolves the one live task an unverifiable launch can be pinned to.
      *
      * <p>The owner is read from the launch marker when it survived and from the durable launch row
-     * when it did not, which is the case that most needs attributing. Only an App Server launch
-     * names a task; a Claude turn names a turn and a CLI probe names neither. A task that is gone
-     * or already terminal cannot hold a claim, so those fall back to blocking everything.
+     * when it did not, which is the case that most needs attributing. An App Server launch names a
+     * task directly; a Claude launch names a durable turn whose task is resolved here. A task that
+     * is gone or already terminal cannot hold a claim, so those fall back to blocking everything.
      *
      * @param recovery what the supervisor reported
      * @param launch the durable row for that launch, when it still exists
@@ -166,30 +237,52 @@ public final class AgentStartupRecovery
      */
     private Optional<TaskId> blockableTask(OwnedProcessRecovery recovery, AgentProcessLaunch launch)
     {
-        boolean appServer = recovery.owner()
-                .map(owner -> owner.kind() == ProcessOwner.Kind.APP_SERVER)
-                .orElseGet(() -> launch != null && launch.ownerKind() == LaunchOwnerKind.APP_SERVER);
-        if (!appServer) {
-            return Optional.empty();
-        }
-        String ownerId = recovery.owner()
-                .map(ProcessOwner::id)
-                .orElseGet(() -> launch == null ? null : launch.ownerId());
-        if (ownerId == null) {
-            return Optional.empty();
-        }
-        TaskId taskId;
+        Optional<TaskId> taskId = recovery.owner()
+                .flatMap(this::ownerTask)
+                .or(() -> Optional.ofNullable(launch).flatMap(this::ownerTask));
+        return taskId.flatMap(taskStore::find)
+                .filter(task -> !task.state().terminal())
+                .map(AgentTask::id);
+    }
+
+    private Optional<TaskId> ownerTask(ProcessOwner owner)
+    {
+        return switch (owner.kind()) {
+            case APP_SERVER -> parseTaskId(owner.id());
+            case CLAUDE_TURN -> parseTurnTask(owner.id());
+            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+        };
+    }
+
+    private Optional<TaskId> ownerTask(AgentProcessLaunch launch)
+    {
+        return switch (launch.ownerKind()) {
+            case APP_SERVER -> parseTaskId(launch.ownerId());
+            case CLAUDE_TURN -> parseTurnTask(launch.ownerId());
+            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+        };
+    }
+
+    private Optional<TaskId> parseTaskId(String ownerId)
+    {
         try {
-            taskId = TaskId.valueOf(ownerId);
+            return Optional.of(TaskId.valueOf(ownerId));
         }
         catch (IllegalArgumentException notATask) {
             // An App Server owner that is not a task id belongs to something without a worktree,
             // such as the model catalog probe.
             return Optional.empty();
         }
-        return taskStore.find(taskId)
-                .filter(task -> !task.state().terminal())
-                .map(AgentTask::id);
+    }
+
+    private Optional<TaskId> parseTurnTask(String ownerId)
+    {
+        try {
+            return turnStore.find(TurnId.valueOf(ownerId)).map(turn -> turn.taskId());
+        }
+        catch (IllegalArgumentException notATurn) {
+            return Optional.empty();
+        }
     }
 
     private void drainPendingEvents()

@@ -559,29 +559,29 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   return (
     <section className="agt-turn" aria-label={`Turn ${turn.ordinal}`}>
-      {turn.user !== null && (
-        <>
-          {first && <div className="agt-stamp">{stamp(turn.user.at, now)}</div>}
+      {turn.users.map((user, index) => (
+        <React.Fragment key={user.id}>
+          {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
           <div className="agt-user">
             <div className="agt-user__bubble">
-              {turn.user.attachments.length > 0 && (
+              {user.attachments.length > 0 && (
                 <div className="agt-user__files">
-                  {turn.user.attachments.map((attachment) => (
+                  {user.attachments.map((attachment) => (
                     <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
                   ))}
                 </div>
               )}
-              <div>{turn.user.text}</div>
-              {turn.user.delivery !== 'TURN' && (
+              <div>{user.text}</div>
+              {user.delivery !== 'TURN' && (
                 <div className="agt-muted agt-small agt-user__delivery">
-                  <Glyph icon={turn.user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
-                  <span>{turn.user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
+                  <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
+                  <span>{user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
                 </div>
               )}
             </div>
           </div>
-        </>
-      )}
+        </React.Fragment>
+      ))}
       {hasLog && (
         <button type="button" className="agt-turn__head" aria-expanded={open} onClick={onToggle} title="Show or hide this turn's log">
           {live && <Spinner />}
@@ -823,8 +823,8 @@ function QueueStrip({ queue, running, idle, resumeBlocked, models, onRemove, onR
  *
  * Nothing here edits or cleans that checkout. A claim from a turn means this task's own provider
  * runtime could not be shown to have stopped writing, and stopping it is the way out. A recovery
- * claim means the process predates this ByteQuay, so nothing here can stop it: the checkout stays
- * reserved until that process is gone and a restart verifies it.
+ * claim means the process predates this ByteQuay run, but the same explicit stop action can retry
+ * shutdown and verification without adding renderer-owned recovery state.
  */
 function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
   task: AgentTaskDto;
@@ -844,9 +844,8 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           type="button"
           className="agt-action is-danger"
           onClick={onStopServer}
-          disabled={oldProcess}
           title={oldProcess
-            ? 'That process predates this ByteQuay run; stop it yourself, then restart ByteQuay'
+            ? 'Stops and verifies this task’s provider runtime from before the restart, after confirmation'
             : 'Stops only this task’s provider runtime, after confirmation'}
         >
           Stop this task&apos;s agent runtime…
@@ -855,8 +854,8 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
       <div className="agt-recovery__body">
         {oldProcess
           ? 'ByteQuay restarted while this task was working, and a process from before the restart '
-            + 'could not be verified stopped. The transcript is safe; the checkout stays reserved until '
-            + 'that process is gone and ByteQuay has restarted.'
+            + 'could not be verified stopped. The transcript is safe; stop this task’s agent runtime '
+            + 'to retry shutdown and verification. The checkout stays reserved until that succeeds.'
           : 'The last turn ended, but its provider process could not be shown to have stopped writing '
             + 'here. The transcript is safe; new messages wait until nothing from that run can still '
             + 'change files.'}
@@ -984,7 +983,7 @@ function ProviderRecoveryCard({
 }
 
 /** The task's result once it is closed: what was kept, and whether the checkout is gone. */
-function TerminalSummary({ task }: { task: AgentTaskDto }): React.JSX.Element {
+function TerminalSummary({ task, onCleanup }: { task: AgentTaskDto; onCleanup: () => void }): React.JSX.Element {
   const completed = task.state === 'COMPLETED';
   return (
     <section className="agt-terminal" aria-label={completed ? 'Task result' : 'Task failure'}>
@@ -999,10 +998,13 @@ function TerminalSummary({ task }: { task: AgentTaskDto }): React.JSX.Element {
         <dt>Checkout</dt>
         <dd>
           {task.checkoutRemovedAt === null
-            ? 'kept for inspection'
+            ? 'Cleanup required — kept for inspection'
             : `removed ${relativeTime(task.checkoutRemovedAt)}; the branch remains`}
         </dd>
       </dl>
+      {task.checkoutRemovedAt === null && (
+        <button type="button" className="agt-action" onClick={onCleanup}>Retry checkout cleanup</button>
+      )}
     </section>
   );
 }
@@ -1356,6 +1358,7 @@ export function AgentTaskBody({
   onQueue = () => {},
   onRemoveQueued = () => {},
   onResumeQueue = () => {},
+  onCleanup = () => {},
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
@@ -1412,6 +1415,8 @@ export function AgentTaskBody({
   onQueue?: () => void;
   onRemoveQueued?: (queuedInputId: string) => void;
   onResumeQueue?: () => void;
+  /** Retries safe checkout removal for a terminal task whose first attempt failed. */
+  onCleanup?: () => void;
 }): React.JSX.Element {
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sidePanel = useResizablePane(300, 240, 1600, 'start');
@@ -1616,7 +1621,7 @@ export function AgentTaskBody({
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
       <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
 
-      {terminal && state.task !== null && <TerminalSummary task={state.task} />}
+      {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
 
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
@@ -2297,6 +2302,10 @@ export default function AgentTaskScreen({
     await refreshProjection(state.latestTurnId);
   }), [live, refreshProjection, run, state, taskId, workspaceId]);
 
+  const cleanupWorktree = useCallback(() => run(async () => {
+    applyTask(await live().cleanupAgentTaskWorktree(taskId, workspaceId));
+  }), [applyTask, live, run, taskId, workspaceId]);
+
   const stopServer = useCallback(() => run(async () => {
     const impact = await live().getAgentRuntimeStopImpact(taskId, workspaceId);
     const consequence = impact.activeTurnId === null
@@ -2364,6 +2373,7 @@ export default function AgentTaskScreen({
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
       onComplete={() => { void complete(); }}
+      onCleanup={() => { void cleanupWorktree(); }}
       onDecide={(approvalId, decision) => { void decide(approvalId, decision); }}
       onCompose={(text) => {
         const draft = stateRef.current;

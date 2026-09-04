@@ -265,6 +265,19 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void probeKeepsRecoveryEvidenceWhenItsProcessTreeIsUnverifiable()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.leaveProbeTreeUnverifiable();
+
+        AgentProviderStatus status = driver(supervisor).probe();
+
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+        assertThat(status.diagnostic()).contains("process tree could not be verified stopped");
+        assertThat(supervisor.acknowledgements).isEmpty();
+    }
+
+    @Test
     void distinguishesUnsupportedFromUnparseableVersions()
     {
         ScriptedProcessSupervisor unsupportedSupervisor = new ScriptedProcessSupervisor();
@@ -797,6 +810,8 @@ class TestClaudeCliDriver
         private boolean authenticationTimeout;
         private boolean authenticationHostWaitTimeout;
         private boolean authenticationTruncated;
+        private boolean probeTreeUnverifiable;
+        private final List<String> acknowledgements = new CopyOnWriteArrayList<>();
         private String updateStdout = "updated";
         private String updateStderr = "";
         private int updateExitCode;
@@ -817,7 +832,10 @@ class TestClaudeCliDriver
         }
 
         @Override
-        public void acknowledge(String launchId) {}
+        public void acknowledge(String launchId)
+        {
+            acknowledgements.add(launchId);
+        }
 
         private final class ScriptedLaunch
                 implements PreparedProcess
@@ -849,7 +867,7 @@ class TestClaudeCliDriver
         {
             if (spec.argv().contains("--version")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
-                return ImmediateProcess.success();
+                return probeTreeUnverifiable ? ImmediateProcess.unverifiable() : ImmediateProcess.success();
             }
             if (spec.argv().contains("--help")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(helpOutput));
@@ -895,6 +913,11 @@ class TestClaudeCliDriver
         private void versionOutput(String output)
         {
             versionOutput = output;
+        }
+
+        private void leaveProbeTreeUnverifiable()
+        {
+            probeTreeUnverifiable = true;
         }
 
         private String helpOutput()
@@ -1194,6 +1217,18 @@ class TestClaudeCliDriver
         private static ImmediateProcess success()
         {
             return exited(0);
+        }
+
+        private static ImmediateProcess unverifiable()
+        {
+            return new ImmediateProcess(CompletableFuture.completedFuture(
+                    new ProcessExit(
+                            0,
+                            ProcessExit.Reason.EXITED,
+                            ProcessExit.TreeTermination.UNVERIFIABLE,
+                            Duration.ZERO,
+                            false,
+                            false)));
         }
 
         private static ImmediateProcess exited(int exitCode)

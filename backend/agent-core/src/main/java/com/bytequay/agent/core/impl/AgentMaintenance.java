@@ -15,10 +15,12 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.EventId;
@@ -255,6 +257,58 @@ public final class AgentMaintenance
                 .forEach(taskId -> settleTask(taskId, Optional.empty(), verifiedLaunches));
     }
 
+    /**
+     * Releases or retargets one startup recovery claim after an explicit process check.
+     *
+     * <p>The caller checks every durable provider launch for the task. If one still cannot be
+     * verified stopped, the same claim is retained or moved to that launch; otherwise it is
+     * released. No runtime registry entry or recovery state machine is created.
+     *
+     * @param taskId task whose worktree is reserved
+     * @param expectedVersion task generation the user confirmed
+     * @param expectedClaimLaunch launch named by the confirmed recovery claim
+     * @param remainingUnverifiableLaunch another launch that still blocks the task, if any
+     * @return the current or updated task
+     */
+    public AgentTask settleRecoveryClaim(
+            TaskId taskId,
+            long expectedVersion,
+            String expectedClaimLaunch,
+            Optional<String> remainingUnverifiableLaunch)
+    {
+        requireNonNull(taskId, "taskId is null");
+        checkArgument(expectedVersion >= 0, "expectedVersion is negative");
+        requireNonNull(expectedClaimLaunch, "expectedClaimLaunch is null");
+        checkArgument(!expectedClaimLaunch.isBlank(), "expectedClaimLaunch is blank");
+        requireNonNull(remainingUnverifiableLaunch, "remainingUnverifiableLaunch is null");
+        remainingUnverifiableLaunch.ifPresent(launchId -> checkArgument(!launchId.isBlank(), "remainingUnverifiableLaunch is blank"));
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+            if (task.state().terminal()) {
+                throw new AgentConflictException("Task is already terminal: " + taskId);
+            }
+            if (task.version() != expectedVersion) {
+                throw new AgentConflictException("Task runtime changed since the stop was confirmed: " + taskId);
+            }
+            if (turnStore.findActive(taskId).isPresent()) {
+                throw new AgentConflictException("Task has an active turn: " + taskId);
+            }
+            WorktreeMutationClaim claim = task.worktreeMutationClaim()
+                    .filter(held -> held.kind() == WorktreeMutationClaim.Kind.RECOVERY)
+                    .filter(held -> held.ownerId().equals(expectedClaimLaunch))
+                    .orElseThrow(() -> new AgentConflictException("Task recovery runtime changed since the stop was confirmed: " + taskId));
+            if (remainingUnverifiableLaunch.equals(Optional.of(expectedClaimLaunch))) {
+                return task;
+            }
+            Instant now = Instant.now(clock);
+            AgentTask released = task.releaseWorktreeMutation(claim, now);
+            AgentTask settled = remainingUnverifiableLaunch
+                    .map(launchId -> released.claimWorktreeMutation(WorktreeMutationClaim.recovery(launchId, now), now))
+                    .orElse(released);
+            return taskStore.update(settled);
+        }
+    }
+
     private void settleTask(TaskId taskId, Optional<String> unverifiableLaunch, Set<String> verifiedLaunches)
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -278,6 +332,13 @@ public final class AgentMaintenance
                 else if (claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.TURN) {
                     // The turn ended without proving its process quiet, and now that process is
                     // gone unverified: the launch, not the finished turn, is what still blocks.
+                    taskStore.update(task.releaseWorktreeMutation(claim.orElseThrow(), now).claimWorktreeMutation(recovery, now));
+                }
+                else if (claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.RECOVERY
+                        && !claim.orElseThrow().ownerId().equals(recovery.ownerId())) {
+                    // One task can leave more than one launch behind. If the claim's launch was
+                    // resolved while another remains unverifiable, keep the task blocked by the
+                    // remaining launch instead of stranding a claim that can never be observed.
                     taskStore.update(task.releaseWorktreeMutation(claim.orElseThrow(), now).claimWorktreeMutation(recovery, now));
                 }
                 return;

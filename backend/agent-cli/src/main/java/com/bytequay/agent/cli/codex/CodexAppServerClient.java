@@ -461,24 +461,25 @@ final class CodexAppServerClient
         dispatcher.close();
     }
 
-    private static void awaitVerifiedStop(ManagedProcess current)
+    private void awaitVerifiedStop(ManagedProcess current)
     {
-        ProcessExit exit;
+        ProcessExit.TreeTermination termination;
         try {
-            exit = current.exit().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            termination = current.stopAndVerify().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new AgentUnavailableException("Interrupted while stopping Codex App Server", e);
         }
         catch (ExecutionException e) {
-            throw new AgentUnavailableException("Codex App Server did not report its exit", e.getCause());
+            throw new AgentUnavailableException("Codex App Server process tree could not be stopped", e.getCause());
         }
         catch (TimeoutException e) {
             throw new AgentUnavailableException("Codex App Server did not stop within " + STOP_TIMEOUT.toSeconds()
                     + " seconds, so its process tree is not verified stopped", e);
         }
-        if (exit.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+        treeTermination = termination;
+        if (termination != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
             throw new AgentUnavailableException("Codex App Server exited but its process tree could not be verified stopped");
         }
     }

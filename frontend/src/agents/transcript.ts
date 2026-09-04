@@ -138,7 +138,7 @@ export type UsageFacts = {
 export type TranscriptTurn = {
   turnId: string | null;
   ordinal: number;
-  user: UserBlock | null;
+  users: UserBlock[];
   blocks: TurnBlock[];
   answer: { id: string; text: string; complete: boolean } | null;
   startedAt: string | null;
@@ -274,7 +274,7 @@ class TurnBuilder {
     this.turn = {
       turnId,
       ordinal,
-      user: null,
+      users: [],
       blocks: [],
       answer: null,
       startedAt: null,
@@ -287,13 +287,13 @@ class TurnBuilder {
   apply(event: AgentEventEnvelope): void {
     switch (event.type) {
       case 'user_message':
-        this.turn.user = {
+        this.turn.users.push({
           id: event.eventId,
           text: event.payload.text,
           attachments: event.payload.attachments.map((attachment) => ({ ...attachment })),
           delivery: event.payload.deliveryKind,
           at: event.occurredAt,
-        };
+        });
         break;
       case 'assistant_message':
         this.message(event);

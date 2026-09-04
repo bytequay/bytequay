@@ -45,6 +45,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -89,6 +90,7 @@ public class AgentController
 
     private final AgentTaskService taskService;
     private final InteractiveAgentTaskCreator taskCreator;
+    private final AgentStartupRecovery startupRecovery;
     private final AgentTurnService turnService;
     private final AgentEventService eventService;
     private final AgentApprovalService approvalService;
@@ -102,6 +104,7 @@ public class AgentController
     public AgentController(
             AgentTaskService taskService,
             InteractiveAgentTaskCreator taskCreator,
+            AgentStartupRecovery startupRecovery,
             AgentTurnService turnService,
             AgentEventService eventService,
             AgentApprovalService approvalService,
@@ -114,6 +117,7 @@ public class AgentController
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
+        this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
@@ -562,7 +566,7 @@ public class AgentController
     }
 
     /**
-     * What stopping this task's Codex server would interrupt, and the generation the stop must echo.
+     * What stopping this task's provider runtime would interrupt, and the generation the stop must echo.
      */
     @GetMapping("/tasks/{taskId}/runtime/stop-impact")
     public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(
@@ -575,7 +579,7 @@ public class AgentController
     }
 
     /**
-     * Stops this task's Codex server, the last resort behind ordinary cancellation.
+     * Stops this task's provider process, the last resort behind ordinary cancellation.
      *
      * <p>Reaches no other task. The generation is the one the user confirmed, so a turn that
      * started since cannot be stopped by a stale confirmation.
@@ -588,18 +592,23 @@ public class AgentController
     {
         requireNotBlank(request.generation(), "generation must not be blank");
         TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
-        return InteractiveAgentHttpContract.task(turnService.stopRuntime(id, request.generation()));
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        AgentTask stopped = task.worktreeMutationClaim()
+                .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
+                .map(claim -> startupRecovery.stopRecoveredRuntime(id, request.generation()))
+                .orElseGet(() -> turnService.stopRuntime(id, request.generation()));
+        return InteractiveAgentHttpContract.task(stopped);
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")
-    public AgentHttpModels.CleanupResponse cleanupTask(
+    public InteractiveAgentHttpContract.TaskResponse cleanupTask(
             @PathVariable String taskId,
             @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        return AgentHttpModels.cleanup(completionService.cleanup(id));
+        completionService.cleanupWorktree(id);
+        return InteractiveAgentHttpContract.task(taskService.get(id));
     }
 
     /**

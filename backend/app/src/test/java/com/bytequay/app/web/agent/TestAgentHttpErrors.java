@@ -13,21 +13,34 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.impl.AgentMaintenance;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
+import com.bytequay.agent.core.store.AgentProcessLaunchStore;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
@@ -39,6 +52,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.time.Clock;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -57,6 +72,7 @@ class TestAgentHttpErrors
     private MockMvc mvc;
     private AgentTaskService taskService;
     private AgentTurnService turnService;
+    private AgentStartupRecovery startupRecovery;
     private AgentDriverRegistry driverRegistry;
     private AgentDriver driver;
     private WorkspaceRepositoryService workspaces;
@@ -67,6 +83,7 @@ class TestAgentHttpErrors
     {
         taskService = mock(AgentTaskService.class);
         turnService = mock(AgentTurnService.class);
+        startupRecovery = startupRecovery();
         driverRegistry = mock(AgentDriverRegistry.class);
         driver = mock(AgentDriver.class);
         workspaces = mock(WorkspaceRepositoryService.class);
@@ -80,6 +97,7 @@ class TestAgentHttpErrors
                         mock(ModelSettingsService.class),
                         workspaces,
                         git),
+                startupRecovery,
                 turnService,
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
@@ -159,5 +177,34 @@ class TestAgentHttpErrors
         when(driverRegistry.statuses()).thenThrow(new AgentUnavailableException("provider unavailable"));
         mvc.perform(get("/agent/providers/status"))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    private static AgentStartupRecovery startupRecovery()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentMaintenance maintenance = new AgentMaintenance(
+                taskStore,
+                turnStore,
+                mock(QueuedInputStore.class),
+                mock(SteerDeliveryStore.class),
+                mock(AgentUnitOfWork.class),
+                outboxStore,
+                mock(AgentApprovalService.class),
+                mock(AgentMetricsService.class),
+                mock(AgentCompletionService.class),
+                new AgentRuntimeRegistry(),
+                Clock.systemUTC());
+        return new AgentStartupRecovery(
+                outboxStore,
+                eventService,
+                maintenance,
+                mock(ProcessSupervisor.class),
+                new AgentServingGate(),
+                mock(AgentProcessLaunchStore.class),
+                taskStore,
+                turnStore);
     }
 }

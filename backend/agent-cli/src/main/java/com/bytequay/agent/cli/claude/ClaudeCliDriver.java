@@ -521,6 +521,15 @@ public final class ClaudeCliDriver
         try {
             ProcessExit result = process.exit().toCompletableFuture()
                     .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
+            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                return new CommandResult(
+                        -1,
+                        stdout.toString().trim(),
+                        "Claude CLI process tree could not be verified stopped",
+                        false,
+                        result.stdoutTruncated(),
+                        result.stderrTruncated());
+            }
             supervisor.acknowledge(process.launchId());
             if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
                 return new CommandResult(

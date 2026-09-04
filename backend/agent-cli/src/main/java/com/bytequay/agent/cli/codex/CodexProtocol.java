@@ -1210,26 +1210,49 @@ final class CodexProtocol
      */
     record ThreadStartParams(
             String cwd,
+            String model,
             String approvalPolicy,
+            String approvalsReviewer,
+            Map<String, Object> config,
             String sandbox,
-            String serviceName)
+            boolean ephemeral,
+            String serviceName,
+            List<Object> dynamicTools,
+            List<Object> selectedCapabilityRoots)
     {
         ThreadStartParams
         {
             checkIdentifier(cwd, "cwd");
+            checkIdentifier(model, "model");
             checkIdentifier(approvalPolicy, "approvalPolicy");
+            checkIdentifier(approvalsReviewer, "approvalsReviewer");
+            config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
             checkIdentifier(sandbox, "sandbox");
             checkIdentifier(serviceName, "serviceName");
+            dynamicTools = ImmutableList.copyOf(requireNonNull(dynamicTools, "dynamicTools is null"));
+            selectedCapabilityRoots = ImmutableList.copyOf(requireNonNull(
+                    selectedCapabilityRoots,
+                    "selectedCapabilityRoots is null"));
         }
     }
 
-    record ThreadResumeParams(String threadId, String cwd, String approvalPolicy, String sandbox)
+    record ThreadResumeParams(
+            String threadId,
+            String cwd,
+            String model,
+            String approvalPolicy,
+            String approvalsReviewer,
+            Map<String, Object> config,
+            String sandbox)
     {
         ThreadResumeParams
         {
             checkIdentifier(threadId, "threadId");
             checkIdentifier(cwd, "cwd");
+            checkIdentifier(model, "model");
             checkIdentifier(approvalPolicy, "approvalPolicy");
+            checkIdentifier(approvalsReviewer, "approvalsReviewer");
+            config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
             checkIdentifier(sandbox, "sandbox");
         }
     }
@@ -1478,7 +1501,11 @@ final class CodexProtocol
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
             Optional<String> model,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
-            Optional<String> effort)
+            Optional<String> effort,
+            String approvalPolicy,
+            String approvalsReviewer,
+            String cwd,
+            Map<String, Object> sandboxPolicy)
     {
         TurnStartParams
         {
@@ -1487,6 +1514,10 @@ final class CodexProtocol
             checkArgument(!input.isEmpty(), "input is empty");
             requireNonNull(model, "model is null");
             requireNonNull(effort, "effort is null");
+            checkIdentifier(approvalPolicy, "approvalPolicy");
+            checkIdentifier(approvalsReviewer, "approvalsReviewer");
+            checkIdentifier(cwd, "cwd");
+            sandboxPolicy = ImmutableMap.copyOf(requireNonNull(sandboxPolicy, "sandboxPolicy is null"));
         }
     }
 

@@ -120,6 +120,7 @@ describe('preview journey', () => {
     });
     const cancelled = await bridge.cancelAgentTurn(turn.id);
     await bridge.completeAgentTask(created.id, 'workspace-1');
+    await bridge.cleanupAgentTaskWorktree(created.id, 'workspace-1');
     session.stop();
 
     expect(cancelled.state).toBe('CANCELLED');
@@ -132,6 +133,7 @@ describe('preview journey', () => {
       'startAgentTurn',
       'cancelAgentTurn',
       'completeAgentTask',
+      'cleanupAgentTaskWorktree',
       'unsubscribeAgentTask',
     ]);
     // The bridge forwards the random intent key unchanged; its lifecycle is tested in model.ts.

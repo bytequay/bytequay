@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.google.common.collect.ImmutableList;
@@ -189,6 +190,7 @@ class TestOwnedProcessRecovery
                 marker.startToken(),
                 Optional.of("/bin/never-the-launcher"),
                 marker.processGroup(),
+                marker.descendantStartTokens(),
                 marker.exitCode(),
                 marker.exitReason(),
                 marker.treeTermination()));
@@ -322,6 +324,59 @@ class TestOwnedProcessRecovery
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
     }
 
+    @Test
+    void legacyReceiptWithoutDescendantIdentitiesFailsClosed()
+    {
+        LaunchMarker legacy = new LaunchMarker(
+                1,
+                "launch-1",
+                "an-earlier-backend",
+                OWNER.kind(),
+                OWNER.id(),
+                ExecutionProfile.PROVIDER_CONTROL,
+                "/bin/sleep",
+                "digest",
+                LaunchPhase.RUNNING,
+                Optional.of(ProcessHandle.current().pid()),
+                Optional.of(Instant.EPOCH.toString()),
+                Optional.of("/bin/sh"),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
+        write(legacy.terminal(exit(ProcessExit.TreeTermination.VERIFIED_STOPPED)));
+
+        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
+    @Test
+    void targetedRecoveryRetriesAnUnverifiableTerminalReceipt()
+            throws Exception
+    {
+        Process descendant = spawn("exec sleep 60");
+        ProcessIdentity identity = new ProcessIdentity(
+                descendant.pid(),
+                descendant.info().startInstant().orElseThrow());
+        LaunchMarker stopped = marker(
+                LaunchPhase.RUNNING,
+                Optional.of(ProcessHandle.current().pid()),
+                Optional.of(Instant.EPOCH),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                "/bin/sleep")
+                .withDescendant(identity)
+                .terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE));
+        write(stopped);
+
+        OwnedProcessRecovery result = new DefaultProcessSupervisor(launches, intents)
+                .recoverOwnedProcess(stopped.launchId());
+
+        assertThat(result.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+        assertThat(awaitDead(descendant.pid())).isTrue();
+        assertThat(new LaunchMarkerStore(launches).read(stopped.launchId())).isPresent();
+        assertThat(intents.attempted(stopped.launchId())).contains(true);
+    }
+
     private OwnedProcessRecovery recover()
     {
         List<OwnedProcessRecovery> results =
@@ -358,6 +413,7 @@ class TestOwnedProcessRecovery
                 startToken.map(Instant::toString),
                 Optional.of("/bin/sh"),
                 processGroup,
+                phase == LaunchPhase.PREPARED ? Optional.empty() : Optional.of(ImmutableMap.of()),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());

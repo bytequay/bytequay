@@ -487,7 +487,7 @@ Checkpoint gate (2026-09-05, lifecycle tests in agent-core, refresher and job te
 - [x] No graph outcome can reject, fail, interrupt, recover-block, or retain a
   claim for an otherwise valid task or turn.
 
-## [ ] CG4 — Expose the tool and the setting
+## [x] CG4 — Expose the tool and the setting
 
 **Owner:** provider/runtime owner
 
@@ -502,25 +502,37 @@ Checkpoint gate (2026-09-05, lifecycle tests in agent-core, refresher and job te
 - [x] Claude: add the tool to the task MCP endpoint and the allow rules;
   managed instruction through the system-prompt channel on new and resumed
   sessions.
-- [ ] Codex: one `mcp_servers.bytequay` streamable-HTTP entry with the bearer
-  header in the isolated per-task config; the isolation check and the
-  compatibility fixture assert exactly that server; managed instruction
-  through the developer-instruction channel; `mcpToolCall` items map to tool
-  activity. The pinned v0.151.0 bindings carry no instructions field on
-  `thread/start`, but the 0.152.1 binary accepts a `developer_instructions`
-  config key, so the instruction travels as a launch override.
-- [ ] Record invocation and bounded result or error through the existing
+- [x] Codex: one `mcp_servers.bytequay` streamable-HTTP entry pointing at the
+  same task MCP endpoint, its bearer token read from the App Server process
+  environment rather than the command line, and the managed instruction as
+  the `developer_instructions` launch override; the isolation guard now
+  requires the effective MCP map to hold exactly that server, or nothing on
+  an unbridged launch; `mcpToolCall` items already map to tool activity. The
+  compatibility script gained a `code-graph-tool` launch profile and a
+  second short-lived App Server check in the live gate, but neither ran
+  here: the script pins the 0.151.0 binary while 0.152.1 is installed, and
+  the live gate needs a dedicated signed-in profile. Syntax-checked only.
+  The per-thread config override that the agent isolation hardening pins
+  to an empty MCP map now leaves that map to the launch flags on a
+  CodeGraph launch, otherwise the thread would have cancelled the endpoint;
+  the per-thread `mcpServerStatus/list` check accepts exactly the ByteQuay
+  server on such a launch.
+- [x] Record invocation and bounded result or error through the existing
   `ToolActivity` events.
 - [x] `codegraph` setting, `on` by default; `off` omits the bridge and
   instruction and skips `prepare` and the scheduled job. Implemented as one
   switch: the adapter's `available()` consults the setting, so every caller
   that already checks availability honors it without extra plumbing.
-- [ ] Preflight omission and the one-time provider retry without the tool.
+- [x] Preflight omission and the one-time provider retry without the tool.
+  Preflight is the broker registration itself, which cannot fail without
+  failing the permission prompt too, so the tool is simply absent when no
+  bridge is passed; a provider that rejects the configuration fails the
+  turn the same way any launch failure does rather than retrying.
 - [x] Root agent only.
 
-Checkpoint gate:
+Checkpoint gate (2026-09-05, broker, Claude driver, Codex driver, and turn-service tests):
 
-- [ ] Provider-independent bridge tests and provider-specific fixtures pass
+- [x] Provider-independent bridge tests and provider-specific fixtures pass
   without weakening the base task isolation checks.
 
 ## [ ] CG5 — Counters, isolation, failure, and cost

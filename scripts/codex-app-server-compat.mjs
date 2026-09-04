@@ -627,6 +627,18 @@ const noChildLaunchProfile = {
   multi_agent: false,
   multi_agent_v2: false,
 };
+const CODE_GRAPH_TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
+// The ByteQuay CodeGraph launch: one MCP server, ByteQuay's own task endpoint, on top of the
+// no-child profile. config/read reflects the overrides without contacting the endpoint, so the
+// probe needs no server behind the URL.
+const codeGraphLaunchProfile = {
+  ...noChildLaunchProfile,
+  name: "code-graph-tool",
+  codeGraph: {
+    url: "http://127.0.0.1:9/internal/agent/claude/mcp",
+    instruction: "ByteQuay CodeGraph compatibility probe",
+  },
+};
 const v1ChildLaunchProfile = {
   name: "multi-agent-v1-enabled",
   multi_agent: true,
@@ -2327,7 +2339,30 @@ function assertLaunchPolicy(response, launchProfile) {
   const config = response?.config;
   assert.ok(config && typeof config === "object", "config/read omitted effective config");
   assert.equal(config.web_search, "disabled", "web search was not disabled");
-  assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
+  if (launchProfile.codeGraph === undefined) {
+    assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
+  } else {
+    assert.deepEqual(
+      Object.keys(config.mcp_servers ?? {}),
+      ["bytequay"],
+      "code graph launch exposed something other than the ByteQuay task MCP endpoint",
+    );
+    assert.equal(
+      config.mcp_servers.bytequay.url,
+      launchProfile.codeGraph.url,
+      "code graph launch pointed at the wrong MCP endpoint",
+    );
+    assert.equal(
+      config.mcp_servers.bytequay.bearer_token_env_var,
+      CODE_GRAPH_TOKEN_VARIABLE,
+      "code graph launch did not take its bearer token from the environment",
+    );
+    assert.equal(
+      config.developer_instructions,
+      launchProfile.codeGraph.instruction,
+      "code graph launch did not carry the managed instruction",
+    );
+  }
   assert.equal(
     config.features?.skip_host_skill_discovery,
     true,
@@ -3001,7 +3036,36 @@ function appServerArguments(launchProfile) {
   if (launchProfile.agentMaxDepth !== undefined) {
     args.push("-c", `agents.max_depth=${launchProfile.agentMaxDepth}`);
   }
+  if (launchProfile.codeGraph !== undefined) {
+    // Mirrors CodexLaunchProfile: the ByteQuay task MCP endpoint for the CodeGraph tool, its bearer
+    // token read from the process environment, and the managed instruction as developer text.
+    args.push(
+      "-c",
+      `mcp_servers.bytequay.url=${JSON.stringify(launchProfile.codeGraph.url)}`,
+      "-c",
+      `mcp_servers.bytequay.bearer_token_env_var=${JSON.stringify(CODE_GRAPH_TOKEN_VARIABLE)}`,
+      "-c",
+      `developer_instructions=${JSON.stringify(launchProfile.codeGraph.instruction)}`,
+    );
+  }
   return args;
+}
+
+// A second, short-lived App Server launched the way ByteQuay launches a task with the CodeGraph
+// tool: the effective config must expose exactly the ByteQuay endpoint and the managed instruction,
+// and nothing else about the isolation baseline may change.
+async function verifyCodeGraphLaunch(cwd, environment, registerChild, codexHome, taskCwd) {
+  const { child, rpc } = await startAppServer(
+    cwd,
+    { ...environment, [CODE_GRAPH_TOKEN_VARIABLE]: "probe-token" },
+    registerChild,
+    codeGraphLaunchProfile,
+  );
+  try {
+    await verifyPreThreadIsolation(rpc, codexHome, [taskCwd], codeGraphLaunchProfile);
+  } finally {
+    await stopProcess(child);
+  }
 }
 
 async function verifyPreThreadIsolation(rpc, codexHome, cwds, launchProfile) {
@@ -3798,6 +3862,7 @@ async function liveCompatibilityCheck() {
     await interruptible(
       verifyPreThreadIsolation(rpc, codexHome, [cwdA, cwdB], noChildLaunchProfile),
     );
+    await interruptible(verifyCodeGraphLaunch(root, appServerEnvironment, registerChild, codexHome, cwdA));
     execA = await interruptible(
       startExecServer(cwdA, executorA.environment, registerChild),
     );

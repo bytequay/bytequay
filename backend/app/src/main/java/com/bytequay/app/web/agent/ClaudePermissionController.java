@@ -15,7 +15,6 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.fasterxml.jackson.databind.JsonNode;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,7 +26,6 @@ import org.springframework.web.bind.annotation.RestController;
 import static java.util.Objects.requireNonNull;
 
 @RestController
-@ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
 public final class ClaudePermissionController
 {
     private static final String BEARER_PREFIX = "Bearer ";

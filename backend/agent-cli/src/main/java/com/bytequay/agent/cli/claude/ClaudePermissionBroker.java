@@ -135,6 +135,7 @@ public final class ClaudePermissionBroker
                 permissionPolicy,
                 approvals,
                 redactor.withSecret(token),
+                true,
                 codeGraph));
         try {
             Files.createDirectories(providerDirectory);
@@ -154,6 +155,30 @@ public final class ClaudePermissionBroker
             delete(settingsFile);
             throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
         }
+    }
+
+    /**
+     * Registers a task that only needs the CodeGraph tool, for a provider that reaches this endpoint
+     * through its own MCP configuration. The returned token authenticates that one task; the
+     * permission tools stay hidden from it.
+     */
+    public CodeGraphRegistration registerCodeGraph(
+            String taskId,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor,
+            CodeGraphBridge codeGraph)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(approvals, "approvals is null");
+        requireNonNull(redactor, "redactor is null");
+        requireNonNull(codeGraph, "codeGraph is null");
+        String token = token();
+        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, Optional.of(codeGraph)));
+        return new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"));
     }
 
     /**
@@ -195,8 +220,8 @@ public final class ClaudePermissionBroker
     {
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
         return switch (params.name()) {
-            case "permission_prompt" -> permission(request.id(), params.arguments(), context);
-            case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
+            case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
+            case "read_ci_memory" -> context.permissionTools() ? readCiMemory(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             default -> error(request.id(), -32602, "Unknown tool");
         };
@@ -332,11 +357,13 @@ public final class ClaudePermissionBroker
     private static List<ToolDefinition> tools(PermissionContext context)
     {
         ImmutableList.Builder<ToolDefinition> tools = ImmutableList.builder();
-        tools.add(permissionTool());
+        if (context.permissionTools()) {
+            tools.add(permissionTool());
+        }
         if (context.codeGraph().isPresent()) {
             tools.add(codeGraphTool());
         }
-        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+        if (context.permissionTools() && context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
                     "Read recent or matching CI Autofix history for this task",
@@ -534,6 +561,36 @@ public final class ClaudePermissionBroker
     }
 
     /** HTTP response returned to the thin application controller. */
+    /** A code-graph-only task token and the endpoint it authenticates against; closing forgets the token. */
+    public final class CodeGraphRegistration
+            implements AutoCloseable
+    {
+        private final String token;
+        private final URI endpoint;
+
+        private CodeGraphRegistration(String token, URI endpoint)
+        {
+            this.token = requireNonNull(token, "token is null");
+            this.endpoint = requireNonNull(endpoint, "endpoint is null");
+        }
+
+        public String token()
+        {
+            return token;
+        }
+
+        public URI endpoint()
+        {
+            return endpoint;
+        }
+
+        @Override
+        public void close()
+        {
+            contexts.remove(token);
+        }
+    }
+
     public record McpHttpResponse(int status, Optional<JsonNode> body)
     {
         public McpHttpResponse
@@ -548,6 +605,7 @@ public final class ClaudePermissionBroker
             AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
+            boolean permissionTools,
             Optional<CodeGraphBridge> codeGraph)
     {
         private PermissionContext

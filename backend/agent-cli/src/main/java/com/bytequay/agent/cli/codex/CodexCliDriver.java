@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOwner;
@@ -187,6 +188,7 @@ public final class CodexCliDriver
     private final ProcessSupervisor supervisor;
     private final Path codexHome;
     private final Map<String, String> environment;
+    private final ClaudePermissionBroker permissions;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
     private final Duration quiescenceTimeout;
@@ -198,19 +200,9 @@ public final class CodexCliDriver
      * @param codexHome ByteQuay's own Codex home; every Codex process this driver starts runs with
      * {@code CODEX_HOME} set to it, so the user's {@code ~/.codex} never reaches a task
      */
-    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome)
+    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, ClaudePermissionBroker permissions)
     {
-        this(executable, objectMapper, supervisor, inheritedEnvironment(), codexHome);
-    }
-
-    CodexCliDriver(
-            String executable,
-            ObjectMapper objectMapper,
-            ProcessSupervisor supervisor,
-            Map<String, String> environment,
-            Path codexHome)
-    {
-        this(executable, objectMapper, supervisor, environment, codexHome, DEFAULT_QUIESCENCE_TIMEOUT);
+        this(executable, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions);
     }
 
     CodexCliDriver(
@@ -219,9 +211,22 @@ public final class CodexCliDriver
             ProcessSupervisor supervisor,
             Map<String, String> environment,
             Path codexHome,
+            ClaudePermissionBroker permissions)
+    {
+        this(executable, objectMapper, supervisor, environment, codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
+    }
+
+    CodexCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            Map<String, String> environment,
+            Path codexHome,
+            ClaudePermissionBroker permissions,
             Duration quiescenceTimeout)
     {
         this.executable = requireNonNull(executable, "executable is null");
+        this.permissions = requireNonNull(permissions, "permissions is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath();
         // Overrides any inherited value: a shell that exports CODEX_HOME must not redirect ByteQuay's
@@ -247,17 +252,35 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty());
+    }
+
+    private CodexAppServerClient appServerClient(
+            String ownerId,
+            Path workingDirectory,
+            CodexLaunchProfile.ChildProfile childProfile,
+            Optional<CodexLaunchProfile.CodeGraphLaunch> codeGraph,
+            Optional<String> codeGraphToken)
+    {
+        Map<String, String> processEnvironment = codeGraphToken
+                .<Map<String, String>>map(token -> ImmutableMap.<String, String>builder()
+                        .putAll(environment)
+                        .put(CodexLaunchProfile.CodeGraphLaunch.TOKEN_VARIABLE, token)
+                        .buildOrThrow())
+                .orElse(environment);
         return new CodexAppServerClient(
                 supervisor,
-                processSpec(
+                new ProcessSpec(
                         new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable, childProfile),
+                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph),
                         workingDirectory,
-                        APP_SERVER_RUNTIME,
+                        processEnvironment,
                         MAX_APP_SERVER_STDOUT_BYTES,
-                        MAX_APP_SERVER_STDERR_BYTES),
+                        MAX_APP_SERVER_STDERR_BYTES,
+                        APP_SERVER_RUNTIME,
+                        PROCESS_CANCELLATION_GRACE),
                 objectMapper,
-                redactor);
+                codeGraphToken.map(redactor::withSecret).orElse(redactor));
     }
 
     @Override
@@ -435,17 +458,31 @@ public final class CodexCliDriver
         // App Server's default environment confines a turn's writes to its own working directory,
         // which is why a task needs no separately registered execution environment.
         ModelProfile modelProfile = modelCatalog().select(context.model());
-        CodexAppServerClient client = appServerClient(
-                context.taskId(),
-                context.worktree(),
-                modelProfile.childProfile());
+        // A code-graph token lives exactly as long as this session; the App Server reaches the
+        // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
+        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.codeGraph().map(bridge -> permissions.registerCodeGraph(
+                context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, bridge));
+        CodexAppServerClient client;
         try {
-            return new CodexSession(client, context, events, modelProfile);
+            client = appServerClient(
+                    context.taskId(),
+                    context.worktree(),
+                    modelProfile.childProfile(),
+                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), context.codeGraph().orElseThrow().instruction())),
+                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token));
+        }
+        catch (RuntimeException failure) {
+            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
+            throw failure;
+        }
+        try {
+            return new CodexSession(client, context, events, modelProfile, codeGraph);
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
             // holds a reference that would ever close it.
             client.close();
+            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
             throw failure;
         }
     }
@@ -676,6 +713,7 @@ public final class CodexCliDriver
         private final AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
+        private final Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
         /** Every thread this task's process has shown us, root and subagents alike. */
@@ -717,17 +755,20 @@ public final class CodexCliDriver
                 CodexAppServerClient client,
                 AgentSessionContext context,
                 AgentEventSink events,
-                ModelProfile modelProfile)
+                ModelProfile modelProfile,
+                Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph)
         {
             this.client = requireNonNull(client, "client is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
+            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
             this.isolation = new CodexIsolationGuard(
                     client,
                     codexHome,
-                    modelProfile.childProfile());
+                    modelProfile.childProfile(),
+                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::endpoint));
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
@@ -754,7 +795,7 @@ public final class CodexCliDriver
             Optional<AgentSessionRef> existing = context.sessionReference();
             String approvalPolicy = approvalPolicy();
             String sandbox = "workspace-write";
-            Map<String, Object> config = CodexLaunchProfile.threadConfig(modelProfile.childProfile());
+            Map<String, Object> config = CodexLaunchProfile.threadConfig(modelProfile.childProfile(), codeGraph.isPresent());
             String method;
             Object params;
             if (existing.isPresent()) {
@@ -1876,6 +1917,7 @@ public final class CodexCliDriver
             closed = true;
             CodexRunningTurn interrupted = running;
             running = null;
+            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
             try {
                 client.close();
             }

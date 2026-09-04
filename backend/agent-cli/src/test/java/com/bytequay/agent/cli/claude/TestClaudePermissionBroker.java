@@ -102,6 +102,41 @@ class TestClaudePermissionBroker
     }
 
     @Test
+    void codeGraphOnlyRegistrationsHideThePermissionTools()
+            throws Exception
+    {
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory");
+        ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerCodeGraph(
+                "task-3",
+                temporaryDirectory,
+                AgentPermissionPolicy.CI_AUTOFIX,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()),
+                new CodeGraphBridge(query -> "graph for " + query, "use the graph"));
+        assertThat(registration.endpoint()).isEqualTo(URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"));
+
+        JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                """)).body().orElseThrow();
+        assertThat(listed.at("/result/tools")).hasSize(1);
+        assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("codegraph_explore");
+        JsonNode called = broker.handle(registration.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"routes"}}}
+                """)).body().orElseThrow();
+        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("graph for routes");
+        JsonNode hidden = broker.handle(registration.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"permission_prompt","arguments":{"tool_name":"Bash","input":{}}}}
+                """)).body().orElseThrow();
+        assertThat(hidden.at("/error/code").asInt()).isEqualTo(-32602);
+
+        registration.close();
+        assertThat(broker.handle(registration.token(), objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+
+    @Test
     void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()
             throws Exception
     {

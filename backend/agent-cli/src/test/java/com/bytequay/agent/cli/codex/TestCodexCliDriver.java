@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
@@ -35,6 +36,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -50,6 +52,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -78,6 +81,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexCliDriver
 {
+    private static final String MCP_ENDPOINT = "http://127.0.0.1:9000/internal/agent/claude/mcp";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @TempDir
@@ -1784,6 +1788,7 @@ class TestCodexCliDriver
                         "CODEX_HOME", "/Users/someone/.codex",
                         "OPENAI_API_KEY", "known-secret"),
                 codexHome(),
+                new ClaudePermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
                 quiescenceTimeout);
     }
 
@@ -1905,6 +1910,63 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("invalid root v2"));
         supervisor.server().completeTurn();
         return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void bridgedSessionLaunchesWithTheTaskMcpEndpointAndKeepsTheTokenOffTheCommandLine()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
+        AgentSessionContext bridged = new AgentSessionContext(
+                plain.taskId(),
+                plain.worktree(),
+                plain.runtimeDirectory(),
+                plain.providerDirectory(),
+                plain.permissionPolicy(),
+                plain.sessionReference(),
+                plain.approvals(),
+                plain.model(),
+                plain.effort(),
+                plain.textOnly(),
+                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")));
+
+        AgentSession session = driver.open(bridged, event -> {});
+        List<String> arguments = supervisor.serverArgv().getFirst();
+        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
+        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.bearer_token_env_var=\"BYTEQUAY_CODEGRAPH_TOKEN\"");
+        assertThat(arguments).containsSequence("-c", "developer_instructions=\"use the graph\"");
+        Map<String, String> environment = supervisor.environments().stream()
+                .filter(candidate -> candidate.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
+                .findFirst()
+                .orElseThrow();
+        String token = environment.get("BYTEQUAY_CODEGRAPH_TOKEN");
+        assertThat(token).isNotBlank();
+        assertThat(arguments).noneMatch(argument -> argument.contains(token));
+        // The thread leaves the MCP map to the launch flags instead of emptying it.
+        assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
+        // Opening ran the isolation guard against the effective config, which exposes exactly this server.
+        session.close();
+    }
+
+    @Test
+    void unbridgedLaunchExposesNoMcpServerAndRejectsAnAmbientOne()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("mcp_servers") || argument.startsWith("developer_instructions"));
+        assertThat(supervisor.environments()).noneMatch(candidate -> candidate.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"));
+        session.close();
+
+        ScriptedProcessSupervisor ambient = new ScriptedProcessSupervisor(objectMapper);
+        ambient.configBody = "{\"mcp_servers\":{\"evil\":{\"url\":\"http://127.0.0.1:1/\"}}}";
+        // The isolation guard reads the effective config while the session opens.
+        assertThatThrownBy(() -> driver(ambient).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("MCP servers");
     }
 
     private AgentSessionContext context(

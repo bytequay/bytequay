@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -53,6 +54,7 @@ final class CodexIsolationGuard
     private final CodexAppServerClient client;
     private final Path codexHome;
     private final CodexLaunchProfile.ChildProfile childProfile;
+    private final Optional<URI> codeGraphEndpoint;
 
     /**
      * @param codexHome the isolated home ByteQuay assigned to this process
@@ -63,9 +65,23 @@ final class CodexIsolationGuard
             Path codexHome,
             CodexLaunchProfile.ChildProfile childProfile)
     {
+        this(client, codexHome, childProfile, Optional.empty());
+    }
+
+    /**
+     * @param codeGraphEndpoint the one MCP server this launch may expose, ByteQuay's own task
+     *        endpoint for the CodeGraph tool; every other MCP server is an isolation failure
+     */
+    CodexIsolationGuard(
+            CodexAppServerClient client,
+            Path codexHome,
+            CodexLaunchProfile.ChildProfile childProfile,
+            Optional<URI> codeGraphEndpoint)
+    {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
         this.childProfile = requireNonNull(childProfile, "childProfile is null");
+        this.codeGraphEndpoint = requireNonNull(codeGraphEndpoint, "codeGraphEndpoint is null");
     }
 
     /**
@@ -258,12 +274,13 @@ final class CodexIsolationGuard
             requireNullValue(shell, "exclude");
             requireNullValue(shell, "set");
             requireNullValue(shell, "filters");
-            verifyNoMcpServers(config.path("mcp_servers"));
+            verifyOnlyTheCodeGraphServer(config.path("mcp_servers"));
         }
     }
 
     private void verifyMcpServerStatus(String threadId)
     {
+        int servers = 0;
         Optional<String> cursor = Optional.empty();
         Set<String> seenCursors = new HashSet<>();
         do {
@@ -287,8 +304,13 @@ final class CodexIsolationGuard
             if (!data.isArray()) {
                 throw unavailable("mcpServerStatus/list omitted its data array");
             }
-            if (!data.isEmpty()) {
-                throw unavailable("thread inherited an MCP server");
+            for (JsonNode status : data) {
+                if (codeGraphEndpoint.isEmpty()) {
+                    throw unavailable("thread inherited an MCP server");
+                }
+                if (++servers > 1 || !status.path("name").asText("").equals("bytequay")) {
+                    throw unavailable("thread exposes an MCP server other than the ByteQuay task endpoint");
+                }
             }
             JsonNode nextCursor = response.path("nextCursor");
             if (nextCursor.isMissingNode() || nextCursor.isNull()) {
@@ -305,12 +327,23 @@ final class CodexIsolationGuard
             }
         }
         while (cursor.isPresent());
+        if (codeGraphEndpoint.isPresent() && servers != 1) {
+            throw unavailable("thread does not expose exactly the ByteQuay task MCP endpoint");
+        }
     }
 
-    private static void verifyNoMcpServers(JsonNode servers)
+    /** The effective MCP map holds nothing, or exactly ByteQuay's own task endpoint when this launch exposes the CodeGraph tool. */
+    private void verifyOnlyTheCodeGraphServer(JsonNode servers)
     {
-        if (!servers.isObject() || !servers.isEmpty()) {
-            throw unavailable("config/read exposes MCP servers on an isolated launch");
+        if (codeGraphEndpoint.isEmpty()) {
+            if (!servers.isObject() || !servers.isEmpty()) {
+                throw unavailable("config/read exposes MCP servers on an isolated launch");
+            }
+            return;
+        }
+        String expected = codeGraphEndpoint.orElseThrow().toString();
+        if (!servers.isObject() || servers.size() != 1 || !servers.path("bytequay").path("url").asText("").equals(expected)) {
+            throw unavailable("config/read does not expose exactly the ByteQuay task MCP endpoint");
         }
     }
 

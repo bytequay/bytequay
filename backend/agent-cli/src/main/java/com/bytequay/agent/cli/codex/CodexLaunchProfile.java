@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,6 +77,18 @@ final class CodexLaunchProfile
      */
     static List<String> arguments(String executable, ChildProfile childProfile)
     {
+        return arguments(executable, childProfile, Optional.empty());
+    }
+
+    /**
+     * Returns the full argument vector for one App Server launch, optionally pointing the process at
+     * ByteQuay's task MCP endpoint for the CodeGraph tool. The bearer token is not on the command
+     * line: it travels in {@link CodeGraphLaunch#TOKEN_VARIABLE} of the process environment, which
+     * the shell policy above keeps away from the model-facing shell.
+     */
+    static List<String> arguments(String executable, ChildProfile childProfile, Optional<CodeGraphLaunch> codeGraph)
+    {
+        requireNonNull(codeGraph, "codeGraph is null");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
                 "app-server",
@@ -104,6 +117,10 @@ final class CodexLaunchProfile
         if (childProfile == ChildProfile.V1) {
             arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
         }
+        codeGraph.ifPresent(launch -> arguments.add(
+                "-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()),
+                "-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE),
+                "-c", "developer_instructions=" + tomlString(launch.instruction())));
         return arguments.build();
     }
 
@@ -111,16 +128,25 @@ final class CodexLaunchProfile
      * The restrictive per-thread override paired with the process launch flags.
      *
      * <p>The process flags remain the outer ceiling; repeating the profile on the thread prevents a
-     * resumed provider thread from widening it. No MCP server is available to an isolated task.
+     * resumed provider thread from widening it. The MCP map is pinned empty for an ordinary task; a
+     * CodeGraph launch already carries its one task-scoped endpoint as a process flag, so the thread
+     * leaves that map alone rather than emptying it.
      */
     static Map<String, Object> threadConfig(ChildProfile childProfile)
+    {
+        return threadConfig(childProfile, false);
+    }
+
+    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph)
     {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", "disabled")
                 .put("features", expectedFeatures(childProfile))
-                .put("shell_environment_policy", expectedShellEnvironmentPolicy())
-                .put("mcp_servers", ImmutableMap.of());
+                .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+        if (!codeGraph) {
+            config.put("mcp_servers", ImmutableMap.of());
+        }
         if (childProfile == ChildProfile.V1) {
             config.put("agents", ImmutableMap.of("max_depth", MULTI_AGENT_MAX_DEPTH));
         }
@@ -136,6 +162,24 @@ final class CodexLaunchProfile
         features.put("multi_agent", childProfile == ChildProfile.V1);
         features.put("multi_agent_v2", childProfile == ChildProfile.V2);
         return features.buildOrThrow();
+    }
+
+    /** A TOML basic string: quotes, backslashes, and line breaks escaped, everything else literal. */
+    static String tomlString(String value)
+    {
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\"";
+    }
+
+    /** What a launch needs to expose the CodeGraph tool: where the task MCP endpoint is and what to tell the model. */
+    record CodeGraphLaunch(URI endpoint, String instruction)
+    {
+        static final String TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
+
+        CodeGraphLaunch
+        {
+            requireNonNull(endpoint, "endpoint is null");
+            requireNonNull(instruction, "instruction is null");
+        }
     }
 
     static Map<String, Object> expectedShellEnvironmentPolicy()

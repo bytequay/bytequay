@@ -61,7 +61,8 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -87,25 +88,27 @@ public class AgentConfiguration
     public CodexCliDriver codexCliDriver(
             AgentProperties properties,
             ObjectMapper objectMapper,
-            ProcessSupervisor supervisor)
+            ProcessSupervisor supervisor,
+            ClaudePermissionBroker permissions)
             throws IOException
     {
         return new CodexCliDriver(
                 properties.codexExecutable(),
                 objectMapper,
                 supervisor,
-                CodexHome.prepare(properties.codexHome()));
+                CodexHome.prepare(properties.codexHome()),
+                permissions);
     }
 
+    // Unconditional: the endpoint also serves the CodeGraph tool to Codex tasks, so it must exist without the Claude lane.
     @Bean
-    @ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
     public ClaudePermissionBroker claudePermissionBroker(
             ObjectMapper objectMapper,
-            ServletWebServerApplicationContext context,
+            ApplicationContext context,
             CiMemoryService ciMemoryService)
     {
         return new ClaudePermissionBroker(
-                () -> URI.create("http://127.0.0.1:" + context.getWebServer().getPort()
+                () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
                         + "/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> ciMemoryService.read(

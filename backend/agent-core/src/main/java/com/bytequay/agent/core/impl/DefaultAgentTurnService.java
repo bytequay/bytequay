@@ -222,10 +222,11 @@ public final class DefaultAgentTurnService
     {
         AgentTurn accepted = acceptance.turn();
         boolean deliveryAttempted = false;
+        AgentSession session = null;
         RunningTurn failedRunningTurn = null;
         try {
             eventService.drain(acceptance.deliveryEventId());
-            AgentSession session = session(task, accepted.id());
+            session = session(task, accepted.id(), acceptance.settings());
             metricsService.beginTurn(task.id(), accepted.id());
             markDeliveryStarted(accepted.id());
             deliveryAttempted = true;
@@ -241,7 +242,19 @@ public final class DefaultAgentTurnService
         }
         catch (RuntimeException failure) {
             if (!deliveryAttempted) {
-                recordKnownUnsentFailure(accepted, failure);
+                boolean providerQuiescent = runtimeRegistry.unverifiedClose(task.id()).isEmpty();
+                if (session != null) {
+                    try {
+                        runtimeRegistry.closeSession(task.id());
+                    }
+                    catch (RuntimeException closeFailure) {
+                        providerQuiescent = false;
+                        if (failure != closeFailure) {
+                            failure.addSuppressed(closeFailure);
+                        }
+                    }
+                }
+                recordKnownUnsentFailure(accepted, failure, providerQuiescent);
             }
             return new Launch(accepted, null, failedRunningTurn, failure);
         }
@@ -1078,11 +1091,13 @@ public final class DefaultAgentTurnService
         unitOfWork.execute(() -> taskStore.update(requireTask(task.id()).releaseWorktreeMutation(claim.orElseThrow(), releasedAt)));
     }
 
-    private AgentSession session(AgentTask task, TurnId turnId)
+    private AgentSession session(AgentTask task, TurnId turnId, AgentTurnSettings settings)
     {
         Optional<AgentSession> existing = runtimeRegistry.session(task.id());
         if (existing.isPresent()) {
-            return existing.orElseThrow();
+            // A provider launch profile may depend on the accepted model. Closing before delivery
+            // lets the stored provider thread resume under the new turn's immutable snapshot.
+            runtimeRegistry.closeSession(task.id());
         }
 
         AgentDriver driver = driverRegistry.require(task.laneId());
@@ -1095,10 +1110,14 @@ public final class DefaultAgentTurnService
                         resources.providerDirectory(),
                         task.permissionPolicy(),
                         task.sessionReference(),
-                        (request, timeout) -> requestApproval(task.id(), request, timeout)),
+                        (request, timeout) -> requestApproval(task.id(), request, timeout),
+                        settings.model(),
+                        settings.effort(),
+                        false),
                 event -> routeEvent(task.id(), event)), "opened session is null");
+        AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {
-            AgentSessionRef reference = requireNonNull(opened.reference(), "session reference is null");
+            AgentSessionRef reference = requireNonNull(registered.reference(), "session reference is null");
             if (!reference.laneId().equals(task.laneId())) {
                 throw new AgentUnavailableException("Provider returned a session reference for another lane");
             }
@@ -1122,10 +1141,12 @@ public final class DefaultAgentTurnService
                 });
                 eventService.drain(eventId);
             }
-            return runtimeRegistry.registerSession(task.id(), opened);
+            return registered;
         }
         catch (RuntimeException failure) {
-            suppressFailure(failure, opened::close);
+            // Keep a close failure in the registry. It is the only durable-in-process proof that
+            // the provider may still be writing, and lets an explicit stop retry the same session.
+            suppressFailure(failure, () -> runtimeRegistry.closeSession(task.id()));
             throw failure;
         }
     }
@@ -1233,7 +1254,7 @@ public final class DefaultAgentTurnService
                             turn,
                             TurnState.INTERRUPTED,
                             Optional.of(failureMessage(completionFailure)),
-                            true);
+                            false);
                 }
             }
         }
@@ -1280,13 +1301,16 @@ public final class DefaultAgentTurnService
         runtimeRegistry.removeRunning(turn.id(), runningTurn);
     }
 
-    private void recordKnownUnsentFailure(AgentTurn acceptedTurn, RuntimeException failure)
+    private void recordKnownUnsentFailure(
+            AgentTurn acceptedTurn,
+            RuntimeException failure,
+            boolean providerQuiescent)
     {
         suppressFailure(failure, () -> {
             AgentTurn turn = requireTurn(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 Optional<String> reason = Optional.of(failureMessage(failure));
-                persistTerminalTurn(turn, TurnState.FAILED, reason, true, true);
+                persistTerminalTurn(turn, TurnState.FAILED, reason, providerQuiescent, true);
                 drainPending(outboxStore, eventService, turn.taskId());
             }
         });
@@ -1297,7 +1321,8 @@ public final class DefaultAgentTurnService
      *
      * @param providerQuiescent whether the provider proved nothing it started is still running. A
      *     turn that cannot show this keeps the claim, so no later turn edits a worktree something
-     *     may still be writing to. The task is then stuck by design until it is failed explicitly.
+     *     may still be writing to. A later confirmed Stop may retry the retained process proof and
+     *     release that claim only after the provider is verified stopped.
      */
     private void persistTerminalTurn(
             AgentTurn turn,

@@ -670,6 +670,14 @@ final class CodexProtocol
         {
             checkIdentifier(id, "id");
         }
+
+        @Override
+        public boolean terminal()
+        {
+            // An unrecognized item may still own a process or a write. History cannot prove it
+            // settled, so quiescence must fail closed rather than treating it as inert output.
+            return false;
+        }
     }
 
     record Turn(

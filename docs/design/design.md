@@ -4,11 +4,9 @@ This directory is the entry point for ByteQuay's whole-system design. ByteQuay
 is a local-first macOS application with an Electron and React frontend, one
 localhost Spring Boot backend, GitHub integration, and SQLite persistence.
 
-The current product implements pull-request workflows and a local agent
-subsystem. The rich user-facing agent task design is approved, but remains
-unshipped behavior. The design distinguishes current implementation, the
-existing backend invariants it must retain, and planned UI work so the approved
-target is not mistaken for an existing surface.
+The current product implements pull-request workflows and the shipped, ungated
+local agent-task surface. These documents distinguish current invariants from
+historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
@@ -17,8 +15,8 @@ target is not mistaken for an existing surface.
   runtime composition, and extraction sequence.
 - [Agent Service](agent-service.md) records the current worktree-scoped Codex
   App Server and Claude implementation and specifies the task, turn, event,
-  approval, queue, attachment, and subagent contracts required by the planned
-  rich task surface.
+  approval, queue, attachment, and subagent contracts used by the rich task
+  surface.
 - [Managed Worktree Service](worktree-service.md) specifies the approved
   stateless, synchronous separate-worktree boundary shared by interactive
   tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive
@@ -89,12 +87,12 @@ repository builds.
 
 ## Agent-task review decisions
 
-The task surface is approved for incremental implementation behind the
-development-only gate. The accepted decisions are:
+The task surface completed CP11 and ships ungated. The accepted decisions are:
 
-1. **Runtime shape:** one Codex App Server process per active Codex task,
-   rooted at that task's worktree, and a separate
-   Claude CLI lane.
+1. **Runtime shape:** one task-owned Codex App Server per active turn, never
+   more than one for a task, rooted at that task's worktree. It is verified
+   stopped at turn completion, and the next turn resumes the same thread in a
+   new matching-profile process. Claude remains a separate CLI lane.
 2. **UI contract:** ByteQuay persists and renders normalized messages, plans,
    approvals, activity/logs, images, metrics, queue/steer state, and root/child
    agents; it never renders raw provider JSON or hidden reasoning.
@@ -102,45 +100,46 @@ development-only gate. The accepted decisions are:
    harness tools and their typed events. It registers no ByteQuay-defined
    model tool or product workflow; commit integration is deferred with the
    rest of that tool contract.
-4. **Release tradeoffs:** App Server/environment APIs are experimental and the
-   stock task executor has a same-host authentication gap. Both risks were
-   accepted for this planned first release on 2026-08-31; they remain visible
-   release constraints and do not weaken the compatibility or isolation gates.
-5. **Delivery order:** protocol/replay foundations first, then a usable Codex
-   task, rich transcript, subagents, steer/queue, and finally Claude parity.
+4. **Release tradeoffs:** App Server remains experimental. The removed
+   executor/environment and loopback-listener design is not part of the shipped
+   topology; one task-owned process runs per active turn in the managed
+   worktree. The App Server
+   risk was accepted on 2026-08-31 and reconfirmed when CP11 passed on
+   2026-09-04.
+5. **Delivery order:** protocol/replay foundations, usable Codex tasks, rich
+   transcript, subagents, steer/queue, and Claude parity are all implemented.
 6. **Checkout isolation:** every agent task receives a separate
    ByteQuay-provisioned worktree. One shared synchronous service provisions,
    inspects, and removes verified clean worktrees for interactive tasks,
    cherry-pick, and CI Autofix; each caller persists its immutable worktree
    facts, and Branch Rebase borrows its caller's worktree.
 
-## Release blockers
+## Release evidence and retained constraints
 
-The next release that exposes agent-backed development tasks must not ship
-until provider authentication readiness is implemented end to end. A fresh or
-expired Claude installation currently opens the local CLI successfully but
-fails only after ByteQuay starts a turn, because CLI presence and remote
+CP11 shipped only after provider authentication readiness was implemented end
+to end. A fresh or expired Claude installation is now blocked before task,
+turn, worktree, or workflow-attempt allocation, because CLI presence and remote
 authentication are different checks.
 
 The required backend gate, workspace-settings behavior, UI states, recovery,
 and acceptance criteria are defined in
 [Agent Service: Workspace settings and provider readiness](agent-service.md#12-workspace-settings-and-provider-readiness).
 
-The rich task surface also must not ship until the event/approval contract,
-authenticated Electron SSE bridge, reconnect replay, image boundary, and
-root/child/item quiescence and revalidated worktree ownership satisfy the
-acceptance criteria in
+The shipped rich task surface passed the event/approval contract,
+authenticated Electron SSE bridge, reconnect replay, image boundary,
+root/child/item quiescence, and revalidated worktree-ownership criteria in
 [Agent Task UI](agent-task-ui.md#8-acceptance-criteria).
 
 Codex App Server is also a conscious release-risk decision: its official
 documentation currently marks the command experimental and unsupported for
-production workloads. ByteQuay accepted that dependency for the planned first
-agent-task release on 2026-08-31 and must
-maintain a fixed reference fixture for the experimental per-task environment
-and background-terminal methods used by isolation and the quiescence gate;
-transport success alone is not sufficient. Production keeps Codex's startup
-self-update enabled and runs the user's installed CLI without treating any
-reported version text, including an unparseable string, as a readiness gate. An
+production workloads. ByteQuay accepted that dependency for the first
+agent-task release on 2026-08-31 and reconfirmed it at CP11. ByteQuay maintains
+a fixed reference fixture for the launch profiles and background-terminal
+methods used by isolation and quiescence; task sessions opt into
+`experimentalApi` solely for background-terminal inventory and termination.
+Transport success alone is not sufficient. Production updates Codex only when
+its parsed version is below the supported minimum and runs the user's installed
+CLI without treating newer or unparseable version text as a readiness gate. An
 incompatible operation fails with that detected version in its diagnostic so it
 can be reported and fixed. The first release does not
 add the separate, process-wide `--code-mode-host` dependency.
@@ -153,8 +152,8 @@ that branch as the local result. Destructive discard or branch deletion is not
 part of the approved worktree-service contract and requires a separate future
 design if the product needs it.
 
-The same release gate must reject ambient exec-policy allow rules before a
-turn starts. The v0.151 App Server exposes neither `--ignore-rules` nor an
+Production readiness continues to reject ambient exec-policy allow rules
+before a turn starts. The v0.151 App Server exposes neither `--ignore-rules` nor an
 effective-rule inventory, so a per-thread override is not a valid design.
 ByteQuay instead isolates `CODEX_HOME`, reads the effective config layers,
 rejects project config, and conservatively rejects any `.rules` file beside a
@@ -169,10 +168,12 @@ exact v0.151 executable gate proves that the isolated keyless value is
 explicitly null; supporting a broader shape later requires new executable
 evidence. That gate also verifies the effective no-child isolation baseline,
 empty hook and MCP configuration, and permits only bundled system skills rooted
-in the isolated `CODEX_HOME`. Because the baseline disables multi-agent, CP1
-must separately prove a child-capable profile with the same readiness checks
-before CP1 completes or CP2 begins. The compatibility fixture's default path
-remains offline, authentication-free, and safe for CI. Its `--live` and
+in the isolated `CODEX_HOME`. CP1 separately proved child-capable V1 and V2
+profiles with the same readiness checks. Production queries the catalog under
+the no-child profile, launches exactly the selected model's advertised V1-only
+or V2-only profile, and recursively closes the corresponding relationship
+history through paginated `thread/items/list`. The compatibility fixture's
+default path remains offline, authentication-free, and safe for CI. Its `--live` and
 `--live-children` paths are opt-in local real-model smoke gates. Each requires
 `BYTEQUAY_CODEX_COMPAT_HOME` to name a separate persistent Codex profile outside
 the repository that was signed in directly with ChatGPT; the ambient profile
@@ -187,13 +188,12 @@ tool processes remain credential-free: model-requested commands must prove that 
 `OPENAI_API_KEY`, `CODEX_HOME`, and the App Server-only sentinel are absent.
 API-key fixture support is deferred. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture
-passed locally with that subscription-backed profile on 2026-08-31. The CP1
-technical recommendation is GO. CP0 and CP1 are complete: the experimental
-runtime, same-host trust, separate-worktree contract, development-only UI gate,
-and sanitized current HTTP/SSE baseline are recorded. CP2 froze the
-workspace-scoped task/turn, typed readiness, schema-v2 event/source, approval,
-legacy-read, and frontend-fixture contracts, and CP3 shipped managed-worktree
-activation and crash-safe replay; CP4 owns Codex task isolation and quiescent
-recovery. This is not production-release approval. Environment
-stripping does not create a same-user filesystem-read boundary around the
-persistent login profile.
+passed locally with that subscription-backed profile on 2026-08-31. CP0
+through CP11 are complete: the workspace-scoped task/turn contract, typed
+readiness, schema-v2 event/source and approval contracts, crash-safe replay,
+task isolation, recursive item reconciliation plus verified per-turn process
+stop, rich UI, queue/steer behavior, and Claude parity are implemented and the
+development gate is removed. The seven-day
+detailed-runtime retention policy was accepted for this release on 2026-09-04.
+Process-environment stripping still does not create a same-user
+filesystem-read boundary around the persistent login profile.

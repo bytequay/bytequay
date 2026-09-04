@@ -69,6 +69,7 @@ final class DeterministicAgentDriver
             ImmutableSet.of());
 
     private final List<AgentSessionRef> openedReferences = new ArrayList<>();
+    private final List<AgentSessionContext> openedContexts = new ArrayList<>();
     private final List<AgentTurnCommand> commands = new ArrayList<>();
     private final List<AgentTurnInput> steers = new ArrayList<>();
     private RuntimeException nextSteerFailure;
@@ -116,6 +117,7 @@ final class DeterministicAgentDriver
     @Override
     public synchronized AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
+        openedContexts.add(context);
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
                 LANE_ID,
                 1,
@@ -238,6 +240,11 @@ final class DeterministicAgentDriver
     synchronized List<AgentSessionRef> openedReferences()
     {
         return ImmutableList.copyOf(openedReferences);
+    }
+
+    synchronized List<AgentSessionContext> openedContexts()
+    {
+        return ImmutableList.copyOf(openedContexts);
     }
 
     synchronized List<AgentTurnCommand> commands()

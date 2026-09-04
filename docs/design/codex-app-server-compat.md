@@ -133,9 +133,9 @@ the required V1 sender/receiver/state identity and optional state message, the
 required V2 thread/path lifecycle identity, and recursive `thread/read`
 parent/session/turn/item history. It accepts omitted optional capability
 fields, additive object fields, and future enum members through `UNKNOWN`.
-This does not subscribe to child threads, build a graph, or publish V2
-activity. The live child-capable proof now covers the reference behavior;
-production routing remains in later integration checkpoints.
+This projection check does not subscribe to child threads, build a graph, or
+publish V2 activity. The live child-capable proof covers the reference
+behavior; the later integration checkpoints now supply production routing.
 
 The no-flag command above remains the default, authentication-free, CI-safe
 gate. The checked-in CI workflow does not invoke either live flag. Before a
@@ -224,14 +224,19 @@ text-capable model that advertises V1 or V2 multi-agent support. It then
 restarts App Server with only that matching multi-agent feature enabled,
 repeats the isolation checks, registers one disposable Git environment, and
 sends one bounded root turn. The V1 launch also retains the verified
-`agents.max_depth=2` override required for the grandchild. Recursive
-`thread/read(includeTurns: true)` is the canonical discovery source. The gate
-reads every V1 `spawnAgent` or V2
+`agents.max_depth=2` override required for the grandchild. The historical gate
+used recursive `thread/read(includeTurns: true)` as its discovery source. That
+call is not a production dependency: current App Server refuses turn history,
+so the shipped driver recursively pages `thread/items/list` instead, then closes
+the per-turn process and requires its owned tree to be `VERIFIED_STOPPED`. The
+gate reads every V1 `spawnAgent` or V2
 `started` edge to a fixed point and requires exactly root, child, and
 grandchild in one session with direct-parent identity, one completed turn
 each, and exact final markers. V2 upward `interacted` activity never creates a
-child edge. Only passive transcript items and the selected collaboration item
-type are used to discover the graph. The other known V1/V2 collaboration item
+child edge. Its root logical path is `/`; each V2 path is absolute, normalized,
+and stable for its thread, and each selected `started` edge is strictly nested
+under its direct parent's path. Only passive transcript items and the selected
+collaboration item type are used to discover the graph. The other known V1/V2 collaboration item
 may coexist as supplementary history and is validated against the same known
 thread set, but never creates an edge for the advertised protocol. Unknown or
 execution-capable items fail closed. The gate also requires no approvals, no
@@ -298,7 +303,7 @@ returns `accept`, and failure diagnostics report only bounded metadata, never
 raw command text or output. This still is not an OS filesystem-read boundary:
 the App Server and its tools run as the same macOS user, so an
 absolute path could reach the dedicated profile if a command learned it. CP0's
-same-host trust decision accepted that boundary for the planned first release
+same-host trust decision accepted that boundary for the first release
 on 2026-08-31; a future OS-user/container boundary may strengthen it.
 
 After both tasks finish and task A's background process is cleaned, the fixture
@@ -399,13 +404,12 @@ actions, one representative real command approval, recursive child discovery,
 restart recovery, cross-task event/approval/command/filesystem isolation, and
 the credential-stripped executor process-environment boundary.
 
-This is not final product approval. Exhaustive modern wire and codec coverage
-remains offline; richer product decision matrices begin in CP2, and production
-adoption of the executable guards and child-capable profile belongs to CP4.
-CP0 accepted the experimental risk and same-host boundary, selected the
-separate managed-worktree contract, approved the development-only UI gate, and
-captured the sanitized current HTTP/SSE baseline. CP1 is formally complete and
-CP2 has started.
+This was not final product approval by itself. Exhaustive modern wire and codec
+coverage remains offline; later checkpoints adopted the executable guards and
+model-advertised child profile in production. CP0 accepted the experimental
+risk and same-host boundary, selected the separate managed-worktree contract,
+approved the development-only UI gate, and captured the sanitized HTTP/SSE
+baseline. CP0 through CP11 are now complete and the UI gate is removed.
 The fixture does not claim same-user filesystem read confinement outside the
 executor sandbox or production crash recovery. The accepted product risks
 remain explicit release constraints rather than evidence supplied by this

@@ -303,7 +303,9 @@ class TestDefaultAgentTurnService
         driver.complete("second response");
 
         assertThat(service.get(second.id()).state()).isEqualTo(TurnState.COMPLETED);
-        assertThat(driver.openedReferences()).hasSize(1);
+        assertThat(driver.openedReferences())
+                .hasSize(2)
+                .allSatisfy(reference -> assertThat(reference).isEqualTo(driver.openedReferences().getFirst()));
         assertThat(driver.commands())
                 .extracting(AgentTurnCommand::message)
                 .containsExactly("first", "second");
@@ -710,7 +712,7 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void terminalizesExceptionalProviderCompletion()
+    void retainsTheClaimForAnExceptionalProviderCompletionUntilExplicitStop()
     {
         AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
         service = service(driver, runtimeRegistry);
@@ -723,7 +725,12 @@ class TestDefaultAgentTurnService
             assertThat(turn.terminalReason()).contains("provider future failed");
         });
         assertThat(runtimeRegistry.running(running.id())).isEmpty();
-        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
+        assertThatThrownBy(() -> service.start(command("second", "key-2")))
+                .isInstanceOf(AgentConflictException.class);
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
     }
 
     @Test
@@ -783,6 +790,45 @@ class TestDefaultAgentTurnService
                 .allSatisfy(entry -> assertThat(entry.sequence()).isPresent());
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
                 assertThat(turn.startedAt()).isEmpty());
+    }
+
+    @Test
+    void retainsTheClaimWhenAKnownUnsentSessionCannotBeVerifiedClosed()
+    {
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
+                events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED);
+        service = service(driver, runtimeRegistry, failingEvents);
+        driver.failNextCloseVerification();
+
+        assertThatThrownBy(() -> service.start(command("first", "key-1")))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessage("blocked lifecycle event")
+                .satisfies(failure -> assertThat(failure.getSuppressed())
+                        .singleElement()
+                        .satisfies(suppressed -> {
+                            assertThat(suppressed).isInstanceOf(AgentUnavailableException.class);
+                            assertThat(suppressed.getMessage())
+                                    .isEqualTo("deterministic process tree could not be verified stopped");
+                        }));
+
+        assertThat(driver.commands()).isEmpty();
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
+            assertThat(turn.state()).isEqualTo(TurnState.FAILED);
+            assertThat(turn.knownUnsent()).isTrue();
+        });
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
+        assertThat(runtimeRegistry.session(task.id())).isPresent();
+        assertThat(runtimeRegistry.unverifiedClose(task.id())).isPresent();
+        assertThatThrownBy(() -> service.start(command("do not overlap", "key-2")))
+                .isInstanceOf(AgentConflictException.class);
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        assertThat(runtimeRegistry.session(task.id())).isEmpty();
+        AgentTurn next = service.start(command("second", "key-2"));
+        driver.complete("done");
+        assertThat(service.get(next.id()).state()).isEqualTo(TurnState.COMPLETED);
     }
 
     @Test
@@ -1097,7 +1143,8 @@ class TestDefaultAgentTurnService
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
         metrics = new DefaultAgentMetricsService(stores, stores, clock);
-        service = service(driver, new AgentRuntimeRegistry(), events, approvals, clock);
+        runtimeRegistry = new AgentRuntimeRegistry();
+        service = service(driver, runtimeRegistry, events, approvals, clock);
         IllegalStateException failure = new IllegalStateException("session transport failed");
         driver.failNextSessionReferenceAndClose(failure);
 
@@ -1106,6 +1153,11 @@ class TestDefaultAgentTurnService
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
                 assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
+        assertThat(runtimeRegistry.session(task.id())).isPresent();
+        assertThat(runtimeRegistry.unverifiedClose(task.id())).contains(failure);
+        assertThatThrownBy(() -> service.start(command("do not overlap", "key-2")))
+                .isInstanceOf(AgentConflictException.class);
     }
 
     @Test
@@ -1173,6 +1225,20 @@ class TestDefaultAgentTurnService
         assertThat(driver.commands().getFirst().attachments())
                 .extracting(AgentAttachment::path)
                 .containsExactly(attachmentPath);
+        assertThat(driver.openedContexts()).satisfiesExactly(
+                firstContext -> {
+                    assertThat(firstContext.sessionReference()).isEmpty();
+                    assertThat(firstContext.model()).contains("model-a");
+                    assertThat(firstContext.effort()).contains("low");
+                },
+                secondContext -> {
+                    assertThat(secondContext.sessionReference()).contains(driver.openedReferences().getFirst());
+                    assertThat(secondContext.model()).contains("model-b");
+                    assertThat(secondContext.effort()).contains("high");
+                });
+        assertThat(driver.openedReferences())
+                .hasSize(2)
+                .allSatisfy(reference -> assertThat(reference).isEqualTo(driver.openedReferences().getFirst()));
     }
 
     @Test
@@ -1511,6 +1577,8 @@ class TestDefaultAgentTurnService
             assertThat(input.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
             assertThat(input.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("interrupted"));
         });
+        assertThatThrownBy(() -> service.resumeQueued(task.id())).isInstanceOf(AgentConflictException.class);
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
 
         AgentTurn resumed = service.resumeQueued(task.id());
 
@@ -1596,6 +1664,7 @@ class TestDefaultAgentTurnService
         assertThat(removed.state()).isEqualTo(QueuedAgentInput.State.REMOVED);
         assertThat(service.removeQueued(task.id(), waiting.id())).isEqualTo(removed);
         driver.failCompletion(new IllegalStateException("provider failed"));
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
         // The uncertain head blocks the queue until the user decides; resuming never resends it.
         assertThatThrownBy(() -> service.resumeQueued(task.id()))
                 .isInstanceOf(AgentConflictException.class)

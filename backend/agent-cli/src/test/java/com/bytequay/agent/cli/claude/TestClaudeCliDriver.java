@@ -535,7 +535,33 @@ class TestClaudeCliDriver
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(result.terminalReason()).contains("Claude process tree could not be verified stopped");
         assertThat(result.finalResponse()).isEmpty();
+        assertThat(result.providerQuiescent()).isFalse();
         assertThat(scratch).isDirectory();
+        assertThatThrownBy(session::close)
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("process tree could not be verified stopped");
+
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void closingASessionWaitsForItsLiveProcessTreeToStop()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+        RunningTurn running = session.start(command("cancel"));
+
+        session.close();
+
+        AgentTurnResult result = await(running);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(supervisor.turns()).singleElement().satisfies(turn -> assertThat(turn.cancelled()).isTrue());
+        driver.close();
     }
 
     @Test
@@ -911,6 +937,7 @@ class TestClaudeCliDriver
         private final boolean failPromptWrite;
         private final boolean failPromptClose;
         private final String runtimeSecret;
+        private ProcessExit.TreeTermination nextStopVerification;
         private String prompt = "";
         private boolean cancelled;
         private boolean inputClosed;
@@ -947,6 +974,11 @@ class TestClaudeCliDriver
         private boolean inputClosed()
         {
             return inputClosed;
+        }
+
+        private void verifyNextStop()
+        {
+            nextStopVerification = ProcessExit.TreeTermination.VERIFIED_STOPPED;
         }
 
         @Override
@@ -1066,6 +1098,29 @@ class TestClaudeCliDriver
         {
             cancelled = true;
             exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(5), false, false));
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancelled = true;
+            ProcessExit terminal = exit.getNow(null);
+            ProcessExit.TreeTermination verification = nextStopVerification == null
+                    ? terminal == null
+                            ? ProcessExit.TreeTermination.VERIFIED_STOPPED
+                            : terminal.treeTermination()
+                    : nextStopVerification;
+            nextStopVerification = null;
+            if (terminal == null) {
+                exit.complete(new ProcessExit(
+                        143,
+                        ProcessExit.Reason.CANCELLED,
+                        verification,
+                        Duration.ofMillis(5),
+                        false,
+                        false));
+            }
+            return CompletableFuture.completedFuture(verification);
         }
 
         @Override

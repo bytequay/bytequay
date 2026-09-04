@@ -1,13 +1,15 @@
 # Contributing to ByteQuay
 
-ByteQuay is a macOS desktop app for daily GitHub pull-request work. An Electron
-+ React + TypeScript frontend talks to a local Spring Boot sidecar on
-`localhost:53123`.
+ByteQuay is a macOS desktop app for daily GitHub pull-request and local agent
+work. An Electron + React + TypeScript frontend talks to a local Spring Boot
+sidecar on `localhost:53123`.
 
-The current product boundary is deliberately small: Home, watched repositories,
-GitHub credentials, pull-request lists, and pull-request details/actions. Do not
-reintroduce task agents, staged development flows, local-PR runtimes, worktree
-orchestration, or compatibility layers without a new design decision.
+The current product boundary includes Home, watched repositories, GitHub
+credentials, pull-request lists/details/actions, and the approved
+worktree-scoped Codex and Claude agent-task surface. The previous task-agent
+and staged development-flow systems remain deleted. Do not restore their APIs,
+schemas, compatibility layers, or design assumptions; expand the current agent
+service only through its canonical design.
 
 ## Prerequisites
 
@@ -37,8 +39,11 @@ nvm install
 .
 ├── backend/          # Maven reactor for the Spring Boot sidecar
 │   ├── core/         # Shared domain values and storage ports
+│   ├── agent-spi/    # Provider contracts and normalized events
+│   ├── agent-core/   # Agent task, turn, approval, queue, and retention logic
+│   ├── agent-cli/    # Codex App Server and Claude CLI adapters
 │   ├── persistence-sqlite/ # JPA, SQLite, and credential storage
-│   └── app/          # GitHub/PR services, HTTP, and executable packaging
+│   └── app/          # GitHub/PR services, agent HTTP, and executable packaging
 ├── frontend/         # Electron + React + TypeScript
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
 ├── docs/             # Design notes and screenshots

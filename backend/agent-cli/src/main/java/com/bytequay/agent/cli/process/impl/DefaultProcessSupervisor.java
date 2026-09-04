@@ -584,6 +584,7 @@ public final class DefaultProcessSupervisor
         private final Instant startedAt = Instant.now();
         private final Object inputLock = new Object();
         private final Object outputLock = new Object();
+        private final Object terminationLock = new Object();
         private final ExecutorService inputExecutor;
         private final BlockingQueue<OutputChunk> outputQueue =
                 new LinkedBlockingQueue<>(OUTPUT_QUEUE_CAPACITY);
@@ -708,6 +709,25 @@ public final class DefaultProcessSupervisor
         }
 
         @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            if (verifiedStopped.get()) {
+                return CompletableFuture.completedFuture(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            }
+            reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.CANCELLED);
+            CompletableFuture<ProcessExit.TreeTermination> verification = new CompletableFuture<>();
+            Thread.ofVirtual().name("bytequay-process-verify-" + payloadPid).start(() -> {
+                try {
+                    verification.complete(stopTreeAndVerify());
+                }
+                catch (RuntimeException failure) {
+                    verification.completeExceptionally(failure);
+                }
+            });
+            return verification;
+        }
+
+        @Override
         public void close()
         {
             cancel();
@@ -827,6 +847,9 @@ public final class DefaultProcessSupervisor
 
         private ProcessExit.TreeTermination verifyTreeStopped()
         {
+            if (verifiedStopped.get()) {
+                return ProcessExit.TreeTermination.VERIFIED_STOPPED;
+            }
             if (!awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
@@ -846,12 +869,35 @@ public final class DefaultProcessSupervisor
             if (!terminating.compareAndSet(false, true)) {
                 return;
             }
-            Thread.ofVirtual().name("bytequay-process-stop-" + payloadPid).start(() -> {
+            Thread.ofVirtual().name("bytequay-process-stop-" + payloadPid).start(this::stopTreeAndVerify);
+        }
+
+        private ProcessExit.TreeTermination stopTreeAndVerify()
+        {
+            synchronized (terminationLock) {
+                if (verifiedStopped.get()) {
+                    return ProcessExit.TreeTermination.VERIFIED_STOPPED;
+                }
+                closeInput();
                 terminateGroup(processGroup, spec.cancellationGrace());
                 launcher.descendants().forEach(ProcessHandle::destroyForcibly);
                 launcher.destroyForcibly();
                 closeOutputStreams();
-            });
+                ProcessExit.TreeTermination termination = verifyTreeStopped();
+                ProcessExit terminal = exit.getNow(null);
+                if (termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
+                        && terminal != null
+                        && terminal.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                    record(new ProcessExit(
+                            terminal.exitCode(),
+                            terminal.reason(),
+                            termination,
+                            terminal.duration(),
+                            terminal.stdoutTruncated(),
+                            terminal.stderrTruncated()));
+                }
+                return termination;
+            }
         }
 
         private void closeOutputStreams()

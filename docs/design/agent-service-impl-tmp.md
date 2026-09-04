@@ -1,12 +1,11 @@
 # Agent Service Implementation Checkpoints
 
-> Temporary review draft. This file turns
+> Completed delivery record. This file preserves the reviewed implementation
+> sequence and release evidence for
 > [Agent Service Design](agent-service.md) and
-> [Agent Task UI Design](agent-task-ui.md) into an implementation sequence.
-> It is not implementation approval and is intentionally not linked from the
-> design index yet. After review, accepted decisions belong in the canonical
-> design documents and delivery tracking; this temporary file can then be
-> removed.
+> [Agent Task UI Design](agent-task-ui.md). The canonical documents own the
+> continuing product contract; this checklist records how CP0 through CP11
+> closed.
 
 ## 1. Outcome
 
@@ -33,11 +32,11 @@ React UI
     <-> existing and extended agent service
 ```
 
-The desktop must not reproduce the shell's temporary backend, database, or
-worktree operations. CP2–CP4 still extend the existing production backend's
-contract, durability, isolation, and recovery before the live UI ships.
-Leaving a task screen unsubscribes that renderer only; it does not cancel or
-complete the backend task.
+The desktop does not reproduce the shell's temporary backend, database, or
+worktree operations. CP2–CP4 extended the production backend's contract,
+durability, isolation, and recovery before the live UI shipped. Leaving a task
+screen unsubscribes that renderer only; it does not cancel or complete the
+backend task.
 
 ## 2. Progress legend and checkpoint rule
 
@@ -63,8 +62,11 @@ complete the backend task.
 
 Already implemented and to be reused:
 
-- [x] One lazily started Codex App Server over stdio.
-- [x] Codex root-thread start/resume and multiple turns in one session.
+- [x] One task-owned Codex App Server over stdio at a time, relaunched at each
+  accepted turn boundary so its model-selected child profile cannot go stale,
+  and verified stopped before that turn releases its claim.
+- [x] Codex root-thread start/resume and multiple turns on one durable provider
+  thread across task-process relaunches.
 - [x] A separate Claude `stream-json` driver.
 - [x] Provider-neutral message, plan, command, file, tool, approval, usage,
   lifecycle, and error mapping.
@@ -74,30 +76,31 @@ Already implemented and to be reused:
 - [x] Task JSONL, monotonic task sequence, replay, and SSE publication.
 - [x] Cancel, approval resolution, completion, retention, and provider-status
   HTTP endpoints.
-- [x] `scripts/agent-e2e.sh --interactive` as a real Codex backend reference
-  client; the separate Claude driver remains covered below its CP11 public
-  activation gate.
+- [x] `scripts/agent-e2e.sh --interactive --provider codex|claude` as the real
+  backend diagnostic for both shipped providers.
 - [x] Existing automated regression floors for task/turn services, JSONL,
   replay/SSE, provider mapping, SQLite stores, HTTP security, and completion.
 
-Missing for the reviewed rich-task design:
+Implemented for the reviewed rich-task design:
 
-- [ ] Workspace-owned public task creation instead of renderer-selected paths.
-- [ ] Production adoption of the CP1 reference projection and version-tolerant
-  decoding across the required experimental surface.
-- [ ] Proof that the reviewed per-task execution-environment design exists in
-  that reference protocol and still works with the latest installed CLI.
-- [ ] A task-owned Codex executor/environment and fail-closed isolation.
-- [ ] Canonical event IDs plus root/child/turn/item source identities.
-- [ ] Persisted steer/queue input delivery; direct turn start already reuses
-  the durable turn row instead of adding a parallel delivery state machine.
-- [ ] Atomic SQLite state plus event-outbox persistence.
-- [ ] Immutable task-worktree ownership facts, mutation claims, approvals, and
+- [x] Workspace-owned public task creation instead of renderer-selected paths.
+- [x] Production adoption of the CP1 reference projection and
+  version-tolerant decoding across the required App Server surface.
+- [x] A task-owned App Server process per active turn, rooted at its managed worktree, replacing
+  the rejected executor/environment and loopback-listener design.
+- [x] Model-advertised no-child, V1-only, and V2-only launch profiles, recursive
+  V1/V2 discovery through `thread/items/list`, and quiescence through verified
+  per-turn process stop.
+- [x] Canonical event IDs plus root/child/turn/item source identities.
+- [x] Persisted steer/queue input delivery; direct turn start reuses the durable
+  turn row instead of adding a parallel delivery state machine.
+- [x] Atomic SQLite state plus event-outbox persistence.
+- [x] Immutable task-worktree ownership facts, mutation claims, approvals, and
   provider recovery facts.
-- [ ] Model, effort, and permission defaults with per-turn snapshots.
-- [ ] An authenticated Electron task/event bridge.
-- [ ] React task routes, reducer, transcript, composer, and task controls.
-- [ ] Safe images, subagent inspection, steering, queueing, and Claude parity.
+- [x] Model, effort, and permission defaults with immutable per-turn snapshots.
+- [x] An authenticated Electron task/event bridge.
+- [x] React task routes, reducer, transcript, composer, and task controls.
+- [x] Safe images, subagent inspection, steering, queueing, and Claude parity.
 
 ## 4. Fixed scope
 
@@ -119,11 +122,11 @@ These are scope rules, not claims that current code already enforces them:
 - There is no arbitrary executable/script provider. The shell is a reference
   client; production providers remain the Codex and Claude drivers.
 - There is no custom Code Mode host or undocumented App Server queue API.
-- First-release interactive Codex tasks must prove that inherited MCP servers,
-  apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle hooks are
-  absent or disabled in CP1/CP4. They must also prove that no managed
-  requirements apply; a missing field, non-null value, request failure, or
-  undecodable response fails closed until a narrower contract has exact
+- First-release interactive Codex tasks proved in CP1/CP4 that inherited MCP
+  servers, apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle
+  hooks are absent or disabled. They also proved that no managed requirements
+  apply; a missing field, non-null value, request failure, or undecodable
+  response continues to fail closed until a narrower contract has exact
   executable evidence.
 - The renderer receives no raw provider JSON, backend log stream, credential,
   or hidden reasoning.
@@ -192,12 +195,12 @@ completion transcript.
 
 Implementation and decisions:
 
-- [x] Accept shipping the planned first product surface over Codex App
+- [x] Accept shipping the first product surface over Codex App
   Server while the official documentation describes the command as
   experimental and unsupported for production workloads. This decision was
   recorded on 2026-08-31 and does not waive the compatibility release gate.
 - [x] Accept the unauthenticated same-host boundary of the reviewed stock task
-  executor for the planned first release. This decision was recorded on
+  executor for the first release. This decision was recorded on
   2026-08-31 and does not describe the loopback listener as authenticated.
 - [x] Choose Codex CLI/App Server `0.151.0` for the compatibility spike;
   this exact version and its hashes are reference-only and do not gate the
@@ -213,7 +216,8 @@ Implementation and decisions:
   user-managed installed CLI. The production probe records detected version text
   for diagnostics but never treats that output, including an unparseable
   string, as a readiness gate.
-- [x] Keep the new task UI behind a development-only gate until CP11. Commit
+- [x] Kept the new task UI behind a development-only gate through CP10; CP11
+  removed it after the release checks. Commit
   `84af81c73cea7ae2cf7a53681827f550c598b706` is the approved static visual and
   state artifact; this approval does not enable a live route or provider.
 - [x] Capture a sanitized request/event fixture from the current task -> two
@@ -223,9 +227,9 @@ Implementation and decisions:
   regression test.
 - [x] Remove the stale non-interactive branch from `agent-e2e.sh` and its docs,
   rather than restoring a test-only deterministic driver to production.
-- [x] Keep `--interactive --provider codex|claude` through the CP0 reference
-  baseline. CP3's workspace-owned public route intentionally narrows the shell
-  to Codex until CP11 activates the reviewed Claude request contract.
+- [x] Kept `--interactive --provider codex|claude` through the CP0 reference
+  baseline. CP3's workspace-owned public route later narrowed the shell to
+  Codex, and CP11 activated the reviewed Claude request contract.
 
 Exit gate:
 
@@ -323,8 +327,9 @@ and finds no `.rules` file. `packagedDefaults` and
 behavioral poison control exercises the isolated user source without claiming
 every source type is present. The live isolation path calls `config/read` for
 every temporary task cwd. The exact App Server has no public `--ignore-rules`
-option or rule-inventory RPC, so CP4 must adopt this conservative source
-inspection; a per-thread config override cannot disable rules. The same keyless
+option or rule-inventory RPC, so the later CP4 production integration adopted
+this conservative source inspection; a per-thread config override cannot
+disable rules. The same keyless
 App Server call pins the
 `configRequirements/read` response shape, requires its
 `requirements` field to be present and null, and fails for an omitted or
@@ -363,8 +368,8 @@ message, V2 agent thread, logical path, and lifecycle kind, plus the
 parent/session/turn/item history
 needed by recursive reconciliation. Optional capability fields remain absent
 when omitted, additive fields remain ignorable, and future enum values decode
-as `UNKNOWN`. This is codec evidence only: V2 activity is not yet routed into
-provider-neutral events, and no child subscription or graph exists.
+as `UNKNOWN`. At CP1 this was codec evidence only; the later completed
+checkpoints added provider-neutral routing and the task graph.
 
 The [official App Server page](https://learn.chatgpt.com/docs/app-server)
 documents version-specific schema generation, experimental opt-in,
@@ -533,19 +538,19 @@ workspace discriminator and immutable requested defaults; each accepted turn
 retains its exact requested settings and opaque attachment references. Provider
 source identity is carried through the SPI, user input and approval lifecycle
 are durable event variants, legacy rows/schema-v1 logs remain readable, and one
-strict TypeScript fixture covers every CP2 payload family. The workspace-safe
-request/narrow response and managed CI replacement records are frozen but are
-not active routes: CP3 must first supply the one durable worktree
-implementation and crash-safe event outbox, then activate them. CP4 applies the
-snapshotted settings to the real App Server runtime. The full backend reactor,
+strict TypeScript fixture covers every CP2 payload family. At CP2 the
+workspace-safe request/narrow response and managed CI replacement records were
+frozen but not yet active; CP3 subsequently supplied the durable worktree
+implementation and crash-safe event outbox and activated them. CP4 then applied
+the snapshotted settings to the real App Server runtime. The full backend reactor,
 frontend lint and type checks, all 230 frontend tests, and the packaged desktop
 build passed on 2026-09-01.
 
 The managed-worktree boundary remains deliberately small. `agent-core` owns
 only synchronous `provision(command)`, `inspect(worktree)`, and
 `cleanup(worktree)`. There is no allocation state machine, store, recovery API,
-cleanup disposition, or cleanup authority. CP3 owns the one application
-implementation.
+cleanup disposition, or cleanup authority. CP3 subsequently supplied the one
+application implementation.
 
 Implementation:
 
@@ -553,14 +558,14 @@ Implementation:
 - [x] Add the smallest durable interactive-surface discriminator needed to keep
   workspace task lists from including cherry-pick, CI Autofix, or rebase agent
   tasks. Do not turn it into a generic workflow hierarchy.
-- [x] Freeze the replacement task-creation request as `workspaceId`, title,
+- [x] Froze the replacement task-creation request as `workspaceId`, title,
   lane, and task defaults, with no renderer-selected worktree or repository
-  fields. Do not switch the production route until CP3 supplies the durable
-  worktree implementation.
+  fields. CP3 later switched the production route with the durable worktree
+  implementation.
 - [x] Add and freeze the CP0-approved `WorktreeService` contract and values in
   `agent-core`, including synchronous provision/inspect/cleanup, deterministic
-  immutable ownership facts, and failure semantics. CP3 owns its one
-  production implementation and activation; do not add a temporary adapter.
+  immutable ownership facts, and failure semantics. CP3 later supplied its one
+  production implementation and activation without a temporary adapter.
 - [x] Define its repository identity as the physical workspace selected
   repository/`origin`; cherry-pick and CI keep logical monitored/upstream
   identities in their own workflow records.
@@ -583,9 +588,9 @@ Implementation:
   Codex, `unsupported` requires a detected protocol/capability failure and
   includes detected version text; no reported version text, including unparseable
   output, produces it by itself.
-- [x] Apply that readiness allocation gate only to lanes enabled for the
-  current checkpoint. Interactive Claude creation stays backend-disabled until
-  CP11 supplies its exact authentication preflight and parity contract.
+- [x] Applied that readiness allocation gate only to lanes enabled at CP2.
+  Interactive Claude creation stayed backend-disabled until CP11 supplied its
+  exact authentication preflight and parity contract.
 - [x] Define explicit `AgentEventPayload` variants in `agent-core`; stop using a
   serialized `ProviderAgentEvent` as the public/persisted shape.
 - [x] Add `schemaVersion`, globally unique `eventId`, task sequence, task/turn
@@ -598,10 +603,10 @@ Implementation:
   makes that lane unavailable.
 - [x] Add a durable user-message event shape, including attachment references
   and delivery kind.
-- [x] Remove renderer-supplied attachment paths from `StartTurnRequest`. Until
-  CP8 exists, public interactive turns reject attachments; after CP8 they
-  accept only opaque task-owned attachment references. Trusted internal
-  workflow attachments remain an internal command boundary.
+- [x] Removed renderer-supplied attachment paths from `StartTurnRequest`. At
+  CP2 public interactive turns rejected attachments; CP8 later activated only
+  opaque task-owned attachment references. Trusted internal workflow
+  attachments remain an internal command boundary.
 - [x] Add typed approval request/resolution/expiry variants and the
   product-permitted subset of their provider-offered decisions. An empty subset
   fails closed.
@@ -611,9 +616,9 @@ Implementation:
   Claude blocks inside `agent-cli`.
 - [x] Keep a schema-v1 JSONL reader: absent source fields render as an explicit
   root-level legacy stream rather than invented child identity.
-- [x] Freeze narrowed task/turn response records so the renderer never receives
+- [x] Froze narrowed task/turn response records so the renderer never receives
   a worktree path, provider session reference, backend URL, or credential. CP3
-  activates those records with the workspace-owned routes.
+  later activated those records with the workspace-owned routes.
 - [x] Check in one valid monotonic frontend fixture containing create, user
   message, partial and final assistant messages, plan, command/output,
   file/tool activity, approval request/resolution, usage, lifecycle, and
@@ -628,13 +633,13 @@ Exit gate:
 - [x] TypeScript models the fixture as a discriminated union without `any` or
   provider-payload inspection.
 - [x] The frozen replacement interactive request schema cannot submit a
-  worktree, repository, or attachment filesystem path; CP3 activation removes
+  worktree, repository, or attachment filesystem path; CP3 activation removed
   those fields from the production route.
 - [x] The frozen replacement cherry-pick and CI Autofix request schemas resolve
   worktree roots from `workspaceId`; CI never receives or adopts a cherry-pick
-  worktree. CP3 activates those schemas.
+  worktree. CP3 activated those schemas.
 - [x] Workspace-scoped list/read and mismatch behavior is covered at the
-  core/storage boundary. CP3 activates the route and adds its HTTP test rather
+  core/storage boundary. CP3 activated the route and added its HTTP test rather
   than exposing a path-trusting half-migration.
 - [x] Logged-out or incompatible providers allocate no task row, runtime
   directory, or worktree ownership.
@@ -693,8 +698,9 @@ The one optional task-local mutation claim is an ownership token, not a task
 state machine. A definite terminal result releases it in the same transaction
 as the lifecycle event. A send that crossed the provider invocation boundary
 without a durable provider reference remains an active uncertain turn with its
-`TURN` claim after restart and is never resent automatically. CP4 owns provider
-process quiescence; CP10 owns the minimum independent queue/steer facts.
+`TURN` claim after restart and is never resent automatically. At CP3, provider
+process quiescence remained assigned to CP4 and the independent queue/steer
+facts to CP10; both later checkpoints are complete.
 
 Implementation:
 
@@ -912,21 +918,24 @@ Primary files:
 Purpose: turn the CP1 compatibility proof into the production Codex execution
 path and prevent one task or old process from mutating another task's worktree.
 
-**Status (2026-09-02): launch protocol, per-task process isolation, and
-subagent event surfacing landed; quiescence open.** The gated launch protocol,
-the durable ownership row, and fail-closed process recovery are implemented and
-wired. The owning row was deliberately narrowed to one fact after review; see
-[Agent Service Design](agent-service.md) section 5.1.
+**Status (2026-09-04): COMPLETE.** The launch protocol, model-advertised V1/V2
+profiles, per-turn process isolation, recursive child surfacing, quiescence,
+durable ownership, and fail-closed process recovery are implemented and
+verified. The owning row was deliberately narrowed to one fact after review;
+see [Agent Service Design](agent-service.md) section 5.1.
 
-The task boundary was then rebuilt: ByteQuay now runs **one App Server process
-per task**, rooted at that task's worktree, instead of one shared process plus a
-per-task exec-server. Measured against codex-cli 0.151.0, a process rooted at
+The task boundary was then rebuilt: ByteQuay now runs **one task-owned App
+Server process per active turn**, never more than one for a task, rooted at that
+task's worktree, instead of one shared process plus a per-task exec-server.
+Measured against codex-cli 0.151.0, a process rooted at
 the worktree already confines writes under `workspace-write` — an in-worktree
 write landed with zero approvals and an outside write was escalated and
 declined — so `TaskExecServerManager`, `environment/add`, `environment/info`,
 the `environments` fields, and the five environment protocol records were
-deleted, and `capabilities.experimentalApi` is now false. Thread routing and
-subagent adoption were deleted with them: every thread in a task's process
+deleted. `capabilities.experimentalApi` is true solely for the
+background-terminal inventory and termination methods used by quiescence and
+cancellation; it does not restore the environment family. Cross-task thread
+routing was deleted with the shared process: every thread in a task's process
 belongs to that task.
 
 That rebuild also fixed a measured defect. A live subagent run produced 33
@@ -1009,17 +1018,18 @@ Implementation:
 - [x] Record executable identity and OS start token and verify directly owned
   process-tree termination during recovery; a root PID exit is insufficient.
   An unreadable start token or executable is `UNVERIFIABLE`, never death.
-- [x] Persist launch ownership and opaque owner for each task's App Server and
-  each Claude turn. The App Server owner id is the task id, so a recovered
-  orphan is attributable to the task that leaked it.
+- [x] Persist launch ownership and opaque owner for each Codex and Claude turn.
+  The App Server owner id is the task id, so a recovered orphan is attributable
+  to the task that leaked it.
 - [x] Give each task its own execution boundary. Superseded in favour of one
-  App Server process per task rooted at the task worktree: the process default
-  environment confines the turn, so no executor is launched and no environment
-  is registered. `TaskExecServerManager` and the five environment records were
-  deleted and the reference projection regenerated (78 records to 73).
-- [x] Close every session's process. A session owns its task's App Server and
-  closes it; `AgentRuntimeRegistry` is `AutoCloseable` and wired as the bean's
-  destroy method, because completing a task is otherwise the only thing that
+  task-owned App Server process per active turn rooted at the task worktree: the
+  process default environment confines the turn, so no executor is launched and
+  no environment is registered. `TaskExecServerManager` and the five environment
+  records were deleted and the reference projection regenerated (78 records to 73).
+- [x] Close every session's process at turn completion and require
+  `VERIFIED_STOPPED`; the next turn resumes the durable thread in a new process.
+  `AgentRuntimeRegistry` is also `AutoCloseable` and wired as the bean's destroy
+  method, because backend shutdown is another path that
   releases a session.
 - [x] Surface subagent activity. Every thread in a task's process belongs to
   that task, and turn completion is gated on the root thread so a subagent
@@ -1067,8 +1077,8 @@ Implementation:
   (`rechecksInheritedCapabilitiesOnTheFirstTurnAfterResume`).
 - [x] Route root and child events/approvals by provider thread and turn identity
   without cross-task fallback. Achieved by topology rather than by routing: one
-  App Server process serves one task, so every thread reaching a connection
-  belongs to that task and there is no other task to fall back to. The thread
+  per-turn App Server process serves one task, so every thread reaching a
+  connection belongs to that task and there is no other task to fall back to. The thread
   map, the `thread/read` ancestry walk, the adoption bookkeeping, and the
   unowned-thread report were deleted with the shared process.
 
@@ -1090,40 +1100,53 @@ Implementation:
   non-root turn lifecycle notification, because the child's `turn/completed`
   arrived fourteen messages before the root's and would otherwise have ended the
   task's turn early with the subagent's payload.
-- [x] Run one combined fixed-point reconciliation. Each pass checks live items,
-  then background terminals for every observed thread, then closes over history
-  with `thread/items/list`, and stops only after a whole pass changes nothing and
-  discovers no new thread. History runs after the cheap checks rather than every
-  pass, because paging is not free, and it is the only thing that can see an item
-  the notification stream never delivered. An item whose status cannot be read
-  counts as still running.
+- [x] Run one combined fixed-point reconciliation. Each pass first closes over
+  `thread/items/list`, restricting root entries to the current provider turn,
+  so terminal history can reconcile a missed live completion before the live
+  and background-terminal inventories are checked. It stops only after a whole
+  pass changes nothing and discovers no new thread. An item whose status cannot
+  be read counts as still running. This is relationship and item-history
+  closure, not descendant-turn termination: `thread/items/list` carries no
+  child turn status.
 - [x] Treat root answer/turn completion as necessary but not sufficient for
-  quiescence. A turn settles only after a stable pass over live items and every
-  observed thread's background terminals.
+  quiescence. After the stable item/background pass, close the per-turn App
+  Server and require its complete owned process tree to be `VERIFIED_STOPPED`.
+  A reconciliation error makes the turn failed but still triggers shutdown; it
+  is quiescent only when that shutdown is verified.
 - [x] Retain the mutation claim and task worktree when a turn's provider could not
   be shown stopped. `AgentTurnResult` carries `providerQuiescent`, and
   `persistTerminalTurn` releases the claim only when it is true, so a task whose
   provider may still be writing blocks every later turn instead of handing one a
-  worktree it does not own. A provider that does not measure quiescence reports
-  the previous behaviour through the four-argument constructor.
-- [x] Add a guarded mark-failed operation that never edits or cleans the
-  worktree. `AgentCompletionService.abandon` is the only way out of a task stuck
-  holding a claim, since completion refuses one. It is guarded the way completion
-  is — the discarded claim has to be named — and it retains the worktree, because
-  the reason the task is stuck is that something may still have been writing to
-  it. Reachable at `POST /agent/tasks/{taskId}/abandon`.
-- [x] Before enabling a model, prove child discovery, routing and quiescence.
-  Depth is bounded to one, so a subagent cannot spawn its own and a task's thread
-  tree is root plus children — measured, a subagent still spawns at that depth, so
-  the shallower setting costs nothing. Children are enumerated from the root's
-  `SubAgentActivityItem` history rather than from whatever notifications happened
-  to arrive, so a thread that produced none is still checked
-  (`findsASubagentThreadThatOnlyHistoryMentions`).
-- [x] After a successful stable terminal reconciliation, atomically finalize
-  the turn and release its `TURN` claim. `persistTerminalTurn` finishes the turn,
-  releases the claim, and writes the lifecycle event in one unit of work, and it
-  only reaches that point once quiescence held. The task remains `OPEN` and its
-  derived projection becomes idle.
+  worktree it does not own. For Codex and Claude, only `VERIFIED_STOPPED` sets
+  that fact; exceptional completion or an unverifiable stop retains the claim.
+  The retained session/process identity lets a later confirmed Stop explicitly
+  retry termination and verification. Only a later `VERIFIED_STOPPED` releases
+  the stale claim and permits a new turn or paused queue retry; the old turn is
+  never resent.
+- [x] Add a guarded mark-failed operation. `AgentCompletionService.abandon` is
+  the task-level way out when the user chooses not to continue; it refuses an
+  active turn and retains the worktree in core. The interactive
+  `POST /agent/tasks/{taskId}/mark-failed` endpoint then attempts only normal,
+  clean-worktree cleanup and preserves dirty or unverifiable work for inspection.
+- [x] Before enabling a model, prove child discovery, routing, and quiescence
+  for the exact multi-agent protocol it advertises. The catalog is read under a
+  no-child profile; a task then enables only V1 `multi_agent` with
+  `agents.max_depth=2`, only V2 `multi_agent_v2`, or neither for a model with no
+  child support. Unknown advertised versions fail closed. Paginated
+  `thread/items/list` recursively discovers V1 `spawnAgent` and V2 `started`
+  relationships to a fixed point, so a missed child or grandchild notification
+  is still checked; V2 upward/interacted activity never creates an edge. A live
+  `thread/started` establishes lineage only with an explicit `parentThreadId`.
+  V2 initializes the root path as `/`; paths are absolute, normalized, stable
+  per thread, and every `started` descendant is strictly nested beneath its
+  direct parent's canonical path. A lineage-only `thread/started` cannot publish
+  the child before that V2 path arrives.
+- [x] After reconciliation and a verified per-turn process stop, atomically
+  finalize the turn and release its `TURN` claim. `persistTerminalTurn` finishes
+  the turn, releases the claim, and writes the lifecycle event in one unit of
+  work. A failed reconciliation may still finalize as a quiescent failed turn
+  after `VERIFIED_STOPPED`; an unverifiable stop retains the claim. The task
+  remains `OPEN` and its derived projection becomes idle only when safe.
 
 Exit gate:
 
@@ -1145,21 +1168,22 @@ Exit gate:
   are asserted per turn at the layer that builds the snapshot, by
   `preservesEachTurnsEffectiveSettingsAndOpaqueAttachmentReferences`, and the
   sandbox actually sent is now asserted at the driver.
-- [x] Root completion while an item or background terminal runs keeps Send and
-  Complete blocked. The retained claim is what blocks both: starting a turn is
-  refused (`keepsTheWorktreeClaimWhenAProviderCannotBeShownStopped`) and so is
-  completing the task
-  (`refusesToCompleteATaskStuckHoldingAWorktreeClaim`).
-- [x] A missed live child and live/history overlap converge through history
-  closure without duplicate routing. A grandchild is not a case: `agents.max_depth`
-  is one, so a subagent cannot create one. Overlap is harmless because history is
-  read as a set of thread ids and item states, not replayed as events.
+- [x] Root completion while an item or background terminal runs cannot produce
+  a successful turn. Before any claim releases, the per-turn App Server closes
+  and its owned tree is `VERIFIED_STOPPED`; an unverifiable stop keeps Send and
+  Complete blocked through the retained claim.
+- [x] A missed live child, a child-created grandchild, and live/history overlap
+  converge through model-version-aware `thread/items/list` closure without
+  duplicate routing. Every newly discovered descendant joins the same paginated
+  fixed point; overlap is harmless because item identities are deduplicated.
 - [x] Cancellation lists and terminates background terminals and reaches the same
-  quiescence barrier. A cancelled turn is not waiting for its work, it is
+  process-stop barrier. A cancelled turn is not waiting for its work, it is
   stopping it, so a yielded command is terminated rather than watched until the
   bound expires (`terminatesAYieldedCommandWhenTheTurnIsCancelled`). Only the
   first completion report starts the wait, because an interrupt and a natural
-  finish can both arrive and the second would terminate a process twice.
+  finish can both arrive and the second would terminate a process twice. The
+  cancellation is quiescent only after the complete owned tree is verified
+  stopped.
 - [x] Backend restart proves the old owned process tree stopped, verified
   against a live Codex App Server, and an unverifiable tree now blocks one task
   rather than everything. An App Server launch names its task, so an unverifiable
@@ -1186,7 +1210,8 @@ Exit gate:
   intent are all `UNVERIFIABLE`.
 - [x] No fixture leaves a writer outside both ByteQuay's ownership and App
   Server's registry. Measured 2026-09-02 against the shipped topology (one
-  app-server rooted at the task worktree, no exec-server, no environment): a
+  task-owned App Server for the active turn, rooted at the task worktree, with
+  no exec-server or environment): a
   turn told to yield `exec /bin/sleep 300` left exactly one writer, and it
   appeared in **both** the app-server's descendant tree and
   `thread/backgroundTerminals/list`; no matching process existed outside that
@@ -1194,15 +1219,16 @@ Exit gate:
   and the writer was actually gone afterwards, which is what cancellation now
   depends on.
 
-  **The two `--live` gates are stale and are not what closed this.** They prove
-  isolation *within a shared App Server* — assertions like "task B inherited task
-  A's terminal" — which per-task processes make true by construction, so porting
-  them unchanged would produce coverage that passes for the wrong reason.
-  `--live-children` is additionally unrunnable for two independent reasons: its
-  `readRecursiveChildHistory` calls `thread/read(includeTurns: true)`, which App
-  Server does not implement, and it prompts for a grandchild that
-  `agents.max_depth=1` now forbids. Porting both to the per-task topology is
-  follow-up work, and the assertions worth keeping are the ones above.
+  **The old shared-process portions of the two `--live` gates are stale and are
+  not what closed this.** Assertions such as "task B inherited task A's
+  terminal" are true by construction with one task-owned process per active
+  turn, so porting them
+  unchanged would produce coverage that passes for the wrong reason. The
+  historical child fixture proved the model-advertised V1/V2 profiles and a
+  bounded root/child/grandchild topology. Production does not depend on its
+  unsupported `thread/read(includeTurns: true)` history path: the shipped
+  driver and regression tests use recursive paginated `thread/items/list` for
+  both versions.
 
   The release rule this item states — reject the Codex lane outright rather than
   leaving one `OPEN` task blocked — is satisfied because no escape was found. It
@@ -1324,9 +1350,9 @@ Implementation:
   route model; route state, not component memory, owns the selected task.
 - [x] Keep cherry-pick tasks unchanged and add a separate **Agent tasks**
   section to the existing Tasks screen.
-- [x] Add a preview-only New agent task action using the route workspace, the
-  fixed Codex lane, and backend/workspace defaults. Do not add the provider,
-  model, effort, or permission picker before CP7.
+- [x] Added a preview-only New agent task action using the route workspace, the
+  fixed Codex lane, and backend/workspace defaults. At CP6 the provider, model,
+  effort, and permission pickers remained assigned to CP7.
 - [x] Add one `agents/model.ts` reducer for task/turn state, ordered events,
   last sequence, connection state, projection, and composer state.
 - [x] Drive the screen and reducer through a typed mock bridge using the valid
@@ -1362,7 +1388,8 @@ Exit gate:
   error states.
 - [x] A mock-bridge journey covers create/open, Send command, streamed fixture,
   simulated reconnect/reload, Cancel command, and Complete command.
-- [x] No live-backend or provider acceptance is claimed; CP7 owns that gate.
+- [x] CP6 claimed no live-backend or provider acceptance; CP7 later closed that
+  gate.
 - [x] No new state/UI/CSS framework or generic task model is introduced.
 
 Initial frontend shape:
@@ -1449,9 +1476,9 @@ Implementation:
   per-task Codex server stop operation.
 - [x] Add Workspace Settings provider rows and actionable install, login,
   report-issue, and retry states.
-- [x] Make this milestone Codex-only. Show Claude as unavailable or
-  preview-only until CP11 rather than accepting a task the product cannot yet
-  render and recover at parity.
+- [x] Kept the CP7 milestone Codex-only. Claude remained unavailable or
+  preview-only until CP11 supplied parity rather than accepting a task the
+  product could not yet render and recover.
 - [x] Add Codex model selection at task creation; keep the Codex lane immutable.
 - [x] Add supported model, effort, and permission selection for the next turn.
   The Codex driver declares exactly one supported permission policy, so that
@@ -1481,7 +1508,8 @@ Implementation:
   directly owned processes are verified stopped, expose **Mark task failed**.
   It calls `POST /agent/tasks/{taskId}/mark-failed`, marks the whole task
   `FAILED`, releases the claim, retains history, and requests safe worktree
-  cleanup. Dirty work remains until it is committed or explicitly discarded.
+  cleanup. Dirty work remains for inspection; destructive discard is outside
+  this design.
   The backend rejects the action while a turn is active or while the task's own
   process cannot be verified stopped, and never cleans a worktree whose
   pre-restart process is unverified.
@@ -1507,9 +1535,10 @@ Implementation:
   approval action, and announce only bounded state changes rather than every
   streamed token.
 - [x] Complete only while idle/quiescent and the generated branch is clean;
-  close the provider session, stop the task-owned provider process, retain
-  history, remove the worktree, and preserve the generated result branch. The
-  closed screen shows the retained branch and HEAD.
+  require that the last turn's task-owned provider process was already verified
+  stopped, close any remaining provider transport, retain history, remove the
+  worktree, and preserve the generated result branch. The closed screen shows
+  the retained branch and HEAD.
 - [x] Adapt the shell reference client to the workspace-safe contract through a
   temporary test workspace; do not preserve a raw-path public API for it.
   Done in CP3: the shell seeds a workspace row and submits only `workspaceId`.
@@ -1559,9 +1588,9 @@ End-to-end acceptance:
   mid-turn, deny and allow approvals with a reload between them, thread
   recall, cancel, a backend restart mid-turn with the turn interrupted and
   Retry confirmed, two concurrent tasks without cross-talk, and completion
-  with the checkout removed and the result branch kept. The agent surface
-  stays behind the development gate until CP11, so this runs in the
-  development build; the packaged build proves only that it builds.
+  with the checkout removed and the result branch kept. At CP7 the agent
+  surface remained behind the development gate and this ran in the development
+  build; CP11 later removed the gate and passed packaged journeys.
 
 **Checkpoint result:** this is the first usable Codex task surface. Do not call
 CP2, CP5, or CP6 alone “agent UI complete.”
@@ -1684,26 +1713,29 @@ Implementation:
 - [x] Expose the CP4-proven root/child identity, routing, recursive discovery,
   and quiescence facts as typed canonical subagent lifecycle events for
   supported V1 spawn events and V2 agent paths.
-- [x] Preserve the CP4 ordering rule: routing is active before a child discovery
+- [x] Preserve the CP4 ordering rule: once the direct parent and, for V2, the
+  canonical `started` path are known, routing is active before a child discovery
   event is published.
-- [x] Persist explicit backfill lifecycle markers while CP4 reads known child
+- [x] Persist explicit backfill lifecycle markers while production reconciliation reads known child
   history; deduplicate live/history projection by source identity.
 - [x] Project nested grandchildren on the direct-parent/logical-agent-path
   metadata reserved in CP2 while retaining one task sequence.
-- [x] Derive child terminal results from the reconciled CP4 child history; add
-  no child transcript table.
+- [x] Derive visible child result summaries from reconciled child history; the
+  lifecycle becomes terminal only after the per-turn process is verified
+  stopped. Add no child transcript table.
 - [x] Persist only a compact terminal child index for post-cleanup summaries.
 - [x] Expose and replay CP4-routed child approvals in the filtered projection;
-  an unmatched approval remains a CP4 fail-closed runtime error, not a second
-  CP9 router.
+  an unmatched approval is the fail-closed runtime error established in CP4,
+  not a second CP9 router.
 - [x] Render one parent card with **Active** and **Done**, label/purpose, status,
   elapsed time, and result summary.
 - [x] Clicking a child filters the existing event projection and shows a
   breadcrumb; it creates no task route or second SSE connection.
 - [x] Reuse root message, plan, activity, approval, and terminal renderers.
 - [x] Reuse CP4's recursive child/item/background-terminal closure as the
-  safety barrier for Send/queue start/Complete; CP9 must not introduce a second
-  quiescence algorithm.
+  pre-stop reconciliation for Send/queue start/Complete; CP9 introduced no
+  second quiescence algorithm, and the final barrier is the verified per-turn
+  process stop recorded in CP11.
 - [x] After cleanup, retain the child summary and show **Activity expired** for
   removed details.
 
@@ -1740,10 +1772,10 @@ as its rule for a shell-wrapped command, and a read-only `gh` command needs no
 card at all; a window's ✕ completes an idle task after confirmation
 and is disabled while a turn holds the checkout; and the provider chip, the
 permission chip, Steer and Run next are the `data-fake` placeholders left for
-CP11 and CP10, drawn as the design draws them. In
-a development build the workspace Home is the design's idle screen, which
-means its three action cards give way to the agent hero there; packaged builds
-keep the current Home until CP11 removes the gate. Task windows read a task's
+  CP11 and CP10, drawn as the design drew them. At this checkpoint, in
+  a development build the workspace Home is the design's idle screen, which
+  means its three action cards give way to the agent hero there; packaged builds
+  kept the current Home until CP11 removed the gate. Task windows read a task's
 first 24 events once, so Home and the overview cost one bounded read per
 task.
 
@@ -1751,8 +1783,8 @@ task.
 drifted from the approved design while CP3–CP9 built the service underneath
 it, and because three surfaces in the full-design HTML — Home task windows,
 the Tab Overview, and the hashed agent mark — belong to no checkpoint at all.
-Closing that drift before CP10 and CP11 means their controls land in a shell
-that is already correct instead of being restyled after the fact.
+Closing that drift before CP10 and CP11 meant their controls landed in a shell
+that was already correct instead of being restyled after the fact.
 
 It adds exactly two contracts, each small and each landing end to end: the
 task-name contract that the design's creation flow requires, and the panel's
@@ -2015,9 +2047,10 @@ Exit gate:
 
 **Visible UI:** yes; release candidate
 
-**Design audit, 2026-09-04:** CP11 starts only after correcting five release
-gaps in the canonical documents: Codex is one task-owned App Server process
-rather than a shared router; attended Claude tasks use CLI `manual` mode so
+**Design audit, 2026-09-04:** CP11 completed after correcting the release gaps
+in the canonical documents: Codex uses one task-owned App Server per active
+turn, verified stopped before claim release, rather than a shared router;
+attended Claude tasks use CLI `manual` mode so
 unsandboxed work cannot bypass ByteQuay's durable approval through Claude's
 auto-mode classifier, while unattended policies retain CLI `auto`; Claude
 readiness pins the exact typed
@@ -2043,6 +2076,20 @@ Implementation:
   lane advertises nested-agent activity as unsupported.
 - [x] Apply exact per-turn model/effort snapshots on new and resumed Claude
   invocations.
+- [x] Preserve Codex `multiAgentVersion` from `model/list`, query the catalog
+  under the no-child profile, and relaunch each accepted turn under exactly the
+  selected model's V1-only or V2-only profile. Recursively close V1
+  `spawnAgent` or V2 `subAgentActivity` `started` history through paginated
+  `thread/items/list`; the nonselected item form and a live `thread/started`
+  without explicit `parentThreadId` never manufacture a child relationship.
+  Because item history has no descendant turn status, close every per-turn App
+  Server and require its owned tree to be `VERIFIED_STOPPED` before releasing
+  the worktree claim.
+- [x] Require Claude session close to cancel and join a live invocation, accept
+  only `VERIFIED_STOPPED` as quiescent, and retain the worktree claim for an
+  exceptional completion or unverifiable process tree. Apply the same
+  fail-closed rule when any newly opened provider session cannot be verified
+  closed before its prompt is sent.
 - [x] Preserve strict MCP configuration, empty inherited setting sources, and
   generated task sandbox settings.
 - [x] Run attended `AUTO` tasks with CLI `manual` mode while retaining sandbox
@@ -2126,6 +2173,15 @@ Release checks:
 - [x] The packaged journeys spot-check the same credential, hidden-reasoning,
   attachment/storage-path authority, and bounded-output boundary proven by the
   named automated tests.
+- [x] Codex launch-profile and history tests cover no-child catalog discovery,
+  mutually exclusive V1/V2 flags, V1 depth two, a model change between turns,
+  recursive V1/V2 grandchildren, absolute and stable direct-parent-nested V2
+  paths, and rejection of unknown advertised versions or ambiguous lineage.
+  Process-boundary tests prove successful, cancelled, and
+  history-failed turns close their per-turn App Server and release a claim only
+  after `VERIFIED_STOPPED`; an unverifiable stop retains the runtime identity
+  and claim, and a later verified Stop releases it without resending the old
+  turn.
 
 **Engineering and release evidence, 2026-09-04:** the final clean backend
 reactor verification passed 1,130 tests with no failures, errors, or skips. The
@@ -2149,13 +2205,12 @@ unbounded payload.
 
 ## 7. Review gates
 
-CP0 through CP2 are complete. The later
-unchecked questions below are decisions for their corresponding UI or release
-checkpoint rather than reasons to reopen the compatibility spike.
+CP0 through CP11 and their product-policy decisions are complete.
 
-- [x] The CP1 per-task environment design was proven, then superseded: one App
-  Server process per task rooted at the worktree gives the same confinement with
-  no environment API, no executor process, and no loopback listener.
+- [x] The CP1 per-task environment design was proven, then superseded: one
+  task-owned App Server per active turn, rooted at the worktree and verified
+  stopped before claim release, gives the same confinement with no environment
+  API, executor process, or loopback listener.
 - [x] Use the user-managed Codex CLI and do not disable task start because of any
   reported version text, including unparseable output. Include the detected text
   when an actual protocol operation fails. **Revised 2026-09-02:** the startup
@@ -2166,8 +2221,8 @@ checkpoint rather than reasons to reopen the compatibility spike.
   test ties to the reference projection's `codexVersion`. A newer or unreadable
   version is left alone.
 - [x] Is the experimental App Server dependency acceptable for the intended
-  release audience? Accepted for the planned first release on 2026-08-31,
-  subject to the compatibility and release gates.
+  release audience? Accepted for the first release on 2026-08-31,
+  subject to the compatibility and release gates that CP11 subsequently passed.
 - [x] Is the unauthenticated loopback task-executor boundary acceptable on the
   same host? Moot: the executor and its listener were removed on 2026-09-02, so
   ByteQuay opens no local listener of its own.
@@ -2175,14 +2230,16 @@ checkpoint rather than reasons to reopen the compatibility spike.
   subagents, queueing, and Claude parity followed in their recorded checkpoints.
 - [x] Has CP0 selected and canonically designed one separate managed worktree
   per task, shared across interactive, cherry-pick, and CI Autofix workflows?
-- [ ] Is seven-day detailed runtime retention still the desired product policy?
+- [x] Is seven-day detailed runtime retention still the desired product policy?
+  Yes for the first release, accepted on 2026-09-04; successful and failed
+  terminal tasks keep detailed runtime data for seven days before cleanup.
 
-## 8. Current implementation action
+## 8. Completed implementation state
 
 CP0 through CP11 are implemented, verified, and product-approved in this
 working tree. The development gate has been removed in the required order and
-the ungated release candidate passes both provider journeys. The separate
-seven-day retention-policy question remains open in the review-gate ledger.
+the ungated shipped surface passes both provider journeys. The seven-day
+retention policy is accepted for this release.
 
 `grep -rn 'data-fake\|agt-fake' frontend/src` must remain empty; CP11 removed
 both placeholders and the unused `.agt-fake` rule.

@@ -25,9 +25,8 @@ import java.util.List;
  * explicitly, the shell environment is reduced to a fixed allowlist, and host skill discovery is
  * skipped, so the running configuration matches the one the gate exercises.
  *
- * <p>Subagents are enabled: a task's model may spawn child threads, and their activity is reported
- * against the owning task. Depth is bounded to one, so a subagent cannot spawn its own, which keeps
- * a task's thread tree to root plus children.
+ * <p>The model catalog runs without subagents. A task process enables exactly the V1 or V2 feature
+ * advertised by its selected model; V1 is bounded to the proven root/child/grandchild depth.
  */
 final class CodexLaunchProfile
 {
@@ -60,14 +59,8 @@ final class CodexLaunchProfile
             "TMPDIR",
             "USER");
 
-    /**
-     * One level of subagents: a task's model may delegate, and what it delegates to may not.
-     *
-     * <p>Measured against codex-cli 0.152.1: a depth of one still spawns a subagent, so the
-     * shallower setting costs nothing. It bounds the thread tree to root plus its children, which
-     * is what lets quiescence enumerate a task's threads without walking an unknown depth.
-     */
-    private static final int MULTI_AGENT_MAX_DEPTH = 1;
+    /** Root, child, and grandchild: the bounded recursive tree proven by the compatibility gate. */
+    private static final int MULTI_AGENT_MAX_DEPTH = 2;
 
     private CodexLaunchProfile() {}
 
@@ -77,7 +70,7 @@ final class CodexLaunchProfile
      * @param executable resolved Codex executable
      * @return argument vector including the executable itself
      */
-    static List<String> arguments(String executable)
+    static List<String> arguments(String executable, ChildProfile childProfile)
     {
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
@@ -102,11 +95,19 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
-        // Subagents are enabled through the v1 feature, bounded to one level.
-        arguments.add("--enable", "multi_agent");
-        arguments.add("--disable", "multi_agent_v2");
-        arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
+        arguments.add(childProfile == ChildProfile.V1 ? "--enable" : "--disable", "multi_agent");
+        arguments.add(childProfile == ChildProfile.V2 ? "--enable" : "--disable", "multi_agent_v2");
+        if (childProfile == ChildProfile.V1) {
+            arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
+        }
         return arguments.build();
+    }
+
+    enum ChildProfile
+    {
+        NONE,
+        V1,
+        V2,
     }
 
     private static String quotedList(List<String> values)

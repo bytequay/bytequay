@@ -76,7 +76,7 @@ flowchart LR
     end
 
     subgraph CODEX["Codex runtime"]
-        APP_SERVER["one Codex App Server per task<br/>rooted at that task's worktree"]
+        APP_SERVER["one task-owned Codex App Server per active turn<br/>rooted at that task's worktree"]
         THREADS["root and child threads<br/>agent loop · tool selection"]
         APP_SERVER --> THREADS
     end
@@ -88,7 +88,7 @@ flowchart LR
     MAIN <-->|"localhost HTTP/SSE"| APP
     APP --> GITHUB
     AGENT_CLI <-->|"JSON-RPC over stdio"| APP_SERVER
-    AGENT_CLI -->|"launch and own per task"| APP_SERVER
+    AGENT_CLI -->|"launch and own per active turn"| APP_SERVER
     AGENT_CLI <-->|"stream-json"| CLAUDE
     WORKTREES -->|"provision · inspect · cleanup"| WORKTREE
     APP_SERVER -->|"rooted at"| WORKTREE
@@ -215,7 +215,7 @@ directory.
 | `persistence-sqlite` | JPA entities, repositories, converters, encrypted credential storage, current-feature stores, and agent stores | Controllers, GitHub clients, task orchestration, or provider protocols |
 | `agent-spi` | Driver/session/run contracts, lane IDs, capabilities, typed readiness, normalized provider events with opaque source identity, and usage samples | Spring, JPA, HTTP, SQLite, CLI process code, or provider SDKs |
 | `agent-core` | Agent task/turn state, the shared worktree-service contract, mutation claims, event sequencing, approvals, input delivery, durable queued inputs, attachment references, metrics, completion, cleanup, and agent storage ports | Workspace path resolution, Git process implementation, Codex/Claude wire formats, JPA entities, or HTTP DTOs |
-| `agent-cli` | Per-task Codex App Server client, Claude `stream-json` client, binary discovery, owned-process supervision, event mapping, and fixtures | Task tables, SSE, GitHub PR behavior, or database code |
+| `agent-cli` | Per-turn task-owned Codex App Server client, Claude `stream-json` client, binary discovery, owned-process supervision, event mapping, and fixtures | Task tables, SSE, GitHub PR behavior, or database code |
 | `app` | Spring composition, HTTP/SSE, GitHub clients, application services, managed workspace/worktree Git operations, schedulers, configuration, and executable packaging | Provider branching in controllers or direct JPA access from web code |
 
 The frontend remains an npm project and does not become a Maven module.
@@ -339,18 +339,23 @@ Issue display and refresh use the same local-first boundary:
 The Codex/Claude adapters, backend task/event services, Electron bridge, and
 React projection implement this end-to-end flow:
 
-1. The React renderer calls typed preload operations; Electron main adds the
-   private desktop session credential and sends localhost HTTP requests.
-2. `app` resolves an exact commit in the selected workspace and provisions one
-   ByteQuay-owned generated branch/worktree through the shared synchronous
-   `WorktreeService`. Only after the returned worktree is verified does it
-   create or resume the worktree-scoped task through `agent-core`.
+1. The React renderer calls typed preload operations. An interactive create
+   request carries a client-generated task ID used for idempotent creation and
+   a workspace ID, never a repository or worktree path. Electron main adds the
+   private desktop session credential and sends the localhost HTTP request.
+2. `app` validates that task ID, resolves an exact commit in the selected
+   workspace, and provisions one ByteQuay-owned generated branch/worktree
+   through the shared synchronous `WorktreeService`. Only after the returned
+   worktree is verified does it create or resume the worktree-scoped task
+   through `agent-core`.
 3. `agent-core` enforces lifecycle and queue rules and selects an
    `AgentDriver` through `agent-spi`.
-4. The Codex adapter opens one App Server process per task, running in that
-   task's worktree. Every thread in that process, root or child, belongs to
-   that task, so no thread identity has to be routed between tasks. The Claude
-   adapter remains a separate `stream-json` process per turn.
+4. For each active Codex turn, the adapter opens one task-owned App Server in
+   that task's worktree under the selected model's `NONE`, V1, or V2 launch
+   profile. Every root or child thread in that process belongs to that task.
+   The process is stopped when the turn settles; the stored root thread ID is
+   resumed by a fresh process for a later turn. The Claude adapter remains a
+   separate `stream-json` process per turn.
 5. App Server owns the Codex model/tool loop, built-in tool execution, and
    provider approval requests. Its default environment is rooted at its own
    working directory, which is the task worktree, and that is what confines a
@@ -362,9 +367,11 @@ React projection implement this end-to-end flow:
    outbox before JSONL/SSE publication. A task-local worktree-mutation claim serializes
    turns, queued starts, and completion; an explicitly queued input starts only
    after a successful terminal turn. The turn claim is released only after
-   recursive child discovery, all observed execution-capable items are
-   terminal, and App Server reports no background terminal for the root or
-   children. Durable task lifecycle is only `OPEN -> COMPLETED | FAILED`;
+   model-version-aware, recursive `thread/items/list` reconciliation reaches a
+   stable graph, all observed execution-capable items are terminal, App Server
+   reports no background terminal for the root or children, and the task-owned
+   provider process tree is `VERIFIED_STOPPED`. Durable task lifecycle is only
+   `OPEN -> COMPLETED | FAILED`;
    running, idle, closing, and recovery required are derived from turn state,
    mutation-claim ownership, and provider quiescence. A provider terminal,
    failed, cancelled, or interrupted status alone never proves tools stopped.
@@ -411,22 +418,26 @@ The detailed backend contract is in
   require; endpoint-level OS filtering is not claimed by this first design.
   ByteQuay product-action tools are deferred. The optional two-tool CodeGraph
   boundary is specified separately and remains fail-open. Directly owned App
-  Server and Claude processes use durable launch
-  intents/markers; normal per-turn quiescence uses typed item history and App
-  Server's background-terminal APIs.
-- The current executable proof starts each task's Codex App Server with an
-  explicit isolation baseline. Before creating a thread, ByteQuay must
+  Server and Claude processes use durable launch intents/markers. Codex first
+  closes the recursive item-history and background-terminal inventories, then
+  stops the per-turn App Server; only a `VERIFIED_STOPPED` process-tree receipt
+  permits the worktree claim to be released.
+- Every active Codex turn starts its task-owned App Server with an explicit
+  isolation baseline. Before creating or resuming a thread, ByteQuay must
   verify through
   `config/read` that the effective session flags disable every unapproved
   optional feature and web search, expose no MCP server, and apply the minimal
   shell environment without inherited setters, exclusions, or filters.
   `hooks/list` must be empty. `skills/list` may contain only bundled system
   skills canonically beneath the isolated `CODEX_HOME/skills/.system`, never a
-  repository, user, admin, plugin-owned, or out-of-root skill. Because that
-  baseline disables multi-agent, CP1 must separately prove the child-capable
-  production profile and repeat these checks before CP1 completes or CP2
-  begins. Skill discovery and the origin/error guard repeat immediately before
-  every turn so an earlier workspace-write turn cannot introduce a later skill.
+  repository, user, admin, plugin-owned, or out-of-root skill. The completed
+  executable gate proves all three launch profiles: `NONE` disables both
+  multi-agent implementations, V1 enables only `multi_agent` with the proven
+  recursive depth, and V2 enables only `multi_agent_v2`. The model catalog runs
+  under `NONE`; each accepted turn's immutable model snapshot selects its
+  matching `NONE`, V1, or V2 task profile. Skill discovery and the origin/error
+  guard repeat immediately before every turn so an earlier workspace-write
+  turn cannot introduce a later skill.
 - Before a Codex turn, the driver reads App Server's effective config layers
   for every task cwd, requires the isolated user layer, rejects project config,
   and rejects every `.rules` file beside a returned system, user, or project
@@ -448,18 +459,24 @@ The detailed backend contract is in
   the user with the command readiness shows. The user's `~/.codex` is never
   read, copied, or linked, and the variable is set on ByteQuay's processes
   only, so the user's own Codex sessions are unaffected.
-- There is one Codex App Server process per active Codex task, launched with
-  the task id as its owner and the task worktree as its working directory. Its
-  loss interrupts only that task's turn; stored thread IDs remain resumable
-  after restart and explicit retry. A replacement starts only after any prior
-  owned process tree is verified stopped.
+- There is one Codex App Server process per active Codex turn, launched with
+  the task ID as its owner and the task worktree as its working directory. Its
+  loss interrupts only that task's turn; stored thread IDs remain resumable by
+  a fresh process for a later turn or explicit retry. A replacement starts only
+  after the prior owned process tree is `VERIFIED_STOPPED`. An unverifiable
+  close retains that runtime's session/process identity and `TURN` claim so a
+  confirmed Stop can retry termination and verification; only a later verified
+  stop releases the claim, and it never resends the old turn.
 - A task's process working directory is its sandbox root: under
   `workspace-write` App Server's default environment confines writes to it, so
   no separate execution environment is registered and no loopback listener is
-  opened. Nothing declares the experimental environment API.
-- A session owns the App Server process serving its task and closes it. The
-  runtime registry closes every session it still holds at backend shutdown,
-  because completing a task is otherwise the only thing that releases one.
+  opened. Initialization declares `experimentalApi: true` solely for the
+  background-terminal list and terminate methods; ByteQuay calls no
+  experimental environment method.
+- A session owns the App Server process serving one active turn. Settlement
+  closes that process and waits for the supervisor's `VERIFIED_STOPPED`
+  receipt before `RunningTurn.completion()` can release the task claim. The
+  runtime registry closes any remaining session at backend shutdown.
 - The first release leaves the experimental, process-wide
   `--code-mode-host` option unset. It is not a per-task tool-routing API; any
   future custom Code Mode host needs a separately validated protocol design.

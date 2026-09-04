@@ -244,9 +244,13 @@ class TestDefaultProcessSupervisor
         long survivor = ProcessGroups.members(process.pid()).orElseThrow().getFirst();
         assertThat(ProcessHandle.of(survivor)).isPresent();
 
-        process.cancel();
+        ProcessExit.TreeTermination retried = process.stopAndVerify().toCompletableFuture()
+                .get(15, TimeUnit.SECONDS);
 
+        assertThat(retried).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
         assertThat(awaitDead(survivor, Duration.ofSeconds(5))).isTrue();
+        assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().treeTermination())
+                .contains(ProcessExit.TreeTermination.VERIFIED_STOPPED);
     }
 
     @Test

@@ -22,10 +22,46 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestCodexLaunchProfile
 {
     @Test
-    void disablesEveryInheritableCapabilityAndEnablesSubagents()
+    void disablesEveryInheritableCapabilityWithoutSubagentsForCatalogs()
     {
-        List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex");
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex",
+                CodexLaunchProfile.ChildProfile.NONE);
 
+        assertCommonIsolation(arguments);
+        assertThat(arguments).containsSequence("--disable", "multi_agent");
+        assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
+        assertThat(arguments).doesNotContain("agents.max_depth=2");
+    }
+
+    @Test
+    void enablesOnlyV1AtRecursiveDepthTwo()
+    {
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex",
+                CodexLaunchProfile.ChildProfile.V1);
+
+        assertCommonIsolation(arguments);
+        assertThat(arguments).containsSequence("--enable", "multi_agent");
+        assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
+        assertThat(arguments).containsSequence("-c", "agents.max_depth=2");
+    }
+
+    @Test
+    void enablesOnlyV2WithoutAV1DepthSetting()
+    {
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex",
+                CodexLaunchProfile.ChildProfile.V2);
+
+        assertCommonIsolation(arguments);
+        assertThat(arguments).containsSequence("--disable", "multi_agent");
+        assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
+        assertThat(arguments).doesNotContain("agents.max_depth=2");
+    }
+
+    private static void assertCommonIsolation(List<String> arguments)
+    {
         assertThat(arguments).startsWith("/usr/local/bin/codex", "app-server", "--listen", "stdio://");
         // Launching without these would accept whatever the host installation defaults to.
         assertThat(arguments).contains("--strict-config");
@@ -37,13 +73,5 @@ class TestCodexLaunchProfile
         for (String feature : List.of("apps", "hooks", "plugins", "computer_use", "browser_use", "skill_search")) {
             assertThat(arguments).containsSequence("--disable", feature);
         }
-
-        // Subagents are on, and v1 needs depth two: its default of one allows a root child but not
-        // that child's own child.
-        assertThat(arguments).containsSequence("--enable", "multi_agent");
-        assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
-        // One level: a task's model may delegate, and what it delegates to may not. Measured
-        // against codex-cli 0.152.1, a subagent still spawns at this depth.
-        assertThat(arguments).containsSequence("-c", "agents.max_depth=1");
     }
 }

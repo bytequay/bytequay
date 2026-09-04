@@ -60,6 +60,21 @@ public interface ManagedProcess
     /** Requests idempotent, non-blocking process-tree cancellation. */
     void cancel();
 
+    /**
+     * Stops the owned process tree and returns a fresh verification result.
+     *
+     * <p>Unlike {@link #exit()}, this operation is retryable after an earlier exit result could not
+     * verify the tree. Implementations that can only report their original terminal result retain
+     * the conservative default.
+     *
+     * @return completion with current process-tree verification
+     */
+    default CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+    {
+        cancel();
+        return exit().thenApply(ProcessExit::treeTermination);
+    }
+
     /** Releases streams and cancels the process when it is still running. */
     @Override
     void close();

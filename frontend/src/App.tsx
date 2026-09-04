@@ -221,7 +221,6 @@ export default function App() {
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  // Agent tasks are a development-only preview until the surface is real.
   const selectAgentTask = useCallback((taskId: string | null, mode: NavigationMode) => {
     const current = workspaceRef.current;
     if (!current) return;

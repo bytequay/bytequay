@@ -25,25 +25,27 @@ existing `updatedAt`, and policy monitors apply a one-minute retry cutoff. This
 provides backoff and fair candidate selection without a worktree lifecycle or
 dedicated retry field.
 
-The renderer supplies a workspace ID, never a repository path, worktree parent,
-or worktree path. The application resolves the managed repository, freezes an
-exact starting commit, generates the task ID, and asks the service to provision
-that task's worktree before any provider session or turn starts. The owning task
-or workflow persists the returned immutable `TaskWorktree` facts.
+An interactive create request supplies a client-generated task ID used for
+idempotent creation and a workspace ID, never a repository path, worktree
+parent, or worktree path. The backend validates that ID, resolves the managed
+repository, freezes an exact starting commit, and asks the service to provision
+that task's worktree before any provider turn starts. Trusted internal
+workflows generate their own task IDs. The owning task or workflow persists the
+returned immutable `TaskWorktree` facts.
 
 ```mermaid
 flowchart LR
     CALLER["Interactive task<br/>Cherry-pick<br/>CI Autofix"]
     SERVICE["WorktreeService<br/>provision · inspect · cleanup"]
     WORKTREE["Generated task branch/worktree<br/>at exact commit"]
-    RUNTIME["Provider runtime<br/>Codex task executor or Claude CLI"]
+    RUNTIME["Provider runtime<br/>task-owned App Server or Claude CLI"]
     RESULT["Remove clean worktree<br/>always retain generated branch"]
     PRESERVE["Refuse cleanup<br/>preserve dirty or unverifiable work"]
 
-    CALLER -->|"trusted task/workspace/commit"| SERVICE
+    CALLER -->|"validated task/workspace/commit"| SERVICE
     SERVICE -->|"verified TaskWorktree"| WORKTREE
     WORKTREE --> RUNTIME
-    RUNTIME -->|"quiescent"| SERVICE
+    RUNTIME -->|"history reconciled · process tree VERIFIED_STOPPED"| SERVICE
     SERVICE -->|"clean and verified"| RESULT
     SERVICE -->|"dirty, open, or mismatched"| PRESERVE
 ```
@@ -210,11 +212,17 @@ but never the internal path.
 ### Interactive agent task
 
 The application resolves the workspace's selected
-`refs/remotes/origin/<default-branch>^{commit}`, generates the task ID,
-provisions its worktree, and stores the returned facts with the task. All turns
-reuse it. Complete is allowed only after provider execution is
-quiescent and `inspect(...)` reports a clean worktree with no open Git
-operation. Cleanup removes the worktree and retains the generated branch.
+`refs/remotes/origin/<default-branch>^{commit}`, validates the interactive
+client-generated task ID, provisions its worktree, and stores the returned
+facts with the task. All turns reuse it. Each active Codex turn gets a
+task-owned App Server in that worktree. Its immutable model snapshot selects
+the `NONE`, V1, or V2 launch profile; no execution environment or loopback
+executor is registered, and `experimentalApi` is true only for the
+background-terminal methods. Complete is allowed only after recursive item
+history and background-terminal reconciliation finishes, the provider process
+tree is `VERIFIED_STOPPED`, and `inspect(...)` reports a clean worktree with no
+open Git operation. Cleanup removes the worktree and retains the generated
+branch.
 
 ### Cherry-pick range
 
@@ -248,7 +256,8 @@ until the full top-level workflow has settled.
 
 ## 6. Safety invariants
 
-- One task ID deterministically names one path and generated branch.
+- One backend-validated task ID deterministically names one path and generated
+  branch; interactive IDs are client-generated idempotency values, not paths.
 - A task is published only after `provision(...)` returns a verified clean
   worktree at the exact starting commit.
 - Provider readiness failure creates no task worktree.
@@ -257,8 +266,10 @@ until the full top-level workflow has settled.
   symlink safety, common Git directory, origin, and generated branch.
 - Worktree add/remove operations are serialized per managed repository; work
   inside different provisioned worktrees remains concurrent.
-- Cleanup requires provider quiescence from the caller and independently
-  refuses dirty or open Git state.
+- Cleanup requires provider quiescence from the caller: recursive Codex item
+  history and background-terminal reconciliation must finish before the
+  task-owned process tree is `VERIFIED_STOPPED`. Cleanup independently refuses
+  dirty or open Git state.
 - Cleanup uses non-force worktree removal and always retains the generated
   branch.
 - A mismatch or interrupted operation is preserved and reported, never
@@ -268,8 +279,9 @@ until the full top-level workflow has settled.
 
 ## 7. Acceptance criteria
 
-1. Interactive, cherry-pick, and CI Autofix creation accepts workspace and
-   immutable Git facts but no renderer-controlled filesystem path.
+1. Interactive creation validates its client-generated idempotent task ID and
+   workspace ID; interactive, cherry-pick, and CI Autofix creation accepts no
+   renderer-controlled filesystem path.
 2. All three provision through the same service and receive distinct generated
    branches/worktrees under their workspace.
 3. Provision returns only an exact, clean, task-derived worktree and preserves

@@ -58,7 +58,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -137,6 +140,7 @@ public final class CodexCliDriver
     private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
     /** A settled answer needs a whole pass that changed nothing, so one clean pass is not enough. */
     private static final int QUIESCENCE_STABLE_PASSES = 2;
+    private static final int MAX_PENDING_CHILD_NOTIFICATIONS = 128;
     private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final int MAX_APP_SERVER_STDOUT_BYTES = 64 * 1024 * 1024;
@@ -187,6 +191,7 @@ public final class CodexCliDriver
     private final ObjectMapper objectMapper;
     private final Duration quiescenceTimeout;
     private final AtomicReference<String> appServerVersion = new AtomicReference<>();
+    private volatile ModelCatalog modelCatalog;
     private volatile String detectedVersion = "unknown";
 
     /**
@@ -237,13 +242,16 @@ public final class CodexCliDriver
      * @param workingDirectory directory the process runs in, which is also its sandbox root
      * @return the connection, which the caller must start and close
      */
-    private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory)
+    private CodexAppServerClient appServerClient(
+            String ownerId,
+            Path workingDirectory,
+            CodexLaunchProfile.ChildProfile childProfile)
     {
         return new CodexAppServerClient(
                 supervisor,
                 processSpec(
                         new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable),
+                        CodexLaunchProfile.arguments(executable, childProfile),
                         workingDirectory,
                         APP_SERVER_RUNTIME,
                         MAX_APP_SERVER_STDOUT_BYTES,
@@ -374,18 +382,7 @@ public final class CodexCliDriver
     public List<ProviderModel> models()
     {
         rememberAppServerVersion();
-        // The catalog belongs to no task, so it gets its own short-lived connection rather than a
-        // process kept alive all day to answer a question asked once at startup.
-        try (CodexAppServerClient catalog = appServerClient(
-                "codex-model-catalog",
-                Path.of(System.getProperty("user.dir")).toAbsolutePath())) {
-            catalog.start();
-            CodexProtocol.ModelListResponse response = catalog.request(
-                    "model/list",
-                    new CodexProtocol.ModelListParams(),
-                    CodexProtocol.ModelListResponse.class,
-                    REQUEST_TIMEOUT);
-            return response.data().stream()
+        return refreshModelCatalog().entries().stream()
                     .filter(entry -> !entry.hidden())
                     .map(entry -> new ProviderModel(
                             entry.id(),
@@ -399,10 +396,33 @@ public final class CodexCliDriver
                             // The schema's default when the field is absent: text and image.
                             entry.inputModalities().orElse(ImmutableList.of("text", "image"))))
                     .collect(toImmutableList());
+    }
+
+    /** Reads the catalog under a profile that cannot create a child, then caches that exact view. */
+    private synchronized ModelCatalog refreshModelCatalog()
+    {
+        try (CodexAppServerClient catalog = appServerClient(
+                "codex-model-catalog",
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                CodexLaunchProfile.ChildProfile.NONE)) {
+            catalog.start();
+            ModelCatalog loaded = new ModelCatalog(catalog.request(
+                    "model/list",
+                    new CodexProtocol.ModelListParams(),
+                    CodexProtocol.ModelListResponse.class,
+                    REQUEST_TIMEOUT).data());
+            modelCatalog = loaded;
+            return loaded;
         }
         catch (RuntimeException failure) {
             throw appServerFailure("model catalog", failure);
         }
+    }
+
+    private ModelCatalog modelCatalog()
+    {
+        ModelCatalog cached = modelCatalog;
+        return cached == null ? refreshModelCatalog() : cached;
     }
 
     @Override
@@ -414,9 +434,13 @@ public final class CodexCliDriver
         // The process runs in the task worktree because that directory is also its sandbox root:
         // App Server's default environment confines a turn's writes to its own working directory,
         // which is why a task needs no separately registered execution environment.
-        CodexAppServerClient client = appServerClient(context.taskId(), context.worktree());
+        ModelProfile modelProfile = modelCatalog().select(context.model());
+        CodexAppServerClient client = appServerClient(
+                context.taskId(),
+                context.worktree(),
+                modelProfile.childProfile());
         try {
-            return new CodexSession(client, context, events);
+            return new CodexSession(client, context, events, modelProfile);
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
@@ -591,8 +615,55 @@ public final class CodexCliDriver
 
     private record CommandResult(int exitCode, String output) {}
 
+    private record ModelCatalog(List<CodexProtocol.ModelEntry> entries)
+    {
+        private ModelCatalog
+        {
+            entries = ImmutableList.copyOf(entries);
+        }
+
+        private ModelProfile select(Optional<String> selectedModel)
+        {
+            List<CodexProtocol.ModelEntry> visible = entries.stream()
+                    .filter(entry -> !entry.hidden())
+                    .collect(toImmutableList());
+            CodexProtocol.ModelEntry selected = selectedModel
+                    .flatMap(model -> visible.stream().filter(entry -> entry.id().equals(model)).findFirst())
+                    .orElseGet(() -> selectedModel.isPresent() ? null : visible.stream()
+                            .filter(CodexProtocol.ModelEntry::isDefault)
+                            .findFirst()
+                            .orElse(null));
+            if (selected == null) {
+                throw new AgentUnavailableException(selectedModel
+                        .map(model -> "Codex model " + model + " is not in the current model catalog")
+                        .orElse("Codex model catalog has no visible default model"));
+            }
+            CodexProtocol.MultiAgentVersion version = selected.multiAgentVersion().orElse(CodexProtocol.MultiAgentVersion.DISABLED);
+            CodexLaunchProfile.ChildProfile childProfile = switch (version) {
+                case DISABLED -> CodexLaunchProfile.ChildProfile.NONE;
+                case V1 -> CodexLaunchProfile.ChildProfile.V1;
+                case V2 -> CodexLaunchProfile.ChildProfile.V2;
+                case UNKNOWN -> throw new AgentUnavailableException(
+                        "Codex model " + selected.id() + " advertises an unknown multi-agent version");
+            };
+            return new ModelProfile(selected.id(), childProfile);
+        }
+    }
+
+    private record ModelProfile(String id, CodexLaunchProfile.ChildProfile childProfile)
+    {
+        private ModelProfile
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(childProfile, "childProfile is null");
+        }
+    }
+
     /** A subagent's place in the task: the thread that spawned it and the name it is shown under. */
     private record ChildFacts(String parent, String label, Optional<String> purpose) {}
+
+    /** Item ids are only unique within their source thread and turn. */
+    private record ItemIdentity(String threadId, String turnId, String itemId) {}
 
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
@@ -603,16 +674,17 @@ public final class CodexCliDriver
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
         private final AgentSessionRef reference;
+        private final ModelProfile modelProfile;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
         /** Every subagent this process has named, by thread, with its parent and label. */
         private final Map<String, ChildFacts> children = new ConcurrentHashMap<>();
+        /** Canonical V2 paths, separate from labels a preceding thread/started may carry. */
+        private final Map<String, String> v2AgentPaths = new ConcurrentHashMap<>();
         private final Set<String> announcedChildren = ConcurrentHashMap.newKeySet();
         private final Set<String> promptedChildren = ConcurrentHashMap.newKeySet();
-        private final Set<String> terminalChildren = ConcurrentHashMap.newKeySet();
-        private final Set<String> backfilledChildren = ConcurrentHashMap.newKeySet();
-        /** Item ids seen live, so a history read never appends an item the stream already delivered. */
-        private final Set<String> seenItems = ConcurrentHashMap.newKeySet();
+        /** Completed item identities already emitted live or recovered from history. */
+        private final Set<ItemIdentity> completedItems = ConcurrentHashMap.newKeySet();
         private final CodexEventMapper.ThreadLineage lineage = new CodexEventMapper.ThreadLineage()
         {
             @Override
@@ -624,22 +696,30 @@ public final class CodexCliDriver
             @Override
             public Optional<String> labelOf(String threadId)
             {
+                if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+                    return Optional.ofNullable(v2AgentPaths.get(threadId));
+                }
                 return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
             }
         };
         /** Items reported started and not yet reported terminal, by the thread that owns them. */
-        private final ConcurrentMap<String, Set<String>> liveItems = new ConcurrentHashMap<>();
+        private final ConcurrentMap<String, Set<ItemIdentity>> liveItems = new ConcurrentHashMap<>();
+        /** Out-of-order child activity awaiting an explicit route to the root. Guarded by this session. */
+        private final Map<String, List<CodexProtocol.Notification>> pendingNotifications = new HashMap<>();
+        private int pendingNotificationCount;
         private CodexRunningTurn running;
         private boolean closed;
 
         private CodexSession(
                 CodexAppServerClient client,
                 AgentSessionContext context,
-                AgentEventSink events)
+                AgentEventSink events,
+                ModelProfile modelProfile)
         {
             this.client = requireNonNull(client, "client is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
+            this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
             this.isolation = new CodexIsolationGuard(client);
             // Attached before the process is started, so nothing App Server emits can arrive
@@ -647,6 +727,10 @@ public final class CodexCliDriver
             client.listen(this);
             client.start();
             this.reference = new AgentSessionRef(LANE_ID, CONTRACT_VERSION, openThread(context));
+            observedThreads.add(reference.providerValue());
+            if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+                v2AgentPaths.put(reference.providerValue(), "/");
+            }
         }
 
         /**
@@ -711,12 +795,16 @@ public final class CodexCliDriver
             // Re-checked before every turn, not once per session: a turn runs under workspace-write
             // and could leave a hook or policy file behind that a later turn would inherit.
             isolation.verify(context.worktree());
+            Optional<String> requestedModel = command.model().or(context::model);
+            if (requestedModel.isPresent() && !requestedModel.orElseThrow().equals(modelProfile.id())) {
+                throw new AgentUnavailableException("Turn model does not match the Codex process launch profile");
+            }
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     input,
                     // The turn carries the settings that were snapshotted when it was accepted, so
                     // a default changed after acceptance cannot rewrite the turn that is starting.
-                    command.model().or(context::model),
+                    Optional.of(modelProfile.id()),
                     command.effort().or(context::effort));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
@@ -766,14 +854,27 @@ public final class CodexCliDriver
             if (!rootThread && !subagentActivity(notification)) {
                 return;
             }
-            observe(notification);
-            // Routing is in place before a discovery event is published: the child is already in
-            // the lineage and the thread set when anything about it reaches the log.
-            announceChildren(notification.emittedAtMs().map(Instant::ofEpochMilli));
-            if (!rootThread && notification instanceof CodexProtocol.TurnCompletedNotification) {
-                terminalChildren.add(notification.threadId());
-            }
             try {
+                if (!rootThread
+                        && !routableThread(notification.threadId())
+                        && !readyThreadStarted(notification)) {
+                    bufferNotification(notification);
+                    return;
+                }
+                observe(notification);
+                // Routing is in place before a discovery event is published: the child is already
+                // in the lineage and the thread set when anything about it reaches the log.
+                announceChildren(notification.emittedAtMs().map(Instant::ofEpochMilli));
+                flushPendingNotifications();
+                if (!rootThread && !routableThread(notification.threadId())) {
+                    if (!(notification instanceof CodexProtocol.ThreadStartedNotification)) {
+                        bufferNotification(notification);
+                    }
+                    return;
+                }
+                if (running == null) {
+                    return;
+                }
                 if (rootThread
                         && notification instanceof CodexProtocol.ItemCompletedNotification completed
                         && completed.params().item() instanceof CodexProtocol.AgentMessageItem message) {
@@ -801,9 +902,95 @@ public final class CodexCliDriver
             catch (RuntimeException failure) {
                 CodexRunningTurn failed = running;
                 running = null;
-                // The process is still running; only a verified stop may release the worktree.
-                failed.interrupt(failure, false);
+                closed = true;
+                Thread.ofVirtual().name("bytequay-codex-failed-notification").start(() -> {
+                    try {
+                        client.close();
+                        failed.interrupt(failure, true);
+                    }
+                    catch (RuntimeException closeFailure) {
+                        failure.addSuppressed(closeFailure);
+                        failed.interrupt(failure, false);
+                    }
+                });
             }
+        }
+
+        /** Holds a small amount of child activity until its explicit lineage arrives. */
+        private void bufferNotification(CodexProtocol.Notification notification)
+        {
+            observedThreads.add(notification.threadId());
+            if (pendingNotificationCount >= MAX_PENDING_CHILD_NOTIFICATIONS) {
+                throw new AgentUnavailableException("Codex child activity exceeded the pending-lineage bound");
+            }
+            pendingNotifications
+                    .computeIfAbsent(notification.threadId(), ignored -> new ArrayList<>())
+                    .add(notification);
+            pendingNotificationCount++;
+        }
+
+        /** Replays only threads whose complete route to the root is now known. */
+        private synchronized void flushPendingNotifications()
+        {
+            boolean flushed;
+            do {
+                flushed = false;
+                for (String threadId : ImmutableList.copyOf(pendingNotifications.keySet())) {
+                    if (!routableThread(threadId)) {
+                        List<CodexProtocol.Notification> waiting = pendingNotifications.get(threadId);
+                        Optional<CodexProtocol.Notification> lineageSignal = waiting.stream()
+                                .filter(this::readyThreadStarted)
+                                .findFirst();
+                        if (lineageSignal.isEmpty()) {
+                            continue;
+                        }
+                        CodexProtocol.Notification signal = lineageSignal.orElseThrow();
+                        waiting.remove(signal);
+                        pendingNotificationCount--;
+                        if (waiting.isEmpty()) {
+                            pendingNotifications.remove(threadId);
+                        }
+                        flushed = true;
+                        onNotification(signal);
+                        break;
+                    }
+                    List<CodexProtocol.Notification> notifications = pendingNotifications.remove(threadId);
+                    pendingNotificationCount -= notifications.size();
+                    flushed = true;
+                    notifications.forEach(this::onNotification);
+                    break;
+                }
+            }
+            while (flushed && running != null);
+        }
+
+        private boolean readyThreadStarted(CodexProtocol.Notification notification)
+        {
+            if (!(notification instanceof CodexProtocol.ThreadStartedNotification started)) {
+                return false;
+            }
+            return started.params().thread().parentThreadId()
+                    .filter(parent -> parent.equals(reference.providerValue()) || confirmedLineage(parent))
+                    .isPresent();
+        }
+
+        private synchronized Optional<String> pendingLineageDiagnostic()
+        {
+            Optional<String> buffered = pendingNotifications.entrySet().stream()
+                    .findFirst()
+                    .map(entry -> entry.getValue().size() + " buffered notification(s) on thread "
+                            + entry.getKey() + " have no confirmed lineage");
+            if (buffered.isPresent()) {
+                return buffered;
+            }
+            if (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V2) {
+                return Optional.empty();
+            }
+            return children.keySet().stream()
+                    .filter(this::confirmedLineage)
+                    .filter(threadId -> !v2AgentPaths.containsKey(threadId))
+                    .findFirst()
+                    .map(threadId -> "thread " + threadId + " has no canonical V2 STARTED path");
         }
 
         /**
@@ -839,51 +1026,167 @@ public final class CodexCliDriver
         private void observe(CodexProtocol.Notification notification)
         {
             observedThreads.add(notification.threadId());
-            // Every thread in this process belongs to this task, so one that is not the root is a
-            // subagent even before a spawn item names it. Registering it here is what keeps its
-            // answer from ever being read back as the task's own.
-            register(notification.threadId(), reference.providerValue(), Optional.empty());
             if (notification instanceof CodexProtocol.ThreadStartedNotification started) {
                 CodexProtocol.HistoryThread thread = started.params().thread();
-                if (!thread.id().equals(reference.providerValue())) {
-                    register(thread.id(), thread.parentThreadId().orElse(reference.providerValue()),
-                            thread.agentNickname().or(thread::agentRole));
-                }
+                // A missing parent is not evidence that this is a direct child of the root. Keep
+                // observing the thread, but do not publish it until an explicit edge arrives.
+                thread.parentThreadId().ifPresent(parent -> register(
+                        thread.id(),
+                        parent,
+                        thread.agentNickname().or(thread::agentRole)));
                 return;
             }
             if (notification instanceof CodexProtocol.ItemStartedNotification started) {
-                seenItems.add(started.params().item().id());
                 registerSpawned(started.params().item(), started.threadId());
                 if (!canTouchWorktree(started.params().item())) {
                     return;
                 }
                 liveItems
                         .computeIfAbsent(started.threadId(), thread -> ConcurrentHashMap.newKeySet())
-                        .add(started.params().item().id());
+                        .add(new ItemIdentity(
+                                started.threadId(),
+                                started.params().turnId(),
+                                started.params().item().id()));
             }
             else if (notification instanceof CodexProtocol.ItemCompletedNotification completed) {
-                seenItems.add(completed.params().item().id());
                 registerSpawned(completed.params().item(), completed.threadId());
-                Set<String> items = liveItems.get(completed.threadId());
+                if (completed.threadId().equals(reference.providerValue()) || routableThread(completed.threadId())) {
+                    completedItems.add(new ItemIdentity(
+                            completed.threadId(),
+                            completed.params().turnId(),
+                            completed.params().item().id()));
+                }
+                Set<ItemIdentity> items = liveItems.get(completed.threadId());
                 if (items != null) {
-                    items.remove(completed.params().item().id());
+                    items.remove(new ItemIdentity(
+                            completed.threadId(),
+                            completed.params().turnId(),
+                            completed.params().item().id()));
                 }
             }
         }
 
-        /** A child named by a spawn or a V2 activity item joins the tree under the thread that named it. */
-        private void registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
+        /**
+         * Applies the one edge format selected for this model process.
+         *
+         * @return child thread ids named by authoritative edges in this item
+         */
+        private List<String> registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
         {
-            if (item instanceof CodexProtocol.CollabAgentToolCallItem collab && collab.tool().equals("spawnAgent")) {
+            if (item instanceof CodexProtocol.CollabAgentToolCallItem collab) {
+                if (!collab.senderThreadId().equals(namingThread)) {
+                    throw new AgentUnavailableException("Codex collaboration sender does not match its owning thread");
+                }
+                if (!collab.tool().equals("spawnAgent")) {
+                    collab.receiverThreadIds().forEach(this::requireKnownGraphIdentity);
+                    collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
+                    return ImmutableList.of();
+                }
+                if (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V1) {
+                    collab.receiverThreadIds().forEach(receiver -> {
+                        requireKnownGraphIdentity(receiver);
+                        enrichKnown(receiver, Optional.empty(), collab.prompt());
+                    });
+                    collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
+                    return ImmutableList.of();
+                }
+                collab.agentsStates().keySet().stream()
+                        .filter(threadId -> !collab.receiverThreadIds().contains(threadId))
+                        .forEach(this::requireKnownGraphIdentity);
                 // The spawn carries what the parent asked for; the child never repeats it as a
                 // message of its own, so this is the only record of its purpose.
                 collab.receiverThreadIds().forEach(receiver ->
-                        register(receiver, collab.senderThreadId(), Optional.empty(), collab.prompt()));
+                        register(receiver, namingThread, Optional.empty(), collab.prompt()));
+                return collab.receiverThreadIds();
             }
-            else if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
-                Path path = Path.of(activity.agentPath()).getFileName();
-                register(activity.agentThreadId(), namingThread, Optional.ofNullable(path).map(Path::toString));
+            if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
+                boolean edge = modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2
+                        && activity.kind() == CodexProtocol.SubAgentActivityKind.STARTED;
+                String agentPath = validateV2AgentPath(
+                        activity.agentThreadId(),
+                        namingThread,
+                        activity.agentPath(),
+                        edge);
+                Optional<String> label = Optional.of(agentPath);
+                if (!edge) {
+                    requireKnownGraphIdentity(activity.agentThreadId());
+                    if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2
+                            && !v2AgentPaths.containsKey(activity.agentThreadId())) {
+                        throw new AgentUnavailableException("Codex supplementary V2 activity has no canonical STARTED path");
+                    }
+                    rememberV2AgentPath(activity.agentThreadId(), agentPath);
+                    enrichKnown(activity.agentThreadId(), label, Optional.empty());
+                    return ImmutableList.of();
+                }
+                register(activity.agentThreadId(), namingThread, label);
+                rememberV2AgentPath(activity.agentThreadId(), agentPath);
+                return ImmutableList.of(activity.agentThreadId());
             }
+            return ImmutableList.of();
+        }
+
+        private void requireKnownGraphIdentity(String threadId)
+        {
+            if (!threadId.equals(reference.providerValue()) && !routableThread(threadId)) {
+                throw new AgentUnavailableException("Codex supplementary child activity has no confirmed graph identity");
+            }
+        }
+
+        /** V2 paths are absolute and stable; a STARTED edge is nested below its direct parent. */
+        private String validateV2AgentPath(
+                String threadId,
+                String parentThreadId,
+                String rawPath,
+                boolean edge)
+        {
+            Path path;
+            try {
+                path = Path.of(rawPath);
+            }
+            catch (RuntimeException invalid) {
+                throw new AgentUnavailableException("Codex V2 agent path is invalid", invalid);
+            }
+            if (!path.isAbsolute() || !path.normalize().equals(path)) {
+                throw new AgentUnavailableException("Codex V2 agent path is not absolute and normalized");
+            }
+            String existing = v2AgentPaths.get(threadId);
+            if (existing != null && !existing.equals(rawPath)) {
+                throw new AgentUnavailableException("Codex V2 agent path changed for an existing child");
+            }
+            if (edge) {
+                String parentPath = v2AgentPaths.get(parentThreadId);
+                if (parentPath == null) {
+                    throw new AgentUnavailableException("Codex V2 child path has no canonical parent path");
+                }
+                Path parent = Path.of(parentPath);
+                if (path.equals(parent) || !path.startsWith(parent)) {
+                    throw new AgentUnavailableException("Codex V2 child path is not nested below its direct parent");
+                }
+            }
+            return rawPath;
+        }
+
+        private void rememberV2AgentPath(String threadId, String agentPath)
+        {
+            String existing = v2AgentPaths.putIfAbsent(threadId, agentPath);
+            if (existing != null && !existing.equals(agentPath)) {
+                throw new AgentUnavailableException("Codex V2 agent path changed for an existing child");
+            }
+        }
+
+        /** The nonselected item form may add metadata, but it cannot create a graph edge. */
+        private void enrichKnown(String threadId, Optional<String> label, Optional<String> purpose)
+        {
+            if (threadId.equals(reference.providerValue())) {
+                return;
+            }
+            if (!routableThread(threadId)) {
+                throw new AgentUnavailableException("Codex supplementary child activity has no confirmed graph identity");
+            }
+            children.computeIfPresent(threadId, (thread, existing) -> new ChildFacts(
+                    existing.parent(),
+                    resolvedChildLabel(threadId, label, existing.label()),
+                    purpose.or(existing::purpose)));
         }
 
         private void register(String threadId, String parentThreadId, Optional<String> label)
@@ -898,34 +1201,70 @@ public final class CodexCliDriver
                 Optional<String> purpose)
         {
             if (threadId.equals(reference.providerValue())) {
-                return;
+                throw new AgentUnavailableException("Codex reported the root thread as its own child");
+            }
+            if (threadId.equals(parentThreadId)) {
+                throw new AgentUnavailableException("Codex reported a subagent as its own parent");
+            }
+            if (!parentThreadId.equals(reference.providerValue()) && !observedThreads.contains(parentThreadId)) {
+                throw new AgentUnavailableException("Codex reported a subagent whose parent is not in this process");
+            }
+            String ancestor = parentThreadId;
+            while (!ancestor.equals(reference.providerValue())) {
+                if (ancestor.equals(threadId)) {
+                    throw new AgentUnavailableException("Codex reported a cycle in its subagent lineage");
+                }
+                ChildFacts facts = children.get(ancestor);
+                if (facts == null) {
+                    break;
+                }
+                ancestor = facts.parent();
             }
             observedThreads.add(threadId);
             children.compute(threadId, (thread, existing) -> {
                 if (existing == null) {
                     return new ChildFacts(
                             parentThreadId,
-                            label.orElse("Agent " + (children.size() + 1)),
+                            resolvedChildLabel(threadId, label, "Agent " + (children.size() + 1)),
                             purpose);
                 }
-                // A nickname or prompt that arrives after a placeholder fills it in; a parent never changes.
+                if (!existing.parent().equals(parentThreadId)) {
+                    throw new AgentUnavailableException("Codex reported contradictory parents for a subagent");
+                }
+                // A nickname or prompt that arrives after discovery fills it in; a parent never changes.
                 return new ChildFacts(
                         existing.parent(),
-                        label.orElse(existing.label()),
+                        resolvedChildLabel(threadId, label, existing.label()),
                         purpose.or(existing::purpose));
             });
+        }
+
+        /** A canonical V2 path, once known, cannot be replaced by thread metadata. */
+        private String resolvedChildLabel(String threadId, Optional<String> reported, String fallback)
+        {
+            if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+                String canonical = v2AgentPaths.get(threadId);
+                if (canonical != null) {
+                    return canonical;
+                }
+            }
+            return reported.orElse(fallback);
         }
 
         /** Publishes one discovery event per child, after its lineage is in place. */
         private void announceChildren(Optional<Instant> timestamp)
         {
             for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
+                if (!routableThread(child.getKey())) {
+                    continue;
+                }
+                String label = lineage.labelOf(child.getKey()).orElse(child.getValue().label());
                 if (announcedChildren.add(child.getKey())) {
                     events.emit(new ProviderAgentEvent.Lifecycle(
                             Optional.of(child.getKey() + ":agent-started"),
                             timestamp,
                             ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
-                            child.getValue().label(),
+                            label,
                             childSource(child.getKey())));
                 }
                 // The spawn that carries the prompt can arrive before or after the thread it
@@ -943,6 +1282,32 @@ public final class CodexCliDriver
             }
         }
 
+        /** Whether every parent edge from this child reaches the task's root. */
+        private boolean confirmedLineage(String threadId)
+        {
+            Set<String> visited = new HashSet<>();
+            String current = threadId;
+            while (!current.equals(reference.providerValue())) {
+                if (!visited.add(current)) {
+                    return false;
+                }
+                ChildFacts facts = children.get(current);
+                if (facts == null) {
+                    return false;
+                }
+                current = facts.parent();
+            }
+            return true;
+        }
+
+        /** A V2 child is routable only after its authoritative STARTED path is known. */
+        private boolean routableThread(String threadId)
+        {
+            return confirmedLineage(threadId)
+                    && (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V2
+                            || v2AgentPaths.containsKey(threadId));
+        }
+
         private ProviderAgentEventSource childSource(String threadId)
         {
             return new ProviderAgentEventSource(
@@ -953,13 +1318,16 @@ public final class CodexCliDriver
                     Optional.empty());
         }
 
-        /**
-         * Appends what a child's history holds that the live stream never delivered, between
-         * explicit markers so recovered activity is never mistaken for new work.
-         */
-        private void backfill(String threadId)
+        /** Appends one page of child history that the live stream never delivered. */
+        private void backfill(
+                String threadId,
+                List<CodexProtocol.ThreadItemEntry> entries,
+                boolean rootThread)
         {
-            if (!backfilledChildren.add(threadId)) {
+            List<CodexProtocol.ThreadItemEntry> unseen = entries.stream()
+                    .filter(entry -> completedItems.add(new ItemIdentity(threadId, entry.turnId(), entry.item().id())))
+                    .collect(toImmutableList());
+            if (unseen.isEmpty()) {
                 return;
             }
             events.emit(new ProviderAgentEvent.Lifecycle(
@@ -968,43 +1336,22 @@ public final class CodexCliDriver
                     ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED,
                     "Recovering this agent's activity from its history",
                     childSource(threadId)));
-            Optional<String> cursor = Optional.empty();
-            do {
-                CodexProtocol.ThreadItemsListResponse page = client.request(
-                        "thread/items/list",
-                        new CodexProtocol.ThreadItemsListParams(threadId, cursor),
-                        CodexProtocol.ThreadItemsListResponse.class,
-                        REQUEST_TIMEOUT);
-                for (CodexProtocol.ThreadItemEntry entry : page.data()) {
-                    if (seenItems.add(entry.item().id())) {
-                        eventMapper.mapHistoryItem(entry.item(), threadId, entry.turnId(), false, lineage)
-                                .forEach(events::emit);
+            for (CodexProtocol.ThreadItemEntry entry : unseen) {
+                if (rootThread && entry.item() instanceof CodexProtocol.AgentMessageItem message) {
+                    CodexRunningTurn active = running;
+                    if (active != null) {
+                        active.observeMessage(message.phase(), redactor.redact(message.text()));
                     }
                 }
-                cursor = page.nextCursor();
+                eventMapper.mapHistoryItem(entry.item(), threadId, entry.turnId(), rootThread, lineage)
+                        .forEach(events::emit);
             }
-            while (cursor.isPresent());
             events.emit(new ProviderAgentEvent.Lifecycle(
                     Optional.of(threadId + ":backfill-completed"),
                     Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.BACKFILL_COMPLETED,
                     "Recovered this agent's activity from its history",
                     childSource(threadId)));
-        }
-
-        /** A child the quiescence proof found finished without a terminal event of its own. */
-        private void settleChildren()
-        {
-            for (String child : announcedChildren) {
-                if (terminalChildren.add(child)) {
-                    events.emit(new ProviderAgentEvent.Lifecycle(
-                            Optional.of(child + ":agent-settled"),
-                            Optional.empty(),
-                            ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED,
-                            "Agent finished before ByteQuay observed its completion",
-                            childSource(child)));
-                }
-            }
         }
 
         /**
@@ -1017,36 +1364,58 @@ public final class CodexCliDriver
         {
             // A cancelled turn is not waiting for its work, it is stopping it, so a yielded
             // command is terminated rather than watched.
-            Optional<String> unsettled = awaitQuiescence(turn.cancellationRequested());
+            Optional<String> unsettled;
+            try {
+                unsettled = awaitQuiescence(turn.reference().value(), turn.cancellationRequested());
+            }
+            catch (RuntimeException failure) {
+                String message = Optional.ofNullable(failure.getMessage())
+                        .filter(value -> !value.isBlank())
+                        .orElse("the quiescence check failed");
+                unsettled = Optional.of(redactor.redact(message));
+            }
             synchronized (this) {
                 if (running != turn) {
                     // Cancelled, disconnected, or already finished while we waited.
                     return;
                 }
                 running = null;
+                closed = true;
+            }
+            try {
+                // Item and terminal inventories do not expose a descendant turn status. A
+                // verified stop of this per-turn process is the final proof that no child or tool
+                // can still touch the worktree, including on every failed quiescence path.
+                client.close();
+            }
+            catch (RuntimeException failure) {
+                String message = Optional.ofNullable(failure.getMessage())
+                        .filter(value -> !value.isBlank())
+                        .orElse("the App Server process tree could not be verified stopped");
+                turn.completeUnverifiable(reported, redactor.redact(message));
+                return;
             }
             if (unsettled.isEmpty()) {
-                settleChildren();
                 turn.complete(reported);
                 return;
             }
-            // Never report a clean completion for work that may still be touching the worktree.
-            turn.completeUnverifiable(reported, unsettled.orElseThrow());
+            turn.completeFailedButStopped(reported, unsettled.orElseThrow());
         }
 
         /**
          * Waits until nothing this task's process started is still running.
          *
-         * <p>App Server v0.151.0 answers {@code thread/read(includeTurns: true)} with
-         * {@code list_turns is not supported yet}, so there is no history to close over. What is
-         * available is the live item stream, which item notifications are never shed from, plus the
-         * background-terminal inventory that reports commands still running after the item that
-         * started them went terminal. A pass that changes nothing is not enough on its own, because
-         * a subagent can appear between two reads.
+         * <p>App Server v0.151.0 does not expose turns through {@code thread/read}, but
+         * {@code thread/items/list} is the recursive item and relationship history source. It is
+         * combined with the live item stream and the background-terminal inventory that reports
+         * commands still running after their item went terminal. A pass that changes nothing is
+         * not enough on its own, because a subagent can appear between two reads.
          *
+         * @param providerTurnId current root turn; older root history belongs to earlier processes
+         * @param stopBackgroundWork whether outstanding background processes should be terminated
          * @return empty when quiet, otherwise what was still outstanding
          */
-        private Optional<String> awaitQuiescence(boolean stopBackgroundWork)
+        private Optional<String> awaitQuiescence(String providerTurnId, boolean stopBackgroundWork)
         {
             Instant deadline = Instant.now().plus(quiescenceTimeout);
             int stablePasses = 0;
@@ -1060,6 +1429,15 @@ public final class CodexCliDriver
                     return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
                 }
                 Set<String> threads = ImmutableSet.copyOf(observedThreads);
+                // History reconciles a live start whose terminal notification was missed, and it
+                // can expand the recursive thread closure before the live/background check.
+                Optional<String> unfinished = firstUnfinishedInHistory(threads, providerTurnId);
+                if (unfinished.isPresent()) {
+                    lastSeen = unfinished.orElseThrow();
+                    stablePasses = 0;
+                    sleep(QUIESCENCE_POLL);
+                    continue;
+                }
                 Optional<String> outstanding = firstOutstanding(threads, stopBackgroundWork);
                 if (outstanding.isPresent()) {
                     lastSeen = outstanding.orElseThrow();
@@ -1067,12 +1445,9 @@ public final class CodexCliDriver
                     sleep(QUIESCENCE_POLL);
                     continue;
                 }
-                // Live and background checks are clear, so confirm against history. This is the
-                // only thing that can see an item the notification stream never delivered, and it
-                // runs here rather than every pass because paging is not free.
-                Optional<String> unfinished = firstUnfinishedInHistory(threads);
-                if (unfinished.isPresent()) {
-                    lastSeen = unfinished.orElseThrow();
+                Optional<String> pending = pendingLineageDiagnostic();
+                if (pending.isPresent()) {
+                    lastSeen = pending.orElseThrow();
                     stablePasses = 0;
                     sleep(QUIESCENCE_POLL);
                     continue;
@@ -1098,9 +1473,9 @@ public final class CodexCliDriver
         private Optional<String> firstOutstanding(Set<String> threads, boolean stopBackgroundWork)
         {
             for (String thread : threads) {
-                Set<String> items = liveItems.get(thread);
+                Set<ItemIdentity> items = liveItems.get(thread);
                 if (items != null && !items.isEmpty()) {
-                    return Optional.of("item " + items.iterator().next() + " on thread " + thread);
+                    return Optional.of("item " + items.iterator().next().itemId() + " on thread " + thread);
                 }
             }
             for (String thread : threads) {
@@ -1119,11 +1494,15 @@ public final class CodexCliDriver
          * not an empty one.
          *
          * @param threads every thread this process has shown
+         * @param providerTurnId current root turn whose entries are relevant
          * @return what is unfinished, or empty when history agrees nothing is
          */
-        private Optional<String> firstUnfinishedInHistory(Set<String> threads)
+        private Optional<String> firstUnfinishedInHistory(Set<String> threads, String providerTurnId)
         {
             for (String thread : threads) {
+                if (!thread.equals(reference.providerValue()) && !routableThread(thread)) {
+                    continue;
+                }
                 Optional<String> cursor = Optional.empty();
                 do {
                     CodexProtocol.ThreadItemsListResponse page;
@@ -1138,24 +1517,36 @@ public final class CodexCliDriver
                         return Optional.of("the items of thread " + thread
                                 + " could not be listed: " + failure.getMessage());
                     }
-                    for (CodexProtocol.ThreadItemEntry entry : page.data()) {
-                        // History names the subagents a thread spawned, so a child is found even
-                        // when nothing it did ever reached the notification stream. Depth is
-                        // bounded to one, so a child has no children of its own to look for.
-                        if (entry.item() instanceof CodexProtocol.SubAgentActivityItem subagent) {
-                            observedThreads.add(subagent.agentThreadId());
-                            if (!children.containsKey(subagent.agentThreadId())) {
-                                // History named a child the stream never did: it joins the tree,
-                                // is announced, and what it did is recovered rather than lost.
-                                registerSpawned(subagent, thread);
-                                announceChildren(Optional.empty());
-                                backfill(subagent.agentThreadId());
-                            }
+                    List<CodexProtocol.ThreadItemEntry> relevantEntries = page.data().stream()
+                            .filter(entry -> !thread.equals(reference.providerValue())
+                                    || entry.turnId().equals(providerTurnId))
+                            .collect(toImmutableList());
+                    for (CodexProtocol.ThreadItemEntry entry : relevantEntries) {
+                        // The selected model profile decides which historical item is a graph
+                        // edge. Each new thread expands the next fixed-point pass, so the same
+                        // rule discovers children and grandchildren recursively.
+                        List<String> discovered = registerSpawned(entry.item(), thread);
+                        if (!discovered.isEmpty()) {
+                            announceChildren(Optional.empty());
+                            flushPendingNotifications();
                         }
                         if (!entry.item().terminal()) {
                             return Optional.of("item " + entry.item().id()
                                     + " on thread " + thread + " is still running");
                         }
+                        Set<ItemIdentity> live = liveItems.get(thread);
+                        if (live != null) {
+                            live.remove(new ItemIdentity(thread, entry.turnId(), entry.item().id()));
+                        }
+                    }
+                    if (thread.equals(reference.providerValue()) || routableThread(thread)) {
+                        // History is a recurring recovery source, not a one-shot snapshot: a
+                        // later pass can contain an item the live stream and an earlier page both
+                        // missed.
+                        backfill(
+                                thread,
+                                relevantEntries,
+                                thread.equals(reference.providerValue()));
                     }
                     cursor = page.nextCursor();
                 }
@@ -1268,6 +1659,11 @@ public final class CodexCliDriver
                                 || !serverRequest.turnId().orElseThrow().equals(running.reference().value()))) {
                     return CompletableFuture.failedFuture(
                             new AgentUnavailableException("Codex request does not belong to the active turn"));
+                }
+                if (!serverRequest.threadId().equals(reference.providerValue())
+                        && !routableThread(serverRequest.threadId())) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex approval thread is not in the active agent graph"));
                 }
                 expectedTurn = running;
             }
@@ -1597,6 +1993,18 @@ public final class CodexCliDriver
                             + " finished the turn but " + unsettled + " could not be shown stopped"),
                     elapsed(turn),
                     false));
+        }
+
+        /** The root result is rejected, but the per-turn process tree was conclusively stopped. */
+        private void completeFailedButStopped(CodexProtocol.Turn turn, String reason)
+        {
+            completion.complete(new AgentTurnResult(
+                    AgentTurnResult.State.FAILED,
+                    finalResponse,
+                    Optional.of("Codex CLI " + rememberAppServerVersion()
+                            + " finished the turn, but " + redactor.redact(reason)),
+                    elapsed(turn),
+                    true));
         }
 
         private void observeMessage(Optional<CodexProtocol.MessagePhase> phase, String text)

@@ -87,6 +87,7 @@ public final class ClaudeCliDriver
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
+    private static final Duration SESSION_CLOSE_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_STDOUT_BYTES = 64 * 1024 * 1024;
     private static final int MAX_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
@@ -678,6 +679,7 @@ public final class ClaudeCliDriver
         private final ClaudePermissionBroker.Registration registration;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
+        private ClaudeRunningTurn lastTurn;
         private boolean resume;
         private boolean sessionClosed;
 
@@ -712,8 +714,16 @@ public final class ClaudeCliDriver
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
                 throw new AgentUnavailableException("Claude session already has a running turn");
             }
+            lastTurn = null;
+            running = null;
             running = new ClaudeRunningTurn(this, command, resume);
             return running;
+        }
+
+        /** Retains a process that started even when writing its prompt fails before start returns. */
+        private synchronized void started(ClaudeRunningTurn turn)
+        {
+            running = requireNonNull(turn, "turn is null");
         }
 
         private synchronized void markResumable()
@@ -725,20 +735,65 @@ public final class ClaudeCliDriver
         {
             if (running == turn) {
                 running = null;
+                lastTurn = turn;
             }
         }
 
         @Override
-        public synchronized void close()
+        public void close()
         {
-            if (sessionClosed) {
-                return;
+            ClaudeRunningTurn active;
+            ClaudeRunningTurn owned;
+            synchronized (this) {
+                sessionClosed = true;
+                active = running;
+                owned = active == null ? lastTurn : active;
             }
-            sessionClosed = true;
-            if (running != null) {
-                running.cancel();
+
+            RuntimeException failure = null;
+            ProcessExit.TreeTermination termination = null;
+            if (owned != null) {
+                try {
+                    termination = owned.stopAndVerify().toCompletableFuture()
+                            .get(SESSION_CLOSE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                    if (active != null) {
+                        active.completion().toCompletableFuture()
+                                .get(SESSION_CLOSE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                    }
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    failure = new AgentUnavailableException("Interrupted while stopping Claude process", e);
+                }
+                catch (ExecutionException e) {
+                    failure = new AgentUnavailableException("Claude process did not report its exit", e.getCause());
+                }
+                catch (TimeoutException e) {
+                    failure = new AgentUnavailableException(
+                            "Claude process did not stop within " + SESSION_CLOSE_TIMEOUT.toSeconds()
+                                    + " seconds, so its process tree is not verified stopped",
+                            e);
+                }
             }
-            registration.close();
+            if (failure == null
+                    && termination != null
+                    && termination != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                failure = new AgentUnavailableException("Claude process tree could not be verified stopped");
+            }
+            try {
+                registration.close();
+            }
+            catch (RuntimeException closeFailure) {
+                if (failure == null) {
+                    failure = closeFailure;
+                }
+                else if (failure != closeFailure) {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+            if (failure != null) {
+                throw failure;
+            }
             sessions.remove(this);
         }
     }
@@ -786,6 +841,7 @@ public final class ClaudeCliDriver
                     MAX_STDERR_BYTES);
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;
+            session.started(this);
             if (cancelled.get()) {
                 started.cancel();
             }
@@ -837,6 +893,17 @@ public final class ClaudeCliDriver
             if (cancelled.compareAndSet(false, true)) {
                 cancelProcess();
             }
+        }
+
+        private CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
+        {
+            cancelled.set(true);
+            ManagedProcess current = process;
+            if (current == null) {
+                return CompletableFuture.failedFuture(
+                        new AgentUnavailableException("Claude process was not retained for shutdown verification"));
+            }
+            return current.stopAndVerify();
         }
 
         @Override
@@ -926,7 +993,9 @@ public final class ClaudeCliDriver
             }
 
             Optional<String> scratchCleanupFailure = Optional.empty();
-            if (exit != null && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+            boolean providerQuiescent = exit != null
+                    && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED;
+            if (providerQuiescent) {
                 try {
                     removeEmptyClaudeScratch(session.context.worktree());
                 }
@@ -944,43 +1013,50 @@ public final class ClaudeCliDriver
                 turnResult = failedResult(
                         AgentTurnResult.State.FAILED,
                         scratchCleanupFailure.orElseThrow(),
-                        exit.duration());
+                        exit.duration(),
+                        providerQuiescent);
             }
             else if (interruptionReason != null) {
                 turnResult = failedResult(
                         AgentTurnResult.State.INTERRUPTED,
                         session.redactor.redact(interruptionReason),
-                        exit == null ? Duration.between(startedAt, Instant.now()) : exit.duration());
+                        exit == null ? Duration.between(startedAt, Instant.now()) : exit.duration(),
+                        providerQuiescent);
             }
             else if (protocolFailure != null) {
                 turnResult = failedResult(
                         AgentTurnResult.State.FAILED,
                         protocolFailure,
-                        exit.duration());
+                        exit.duration(),
+                        providerQuiescent);
             }
             else if (exit.reason() == ProcessExit.Reason.CANCELLED || exit.reason() == ProcessExit.Reason.TIMED_OUT) {
                 turnResult = failedResult(
                         AgentTurnResult.State.CANCELLED,
                         "Claude turn was cancelled",
-                        exit.duration());
+                        exit.duration(),
+                        providerQuiescent);
             }
             else if (stdoutTruncated || exit.stdoutTruncated()) {
                 turnResult = failedResult(
                         AgentTurnResult.State.FAILED,
                         "Claude protocol output was truncated",
-                        exit.duration());
+                        exit.duration(),
+                        providerQuiescent);
             }
             else if (result == null) {
                 turnResult = failedResult(
                         AgentTurnResult.State.FAILED,
                         exitReason(exit),
-                        exit.duration());
+                        exit.duration(),
+                        providerQuiescent);
             }
             else if (!result.successful() || exit.exitCode() != 0) {
                 turnResult = failedResult(
                         AgentTurnResult.State.FAILED,
                         session.redactor.redact(result.errorMessage()),
-                        Duration.ofMillis(result.durationMs()));
+                        Duration.ofMillis(result.durationMs()),
+                        providerQuiescent);
             }
             else {
                 turnResult = new AgentTurnResult(
@@ -989,7 +1065,8 @@ public final class ClaudeCliDriver
                                 .filter(value -> !value.isBlank())
                                 .map(session.redactor::redact),
                         Optional.empty(),
-                        Duration.ofMillis(result.durationMs()));
+                        Duration.ofMillis(result.durationMs()),
+                        providerQuiescent);
             }
             if (scratchCleanupFailure.isEmpty()) {
                 turnResult = classifyAuthenticationFailure(turnResult);
@@ -1016,7 +1093,8 @@ public final class ClaudeCliDriver
                 turnResult = failedResult(
                         AgentTurnResult.State.INTERRUPTED,
                         "Unable to persist Claude completion: " + failureMessage(eventFailure),
-                        exit == null ? Duration.between(startedAt, Instant.now()) : exit.duration());
+                        exit == null ? Duration.between(startedAt, Instant.now()) : exit.duration(),
+                        providerQuiescent);
             }
             completion.complete(turnResult);
             session.finished(this);
@@ -1083,16 +1161,23 @@ public final class ClaudeCliDriver
                 return failedResult(
                         AgentTurnResult.State.INTERRUPTED,
                         "Unable to persist Claude terminal failure: " + failureMessage(eventFailure),
-                        turnResult.elapsed());
+                        turnResult.elapsed(),
+                        turnResult.providerQuiescent());
             }
         }
 
         private AgentTurnResult failedResult(
                 AgentTurnResult.State state,
                 String reason,
-                Duration duration)
+                Duration duration,
+                boolean providerQuiescent)
         {
-            return new AgentTurnResult(state, Optional.empty(), Optional.of(reason), duration);
+            return new AgentTurnResult(
+                    state,
+                    Optional.empty(),
+                    Optional.of(reason),
+                    duration,
+                    providerQuiescent);
         }
 
         private String exitReason(ProcessExit exit)

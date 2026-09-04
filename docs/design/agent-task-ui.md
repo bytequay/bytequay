@@ -16,9 +16,9 @@ capability-driven ByteQuay contract.
 The implemented surface carries an explicit product risk: the
 [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
 currently marks the `app-server` command as experimental and unsupported for
-production workloads. ByteQuay accepted that dependency for the planned first
-release on 2026-08-31; CP11 requires an explicit release-candidate
-reconfirmation. The fixed reference-schema fixture and compatibility tests do
+production workloads. ByteQuay accepted that dependency for the first
+release on 2026-08-31 and reconfirmed it when CP11 passed on 2026-09-04. The
+fixed reference-schema fixture and compatibility tests do
 not gate the user-managed production CLI. ByteQuay updates an installed Codex
 CLI only when its parsed version is below the supported minimum; newer or
 unparseable version text is left alone and never makes the lane unavailable.
@@ -52,10 +52,11 @@ production code and neither claims backend or provider integration.
 This section describes the implemented shape. CP0 selected a separate
 ByteQuay-managed worktree per task and accepted experimental App Server on
 2026-08-31. The earlier unauthenticated loopback executor boundary was removed:
-each Codex task now owns its App Server process and opens no ByteQuay listener.
+each active Codex turn now runs in a task-owned App Server, verified stopped at
+turn completion, and opens no ByteQuay listener.
 The remaining same-host risk is ordinary same-user filesystem and provider
-account-profile trust. These facts do not weaken the remaining compatibility,
-isolation, and release gates.
+account-profile trust. These facts do not weaken the compatibility and
+isolation requirements retained after release.
 
 - Workspace **Tasks** gains a separate agent-task list and detail screen. The
   existing cherry-pick task model and UI remain separate; there is no generic
@@ -64,14 +65,18 @@ isolation, and release gates.
   lane, and one separately provisioned generated branch/worktree through the
   shared [Managed Worktree Service](worktree-service.md). It contains multiple
   turns in one resumable provider conversation.
-- ByteQuay runs one Codex App Server process per task, with the task worktree
-  as its working directory. Root and child threads inside it all belong to that
-  task, so thread IDs are never routed between tasks.
+- ByteQuay runs one task-owned Codex App Server per active turn, never more than
+  one for a task, with the task worktree as its working directory. It verifies
+  that process tree stopped at turn completion; the next turn resumes the same
+  provider thread in a new matching-profile process. Root and child threads
+  inside a process all belong to that task, so IDs are never routed between
+  tasks.
 - No execution environment is registered. App Server's default environment is
   rooted at its own working directory, so `workspace-write` confines a turn to
-  the task worktree. Nothing declares the experimental API, and no loopback
-  listener is opened, so the first release carries no same-host trust boundary
-  of ByteQuay's own making.
+  the task worktree. Task sessions declare `experimentalApi: true` solely for
+  background-terminal inventory and termination; no loopback listener is
+  opened, so the first release carries no same-host trust boundary of
+  ByteQuay's own making.
 - This is separate from App Server's experimental `--code-mode-host`, which
   selects one Code Mode runtime for the whole App Server process. The first
   release leaves that process-wide option unset.
@@ -105,9 +110,10 @@ isolation, and release gates.
 - Send multiple turns to the same root provider conversation.
 - Rebuild the transcript from persisted events after navigation, renderer
   reload, SSE reconnect, or backend restart.
-- Allow multiple ByteQuay tasks to run concurrently through their separate
+- Allow multiple ByteQuay tasks to run turns concurrently through separate
   task-owned Codex App Server processes while preserving task, root-thread,
-  child-thread, turn, and item identity.
+  child-thread, turn, and item identity; never run more than one process for a
+  task.
 - Display task lifecycle, derived runtime status, turn state, selected
   provider/model, elapsed time, token usage when available, and terminal
   errors.
@@ -244,40 +250,51 @@ resurrect a resolved approval as pending.
   monotonic event sequence so replay and SSE need no second transport.
 
 A root `turn/completed` event may render its answer while descendants are still
-active, but it does not release the task's worktree-mutation claim. Send, queue start,
-and Complete stay disabled until every known descendant is terminal and
-the driver recursively reads root/child history to a stable fixed point with no
-new descendants. The same barrier requires every observed command, tool,
-file-change, synchronous hook, terminal interaction, and background/yielded
-execution to have a terminal lifecycle. The driver also pages App Server's
-thread-scoped background-terminal list to empty for the root and every child.
-An unfinished low-level item remains visibly active even if the root answer has
-arrived. A missed notification, history-read error, newly discovered
-grandchild, unterminated item/process, or provider version that cannot prove
-this closure keeps the `OPEN` task blocked and projects recovery required.
-Task close
-unsubscribes the root and every known subscribed child only after that barrier.
+active, but it does not release the task's worktree-mutation claim. The driver
+recursively pages `thread/items/list`, restricting root history to the current
+provider turn, until no V1/V2 descendants appear and every observed
+execution-capable item is terminal; terminal history also repairs a missed live
+completion. It pages each thread's background-terminal list to empty. That item
+history carries no descendant turn status, so this fixed point alone is not
+quiescence. After it passes—or
+after a history/item check fails—the per-turn App Server closes and its complete
+owned process tree must be `VERIFIED_STOPPED`. Only a successful fixed point
+plus verified stop yields a successful turn. A failed check yields a failed
+turn whose claim may release only after verified stop; an unverifiable stop
+keeps Send, queue start, and Complete disabled and projects recovery required.
 
-A subagent's label comes from the nickname App Server assigns it. Its purpose
-is shown only when the provider supplies the prompt it was spawned with:
-codex-cli 0.152.1 announces a child through `thread/started` with its parent
-and nickname but exposes no spawn prompt, on the collaboration item or as the
-child's own first message, so the purpose line is simply absent there.
+A V1 subagent may use the nickname App Server supplies through
+`thread/started` as its display label. V2 instead uses the canonical
+`agentPath` as its stable label and logical path; nickname metadata never
+replaces or overwrites it. A purpose is shown only when the provider supplies
+the prompt it was spawned with. codex-cli 0.152.1 may announce a child through
+`thread/started` with its parent and nickname but expose no spawn prompt on the
+collaboration item or as the child's own first message, so the purpose line is
+simply absent there.
 
-Every thread in a task's process belongs to that task, so a thread that is not
-the root is one of its subagents even before a spawn item names it. Its lineage
-is recorded on sight, which is what keeps a child's final answer from being
-read back as the task's own recorded final response.
+Every thread in a task's process belongs to that task, but a non-root thread is
+assigned lineage only from explicit provider identity. A live `thread/started`
+may bind lineage only when it carries `parentThreadId`; a missing parent
+is never inferred to mean the root. Historical discovery follows only the
+selected model's V1 `spawnAgent` or V2 `subAgentActivity` `started` shape. This
+keeps a child's final answer from being read back as the task's own recorded
+final response without inventing a relationship.
 
-For Codex, collaboration items provide the child relationship as the child is
-created, but not the child's final result. ByteQuay records that relationship
-immediately, begins routing the known child's live activity, and derives its
-result summary from the child's terminal history. On recovery, `thread/read`
-backfills each known child in provider order; the driver normalizes and
-deduplicates by provider thread/item identity before append. A visible
-backfill lifecycle marker distinguishes recovered history from new live
-activity. Experimental parent/ancestor list filters are an optimization, not
-the only way ByteQuay can rediscover its children.
+For V2, the root logical path is `/`; every activity path is absolute,
+normalized, and stable for its thread, and every `started` child path is
+strictly nested beneath its direct parent's path. A `thread/started` lineage
+signal alone does not publish or route a V2 child before that canonical path
+arrives. The selected V1 spawn or V2 started item provides the child
+relationship as the child is created, but not the child's final result.
+ByteQuay records that relationship once its required identity is complete,
+begins routing the known child's live activity, and derives its result summary
+from the child's terminal history. On recovery, paginated
+`thread/items/list` backfills each known child in provider order and recursively
+discovers children and grandchildren; the driver normalizes and deduplicates by
+provider thread/turn/item identity before append. A visible backfill lifecycle
+marker distinguishes recovered history from new live activity. The unsupported
+`thread/read(includeTurns: true)` call and experimental parent/ancestor list
+filters are not correctness dependencies.
 
 The panel that lists subagents also carries a **Pull requests** tab. Because a
 task's generated branch is derived from its ID, that tab needs no new record of
@@ -419,6 +436,11 @@ or exit cannot be proven, the task remains blocked and its worktree stays
 untouched, with an actionable diagnostic. A last-resort **Stop this task's
 provider runtime** action requires confirmation and affects no other task.
 
+An unverifiable close retains the runtime's session/process identity, so a
+later confirmed **Stop this task's provider runtime** action actively retries
+termination and verification. Only `VERIFIED_STOPPED` releases the stale claim
+and enables a new turn or paused queue retry; the old turn is never resent.
+
 A quiescent failed turn with `failureKind: AUTHENTICATION_REQUIRED` instead
 shows an authentication recovery card while leaving the task and worktree
 intact. **Refresh login status** calls the shared typed readiness operation for
@@ -467,7 +489,7 @@ flowchart LR
 
     subgraph CODEX["Codex lane"]
         DRIVER["Codex driver<br/>JSON-RPC mapping"]
-        SERVER["one Codex App Server<br/>per active task"]
+        SERVER["one Codex App Server<br/>per active turn<br/>at most one per task"]
         THREADS["root and child threads"]
         LOOP["Codex harness<br/>reason · tool · observe · repeat"]
         MODEL["selected model provider"]
@@ -489,7 +511,7 @@ flowchart LR
 
 App Server owns the Codex agent loop, provider requests, built-in tool
 decisions, approvals, and root/child thread execution. ByteQuay owns the
-selected local worktree, the per-task App Server lifecycle and requested policy,
+selected local worktree, the per-turn task-owned App Server lifecycle and requested policy,
 product task, durable projection, cross-provider event contract, UI, queue,
 metrics, and attachment boundary. App Server implements Codex
 process/filesystem semantics; ByteQuay does not fork that protocol merely
@@ -582,7 +604,7 @@ state:
 - immutable task-worktree ownership facts;
 - task-local worktree-mutation claim, held while provider-process recovery is
   unresolved;
-- per-task App Server launch identity plus directly owned
+- per-turn App Server launch identity keyed by task plus directly owned
   provider process recovery state;
 - task name plus whether it is provisional, agent-proposed, or user-chosen, so
   a rename is never overwritten;
@@ -615,7 +637,7 @@ complete.
    during a live turn.
 3. **Usable Codex task** — gate creation on typed provider readiness before
    task/worktree provisioning; link unavailable lanes to Workspace Settings; add
-   per-task App Server launch rooted at the task worktree, disabled
+   per-turn task-owned App Server launch rooted at the task worktree, disabled
    inherited capabilities, sandbox probes, and the task-local
    worktree-mutation claim;
    then create/open/complete a task, select
@@ -632,8 +654,9 @@ complete.
 
 ## 8. Acceptance criteria
 
-- Two Codex tasks run in separate App Server processes rooted at their own
-  worktrees, without event, approval, process, or filesystem cross-talk.
+- Two concurrent Codex turns for different tasks run in separate App Server
+  processes rooted at their own worktrees, without event, approval, process, or
+  filesystem cross-talk; each process is verified stopped with its turn.
 - New/open/complete task routes survive deep-link, reload, back, and forward;
   completion removes the verified clean worktree while preserving its generated
   result branch, and task creation never trusts a renderer-supplied path.
@@ -659,12 +682,12 @@ complete.
 - Root completion while a descendant, command, tool, hook, terminal, or
   background/yielded execution is active keeps the task claim and mutation
   controls disabled; missed-live-child and nested-grandchild history is
-  recovered recursively to a stable terminal fixed point, and every root/child
-  background-terminal page is empty before the next turn or Complete
-  is enabled. Compatibility fixtures verify that yielded/background commands
-  are listed and cleanable. A delayed writer that escapes App Server's item and
-  background-terminal registries fails the compatibility release gate; the
-  design does not manufacture an OS receipt that App Server never exposed.
+  recovered recursively to a stable item/background fixed point. Because item
+  history has no descendant turn status, the per-turn App Server then closes and
+  its complete owned process tree must be `VERIFIED_STOPPED` before the claim
+  releases or the next turn and Complete are enabled. A failed history check
+  records a failed turn; an unverifiable stop retains the claim. Compatibility
+  fixtures verify that yielded/background commands are listed and cleanable.
 - Steering targets only the expected active turn. Queued inputs run once in
   FIFO order after success and pause after non-success terminal states.
   Unknown steer/queue delivery is visible and never resent automatically;

@@ -11,16 +11,18 @@ The shared provisioning and cleanup boundary is defined in
 
 ## Current implementation (2026-09-04)
 
-This status note records the implemented, ungated release-candidate boundary.
+This status note records the implemented, ungated, shipped boundary.
 It supersedes older wording that described the agent subsystem or its rich task
 surface as future work.
 
 ### Current situation
 
 - The Codex lane already uses the official App Server transport.
-  `CodexCliDriver` starts one `codex app-server --listen stdio://` process per
-  task, rooted at that task's worktree, persists Codex thread and turn
-  references, and maps App Server JSON-RPC notifications into
+  `CodexCliDriver` starts one task-owned
+  `codex app-server --listen stdio://` process per active turn, never more than
+  one for a task, rooted at that task's worktree. The next turn resumes the same
+  thread in a new matching-profile process. The driver persists Codex thread and
+  turn references and maps App Server JSON-RPC notifications into
   `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
   reference fixture. It does not constrain production. ByteQuay updates a
@@ -28,8 +30,8 @@ surface as future work.
   minimum; newer or unparseable version text is left alone and never becomes a
   readiness gate. The detected version text is retained for status and
   incompatibility diagnostics. The product accepted the experimental
-  dependency for the planned first task release on 2026-08-31; compatibility
-  and release acceptance still must pass.
+  dependency for the first task release on 2026-08-31; CP11
+  compatibility and release acceptance passed on 2026-09-04.
 - The official documentation currently marks the `app-server` command itself,
   not only WebSocket transport, as experimental and unsupported for production
   workloads. The existing stdio integration therefore remains an explicit,
@@ -59,9 +61,10 @@ surface as future work.
 
 ### Implemented rich-task boundary
 
-The rich task surface is implemented and ungated. It extends the existing
-service instead of introducing a second agent framework; the remaining CP11
-release rows govern distribution, not whether this architecture exists.
+The rich task surface is implemented, ungated, and passed the CP11 release
+gate. It extends the existing service instead of introducing a second agent
+framework; the recorded CP11 rows below are release evidence rather than open
+distribution work.
 
 The Codex driver's wire DTOs and compact generated reference projection remain
 private to `agent-cli`. The projection is authoritative for the consumed Codex
@@ -73,8 +76,10 @@ pass through Codex App Server.
 
 The implementation therefore has these fixed boundaries:
 
-1. one App Server process serves exactly one task, so its root and child
-   thread IDs need no routing between tasks;
+1. one task owns at most one App Server process for its active turn, and that
+   process serves no other task, so root and child thread IDs need no routing
+   between tasks; the process is verified stopped before the turn releases its
+   claim, and a later turn resumes the same provider thread in a new process;
 2. every interactive task is durably scoped to a ByteQuay workspace and a
    separate ByteQuay-provisioned worktree, and every accepted input, resolved
    approval, and child relationship is replayable from the task event
@@ -117,7 +122,7 @@ silently race or resend it. Startup derives the same facts from the turn; the
 task remains `OPEN`. Codex image inputs, steering, and the durable queue ship
 through the authenticated Electron bridge: a steer is its own delivery row and
 is never resent, and a queued input is claimed with its turn and the worktree
-in one unit of work. CP11 adds the typed Claude readiness, event, approval,
+in one unit of work. CP11 added the typed Claude readiness, event, approval,
 capability, and authentication-recovery behavior described below.
 
 Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
@@ -139,11 +144,13 @@ subagent activity, usage, errors, and lifecycle events. Hidden
 chain-of-thought and raw provider JSON are not part of the contract.
 
 For Codex development tasks, App Server owns reasoning and tool selection.
-ByteQuay launches one App Server process per active task with that task's
-worktree as its working directory. Under `workspace-write` App Server's default
-environment is rooted at that directory, so every task gets a separate
-execution process and worktree boundary without registering an environment or
-reimplementing Codex's
+ByteQuay launches one task-owned App Server per active turn, never more than one
+for a task, with that task's worktree as its working directory. It verifies the
+process stopped at turn completion; a later turn resumes the durable provider
+thread in a new matching-profile process. Under `workspace-write` App Server's
+default environment is rooted at that directory, so every active turn gets a
+separate execution-process and worktree boundary without registering an
+environment or reimplementing Codex's
 process/filesystem protocol. It is distinct from the experimental process-wide
 `--code-mode-host`, which is not a task router and remains unset. Ambient MCP
 servers, apps/plugins, dynamic tools, exec-policy allow rules, and lifecycle
@@ -307,12 +314,11 @@ The implementation must enforce these invariants:
   no separate allocation state or startup worktree reconciliation.
 - Within that worktree, one durable worktree-mutation claim serializes turn
   acceptance/queue claims and completion.
-- A turn's claim covers its root run and every known descendant. Root
-  `turn/completed` does not release it or start queued work until all known
-  descendants are terminal, every observed command/tool/file-change/hook/
-  terminal/background execution has a terminal lifecycle, every root/child
-  background-terminal page is empty, and the provider quiescence barrier
-  passes.
+- A turn's claim covers its root run and every discovered descendant. Root
+  `turn/completed` does not release it or start queued work. The driver first
+  reaches a stable relationship/item/background fixed point, then closes the
+  per-turn App Server and requires its complete owned process tree to be
+  `VERIFIED_STOPPED`. Item history alone cannot prove descendant termination.
 - Provider execution uses the selected App Server sandbox and approval policy
   inside the generated task worktree. Provider control-plane traffic is a separate
   trust boundary: ByteQuay selects the provider configuration, but the first
@@ -441,25 +447,6 @@ public interface AgentTaskService
      * @return updated task
      */
     AgentTask updateDefaults(UpdateAgentTaskDefaultsCommand command);
-
-    /**
-     * Closes a recovery-blocked task as failed without modifying the worktree.
-     *
-     * <p>This direct user action is available only after every provider-visible
-     * execution is terminal, App Server reports no background terminal, and
-     * every ByteQuay-owned provider process is proven quiescent. It records
-     * the recovery incident, closes the provider session, marks the task
-     * {@code FAILED}, retains its transcript, and releases its
-     * worktree-mutation claim in the terminal transaction. If the verified
-     * worktree is clean, it may then call {@link WorktreeService#cleanup}. If it
-     * is dirty, the unchanged terminal task projects cleanup action required
-     * and leaves it in place; cleanup never silently discards it.
-     *
-     * @param command task ID, expected version, and user-visible recovery reason
-     * @return terminal failed task
-     * @throws AgentConflictException when any owned execution is live or unverifiable
-     */
-    AgentTask markFailed(MarkAgentTaskFailedCommand command);
 
     /**
      * Lists tasks for the task window in reverse update order.
@@ -837,27 +824,24 @@ public interface AgentEventService
 `AgentApprovalService` bridges provider permission requests and explicit
 frontend decisions.
 
-The tagged approval contract below is the CP2-and-later target, not current
-runtime behavior. CP1 projects and codec-tests the exact v0.151.0 modern
-approval methods, top-level fields, requiredness, command/file decision
-variants, and opaque permission payload/scope, while legacy
-`applyPatchApproval` and `execCommandApproval` requests fail closed. The
-current bridge handles command and file-change requests only and maps its
-one-time provider-neutral allow/deny result to `accept`/`decline`. Preserving
-and rendering every product-permitted decision offered by the provider remain
-deferred. CP1 therefore requires one representative live command approval,
-not a live traversal of the protocol's full response union. CP2 must first
-define ByteQuay's finite decision matrix and immutable safety ceiling before
-adding richer live approval cases. The product-permitted set is the
-intersection of the provider's legal offered decisions and ByteQuay's
-immutable safety ceiling; an empty set fails closed instead of producing an
-actionable approval. Until then, the bridge fails closed for non-command kinds,
-undisplayable commands,
-additional/network permissions, file-change grant roots, scoped or unoffered
-allow decisions, and decisions returned after cancellation or turn replacement.
-`acceptWithExecpolicyAmendment` remains reference-codec coverage only: the
-first release does not offer or persist it because that would create an allow
-rule and violate the zero-inherited/generated-allow-rule boundary.
+CP1 projected and codec-tested the exact v0.151.0 modern approval methods,
+top-level fields, requiredness, command/file decision variants, and opaque
+permission payload/scope, while legacy `applyPatchApproval` and
+`execCommandApproval` requests failed closed. CP2 then froze the finite shipped
+decision matrix and immutable safety ceiling. The current provider-neutral
+request carries an inspectable command, file-change, tool, or other kind; its
+source; requested permissions; and only the applicable subset of
+`ALLOW_ONCE`, `ALLOW_FOR_TASK`, and `DENY`. A task-wide allow is offered only
+with a non-empty task scope. The product-permitted set is the intersection of
+the provider's legal offered decisions and ByteQuay's immutable safety ceiling;
+an empty set fails closed instead of producing an actionable approval.
+Undisplayable, unrouteable, additional/network, overly broad, scoped-but-
+unsupported, unoffered, stale, or post-cancellation grants fail closed.
+`acceptWithExecpolicyAmendment` remains reference-codec coverage only: the first
+release does not offer or persist it because that would create an allow rule and
+violate the zero-inherited/generated-allow-rule boundary. CP1's representative
+live command approval remains historical executable evidence rather than a
+claim that every provider response union was exercised live.
 
 Denying is always product-permitted and is never gated on the offered list. A
 deny widens nothing, `decline` is part of the protocol's command decision
@@ -868,20 +852,15 @@ union, and codex-cli 0.152.1 was measured to omit `decline` from
 such a request with no card at all. Only an allow must be offered as a plain
 one-time `accept`.
 
-`ApprovalRequest` is a tagged union for command execution, file change, and
-scoped-permission requests. Each variant carries its provider request ID,
-source thread/turn/item, human-readable details, and the decisions the driver
-can legally map and ByteQuay permits for that request. If a Codex command
-request omits its optional `availableDecisions`, the driver fills its known
-legal command defaults and then applies the safety ceiling; file requests use
-their protocol-defined fixed decisions subject to the same ceiling, and
-permission requests expose only their grantable subset. An empty result fails
-closed. `ApprovalResponse` is
-a matching tagged union: command/file responses can distinguish one-time,
-session-scoped, deny, and cancel choices when legal; permission responses carry
-only the approved subset. The target Codex driver converts these values with
-its reference-conformant protocol adapter, whose decoder tolerates additive
-runtime fields.
+`ApprovalRequest` wraps the provider-neutral request with durable approval,
+task, and turn identity. If a Codex command request omits its optional
+`availableDecisions`, the driver fills its known legal command defaults and
+then applies the safety ceiling; other supported requests use their legal fixed
+decisions subject to the same ceiling. `ApprovalDecision` records allow or deny,
+an optional scoped permission, whether an allow covers the matching task scope,
+the resolution time, and timeout denial. The Codex driver converts that finite
+contract through its reference-conformant adapter, whose decoder tolerates
+additive runtime fields.
 
 Grantable always means supported by the selected App Server sandbox and
 approval policy. The renderer can choose only among the decisions preserved by
@@ -1056,6 +1035,22 @@ public interface AgentCompletionService
      * @throws AgentConflictException when worktree-mutating work is active or the task cannot complete
      */
     TaskCompletion complete(CompleteAgentTaskCommand command);
+
+    /**
+     * Fails an open task after stopping and verifying its retained provider runtime.
+     *
+     * <p>The operation refuses an active turn, retains the worktree and
+     * transcript, settles queued input without resending it, and atomically
+     * records {@code FAILED} while releasing any matching stale claim. The
+     * interactive controller may then call {@link #cleanupWorktree(TaskId)},
+     * which removes only a verified clean worktree.
+     *
+     * @param taskId task the user chose not to continue
+     * @param reason bounded user-visible failure reason
+     * @return terminal failed task
+     * @throws AgentConflictException when the task is terminal or has an active turn
+     */
+    AgentTask abandon(TaskId taskId, String reason);
 
     /**
      * Idempotently removes a terminal task's verified clean worktree while
@@ -1238,24 +1233,20 @@ public interface RunningTurn
     ProviderTurnRef reference();
 
     /**
-     * Returns a stage completed exactly once with a quiescent terminal fact.
+     * Returns a stage completed exactly once with a terminal fact and explicit quiescence result.
      *
-     * <p>A root terminal message is necessary but not sufficient: the driver
-     * completes this stage only after recursive history closure discovers the
-     * full reachable descendant set, every discovered descendant is terminal,
-     * every observed command, tool, file-change, hook, terminal, and background
-     * item is terminal, and every root/child background-terminal listing is
-     * empty. Message, reasoning, and plan items are model output: one the App
-     * Server leaves open when a turn is interrupted mid-token cannot have
-     * written anything and does not hold the turn.
-     * This is the strongest per-turn quiescence fact in the running App
-     * Server contract; it is not represented as OS-level ownership of each
-     * internal App Server command.
+     * <p>A root terminal message is necessary but not sufficient. Recursive
+     * item history discovers the reachable V1/V2 graph and reconciles observed
+     * execution-capable items and background terminals, but it carries no
+     * descendant turn status. After that closure succeeds or fails, the driver
+     * closes the per-turn App Server and classifies its complete owned process
+     * tree. Success requires both a stable closure and {@code VERIFIED_STOPPED};
+     * a failed closure returns a failed result, and its provider-quiescent flag
+     * is true only after the same verified stop.
      * The stage completes normally; provider or transport failure is an
      * interrupted or failed terminal result, never exceptional completion.
      * After transport loss, interruption is not reported as quiescent until
-     * this task's provider process is stopped or the replacement server can
-     * reconcile the same thread to the contract above.
+     * this turn's task-owned provider process is {@code VERIFIED_STOPPED}.
      *
      * @return lifecycle completion for success, failure, cancellation, or interruption
      */
@@ -1574,7 +1565,7 @@ in section 5.3.
 
 ### 5.3 Task process boundary
 
-A task's App Server process runs with the task worktree as its working
+A turn's task-owned App Server process runs with the task worktree as its working
 directory, and that is the whole boundary. Under `sandbox: workspace-write`
 App Server's default environment is rooted at its own working directory, so a
 model-requested write inside the worktree succeeds and one outside it is
@@ -1587,10 +1578,11 @@ That removes an entire mechanism rather than reimplementing it. There is no
 `codex exec-server` process, no `environment/add` upsert, no
 `environment/info` handshake, no `environments` selection on threads or turns,
 and no unauthenticated loopback listener to treat as a same-host trust
-boundary. `capabilities.experimentalApi` is declared false, because the
-environment family was its only use here; measured against the same version,
-every method ByteQuay calls still answers with it false, and `environment/add`
-and `environment/info` are the only refusals.
+boundary. Task App Server sessions declare
+`capabilities.experimentalApi: true` solely for the background-terminal
+inventory and termination methods required by quiescence and cancellation.
+That declaration does not restore the removed environment family or authorize
+any other experimental method.
 
 The launch owner is the task id, so a recovered orphan is attributable to the
 task that leaked it rather than to a single process shared by the backend.
@@ -1598,15 +1590,18 @@ task that leaked it rather than to a single process shared by the backend.
 `LaunchOwnerKind.TASK_EXEC_SERVER` constant is retained only so launch markers
 and `agent_process_launch` rows written before this change still deserialize.
 
-A session owns its task's process and closes it. Because completing a task is
-otherwise the only thing that closes a session, `AgentRuntimeRegistry`
-implements `AutoCloseable` and is wired as the bean's destroy method, so a
-backend shutdown with open tasks does not strand their processes until the next
-start.
+A per-turn session owns its task's process. After root completion and bounded
+history/background reconciliation, or after that reconciliation fails, the
+turn service closes the session and requires the supervisor to classify the
+whole owned process tree as `VERIFIED_STOPPED`. The next accepted turn resumes
+the stored provider thread in a new process selected from that turn's immutable
+model snapshot. `AgentRuntimeRegistry` also implements `AutoCloseable` and is
+wired as the bean's destroy method, so a backend shutdown with open tasks cannot
+strand a process.
 
 #### ByteQuay-owned Codex home
 
-Every Codex process ByteQuay starts, the per-task App Server, the model-catalog
+Every Codex process ByteQuay starts, the per-turn task App Server, the model-catalog
 App Server, and the probe commands, runs with `CODEX_HOME` set to ByteQuay's
 own directory, `~/Library/Application Support/ByteQuay/codex-home`, created
 owner-only with an empty user config. Nothing in the user's `~/.codex` reaches
@@ -1630,34 +1625,41 @@ completion. A yielded command outlives the item that started it, and a subagent
 can still be working, so a clean completion at that moment would release the
 task's claim over files something may still be writing.
 
-Quiescence is currently answered from the live item stream plus
+Pre-stop reconciliation uses the live item stream plus
 `thread/backgroundTerminals/list` for every thread the process has shown. Item
 notifications are never shed, which is what makes the live stream sound to
 reason from; only streamed text is dropped under backlog pressure.
-`capabilities.experimentalApi` is declared for the background-terminal method.
+`capabilities.experimentalApi` is true solely for those background-terminal
+methods.
 
-Each pass then closes over history with `thread/items/list`, which is the only
-thing that can see an item the notification stream never delivered. It runs after
-the cheap checks rather than every pass, because paging is not free. Only
-`thread/read(includeTurns: true)` is unimplemented; reading that one refusal as
-"no history exists" was a mistake.
+Each pass first closes over history with `thread/items/list`, which is the only
+thing that can see an item or relationship the notification stream never
+delivered. Root entries are restricted to the current provider turn so a
+resumed process cannot rediscover an old child or fail on an old unfinished
+item. Terminal history reconciles a live item whose completion notification was
+missed before the in-memory and background-terminal inventories are checked.
+`thread/items/list` does not report a descendant turn's terminal status, so even
+an empty, stable item/background fixed point is not proof that a child stopped.
+`thread/read(includeTurns: true)` remains unimplemented.
 
 The wait runs on its own thread, never the message consumer, because the
 consumer's queue holds the notifications that would end the wait. It repeats
 until two consecutive passes find no live item, no background terminal, and no
-thread that appeared mid-pass. A turn that cannot be shown quiet within its
-bound is reported failed, naming what was outstanding, so the task keeps its
-worktree.
-
-Terminating a yielded terminal instead of waiting for it, and the claim
-retention and atomic finalize in `agent-core`, are not part of this.
+thread that appeared mid-pass. Then it closes the per-turn App Server and waits
+for `VERIFIED_STOPPED`; only that process fact proves quiescence. A history,
+item, or background check that cannot settle makes the turn `FAILED`, but the
+driver still closes the process. That failure is quiescent only if the full
+owned tree is verified stopped. An unverifiable stop reports
+`providerQuiescent: false`, so `agent-core` retains the worktree claim.
 
 ### 5.5 Claim retention and abandonment
 
 A turn releases its worktree mutation claim only when the provider was shown
-quiet. `AgentTurnResult` carries `providerQuiescent`; a provider whose turn owns
-its whole process asserts it implicitly through the four-argument constructor,
-and one that can outlive its own turn has to say otherwise.
+quiet. `AgentTurnResult` carries `providerQuiescent`; for Codex this is true only
+after the per-turn App Server's complete owned process tree is
+`VERIFIED_STOPPED`, and Claude applies the same rule to the process tree of its
+per-turn CLI invocation. Exceptional provider completion and any unverified
+session close are non-quiescent by definition.
 
 When it is false the claim is retained. That deliberately blocks every later
 turn on the task, because the alternative is handing a turn a worktree that
@@ -1665,10 +1667,13 @@ something may still be writing to. The task stays `OPEN` and its worktree stays
 on disk.
 
 Completion cannot resolve that state — it refuses a held claim — so two
-user actions exist. `AgentTurnService.stopRuntime` stops only this task's App
-Server process; the session close returns once the process tree is verified
-stopped, which releases a claim left by a turn whose provider could not be
-shown quiet, and fails while the tree cannot be verified. It is confirmed
+user actions exist. An exceptional or unverifiable close retains the task's
+session/process identity with its stale `TURN` claim. `AgentTurnService.stopRuntime`
+stops only this task's provider session and owned process tree and explicitly
+retries termination/verification against that retained runtime. A successful
+close returns only after `VERIFIED_STOPPED`, releases the stale claim, and
+allows a new turn or paused queue item to be retried; it never resends the old
+turn. Another unverifiable close leaves the claim in place. The operation is confirmed
 against the generation returned by `GET /agent/tasks/{taskId}/runtime/stop-impact`
 and reachable at `POST /agent/tasks/{taskId}/runtime/stop`.
 `AgentCompletionService.abandon` is the way out of the task itself. It is guarded
@@ -1943,8 +1948,8 @@ and append the same terminal event as a user denial.
 Direct `turn/start` is one-to-one with `AgentTurn`, so it uses the turn's
 `startedAt`, state, and provider reference and has no parallel delivery store.
 App Server does not accept a client idempotency key for `turn/steer`, so CP10
-may add this small steer-only store when steering is implemented. It must not
-be added earlier or generalized for speculative input kinds.
+added this small steer-only store with explicit delivery state. It remains
+steer-specific and is not generalized for speculative input kinds.
 
 ```java
 package com.bytequay.agent.core.store;
@@ -2142,10 +2147,10 @@ coordinates the narrower interfaces shown in the last column.
 | 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
-| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while known descendants and low-level execution items finish; the driver proves recursive thread closure and terminal command/tool/file-change/terminal/background lifecycles before `RunningTurn.completion()` resolves. Core uses the expected task/turn version to atomically finalize metrics/turn state, release the worktree-mutation claim, and insert terminal events. The completed in-process handle remains as a retry token until terminal-event drain and pending-approval denial succeed; a read or later start retries those idempotent actions. Only a quiescent success may atomically claim that mutation boundary and the FIFO head for the next turn |
-| 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef` and creates one new `TurnId`; non-success leaves queued work paused |
-| 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentTaskService.markFailed(MarkAgentTaskFailedCommand)` | Rejects until provider-visible execution is terminal, background-terminal lists are empty, and directly owned processes are stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. A verified clean worktree may then be removed by `cleanup(worktree)`; dirty work projects cleanup action required and remains untouched |
-| 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It then rejects an active turn, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, closes the session, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
+| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while recursive item/background reconciliation runs. Because item history has no descendant turn status, the per-turn App Server then closes and its owned tree must be `VERIFIED_STOPPED` before core releases the worktree claim. Reconciliation failure records a failed turn; verified stop still permits safe release, while an unverifiable stop retains the claim. Core atomically finalizes metrics/state and inserts terminal events, and only a quiescent success may claim the FIFO head |
+| 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef`, creates one new `TurnId`, and launches a new matching-profile process; non-success leaves queued work paused |
+| 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentCompletionService.abandon(TaskId, String)`, then optional `cleanupWorktree(TaskId)` | Refuses an active turn, closes the task's retained provider session, and requires its owned tree to be verified stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. The interactive controller then attempts normal clean-worktree cleanup unless a pre-restart process remained unverifiable; dirty or unverifiable work remains untouched |
+| 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It rejects an active turn or any last-turn process not already verified stopped, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
 | 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Retries verified worktree removal before `AgentResourceService.delete(...)`, then records cleanup as `DELETED`; failure records `RETRY_PENDING` for the same operation |
 
 The base send path is shown end to end below. Calls below `AgentTaskService`,
@@ -2369,7 +2374,8 @@ provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 The Codex lane uses the documented
 [Codex App Server protocol](https://learn.chatgpt.com/docs/app-server),
 not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
-process per active Codex task, rooted at that task's managed worktree:
+task-owned process per active Codex turn, never more than one for a task, rooted
+at that task's managed worktree:
 
 ```text
 codex app-server --listen stdio://
@@ -2382,28 +2388,30 @@ and is not used by the localhost sidecar.
 The connection and task sequence is:
 
 1. Send `initialize` once with ByteQuay `clientInfo` and
-   `capabilities.experimentalApi: false`, wait for its response, then send the
-   `initialized` notification. The experimental surface is the environment
-   family, which a per-task process does not use; no other request is
-   legal before this handshake finishes.
+   `capabilities.experimentalApi: true`, wait for its response, then send the
+   `initialized` notification. This opt-in exists solely for the
+   background-terminal inventory and termination used by quiescence and
+   cancellation; the removed environment family and every other experimental
+   method remain outside the product contract. No other request is legal before
+   this handshake finishes.
 2. Populate the existing ByteQuay model settings catalog from `model/list`,
    including supported reasoning efforts, input modalities, and
    `multiAgentVersion`. Production accepts the running catalog without a
    version allowlist. A required incompatible shape fails the affected operation
    and includes the detected Codex version in its diagnostic.
-3. Begin with the CP1 no-child isolation profile: explicit session flags disable
-   apps, plugins, hooks, host skill discovery, web search, multi-agent, and the
-   other unapproved optional capabilities, plus the minimal command
-   environment. This is a baseline, not the production subagent profile. Before
-   formal CP1 completion or CP2, the fixture had to separately prove a
-   child-capable profile that enables only the reviewed multi-agent feature
-   shape and repeats every isolation assertion. The separate
-   `--live-children` fixture path performs that bounded root/child/grandchild
-   proof as an opt-in local real-model smoke test using a separate persistent
-   Codex profile signed in directly with ChatGPT; its V1 profile sets and
-   verifies `agents.max_depth=2`. That run passed; the technical proof is now
-   evidence and closed the CP1 child-recursion gate. Production adoption of
-   that child-capable profile remains CP4 work.
+3. Query `model/list` under the CP1 no-child isolation profile before a task
+   thread exists, resolve the accepted turn's selected model, and launch the
+   task process with exactly the child profile that model advertises. V1 enables
+   only `multi_agent` and fixes `agents.max_depth=2`; V2 enables only
+   `multi_agent_v2`; a model advertising no child support stays on the no-child
+   profile. An unknown advertised version makes that model unavailable rather
+   than silently selecting another graph protocol. Every profile explicitly
+   disables apps, plugins, hooks, host skill discovery, web search, the other
+   multi-agent feature, and all other unapproved optional capabilities, and
+   applies the same minimal command environment. The separate
+   `--live-children` fixture proved the bounded root/child/grandchild V1/V2
+   contract with a persistent fixture profile signed in directly with ChatGPT;
+   production now applies that model-advertised profile at each turn boundary.
    Before creating a thread, call `config/read(includeLayers: true)` and require
    exactly one `sessionFlags` layer with the same effective feature and shell
    policy, an empty MCP-server map, and no inherited shell setters, exclusions,
@@ -2439,12 +2447,16 @@ The connection and task sequence is:
    external tool/hook must be absent or disabled before the session is usable.
    Persist the returned `thread.id` as the root provider value in
    `AgentSessionRef`.
-5. For a later backend process or unloaded task, launch that task's App Server
-   again in the same worktree, then call `thread/resume` with the stored
-   `threadId`, the same config and sandbox ceiling, and
+5. For every accepted turn, resolve that turn's immutable model snapshot and
+   launch a new per-turn App Server in the same worktree under the matching
+   child profile. A stale idle session must first close with a verified process
+   stop. Start a new thread when no session reference exists; otherwise call
+   `thread/resume` with the stored `threadId`, the same config and sandbox ceiling, and
    `approvalsReviewer: "user"`. Repeat the
    effective-capability checks and never infer a session ID from provider
-   files.
+   files. Relaunching at the turn boundary is deliberate: changing the task
+   default between turns cannot reuse a process configured for the previous
+   model's V1/V2 protocol.
 6. Start each user turn with `turn/start`. Its `input` is built only from the
    already-persisted user event: text plus model-gated
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
@@ -2463,12 +2475,16 @@ The connection and task sequence is:
    that run; it cannot change model, effort, approval, or sandbox settings and
    does not create a ByteQuay turn.
 9. Keep reading notifications for the root and every known child.
-   `turn/completed` is the root terminal fact, but the driver does not complete
-   `RunningTurn.completion()` until recursive `thread/read(includeTurns: true)`
-   closure has discovered the full reachable child set, every discovered
-   descendant is terminal, every observed execution-capable item is terminal,
-   and paginated
+   `turn/completed` is the root terminal fact, but it only begins recursive,
+   paginated `thread/items/list` closure over the reachable V1 or V2 child set.
+   Every observed execution-capable item must be terminal, and paginated
    `thread/backgroundTerminals/list` is empty for the root and every child.
+   Each newly discovered child is listed in the same fixed point, so V1 and V2
+   grandchildren are included even when their live notification was missed.
+   Item history carries no descendant turn status; after the fixed point, close
+   the per-turn App Server and require its whole owned process tree to be
+   `VERIFIED_STOPPED` before reporting `providerQuiescent` and releasing the
+   claim.
    Treat `item/completed` as authoritative when a streamed delta differs from
    the final item.
 10. Cancel with `turn/interrupt`, call
@@ -2476,10 +2492,12 @@ The connection and task sequence is:
    repeat list/history reconciliation until the same empty/terminal barrier
    passes. A targeted stop may call `thread/backgroundTerminals/terminate`
    only with a `processId` returned by the matching thread's list response.
-   Closing a ByteQuay task sends
-   `thread/unsubscribe` for its root and every known subscribed child only
-   after the execution tree is terminal; it does not call `thread/archive` or
-   `thread/delete` because provider-owned history is retained.
+   Cancellation and failed reconciliation both close the per-turn process; an
+   unverifiable stop retains the worktree claim. When ending the per-turn
+   session, unsubscribe its root and every known subscribed child before
+   process shutdown. Later ByteQuay task completion does not call
+   `thread/archive` or `thread/delete`, because provider-owned history is
+   retained and no turn process remains live.
 
 No documented stable App Server API provides ByteQuay's durable next-turn
 queue. Queue records stay in SQLite and become ordinary `turn/start` calls only
@@ -2500,7 +2518,7 @@ The driver normalizes these App Server events:
 | `webSearch` and `imageView` items | Search/view activity and terminal result |
 | synchronous `hook/started` and `hook/completed` notifications | Reserved for a future approved profile; the first-release strict profile requires `hooks/list` to be empty and advertises no Codex hook lifecycle |
 | V1 `collabAgentToolCall` with `tool: "spawnAgent"`, `senderThreadId`, `receiverThreadIds[]`, and `agentsStates` | Child discovery and direct parent relation; other collaboration tools update activity but never manufacture a parent/child edge; child content comes from child history |
-| Multi-Agent V2 `subAgentActivity` with `agentThreadId`/`agentPath` | V2 child discovery, canonical absolute logical agent path (not a filesystem path), lifecycle, and routing when the selected model advertises V2 |
+| Multi-Agent V2 `subAgentActivity` with `agentThreadId`/`agentPath` | Selected-profile `started` activity supplies V2 child discovery; every kind supplies a canonical absolute logical path (not a filesystem path), lifecycle, and routing only for identities already resolved by that selected graph |
 | command, file-change, and permission approval server requests | Typed approval request; the later ByteQuay resolution is a separate event |
 | `serverRequest/resolved` | Terminal resolution/cancellation of the matching durable request |
 | `thread/tokenUsage/updated` | Usage update normalized according to the adapter's known schema; cumulative semantics are not assumed generically |
@@ -2519,37 +2537,53 @@ each receiver thread as a direct child of the sender; a V2 `subAgentActivity`
 uses its canonical absolute logical `agentPath`. App Server may retain both
 known item forms in one transcript. The selected model's advertised version is
 the only graph-discovery source; the other form is supplementary activity whose
-thread identities still must resolve inside that same graph. The driver begins
-routing/observing a newly known child before its discovery card is published.
+thread identities still must resolve inside that same graph. A live
+`thread/started` notification may establish lineage only when it carries an
+explicit `parentThreadId`; a missing parent is never inferred to mean the root.
+For V2, the root path is `/`, and every activity path is absolute, normalized,
+and stable for its thread. A selected-profile `started` edge must supply a path
+distinct from and strictly nested below its direct parent's already known path,
+including for root children and grandchildren. `thread/started` may bind
+explicit lineage metadata, but the driver does not route or announce that V2
+child until its canonical `started` path exists. `interacted` and other
+supplementary activity validate stable paths and already-resolved identities;
+they never create or reparent a child. Once the direct parent and, for V2, the
+canonical path are known, routing begins before the discovery card is published.
 A selected model whose advertised
 `multiAgentVersion` is not implemented is unavailable rather than silently
-dropping child activity. `thread/read(includeTurns: true)` can backfill a known
-child after
-reconnect; backfilled items pass through the same normalizer and source-key
-deduplication before append. They are appended in provider history order
-inside explicit backfill-started/completed lifecycle markers; the task sequence
-still records ByteQuay receipt order. Experimental
-parent/ancestor list filters and paginated item-history methods may improve
-discovery, but correctness never relies on them.
+dropping child activity. Paginated `thread/items/list` backfills a known child
+after reconnect; backfilled items pass through the same normalizer and
+source-key deduplication before append. They are appended in provider history
+order inside explicit backfill-started/completed lifecycle markers; the task
+sequence still records ByteQuay receipt order. `thread/items/list` is a current
+non-experimental method on the supported App Server line. The unimplemented
+`thread/read(includeTurns: true)` method and experimental parent/ancestor list
+filters are not correctness dependencies.
 
-There is no assumed App Server `quiesce` method. The Codex driver closes the
-normal barrier by reading the root with `thread/read(includeTurns: true)`,
-recursively reading every V1/V2 child found in live events or terminal history,
-and repeating until a final pass discovers no new thread IDs and all discovered
-threads are terminal. In parallel, an item registry keyed by thread/turn/item
-reconciles every execution-capable item to terminal history and the driver
-pages `thread/backgroundTerminals/list` for every root/child until all pages
-are empty. This combined fixed point closes missed-live-notification,
+There is no assumed App Server `quiesce` method. The Codex driver builds the
+pre-stop fixed point by paging `thread/items/list` for the root, recursively paging
+every V1/V2 child found in live events or item history, and repeating until a
+final pass discovers no new thread IDs and every listed execution-capable item
+is terminal. V1 discovery accepts only `spawnAgent` relationships from
+`collabAgentToolCall`; V2 discovery accepts only `started` relationships from
+`subAgentActivity`, while upward/interacted activity never manufactures an
+edge. In parallel, an item registry keyed by thread/turn/item reconciles every
+execution-capable item to terminal history and the driver pages
+`thread/backgroundTerminals/list` for every root/descendant until all pages are
+empty. This combined fixed point closes missed-live-notification,
 nested-grandchild, root-answer-before-command-exit, and visible
-yielded-terminal gaps. It does not claim to detect an OS process that escaped
-App Server's own registries. All Codex lifecycle hooks are disabled for
+yielded-terminal gaps, but it does not expose descendant turn status and is not
+the final quiescence proof. The driver then closes the per-turn App Server and
+requires its complete owned process tree to be `VERIFIED_STOPPED`. This final
+fact also covers a process no longer represented by item history; an
+unverifiable tree retains the claim. All Codex lifecycle hooks are disabled for
 first-release tasks; any effective hook makes task start fail. Independently,
 any applicable or uninspectable managed requirements fail readiness. A
-read/list error, active descendant/item/process/background terminal, or
-unstable closure keeps the `OPEN` task blocked with the recovery-required
-projection. If transport is lost before that proof, it retains the turn claim
-and stops that task's App Server process only as a last-resort recovery action;
-no other task shares that process.
+read/list error, active item/background terminal, or unstable closure marks the
+turn failed and triggers process shutdown. The failed turn is still quiescent
+when shutdown proves `VERIFIED_STOPPED`; otherwise the `OPEN` task remains
+blocked with the recovery-required projection and retained claim. No other task
+shares that process.
 
 The task uses the running App Server's selected sandbox and approval policy.
 Readiness verifies that ordinary built-in tool execution works and stays inside
@@ -2657,15 +2691,16 @@ project policy-bearing config folder free of `.rules`. It separately pins
 null. The same keyless App Server run proves the no-child session flags and
 shell environment, empty MCP and hook configuration, and isolated
 bundled-system-skill origin before creating a thread. Synthetic poison cases
-exercise the rejection branches. This baseline is not the final subagent
-profile; the separate CP1 child-capable proof passed, while production adoption
-belongs to CP4. The fixture's opt-in `--live-children` path selects the
-model-advertised V1/V2 profile, validates recursive history, and passed its
+exercise the rejection branches. The separate CP1 child-capable proof passed,
+and production now resolves the accepted turn's model from the catalog,
+launches exactly its advertised V1 or V2 profile, and recursively discovers the
+corresponding relationship items with `thread/items/list`. The fixture's opt-in
+`--live-children` path selected the model-advertised profile and passed its
 subscription-backed local smoke run with the explicitly selected ChatGPT
 profile. That paragraph records a historical CP0-through-CP3 milestone: the
 static UI was then behind a development-only gate while CP4 still owned Codex
 task isolation and quiescent recovery. CP4 and the later rich-task checkpoints
-are now implemented, and the current release-candidate surface is ungated.
+are implemented, CP11 passed, and the shipped surface is ungated.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for
@@ -2919,7 +2954,7 @@ Every envelope has:
 | `source` | Common source object containing the optional provider identities below |
 | `source.providerThreadId` | Opaque root or child source when provider-thread scoped |
 | `source.parentProviderThreadId` | Direct parent when this event establishes or describes a child |
-| `source.logicalAgentPath` | Optional stable logical path reserved for recursive subagent projection |
+| `source.logicalAgentPath` | Optional stable logical path reserved for recursive subagent projection; V2 uses absolute normalized paths, with `/` for the root and strict direct-parent nesting for descendants |
 | `source.providerTurnId` | Opaque provider turn when supplied |
 | `source.providerItemId` | Opaque item key for deltas and authoritative completion |
 | `type` | Typed payload family listed below |
@@ -3004,15 +3039,14 @@ and snapshot the effective selection.
 Deleting a queue row removes an untouched `QUEUED`/`PAUSED` input or records
 an `UNCERTAIN` input as `ABANDONED`; it never erases a consumed `STARTED` row.
 
-`POST /agent/tasks/{taskId}/mark-failed` carries the observed task version and
-a bounded user-visible reason. It maps only to
-`AgentTaskService.markFailed(...)`, is enabled only when the `OPEN` task is
-blocked by retained execution ownership, and returns a conflict until
-provider-visible execution is terminal, background terminal lists are empty,
-and directly owned provider processes are stopped.
-Success records `FAILED`, releases the claim, and requests safe worktree
-cleanup. Dirty work remains untouched until the user or agent makes the
-generated branch clean; the shared service has no force-removal operation.
+`POST /agent/tasks/{taskId}/mark-failed` is workspace-scoped and carries a
+bounded user-visible reason. It maps only to
+`AgentCompletionService.abandon(...)`, returns a conflict while a turn is
+active, and closes and verifies any retained provider runtime before recording
+`FAILED` and releasing the claim. The controller then requests normal safe
+worktree cleanup unless a pre-restart process was unverifiable. Dirty or
+unverifiable work remains untouched until the generated branch is clean and
+safe to remove; the shared service has no force-removal operation.
 
 The public task-creation DTO contains the client-generated `taskId`,
 `workspaceId`, first `message`, immutable `laneId`, defaults, and an
@@ -3168,7 +3202,8 @@ work is empty:
    hot-loop or starve another due task.
 
 Failed tasks use the same seven-day period, measured from their terminal
-timestamp.
+timestamp. The product owner accepted this seven-day detailed-runtime window
+for the first release on 2026-09-04.
 
 ### 10.3 Provider-owned history
 
@@ -3264,11 +3299,10 @@ requires a separate explicit user action and design decision.
 
 ## 12. Workspace settings and provider readiness
 
-Provider authentication readiness is a release blocker for the next release
-that exposes agent-backed development tasks. Installing a CLI and opening its
-interactive screen does not prove that it can make an authenticated remote
-request. ByteQuay must not discover a missing or expired login only after a
-task has acquired resources and started a turn.
+Provider authentication readiness was a CP11 release blocker and is now
+implemented. Installing a CLI and opening its interactive screen does not prove
+that it can make an authenticated remote request, so ByteQuay detects a missing
+or expired login before a task acquires resources or starts a turn.
 
 ### 12.1 Backend gate
 
@@ -3364,7 +3398,7 @@ details, but the primary message is **Claude sign-in required**.
 
 ### 12.3 Release acceptance
 
-Before the release blocker can be closed, automated tests must demonstrate:
+CP11 closed the release blocker after automated tests demonstrated:
 
 1. A new installation with Claude CLI present but logged out is blocked before
    task/turn creation, worktree provisioning, and CI attempt consumption.
@@ -3379,12 +3413,14 @@ Before the release blocker can be closed, automated tests must demonstrate:
 
 ## 13. Rich-task service acceptance
 
-The task UI in [Agent Task UI Design](agent-task-ui.md) is not ready to ship
-until automated contract and integration tests prove:
+The task UI in [Agent Task UI Design](agent-task-ui.md) shipped only after the
+CP11 automated contract, integration, security, and packaged-journey evidence
+proved:
 
-1. two concurrent Codex tasks and their child threads use separate task-owned
-   App Server processes without event, approval, turn, item, process, or
-   worktree cross-talk;
+1. two concurrent Codex turns for different tasks and their child threads use
+   separate task-owned App Server processes without event, approval, turn,
+   item, process, or worktree cross-talk; each process is verified stopped with
+   its turn and no task has more than one live process;
 2. replay fixtures contain the original user input and attachments, streamed
    and authoritative completed items, readable reasoning summaries, plans,
    resolved/expired approvals, and direct child relationships without duplicate
@@ -3412,9 +3448,13 @@ until automated contract and integration tests prove:
    explicitly reported as expired;
 9. root completion with an active descendant, a missed live child notification,
    a child-created grandchild, and a root answer followed by a still-running
-   command/tool/background item all retain the claim until recursive
-   `thread/read` closure reaches a stable terminal fixed point and every
-   observed execution-capable item is terminal;
+   command/tool/background item cannot report a successful result until
+   recursive, model-version-aware `thread/items/list` closure reaches a stable
+   item/background fixed point; V2 keeps `/` as the root logical path and
+   requires every stable descendant path to be strictly nested under its direct
+   parent. The per-turn App Server's owned process tree must then be
+   `VERIFIED_STOPPED`; failed reconciliation records a failed turn, and only a
+   verified stop permits its claim to release;
 10. unknown delivery and transport loss disable queue start, Send, and Complete
    until thread/item/background-terminal reconciliation succeeds or
    that task's owned provider process tree is `VERIFIED_STOPPED`; compatibility
@@ -3445,7 +3485,7 @@ until automated contract and integration tests prove:
 14. the release explicitly accepts App Server's documented experimental
    maturity, maintains
    the exact v0.151.0 reference fixture, compact projection, and experimental
-   surface, and passes per-task process launch/resume, cross-task process isolation,
+   surface, and passes per-turn process launch/resume, cross-task process isolation,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,
    steering, and reconnect tests against the latest user-managed Codex CLI.
    No reported version text, including unparseable output, may fail readiness by

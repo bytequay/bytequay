@@ -68,6 +68,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -304,8 +305,10 @@ class TestCodexCliDriver
                 .get(5, TimeUnit.SECONDS);
         assertThat(cancelledResult.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
 
+        AgentSessionRef reference = session.reference();
+        session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         RunningTurn failed = session.start(command("fail"));
-        supervisor.server().failTurn();
+        supervisor.servers().getLast().failTurn();
         AgentTurnResult failedResult = failed.completion()
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
@@ -316,8 +319,9 @@ class TestCodexCliDriver
         supervisor.versionOutput("future-build");
         assertThat(driver.probe().version()).contains("future-build");
 
+        session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         RunningTurn disconnected = session.start(command("disconnect"));
-        supervisor.server().disconnect();
+        supervisor.servers().getLast().disconnect();
         AgentTurnResult disconnectedResult = disconnected.completion()
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
@@ -464,6 +468,62 @@ class TestCodexCliDriver
     }
 
     @Test
+    void launchesTheTaskWithOnlyItsSelectedModelsChildProtocol()
+    {
+        List<String> v1 = taskArgumentsForModelVersion(Optional.of("v1"));
+        assertThat(v1).containsSequence("--enable", "multi_agent");
+        assertThat(v1).containsSequence("--disable", "multi_agent_v2");
+        assertThat(v1).contains("agents.max_depth=2");
+
+        List<String> v2 = taskArgumentsForModelVersion(Optional.of("v2"));
+        assertThat(v2).containsSequence("--disable", "multi_agent");
+        assertThat(v2).containsSequence("--enable", "multi_agent_v2");
+        assertThat(v2).doesNotContain("agents.max_depth=2");
+
+        for (Optional<String> version : List.of(Optional.<String>empty(), Optional.of("disabled"))) {
+            List<String> none = taskArgumentsForModelVersion(version);
+            assertThat(none).containsSequence("--disable", "multi_agent");
+            assertThat(none).containsSequence("--disable", "multi_agent_v2");
+            assertThat(none).doesNotContain("agents.max_depth=2");
+        }
+    }
+
+    @Test
+    void rejectsUnknownOrUnselectableCatalogProfilesBeforeLaunchingATaskProcess()
+    {
+        ScriptedProcessSupervisor unknown = new ScriptedProcessSupervisor(objectMapper);
+        unknown.reportModelVersion(Optional.of("future-version"));
+        CodexCliDriver unknownDriver = driver(unknown);
+        assertThatThrownBy(() -> unknownDriver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("unknown multi-agent version");
+        assertThat(unknown.servers()).isEmpty();
+
+        ScriptedProcessSupervisor noDefault = new ScriptedProcessSupervisor(objectMapper);
+        noDefault.reportModelCatalog("{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
+                + "\"description\":\"d\",\"supportedReasoningEfforts\":[],"
+                + "\"defaultReasoningEffort\":\"low\",\"isDefault\":false,\"hidden\":false,"
+                + "\"multiAgentVersion\":\"v1\"}]}");
+        CodexCliDriver noDefaultDriver = driver(noDefault);
+        assertThatThrownBy(() -> noDefaultDriver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("no visible default model");
+        assertThat(noDefault.servers()).isEmpty();
+
+        ScriptedProcessSupervisor missing = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver missingDriver = driver(missing);
+        assertThatThrownBy(() -> missingDriver.open(context(
+                Optional.empty(),
+                (request, timeout) -> CompletableFuture.completedFuture(
+                        ProviderApprovalDecision.allow(Optional.empty())),
+                Optional.of("not-in-catalog"),
+                Optional.<String>empty()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("not in the current model catalog");
+        assertThat(missing.servers()).isEmpty();
+    }
+
+    @Test
     void rejectsLatePermissionAndLegacyRequestsWithoutRoutingAnApproval()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -539,6 +599,29 @@ class TestCodexCliDriver
     }
 
     @Test
+    void rejectsAnApprovalFromAChildThreadOutsideTheCurrentAgentGraph()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), approval), event -> {});
+        session.start(command("approval graph"));
+        AppServerProcess server = supervisor.server();
+
+        server.emit("""
+                {"id":103,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo child",
+                "itemId":"exec-child","startedAtMs":1786884871465,
+                "threadId":"unknown-child","turnId":"child-turn"}}
+                """);
+
+        awaitCondition(() -> server.error(103) != null);
+        assertThat(server.error(103).path("message").asText()).contains("not in the active agent graph");
+        assertThat(approval).hasValue(null);
+        session.close();
+    }
+
+    @Test
     void rejectsAnApprovalDecisionAfterItsTurnFinishes()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -563,7 +646,6 @@ class TestCodexCliDriver
 
         server.failTurn();
         awaitCondition(() -> late.completion().toCompletableFuture().isDone());
-        session.start(command("replacement"));
         decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
 
         awaitCondition(() -> server.error(98) != null);
@@ -754,11 +836,12 @@ class TestCodexCliDriver
                 "first",
                 ImmutableList.<AgentAttachment>of(),
                 Duration.ofMinutes(5),
-                Optional.of("gpt-5-codex"),
+                Optional.of("gpt-5"),
                 Optional.of("high")));
         supervisor.server().completeTurn();
         first.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
+        session = driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {});
         RunningTurn second = session.start(new AgentTurnCommand(
                 "turn-b",
                 "second",
@@ -766,13 +849,14 @@ class TestCodexCliDriver
                 Duration.ofMinutes(5),
                 Optional.of("gpt-5"),
                 Optional.of("minimal")));
-        supervisor.server().completeTurn();
+        supervisor.servers().getLast().completeTurn();
         second.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         // Each turn carries the snapshot taken when it was accepted; a later default cannot
         // rewrite an earlier turn.
-        assertThat(supervisor.server().turnSettings())
-                .containsExactly("gpt-5-codex/high", "gpt-5/minimal");
+        assertThat(supervisor.servers())
+                .extracting(AppServerProcess::turnSettings)
+                .containsExactly(ImmutableList.of("gpt-5/high"), ImmutableList.of("gpt-5/minimal"));
     }
 
     @Test
@@ -866,6 +950,57 @@ class TestCodexCliDriver
     }
 
     @Test
+    void reconcilesALiveChildStartWithItsTerminalHistoryWhenCompletionWasMissed()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportCompletedChildCommand("child-reconciled");
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("reconcile child"));
+
+        supervisor.server().emitThreadStarted("child-reconciled", "Reconciled child");
+        supervisor.server().emitUnfinishedChildCommand("child-reconciled");
+        supervisor.server().completeTurn();
+
+        assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(events)
+                .filteredOn(ProviderAgentEvent.Command.class::isInstance)
+                .map(ProviderAgentEvent::providerEventId)
+                .contains(Optional.of("child-exec:started"), Optional.of("child-exec:completed"));
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED)
+                .singleElement()
+                .satisfies(event -> assertThat(event.source().providerThreadId()).contains("child-reconciled"));
+    }
+
+    @Test
+    void recoversTheCurrentRootFinalAnswerWithoutEchoingItsHistoricalPrompt()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportRecoveredRootAnswer();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("recover root answer"));
+
+        supervisor.server().completeTurnWithoutOutput();
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.finalResponse()).contains("recovered root answer");
+        assertThat(events)
+                .filteredOn(ProviderAgentEvent.Message.class::isInstance)
+                .map(event -> ((ProviderAgentEvent.Message) event).text())
+                .contains("recovered root answer")
+                .doesNotContain("do not echo this prompt");
+    }
+
+    @Test
     void findsASubagentThreadThatOnlyHistoryMentions()
             throws Exception
     {
@@ -915,19 +1050,6 @@ class TestCodexCliDriver
         Files.createDirectories(image.getParent());
         Files.write(image, new byte[] {1});
 
-        RunningTurn turn = session.start(new AgentTurnCommand(
-                "turn-image",
-                "What is in this screenshot?",
-                ImmutableList.of(new AgentAttachment("att-1", "shot.png", "image/png", image)),
-                Duration.ofMinutes(1)));
-        supervisor.server().completeTurn();
-        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-        assertThat(supervisor.server().turnInputs().getLast())
-                .contains("\"type\":\"text\"")
-                .contains("\"type\":\"localImage\"")
-                .contains(image.toString());
-
         // Only a task-owned image may be named to the App Server, whatever the caller claims.
         Path elsewhere = Files.createTempFile("elsewhere", ".png");
         assertThatThrownBy(() -> session.start(new AgentTurnCommand(
@@ -944,6 +1066,19 @@ class TestCodexCliDriver
                 Duration.ofMinutes(1))))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("task-owned image");
+
+        RunningTurn turn = session.start(new AgentTurnCommand(
+                "turn-image",
+                "What is in this screenshot?",
+                ImmutableList.of(new AgentAttachment("att-1", "shot.png", "image/png", image)),
+                Duration.ofMinutes(1)));
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(supervisor.server().turnInputs().getLast())
+                .contains("\"type\":\"text\"")
+                .contains("\"type\":\"localImage\"")
+                .contains(image.toString());
         session.close();
     }
 
@@ -979,12 +1114,12 @@ class TestCodexCliDriver
 
         supervisor.server().completeTurn();
 
-        // Reporting COMPLETED here would release the task's claim over files a live command may
-        // still be writing, so an unproven turn fails and the task keeps its worktree.
+        // The root result is not accepted as complete, but closing the per-turn process makes the
+        // worktree safe even when the inventories never became quiet.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
-        assertThat(result.terminalReason().orElseThrow()).contains("could not be shown stopped");
         assertThat(result.terminalReason().orElseThrow()).contains("background terminal proc-1");
+        assertThat(result.providerQuiescent()).isTrue();
         session.close();
     }
 
@@ -1002,14 +1137,15 @@ class TestCodexCliDriver
         assertThat(first.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.FAILED);
 
-        RunningTurn second = session.start(command("two"));
-        supervisor.server().completeTurn();
+        AgentSession resumed = driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {});
+        RunningTurn second = resumed.start(command("two"));
+        supervisor.servers().getLast().completeTurn();
 
         // The earlier turn's outcome is already decided. Carrying its unresolved item forward
         // would fail every turn after it for a reason that is no longer about them.
         assertThat(second.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
-        session.close();
+        resumed.close();
     }
 
     @Test
@@ -1022,6 +1158,7 @@ class TestCodexCliDriver
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("delegate"));
 
+        supervisor.server().emitThreadStarted("child-thread-7", "Child seven");
         supervisor.server().emitSubagentActivity("child-thread-7");
 
         // Every thread in this process belongs to this task, so a subagent's work is reported
@@ -1090,6 +1227,62 @@ class TestCodexCliDriver
     }
 
     @Test
+    void buffersOutOfOrderGrandchildActivityUntilBothExplicitParentsAreKnown()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("out of order lineage"));
+
+        supervisor.server().emitThreadStarted("grandchild-early", "child-late", "Early grandchild");
+        supervisor.server().emitSubagentActivity("grandchild-early");
+        supervisor.server().emitThreadStarted("child-late", "Late child");
+
+        awaitCondition(() -> events.stream().anyMatch(event -> event.toString().contains("from a child thread")));
+        ProviderAgentEvent grandchild = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .filter(event -> event.source().providerThreadId().filter("grandchild-early"::equals).isPresent())
+                .findFirst()
+                .orElseThrow();
+        assertThat(grandchild.source().parentProviderThreadId()).contains("child-late");
+        assertThat(events.indexOf(grandchild))
+                .isLessThan(events.stream()
+                        .filter(event -> event.source().providerThreadId().filter("grandchild-early"::equals).isPresent())
+                        .filter(event -> !(event instanceof ProviderAgentEvent.Lifecycle))
+                        .findFirst()
+                        .map(events::indexOf)
+                        .orElseThrow());
+
+        supervisor.server().completeTurn();
+        assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+    }
+
+    @Test
+    void failsWithADiagnosticWhenBufferedChildActivityNeverReceivesLineage()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(300));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("orphan activity"));
+
+        supervisor.server().emitSubagentActivity("orphan-child");
+        supervisor.server().completeTurn();
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason)
+                .contains("buffered notification(s)")
+                .contains("orphan-child")
+                .contains("no confirmed lineage"));
+    }
+
+    @Test
     void recordsTheSubagentsPromptAndItsTerminalOutcome()
             throws Exception
     {
@@ -1146,9 +1339,202 @@ class TestCodexCliDriver
                 ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                 ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED,
                 ProviderAgentEvent.LifecyclePhase.BACKFILL_COMPLETED);
-        // The child finished without a terminal event of its own, so quiescence settles it.
-        assertThat(phases).contains(ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED);
+        // Process shutdown proves the recovered child stopped; it does not invent a provider
+        // lifecycle event that history never supplied.
+        assertThat(phases).doesNotContain(ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED);
         session.close();
+    }
+
+    @Test
+    void recursivelyDiscoversV1ChildrenAndGrandchildrenOnlyFromTheirOwningHistory()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportRecursiveV1History();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("nested history"));
+
+        supervisor.server().completeTurn();
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(supervisor.server().backgroundTerminalThreads())
+                .contains("thread-1", "child-history", "grandchild-history");
+        ProviderAgentEvent child = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .filter(event -> event.source().providerThreadId().filter("child-history"::equals).isPresent())
+                .findFirst()
+                .orElseThrow();
+        ProviderAgentEvent grandchild = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .filter(event -> event.source().providerThreadId().filter("grandchild-history"::equals).isPresent())
+                .findFirst()
+                .orElseThrow();
+        assertThat(child.source().parentProviderThreadId()).contains("thread-1");
+        assertThat(grandchild.source().parentProviderThreadId()).contains("child-history");
+    }
+
+    @Test
+    void treatsV2StartedAsAnEdgeButNotInteractedAndPreservesTheFullAgentPath()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.reportV2History();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("v2 history"));
+
+        supervisor.server().completeTurn();
+        assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+
+        List<ProviderAgentEvent> discoveries = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .toList();
+        assertThat(discoveries).singleElement().satisfies(discovery -> {
+            assertThat(discovery.source().providerThreadId()).contains("v2-child");
+            assertThat(discovery.source().parentProviderThreadId()).contains("thread-1");
+            assertThat(discovery.source().logicalAgentPath()).contains("/agents/team/reviewer");
+        });
+        assertThat(supervisor.server().backgroundTerminalThreads()).doesNotContain("not-a-child");
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Message message
+                        && message.messageKind() == ProviderAgentEvent.MessageKind.PROMPT)
+                .map(event -> ((ProviderAgentEvent.Message) event).text())
+                .contains("supplementary prompt");
+    }
+
+    @Test
+    void waitsForCanonicalV2PathWhenThreadMetadataArrivesFirst()
+            throws Exception
+    {
+        assertStableLiveV2Path(true);
+    }
+
+    @Test
+    void keepsCanonicalV2PathWhenThreadMetadataArrivesLater()
+            throws Exception
+    {
+        assertStableLiveV2Path(false);
+    }
+
+    @Test
+    void preservesNestedV2PathsForAChildAndItsDirectGrandchild()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.reportNestedV2History();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("nested v2"));
+
+        supervisor.server().completeTurn();
+        assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .extracting(event -> event.source().providerThreadId().orElseThrow(),
+                        event -> event.source().parentProviderThreadId().orElseThrow(),
+                        event -> event.source().logicalAgentPath().orElseThrow())
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("v2-child", "thread-1", "/agents/reviewer"),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "v2-grandchild",
+                                "v2-child",
+                                "/agents/reviewer/researcher"));
+    }
+
+    @Test
+    void rejectsUnknownRelativeOrUnstableV2SupplementaryActivity()
+            throws Exception
+    {
+        AgentTurnResult unknown = runInvalidV2History("unknown-child", "/agents/unknown");
+        assertThat(unknown.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("graph identity"));
+
+        AgentTurnResult relative = runInvalidV2History("v2-child", "relative/path");
+        assertThat(relative.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("absolute"));
+
+        AgentTurnResult changed = runInvalidV2History("v2-child", "/agents/changed");
+        assertThat(changed.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("path changed"));
+        AgentTurnResult rootPath = runInvalidRootV2History();
+        assertThat(rootPath.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("not nested"));
+        AgentTurnResult notNested = runInvalidNestedV2History();
+        assertThat(notNested.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("not nested"));
+        assertThat(List.of(unknown, relative, changed, rootPath, notNested)).allSatisfy(result -> {
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+            assertThat(result.providerQuiescent()).isTrue();
+        });
+    }
+
+    @Test
+    void rejectsUnknownIdentitiesFromBothNonselectedSupplementaryFormats()
+            throws Exception
+    {
+        AgentTurnResult v1UnderV2 = runUnknownSupplement(
+                Optional.of("v2"),
+                ScriptedProcessSupervisor::reportUnknownV1Supplement);
+        AgentTurnResult v2UnderV1 = runUnknownSupplement(
+                Optional.of("v1"),
+                ScriptedProcessSupervisor::reportUnknownV2Supplement);
+
+        assertThat(List.of(v1UnderV2, v2UnderV1)).allSatisfy(result -> {
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+            assertThat(result.providerQuiescent()).isTrue();
+            assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason)
+                    .contains("graph identity"));
+        });
+    }
+
+    @Test
+    void recoversSameItemIdFromDistinctChildTurns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportDuplicateChildItemIdsAcrossTurns();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("duplicate item ids"));
+
+        supervisor.server().completeTurn();
+        turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Message
+                        && ((ProviderAgentEvent.Message) event).messageKind()
+                                == ProviderAgentEvent.MessageKind.ANSWER
+                        && event.source().providerThreadId().filter("duplicate-child"::equals).isPresent())
+                .map(event -> ((ProviderAgentEvent.Message) event).text())
+                .containsExactly("first child turn", "second child turn");
+    }
+
+    @Test
+    void failsClosedOnAnUnknownHistoricalItemThenStopsTheProcessTree()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportUnknownHistoryItem();
+        CodexCliDriver driver = driver(supervisor, Duration.ofMillis(300));
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("unknown history"));
+
+        supervisor.server().completeTurn();
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("future-item"));
     }
 
     @Test
@@ -1166,7 +1552,10 @@ class TestCodexCliDriver
         // about the second.
         supervisor.reportHooks("[{\"name\":\"stop\"}]");
 
-        assertThatThrownBy(() -> session.start(command("second")))
+        AgentSession resumed = driver.open(
+                context(Optional.of(session.reference()), new AtomicReference<>()),
+                event -> {});
+        assertThatThrownBy(() -> resumed.start(command("second")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
@@ -1192,6 +1581,31 @@ class TestCodexCliDriver
                 .containsExactly("task-1", "task-1");
         assertThat(supervisor.servers().getLast().resumeCount()).isOne();
         resumed.close();
+    }
+
+    @Test
+    void ignoresPriorRootTurnChildrenUnknownItemsAndUnfinishedWorkAfterResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession firstSession = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn first = firstSession.start(command("first process"));
+        supervisor.server().completeTurn();
+        first.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        supervisor.reportOnlyPriorRootHistory();
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        AgentSession resumed = driver.open(
+                context(Optional.of(firstSession.reference()), new AtomicReference<>()),
+                events::add);
+        RunningTurn current = resumed.start(command("current process"));
+        supervisor.servers().getLast().completeTurn();
+        AgentTurnResult result = current.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(events).noneMatch(event -> event.source().providerThreadId().filter("old-child"::equals).isPresent());
+        assertThat(supervisor.servers().getLast().backgroundTerminalThreads()).doesNotContain("old-child");
     }
 
     @Test
@@ -1286,6 +1700,120 @@ class TestCodexCliDriver
         return worktree.resolve(".codex");
     }
 
+    private List<String> taskArgumentsForModelVersion(Optional<String> version)
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(version);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        List<String> arguments = supervisor.serverArgv().getFirst();
+        session.close();
+        return arguments;
+    }
+
+    private AgentTurnResult runInvalidV2History(String threadId, String agentPath)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.reportInvalidV2History(threadId, agentPath);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("invalid v2"));
+        supervisor.server().completeTurn();
+        return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    private void assertStableLiveV2Path(boolean threadMetadataFirst)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("live v2 path"));
+        String threadId = "live-v2-child";
+        String agentPath = "/agents/live-reviewer";
+
+        if (threadMetadataFirst) {
+            supervisor.server().emitThreadStarted(threadId, "Nickname must not become the path");
+            supervisor.server().emitSubagentActivity(threadId);
+            supervisor.server().emitV2Started(threadId, agentPath);
+        }
+        else {
+            supervisor.server().emitV2Started(threadId, agentPath);
+            supervisor.server().emitThreadStarted(threadId, "Nickname must not replace the path");
+            supervisor.server().emitSubagentActivity(threadId);
+        }
+        supervisor.server().completeTurn();
+
+        assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
+                .isEqualTo(AgentTurnResult.State.COMPLETED);
+        List<ProviderAgentEvent> childEvents = events.stream()
+                .filter(event -> event.source().providerThreadId().filter(threadId::equals).isPresent())
+                .toList();
+        assertThat(childEvents)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .singleElement()
+                .satisfies(event -> assertThat(((ProviderAgentEvent.Lifecycle) event).message())
+                        .isEqualTo(agentPath));
+        assertThat(childEvents).allSatisfy(event ->
+                assertThat(event.source().logicalAgentPath()).contains(agentPath));
+        int discovery = childEvents.indexOf(childEvents.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .findFirst()
+                .orElseThrow());
+        int firstActivity = childEvents.indexOf(childEvents.stream()
+                .filter(event -> !(event instanceof ProviderAgentEvent.Lifecycle))
+                .findFirst()
+                .orElseThrow());
+        assertThat(discovery).isLessThan(firstActivity);
+    }
+
+    private AgentTurnResult runUnknownSupplement(
+            Optional<String> version,
+            Consumer<ScriptedProcessSupervisor> history)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(version);
+        history.accept(supervisor);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("unknown supplement"));
+        supervisor.server().completeTurn();
+        return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    private AgentTurnResult runInvalidNestedV2History()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.reportNestedV2History("/agents/other/researcher");
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("invalid nested v2"));
+        supervisor.server().completeTurn();
+        return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    private AgentTurnResult runInvalidRootV2History()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.reportRootV2History("/");
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("invalid root v2"));
+        supervisor.server().completeTurn();
+        return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
     private AgentSessionContext context(
             Optional<AgentSessionRef> reference,
             AtomicReference<ProviderApprovalRequest> approval)
@@ -1312,6 +1840,25 @@ class TestCodexCliDriver
             AgentApprovalHandler approvals)
     {
         return context("task-1", worktree, reference, approvals);
+    }
+
+    private AgentSessionContext context(
+            Optional<AgentSessionRef> reference,
+            AgentApprovalHandler approvals,
+            Optional<String> model,
+            Optional<String> effort)
+    {
+        return new AgentSessionContext(
+                "task-1",
+                worktree,
+                worktree,
+                worktree.resolve("provider"),
+                AgentPermissionPolicy.AUTO,
+                reference,
+                approvals,
+                model,
+                effort,
+                false);
     }
 
     private static AgentSessionContext context(
@@ -1347,6 +1894,7 @@ class TestCodexCliDriver
         private final List<AppServerProcess> servers = new CopyOnWriteArrayList<>();
         private final List<Path> serverCwds = new CopyOnWriteArrayList<>();
         private final List<ProcessOwner> serverOwners = new CopyOnWriteArrayList<>();
+        private final List<List<String>> serverArgv = new CopyOnWriteArrayList<>();
         /** The environment of every process launched, App Server and probe alike, in launch order. */
         private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
@@ -1354,7 +1902,8 @@ class TestCodexCliDriver
         private volatile String configLayers = "[]";
         private volatile String skills = "[]";
         private volatile String backgroundTerminals = "{\"data\":[],\"nextCursor\":null}";
-        private volatile String historyItems = "{\"data\":[],\"nextCursor\":null}";
+        private final ConcurrentMap<String, String> historyItems = new ConcurrentHashMap<>();
+        private volatile String models = modelCatalog(Optional.of("v1"));
         private volatile ProcessExit.TreeTermination termination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
 
         /** Makes every App Server exit report a process tree that could not be observed gone. */
@@ -1366,25 +1915,211 @@ class TestCodexCliDriver
         /** Names a subagent thread in history that the notification stream never mentioned. */
         private void reportUnannouncedSubagent()
         {
-            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
-                    + "\"type\":\"subAgentActivity\",\"id\":\"sub-1\","
-                    + "\"agentThreadId\":\"child-unannounced\",\"agentPath\":\"a/b\","
-                    + "\"kind\":\"started\"}}],\"nextCursor\":null}";
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"collabAgentToolCall\",\"id\":\"spawn-missed\","
+                    + "\"tool\":\"spawnAgent\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"child-unannounced\"],"
+                    + "\"agentsStates\":{\"child-unannounced\":{\"status\":\"completed\",\"message\":null}},"
+                    + "\"prompt\":\"inspect history\"}}],\"nextCursor\":null}");
+            historyItems.put("child-unannounced", "{\"data\":[{\"turnId\":\"child-turn\",\"item\":{"
+                    + "\"type\":\"agentMessage\",\"id\":\"child-message\","
+                    + "\"text\":\"recovered child result\",\"phase\":\"final_answer\"}}],"
+                    + "\"nextCursor\":null}");
         }
 
         /** Reports an item history still says is running, which the live stream never delivered. */
         private void reportUnfinishedHistoryItem()
         {
-            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
                     + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"exec-missed\","
-                    + "\"command\":\"sleep 600\",\"status\":\"inProgress\"}}],\"nextCursor\":null}";
+                    + "\"command\":\"sleep 600\",\"status\":\"inProgress\"}}],\"nextCursor\":null}");
         }
 
         private void reportSettledHistory()
         {
-            historyItems = "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
                     + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"exec-missed\","
-                    + "\"command\":\"sleep 600\",\"status\":\"completed\"}}],\"nextCursor\":null}";
+                    + "\"command\":\"sleep 600\",\"status\":\"completed\"}}],\"nextCursor\":null}");
+        }
+
+        private static String modelCatalog(Optional<String> multiAgentVersion)
+        {
+            String version = multiAgentVersion
+                    .map(value -> ",\"multiAgentVersion\":\"" + value + "\"")
+                    .orElse("");
+            return "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
+                    + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
+                    + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false"
+                    + version + "}]}";
+        }
+
+        private void reportModelVersion(Optional<String> multiAgentVersion)
+        {
+            models = modelCatalog(multiAgentVersion);
+        }
+
+        private void reportModelCatalog(String catalog)
+        {
+            models = catalog;
+        }
+
+        private void reportRecursiveV1History()
+        {
+            historyItems.put("thread-1", v1SpawnHistory(
+                    "spawn-child",
+                    "thread-1",
+                    "child-history",
+                    "inspect the child"));
+            historyItems.put("child-history", v1SpawnHistory(
+                    "spawn-grandchild",
+                    "child-history",
+                    "grandchild-history",
+                    "inspect the grandchild"));
+            historyItems.put("grandchild-history", "{\"data\":[{\"turnId\":\"grandchild-turn\",\"item\":{"
+                    + "\"type\":\"agentMessage\",\"id\":\"grandchild-message\","
+                    + "\"text\":\"nested result\",\"phase\":\"final_answer\"}}],\"nextCursor\":null}");
+        }
+
+        private void reportDuplicateChildItemIdsAcrossTurns()
+        {
+            historyItems.put("thread-1", v1SpawnHistory(
+                    "spawn-duplicate-child",
+                    "thread-1",
+                    "duplicate-child",
+                    "compare two turns"));
+            historyItems.put("duplicate-child", "{\"data\":["
+                    + "{\"turnId\":\"child-turn-1\",\"item\":{\"type\":\"agentMessage\","
+                    + "\"id\":\"same-item\",\"text\":\"first child turn\",\"phase\":\"final_answer\"}},"
+                    + "{\"turnId\":\"child-turn-2\",\"item\":{\"type\":\"agentMessage\","
+                    + "\"id\":\"same-item\",\"text\":\"second child turn\",\"phase\":\"final_answer\"}}"
+                    + "],\"nextCursor\":null}");
+        }
+
+        private void reportV2History()
+        {
+            historyItems.put("thread-1", "{\"data\":["
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
+                    + "\"id\":\"v2-start\",\"agentThreadId\":\"v2-child\","
+                    + "\"agentPath\":\"/agents/team/reviewer\",\"kind\":\"started\"}},"
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"collabAgentToolCall\","
+                    + "\"id\":\"v1-supplement\",\"tool\":\"spawnAgent\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"v2-child\"],"
+                    + "\"agentsStates\":{},\"prompt\":\"supplementary prompt\"}}"
+                    + "],\"nextCursor\":null}");
+            historyItems.put("v2-child", "{\"data\":["
+                    + "{\"turnId\":\"child-turn\",\"item\":{\"type\":\"subAgentActivity\","
+                    + "\"id\":\"v2-upward\",\"agentThreadId\":\"thread-1\","
+                    + "\"agentPath\":\"/\",\"kind\":\"interacted\"}},"
+                    + "{\"turnId\":\"child-turn\",\"item\":{\"type\":\"collabAgentToolCall\","
+                    + "\"id\":\"v1-wait\",\"tool\":\"wait\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"v2-child\",\"receiverThreadIds\":[\"thread-1\"],"
+                    + "\"agentsStates\":{\"thread-1\":{\"status\":\"completed\",\"message\":null}},"
+                    + "\"prompt\":null}}"
+                    + "],\"nextCursor\":null}");
+        }
+
+        private void reportNestedV2History()
+        {
+            reportNestedV2History("/agents/reviewer/researcher");
+        }
+
+        private void reportNestedV2History(String grandchildPath)
+        {
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"v2-child-start\","
+                    + "\"agentThreadId\":\"v2-child\",\"agentPath\":\"/agents/reviewer\","
+                    + "\"kind\":\"started\"}}],\"nextCursor\":null}");
+            historyItems.put("v2-child", "{\"data\":[{\"turnId\":\"child-turn\",\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"v2-grandchild-start\","
+                    + "\"agentThreadId\":\"v2-grandchild\","
+                    + "\"agentPath\":\"" + grandchildPath + "\",\"kind\":\"started\"}}],"
+                    + "\"nextCursor\":null}");
+        }
+
+        private void reportRootV2History(String childPath)
+        {
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"v2-child-start\","
+                    + "\"agentThreadId\":\"v2-child\",\"agentPath\":\"" + childPath + "\","
+                    + "\"kind\":\"started\"}}],\"nextCursor\":null}");
+        }
+
+        private void reportInvalidV2History(String secondThreadId, String secondPath)
+        {
+            historyItems.put("thread-1", "{\"data\":["
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
+                    + "\"id\":\"v2-start\",\"agentThreadId\":\"v2-child\","
+                    + "\"agentPath\":\"/agents/reviewer\",\"kind\":\"started\"}},"
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
+                    + "\"id\":\"v2-invalid\",\"agentThreadId\":\"" + secondThreadId + "\","
+                    + "\"agentPath\":\"" + secondPath + "\",\"kind\":\"interacted\"}}"
+                    + "],\"nextCursor\":null}");
+        }
+
+        private void reportUnknownV1Supplement()
+        {
+            historyItems.put("thread-1", v1SpawnHistory(
+                    "nonselected-v1",
+                    "thread-1",
+                    "unknown-v1-child",
+                    "must already exist"));
+        }
+
+        private void reportUnknownV2Supplement()
+        {
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"nonselected-v2\","
+                    + "\"agentThreadId\":\"unknown-v2-child\",\"agentPath\":\"/agents/unknown\","
+                    + "\"kind\":\"started\"}}],\"nextCursor\":null}");
+        }
+
+        private void reportUnknownHistoryItem()
+        {
+            historyItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"futureWorkItem\",\"id\":\"future-item\"}}],\"nextCursor\":null}");
+        }
+
+        private void reportCompletedChildCommand(String threadId)
+        {
+            historyItems.put(threadId, "{\"data\":[{\"turnId\":\"child-turn\",\"item\":{"
+                    + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],"
+                    + "\"id\":\"child-exec\",\"command\":\"echo done\",\"status\":\"completed\","
+                    + "\"aggregatedOutput\":\"done\",\"exitCode\":0}}],\"nextCursor\":null}");
+        }
+
+        private void reportOnlyPriorRootHistory()
+        {
+            historyItems.put("thread-1", "{\"data\":["
+                    + "{\"turnId\":\"prior-turn\",\"item\":{\"type\":\"collabAgentToolCall\","
+                    + "\"id\":\"old-spawn\",\"tool\":\"spawnAgent\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"old-child\"],"
+                    + "\"agentsStates\":{},\"prompt\":\"old work\"}},"
+                    + "{\"turnId\":\"prior-turn\",\"item\":{\"type\":\"commandExecution\","
+                    + "\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"old-running\","
+                    + "\"command\":\"sleep 600\",\"status\":\"inProgress\"}},"
+                    + "{\"turnId\":\"prior-turn\",\"item\":{\"type\":\"futureWorkItem\","
+                    + "\"id\":\"old-unknown\"}}],\"nextCursor\":null}");
+        }
+
+        private void reportRecoveredRootAnswer()
+        {
+            historyItems.put("thread-1", "{\"data\":["
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"userMessage\","
+                    + "\"id\":\"root-prompt\",\"content\":[{\"type\":\"text\","
+                    + "\"text\":\"do not echo this prompt\"}]}},"
+                    + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"agentMessage\","
+                    + "\"id\":\"root-answer\",\"text\":\"recovered root answer\","
+                    + "\"phase\":\"final_answer\"}}],\"nextCursor\":null}");
+        }
+
+        private static String v1SpawnHistory(String itemId, String sender, String receiver, String prompt)
+        {
+            return "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
+                    + "\"type\":\"collabAgentToolCall\",\"id\":\"" + itemId + "\","
+                    + "\"tool\":\"spawnAgent\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"" + sender + "\",\"receiverThreadIds\":[\"" + receiver + "\"],"
+                    + "\"agentsStates\":{\"" + receiver + "\":{\"status\":\"completed\",\"message\":null}},"
+                    + "\"prompt\":\"" + prompt + "\"}}],\"nextCursor\":null}";
         }
         private final AtomicInteger updateRuns = new AtomicInteger();
 
@@ -1494,10 +2229,7 @@ class TestCodexCliDriver
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
                 return loggedIn ? ImmediateProcess.success() : ImmediateProcess.failure();
             }
-            // The working directory and owner are load-bearing now: they are what binds a task to
-            // its own process and its own sandbox root.
-            serverCwds.add(spec.workingDirectory());
-            serverOwners.add(spec.owner());
+            boolean catalog = spec.owner().id().equals("codex-model-catalog");
             AppServerProcess server = new AppServerProcess(
                     objectMapper,
                     output,
@@ -1508,9 +2240,17 @@ class TestCodexCliDriver
                     () -> skills,
                     () -> backgroundTerminals,
                     this::reportNoBackgroundTerminals,
-                    () -> historyItems,
-                    () -> termination);
-            servers.add(server);
+                    thread -> historyItems.getOrDefault(thread, "{\"data\":[],\"nextCursor\":null}"),
+                    () -> models,
+                    () -> catalog ? ProcessExit.TreeTermination.VERIFIED_STOPPED : termination);
+            if (!catalog) {
+                // The working directory and owner bind a task process to its sandbox root. Catalog
+                // processes are deliberately short-lived and are not task sessions.
+                serverCwds.add(spec.workingDirectory());
+                serverOwners.add(spec.owner());
+                serverArgv.add(spec.argv());
+                servers.add(server);
+            }
             return server;
         }
 
@@ -1539,6 +2279,11 @@ class TestCodexCliDriver
         private List<ProcessOwner> serverOwners()
         {
             return serverOwners;
+        }
+
+        private List<List<String>> serverArgv()
+        {
+            return serverArgv;
         }
 
         private void versionOutput(String versionOutput)
@@ -1606,7 +2351,8 @@ class TestCodexCliDriver
             return backgroundTerminalThreads;
         }
         private final Runnable clearBackgroundTerminals;
-        private final Supplier<String> historyItems;
+        private final Function<String, String> historyItems;
+        private final Supplier<String> models;
         private final Supplier<ProcessExit.TreeTermination> termination;
 
         private List<String> terminated()
@@ -1628,7 +2374,8 @@ class TestCodexCliDriver
                 Supplier<String> skills,
                 Supplier<String> backgroundTerminals,
                 Runnable clearBackgroundTerminals,
-                Supplier<String> historyItems,
+                Function<String, String> historyItems,
+                Supplier<String> models,
                 Supplier<ProcessExit.TreeTermination> termination)
         {
             this.termination = termination;
@@ -1642,6 +2389,7 @@ class TestCodexCliDriver
             this.backgroundTerminals = backgroundTerminals;
             this.clearBackgroundTerminals = clearBackgroundTerminals;
             this.historyItems = historyItems;
+            this.models = models;
         }
 
         /** Real App Server hands out a distinct thread per start; the fixture must too. */
@@ -1713,7 +2461,9 @@ class TestCodexCliDriver
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
-                case "thread/items/list" -> respond(id, historyItems.get());
+                case "thread/items/list" -> respond(
+                        id,
+                        historyItems.apply(message.path("params").path("threadId").asText()));
                 case "thread/backgroundTerminals/list" -> {
                     backgroundTerminalThreads.add(message.path("params").path("threadId").asText());
                     respond(id, backgroundTerminals.get());
@@ -1723,9 +2473,7 @@ class TestCodexCliDriver
                     clearBackgroundTerminals.run();
                     respond(id, "{\"terminated\":true}");
                 }
-                case "model/list" -> respond(id, "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
-                        + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
-                        + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false}]}");
+                case "model/list" -> respond(id, models.get());
                 case "initialized" -> {}
                 case "thread/start" -> {
                     approvalPolicies.add(message.path("params").path("approvalPolicy").asText());
@@ -1819,10 +2567,24 @@ class TestCodexCliDriver
         /** Announces a subagent thread the way App Server does when one is spawned. */
         private void emitThreadStarted(String threadId, String nickname)
         {
+            emitThreadStarted(threadId, "thread-1", nickname);
+        }
+
+        private void emitThreadStarted(String threadId, String parentThreadId, String nickname)
+        {
             emit("{\"method\":\"thread/started\",\"params\":{\"thread\":{"
                     + "\"id\":\"" + threadId + "\",\"sessionId\":\"session-1\","
-                    + "\"parentThreadId\":\"thread-1\",\"turns\":[],"
+                    + "\"parentThreadId\":\"" + parentThreadId + "\",\"turns\":[],"
                     + "\"agentNickname\":\"" + nickname + "\",\"agentRole\":null}}}");
+        }
+
+        private void emitV2Started(String threadId, String agentPath)
+        {
+            emit("{\"method\":\"item/completed\",\"params\":{\"item\":{"
+                    + "\"type\":\"subAgentActivity\",\"id\":\"live-v2-start\","
+                    + "\"agentThreadId\":\"" + threadId + "\",\"agentPath\":\"" + agentPath + "\","
+                    + "\"kind\":\"started\"},\"threadId\":\"thread-1\","
+                    + "\"turnId\":\"" + activeTurn + "\"}}");
         }
 
         /** The spawn that created a subagent, which is what carries the prompt it was given. */
@@ -1858,6 +2620,21 @@ class TestCodexCliDriver
                     + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],\"id\":\"" + itemId + "\","
                     + "\"command\":\"sleep 600\",\"status\":\"inProgress\"},"
                     + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
+        }
+
+        private void emitUnfinishedChildCommand(String threadId)
+        {
+            emit("{\"method\":\"item/started\",\"params\":{\"item\":{"
+                    + "\"type\":\"commandExecution\",\"cwd\":\"/tmp/wt\",\"commandActions\":[],"
+                    + "\"id\":\"child-exec\",\"command\":\"echo done\",\"status\":\"inProgress\"},"
+                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"child-turn\"}}");
+        }
+
+        private void completeTurnWithoutOutput()
+        {
+            emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
+                    + "\"turn\":{\"id\":\"" + activeTurn + "\",\"status\":\"completed\","
+                    + "\"error\":null,\"durationMs\":1,\"items\":[]}}}");
         }
 
         private void completeTurn()

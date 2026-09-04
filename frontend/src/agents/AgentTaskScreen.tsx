@@ -1414,7 +1414,7 @@ export function AgentTaskBody({
   onResumeQueue?: () => void;
 }): React.JSX.Element {
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const sidePanel = useResizablePane(300, 240, 420, 'start');
+  const sidePanel = useResizablePane(300, 240, 1600, 'start');
   // Stuck to the bottom like a terminal until the user scrolls up, and stuck again once they return;
   // a task with no events yet is a fresh one, so it starts stuck.
   const follow = useRef(true);

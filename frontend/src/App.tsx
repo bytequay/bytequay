@@ -69,7 +69,6 @@ export default function App() {
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
-  const [developmentBuild, setDevelopmentBuild] = useState(false);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -111,7 +110,6 @@ export default function App() {
     const stopBrowser = window.bridge.onInAppOpenRequest(({ url }) => setBrowserUrl(url));
     const stopFullScreen = window.bridge.onFullScreenChange(setFullScreen);
     void window.bridge.getFullScreen().then(setFullScreen);
-    void window.bridge.isDevelopmentBuild().then(setDevelopmentBuild);
     return () => {
       stopBrowser();
       stopFullScreen();
@@ -349,7 +347,6 @@ export default function App() {
             initialPullRequestNumber={initialWorkspacePrNumber}
             initialIssueNumber={initialIssueNumber}
             initialAgentTaskId={initialAgentTaskId}
-            developmentBuild={developmentBuild}
             browserOpen={browserUrl !== null}
             onSelectPullRequest={selectWorkspacePullRequest}
             onSelectAgentTask={selectAgentTask}

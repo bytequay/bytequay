@@ -34,11 +34,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -48,6 +50,10 @@ public final class DeterministicAgentDriver
 {
     private final AgentLaneId laneId;
     private final AtomicBoolean holdNextTurn = new AtomicBoolean();
+    private final AtomicBoolean imageAttachments = new AtomicBoolean(true);
+    private final AtomicLong openCount = new AtomicLong();
+    private final AtomicLong probeCount = new AtomicLong();
+    private final ArrayDeque<AgentProviderStatus.Readiness> probeReadiness = new ArrayDeque<>();
     private final AtomicReference<HeldTurn> heldTurn = new AtomicReference<>();
 
     public DeterministicAgentDriver()
@@ -82,17 +88,22 @@ public final class DeterministicAgentDriver
                 true,
                 CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO),
-                ImmutableSet.of("image/png"));
+                imageAttachments.get() ? ImmutableSet.of("image/png") : ImmutableSet.of());
     }
 
     @Override
-    public AgentProviderStatus probe()
+    public synchronized AgentProviderStatus probe()
     {
+        probeCount.incrementAndGet();
+        AgentProviderStatus.Readiness readiness = probeReadiness.pollFirst();
+        if (readiness == null) {
+            readiness = AgentProviderStatus.Readiness.READY;
+        }
         return new AgentProviderStatus(
                 laneId,
-                AgentProviderStatus.Readiness.READY,
+                readiness,
                 Optional.of("development"),
-                "ready",
+                readiness == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED ? "sign in required" : "ready",
                 capabilities());
     }
 
@@ -130,9 +141,13 @@ public final class DeterministicAgentDriver
         held.completion().complete(result(held.response()));
     }
 
-    public void reset()
+    public synchronized void reset()
     {
         holdNextTurn.set(false);
+        imageAttachments.set(true);
+        openCount.set(0);
+        probeCount.set(0);
+        probeReadiness.clear();
         HeldTurn held = heldTurn.getAndSet(null);
         if (held != null) {
             held.completion().complete(new AgentTurnResult(
@@ -143,9 +158,32 @@ public final class DeterministicAgentDriver
         }
     }
 
+    public void disableImageAttachments()
+    {
+        imageAttachments.set(false);
+    }
+
+    public long openCount()
+    {
+        return openCount.get();
+    }
+
+    public long probeCount()
+    {
+        return probeCount.get();
+    }
+
+    public synchronized void probeReadiness(AgentProviderStatus.Readiness... readiness)
+    {
+        for (AgentProviderStatus.Readiness value : readiness) {
+            probeReadiness.addLast(value);
+        }
+    }
+
     @Override
     public AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
+        openCount.incrementAndGet();
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
                 laneId,
                 1,

@@ -39,6 +39,7 @@ public record TurnMetrics(
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
         checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE), "cost and costProvenance disagree");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
+        cost = cost.map(BigDecimal::stripTrailingZeros);
     }
 
     public static TurnMetrics empty()

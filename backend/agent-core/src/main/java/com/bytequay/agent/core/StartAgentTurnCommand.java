@@ -28,7 +28,8 @@ public record StartAgentTurnCommand(
         OptionalLong expectedTaskVersion,
         String message,
         List<AgentAttachment> attachments,
-        String idempotencyKey)
+        String idempotencyKey,
+        boolean useTrustedTaskCreationReadiness)
 {
     public StartAgentTurnCommand
     {
@@ -40,6 +41,26 @@ public record StartAgentTurnCommand(
         checkNotBlank(idempotencyKey, "idempotencyKey");
     }
 
+    /**
+     * Starts the first turn immediately after interactive task creation already proved readiness.
+     *
+     * <p>Core accepts this trust only for a version-zero interactive task with no existing turn.
+     */
+    public static StartAgentTurnCommand trustedInitialInteractiveTurn(
+            TaskId taskId,
+            String message,
+            List<AgentAttachment> attachments,
+            String idempotencyKey)
+    {
+        return new StartAgentTurnCommand(
+                taskId,
+                OptionalLong.of(0),
+                message,
+                attachments,
+                idempotencyKey,
+                true);
+    }
+
     /** Starts against an exact task snapshot, for callers that validated its mutable defaults. */
     public StartAgentTurnCommand(
             TaskId taskId,
@@ -48,7 +69,7 @@ public record StartAgentTurnCommand(
             List<AgentAttachment> attachments,
             String idempotencyKey)
     {
-        this(taskId, OptionalLong.of(expectedTaskVersion), message, attachments, idempotencyKey);
+        this(taskId, OptionalLong.of(expectedTaskVersion), message, attachments, idempotencyKey, false);
     }
 
     /** Starts with the latest defaults; suitable when the caller made no decision from them. */
@@ -58,6 +79,6 @@ public record StartAgentTurnCommand(
             List<AgentAttachment> attachments,
             String idempotencyKey)
     {
-        this(taskId, OptionalLong.empty(), message, attachments, idempotencyKey);
+        this(taskId, OptionalLong.empty(), message, attachments, idempotencyKey, false);
     }
 }

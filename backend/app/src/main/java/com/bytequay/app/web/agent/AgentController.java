@@ -142,11 +142,8 @@ public class AgentController
                 defaults,
                 request.idempotencyKey());
         boolean replay = turnService.findTurnByIdempotencyKey(taskId, request.idempotencyKey()).isPresent();
-        // Creation's first turn belongs to the immutable version-zero request. Core resolves an
-        // accepted replay before checking that version, so this one guarded command serves both.
-        turnService.start(new StartAgentTurnCommand(
+        turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                 taskId,
-                0,
                 request.message(),
                 ImmutableList.of(),
                 request.idempotencyKey()));
@@ -219,16 +216,28 @@ public class AgentController
      * Refuses images for a model that does not advertise image input, so the catalog gates the
      * turn the same way it gates the composer's attach button.
      */
-    private void requireImageInput(AgentTask task, Optional<String> selectedModel)
+    private void requireImageInput(
+            AgentTask task,
+            Optional<String> selectedModel,
+            List<AgentAttachment> attachments)
     {
         String model = selectedModel.orElse("");
-        boolean accepted = modelSettings.get().providers().stream()
+        boolean modelAccepted = modelSettings.get().providers().stream()
                 .filter(provider -> provider.id().equals(task.laneId().value()))
                 .flatMap(provider -> provider.models().stream())
                 .anyMatch(option -> option.id().equals(model) && option.acceptsImages());
-        if (!accepted) {
+        if (!modelAccepted) {
             throw new InvalidAgentRequestException("Model " + model + " does not accept images");
         }
+        var supported = driverRegistry.require(task.laneId()).capabilities().attachmentMediaTypes();
+        attachments.stream()
+                .map(AgentAttachment::mediaType)
+                .filter(mediaType -> !supported.contains(mediaType))
+                .findFirst()
+                .ifPresent(mediaType -> {
+                    throw new InvalidAgentRequestException(
+                            "Provider " + task.laneId() + " does not accept " + mediaType + " attachments");
+                });
     }
 
     @PostMapping("/tasks/{taskId}/attachments")
@@ -328,7 +337,7 @@ public class AgentController
     {
         List<AgentAttachment> attachments = resolveAttachments(task.id(), attachmentIds);
         if (!attachments.isEmpty()) {
-            requireImageInput(task, task.defaults().model());
+            requireImageInput(task, task.defaults().model(), attachments);
         }
         return attachments;
     }
@@ -340,7 +349,8 @@ public class AgentController
         if (!attachments.isEmpty()) {
             requireImageInput(
                     taskService.get(turn.taskId()),
-                    turn.settings().flatMap(settings -> settings.model()));
+                    turn.settings().flatMap(settings -> settings.model()),
+                    attachments);
         }
         return attachments;
     }

@@ -128,6 +128,10 @@ class TestCodexCliDriver
 
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactly(AgentPermissionPolicy.AUTO);
+        assertThat(driver.capabilities().attachmentMediaTypes())
+                .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif");
+        assertThat(driver.capabilities().partialAssistantText()).isTrue();
+        assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
         // Sent once per thread rather than per turn, which is equivalent while the lane advertises

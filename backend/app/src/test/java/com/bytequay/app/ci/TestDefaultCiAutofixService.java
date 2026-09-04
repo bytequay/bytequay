@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.pr.PullRequestTimelineService;
@@ -1409,6 +1410,38 @@ class TestDefaultCiAutofixService
     }
 
     @Test
+    void authenticationExpiryPausesWithoutConsumingAnotherFixAttempt()
+    {
+        CiAutofixRun initial = service.start(startCommand("auth-expired"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(
+                TurnState.FAILED,
+                Optional.of("Claude sign-in required"),
+                Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
+
+        CiAutofixRun paused = service.advance(initial.id());
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.AUTHENTICATION_REQUIRED);
+        assertThat(paused.attemptsUsed()).isEqualTo(1);
+        assertThat(paused.attempts()).hasSize(1);
+
+        TurnId retryId = TurnId.random();
+        AgentTurn retry = runningTurn(retryId, "provider-retry", "auth-retry-key");
+        when(turnService.start(any())).thenReturn(retry);
+        when(turnService.get(retryId)).thenReturn(retry);
+        CiAutofixRun resumed = service.sendMessage(new SendCiAutofixMessageCommand(
+                paused.id(),
+                "Retry after provider login",
+                "auth-retry-key"));
+
+        assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
+        assertThat(resumed.currentTurnId()).contains(retryId.toString());
+        assertThat(resumed.attemptsUsed()).isEqualTo(1);
+        assertThat(resumed.attempts()).hasSize(1);
+        assertThat(resumed.attempts().getFirst().agentTurnId()).contains(turnId.toString());
+    }
+
+    @Test
     void rejectsMessagesForActiveStaleOrOversizedRuns()
     {
         CiAutofixRun active = service.start(startCommand("message-reject"));
@@ -1649,6 +1682,15 @@ class TestDefaultCiAutofixService
     private AgentTurn terminalTurn(TurnState state, Optional<String> reason)
     {
         return terminalTurn(turnId, state, reason);
+    }
+
+    private AgentTurn terminalTurn(
+            TurnState state,
+            Optional<String> reason,
+            Optional<AgentTurnFailureKind> failureKind)
+    {
+        return runningTurn(turnId, "provider-turn", "ignored")
+                .finish(state, TurnMetrics.empty(), reason, failureKind, NOW);
     }
 
     private AgentTurn terminalTurn(TurnId id, TurnState state, Optional<String> reason)

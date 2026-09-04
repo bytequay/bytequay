@@ -15,18 +15,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --provider)
             shift
-            if [[ $# -eq 0 || "$1" != codex ]]; then
-                echo "--provider currently requires codex" >&2
+            if [[ $# -eq 0 || ( "$1" != codex && "$1" != claude ) ]]; then
+                echo "--provider requires codex or claude" >&2
                 exit 2
             fi
             provider="$1"
             ;;
         --help)
-            echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]"
+            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]"
             exit 0
             ;;
         *)
-            echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]" >&2
+            echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
             exit 2
             ;;
     esac
@@ -35,7 +35,7 @@ done
 
 if [[ "$interactive" != true ]]; then
     echo "The deterministic shell mode was removed; pass --interactive with a real provider." >&2
-    echo "Usage: $0 --interactive [--provider codex] [--minimal-worktree]" >&2
+    echo "Usage: $0 --interactive [--provider codex|claude] [--minimal-worktree]" >&2
     exit 2
 fi
 
@@ -44,7 +44,10 @@ backend_root="$repository_root/backend"
 port="${BYTEQUAY_AGENT_E2E_PORT:-0}"
 base_url=""
 temporary_directory="$(mktemp -d)"
-session_token="bytequay-agent-${temporary_directory##*/}"
+session_token=""
+authenticated_curl_config="$temporary_directory/authenticated-curl.conf"
+process_log="$temporary_directory/process.log"
+diagnostic_secrets=()
 backend_pid=""
 event_stream_pid=""
 event_stream_open=false
@@ -77,6 +80,73 @@ cleanup()
 trap cleanup EXIT
 trap 'printf "\n"; exit 130' INT
 trap 'exit 143' TERM
+
+collect_diagnostic_secrets()
+{
+    local first
+    local index
+    local name
+    local second
+    local value
+    diagnostic_secrets=("$session_token")
+    shopt -s nocasematch
+    while IFS= read -r name; do
+        case "$name" in
+            *token*|*secret*|*password*|*api_key*|*apikey*|*credential*)
+                value="${!name:-}"
+                if [[ ${#value} -ge 4 ]]; then
+                    diagnostic_secrets+=("$value")
+                fi
+                ;;
+        esac
+    done < <(compgen -e)
+    shopt -u nocasematch
+
+    # Redact longer values first so a short credential cannot leave the tail of
+    # another credential visible when one happens to contain the other.
+    for ((first = 0; first < ${#diagnostic_secrets[@]}; first++)); do
+        for ((second = first + 1; second < ${#diagnostic_secrets[@]}; second++)); do
+            if [[ ${#diagnostic_secrets[second]} -gt ${#diagnostic_secrets[first]} ]]; then
+                value="${diagnostic_secrets[first]}"
+                diagnostic_secrets[first]="${diagnostic_secrets[second]}"
+                diagnostic_secrets[second]="$value"
+            fi
+        done
+    done
+}
+
+print_backend_diagnostics()
+{
+    local byte_count
+    local line
+    local pattern
+    local secret
+    if [[ ! -f "$process_log" ]]; then
+        echo "No backend diagnostic output is available." >&2
+        return
+    fi
+    # Bound both dimensions: one giant log line must not bypass the line cap.
+    byte_count="$(wc -c < "$process_log")"
+    if ((byte_count > 32768)); then
+        # The byte window can start inside a credential. Discard that incomplete line so a
+        # suffix whose prefix fell outside the window can never evade whole-secret redaction.
+        tail -c 32768 "$process_log" 2>/dev/null | sed '1d' | tail -n 30
+    else
+        tail -c 32768 "$process_log" 2>/dev/null | tail -n 30
+    fi | while IFS= read -r line || [[ -n "$line" ]]; do
+        for secret in "${diagnostic_secrets[@]}"; do
+            # Bash replacement searches with a glob pattern. Escape its metacharacters so a
+            # credential such as `key*[prod]` cannot redact unrelated diagnostic text.
+            pattern="$secret"
+            pattern="${pattern//\\/\\\\}"
+            pattern="${pattern//\*/\\*}"
+            pattern="${pattern//\?/\\?}"
+            pattern="${pattern//\[/\\[}"
+            line="${line//$pattern/[REDACTED]}"
+        done
+        printf '%s\n' "$line"
+    done
+}
 
 print_event()
 {
@@ -136,10 +206,10 @@ read_turn_events()
                 else
                     approval_decision=DENY
                 fi
-                curl -fsS --connect-timeout 2 --max-time 30 \
-                    -H "X-ByteQuay-Session: $session_token" \
+                jq -n --arg decision "$approval_decision" '{decision: $decision}' \
+                    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
                     -H 'Content-Type: application/json' \
-                    -d "$(jq -n --arg decision "$approval_decision" '{decision: $decision}')" \
+                    --data-binary @- \
                     "$base_url/agent/approvals/$approval_id" >/dev/null
             fi
             if [[ "$type" == "lifecycle" && ("$phase" == "TURN_COMPLETED" || "$phase" == "INTERRUPTED") ]]; then
@@ -157,8 +227,7 @@ print_turn()
     local turn_json
     local turn_state=""
     for _ in {1..40}; do
-        turn_json="$(curl -fsS --connect-timeout 2 --max-time 30 \
-            -H "X-ByteQuay-Session: $session_token" \
+        turn_json="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
             "$base_url/agent/turns/$turn_id")"
         turn_state="$(printf '%s\n' "$turn_json" | jq -er '.state')"
         case "$turn_state" in
@@ -173,13 +242,13 @@ interactive_session()
 {
     local event_pipe="$temporary_directory/events.pipe"
     local message
+    local task_version
     local turn_count=0
     local turn_id
     local turn_request
 
     mkfifo "$event_pipe"
-    curl -sS -N \
-        -H "X-ByteQuay-Session: $session_token" \
+    curl -q --config "$authenticated_curl_config" -sS -N \
         "$base_url/agent/tasks/$task_id/stream?after=0" \
         > "$event_pipe" &
     event_stream_pid=$!
@@ -190,6 +259,9 @@ interactive_session()
     echo "ByteQuay $provider agent shell"
     echo "Task: $task_id"
     echo "Commands: /events, /backend-log, /help, /quit; Ctrl-C also quits"
+    if ! read_turn_events; then
+        return
+    fi
     while IFS= read -r -p "you> " message; do
         case "$message" in
             "") continue ;;
@@ -199,25 +271,29 @@ interactive_session()
                 continue
                 ;;
             /events)
-                curl -fsS --connect-timeout 2 --max-time 30 \
-                    -H "X-ByteQuay-Session: $session_token" \
+                curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
                     "$base_url/agent/tasks/$task_id/events?after=0&limit=1000" \
                     | jq -r '.[] | "event> #\(.sequence) \(.type) \(.payload | tojson)"'
                 continue
                 ;;
             /backend-log)
-                tail -n 30 "$temporary_directory/process.log"
+                print_backend_diagnostics
                 continue
                 ;;
         esac
 
         turn_count=$((turn_count + 1))
-        turn_request="$(jq -n --arg message "$message" '{message: $message}')"
-        turn_id="$(curl -fsS --connect-timeout 2 --max-time 30 \
-            -H "X-ByteQuay-Session: $session_token" \
+        task_version="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
+            "$base_url/agent/tasks/$task_id?workspaceId=$workspace_id" | jq -er '.version')"
+        turn_request="$(jq -n \
+            --arg message "$message" \
+            --argjson expectedVersion "$task_version" \
+            '{message: $message, expectedVersion: $expectedVersion}')"
+        turn_id="$(printf '%s' "$turn_request" \
+            | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
             -H 'Content-Type: application/json' \
             -H "Idempotency-Key: interactive-turn-$turn_count" \
-            -d "$turn_request" \
+            --data-binary @- \
             "$base_url/agent/tasks/$task_id/turns" | jq -er '.id')"
         if ! read_turn_events; then
             break
@@ -226,7 +302,7 @@ interactive_session()
     done
 }
 
-for command in curl git java jq mvn sqlite3 "$provider"; do
+for command in curl git java jq mvn sqlite3 uuidgen; do
     command -v "$command" >/dev/null || {
         echo "Missing required command: $command" >&2
         exit 1
@@ -238,14 +314,35 @@ if [[ "$minimal_worktree" == false ]]; then
         exit 1
     }
 fi
-codex_executable=codex
+session_token="bytequay-agent-$(uuidgen | tr '[:upper:]' '[:lower:]')"
+(
+    umask 077
+    printf 'header = "X-ByteQuay-Session: %s"\n' "$session_token" > "$authenticated_curl_config"
+)
+collect_diagnostic_secrets
+codex_executable="${BYTEQUAY_AGENT_E2E_CODEX_EXECUTABLE:-codex}"
 codex_enabled=false
+claude_executable="${BYTEQUAY_AGENT_E2E_CLAUDE_EXECUTABLE:-claude}"
+claude_enabled=false
 # The app's own Codex home, so the shell reuses the login ByteQuay already holds.
 codex_home="${BYTEQUAY_AGENT_E2E_CODEX_HOME:-$HOME/Library/Application Support/ByteQuay/codex-home}"
-if [[ "$provider" == codex ]]; then
-    codex_executable="$(command -v codex)"
-    codex_enabled=true
-fi
+claude_home="${BYTEQUAY_AGENT_E2E_CLAUDE_HOME:-$HOME}"
+case "$provider" in
+    codex)
+        codex_executable="$(command -v "$codex_executable")" || {
+            echo "Missing required command: $codex_executable" >&2
+            exit 1
+        }
+        codex_enabled=true
+        ;;
+    claude)
+        claude_executable="$(command -v "$claude_executable")" || {
+            echo "Missing required command: $claude_executable" >&2
+            exit 1
+        }
+        claude_enabled=true
+        ;;
+esac
 
 mkdir -p "$workspace_repository"
 if [[ "$minimal_worktree" == false ]]; then
@@ -267,43 +364,50 @@ git -C "$workspace_repository" update-ref refs/remotes/origin/main HEAD
 MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
     mvn -q -f "$backend_root/pom.xml" -pl app -am -DskipTests package
 
-java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-backend.jar" \
-    --server.port="$port" \
-    --server.shutdown=immediate \
-    --spring.datasource.url="jdbc:sqlite:$database?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \
-    --spring.jpa.hibernate.ddl-auto=create \
-    --spring.datasource.hikari.maximum-pool-size=1 \
-    --spring.datasource.hikari.minimum-idle=1 \
-    --logging.file.name="$temporary_directory/backend.log" \
-    --bytequay.scheduling.enabled=false \
-    --bytequay.agent.desktop-session-token="$session_token" \
-    --bytequay.agent.runtime-root="$temporary_directory/runtime" \
-    --bytequay.workspace.root="$workspace_root" \
-    --bytequay.agent.codex-enabled="$codex_enabled" \
-    --bytequay.agent.codex-executable="$codex_executable" \
-    --bytequay.agent.codex-home="$codex_home" \
-    --bytequay.agent.claude-enabled=false \
-    > "$temporary_directory/process.log" 2>&1 &
+(
+    export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"
+    if [[ "$provider" == claude ]]; then
+        # Claude owns its login under HOME. The driver still supplies empty inherited
+        # setting sources and a generated task-local settings file for every turn.
+        export HOME="$claude_home"
+    fi
+    exec java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-backend.jar" \
+        --server.port="$port" \
+        --server.shutdown=immediate \
+        --spring.datasource.url="jdbc:sqlite:$database?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \
+        --spring.jpa.hibernate.ddl-auto=create \
+        --spring.datasource.hikari.maximum-pool-size=1 \
+        --spring.datasource.hikari.minimum-idle=1 \
+        --logging.file.name="$temporary_directory/backend.log" \
+        --bytequay.scheduling.enabled=false \
+        --bytequay.agent.runtime-root="$temporary_directory/runtime" \
+        --bytequay.workspace.root="$workspace_root" \
+        --bytequay.agent.codex-enabled="$codex_enabled" \
+        --bytequay.agent.codex-executable="$codex_executable" \
+        --bytequay.agent.codex-home="$codex_home" \
+        --bytequay.agent.claude-enabled="$claude_enabled" \
+        --bytequay.agent.claude-executable="$claude_executable"
+) > "$process_log" 2>&1 &
 backend_pid=$!
 
 for _ in {1..60}; do
     if [[ -z "$base_url" ]]; then
-        actual_port="$(sed -nE 's/.*Tomcat started on port ([0-9]+).*/\1/p' "$temporary_directory/process.log" | tail -n 1)"
+        actual_port="$(sed -nE 's/.*Tomcat started on port ([0-9]+).*/\1/p' "$process_log" | tail -n 1)"
         if [[ -n "$actual_port" ]]; then
             base_url="http://127.0.0.1:$actual_port"
         fi
     fi
-    if [[ -n "$base_url" ]] && curl -fsS --connect-timeout 1 --max-time 2 "$base_url/hello" >/dev/null 2>&1; then
+    if [[ -n "$base_url" ]] && curl -q -fsS --connect-timeout 1 --max-time 2 "$base_url/hello" >/dev/null 2>&1; then
         break
     fi
     if ! kill -0 "$backend_pid" 2>/dev/null; then
-        cat "$temporary_directory/process.log" >&2
+        print_backend_diagnostics >&2
         exit 1
     fi
     sleep 0.5
 done
-curl -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
-    cat "$temporary_directory/process.log" >&2
+curl -q -fsS --connect-timeout 2 --max-time 10 "$base_url/hello" >/dev/null || {
+    print_backend_diagnostics >&2
     exit 1
 }
 
@@ -355,18 +459,32 @@ sqlite3 -cmd '.timeout 30000' "$database" \
         NULL,
         NULL);"
 
+provider_status="$(curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
+    "$base_url/agent/providers/status")"
+readiness="$(printf '%s\n' "$provider_status" | jq -r --arg provider "$provider" \
+    '.[] | select(.laneId == $provider) | .readiness')"
+if [[ "$readiness" != READY && "$readiness" != DEGRADED ]]; then
+    sign_in_command="$(printf '%s\n' "$provider_status" | jq -r --arg provider "$provider" \
+        '.[] | select(.laneId == $provider) | .signInCommand // empty')"
+    echo "$provider is not ready (${readiness:-missing status})." >&2
+    if [[ -n "$sign_in_command" ]]; then
+        printf 'Sign in with: %s\n' "$sign_in_command" >&2
+    fi
+    exit 1
+fi
+
 model="${BYTEQUAY_AGENT_E2E_MODEL:-}"
 effort="${BYTEQUAY_AGENT_E2E_EFFORT:-}"
 if [[ -z "$model" ]]; then
     for _ in {1..120}; do
-        model_settings="$(curl -fsS --connect-timeout 2 --max-time 30 \
+        model_settings="$(curl -q -fsS --connect-timeout 2 --max-time 30 \
             "$base_url/api/settings/models")"
-        model="$(printf '%s\n' "$model_settings" | jq -r \
-            '.providers[] | select(.id == "codex") | .selectedModel // empty')"
+        model="$(printf '%s\n' "$model_settings" | jq -r --arg provider "$provider" \
+            '.providers[] | select(.id == $provider) | .selectedModel // empty')"
         if [[ -n "$model" ]]; then
             if [[ -z "$effort" ]]; then
-                effort="$(printf '%s\n' "$model_settings" | jq -r \
-                    '.providers[] | select(.id == "codex") | .selectedEffort // empty')"
+                effort="$(printf '%s\n' "$model_settings" | jq -r --arg provider "$provider" \
+                    '.providers[] | select(.id == $provider) | .selectedEffort // empty')"
             fi
             break
         fi
@@ -374,27 +492,43 @@ if [[ -z "$model" ]]; then
     done
 fi
 if [[ -z "$model" ]]; then
-    echo "Codex did not expose a model; inspect $temporary_directory/process.log" >&2
+    echo "$provider did not expose a model." >&2
     exit 1
 fi
 
+first_message=""
+while [[ "$first_message" =~ ^[[:space:]]*$ ]]; do
+    if ! IFS= read -r -p "first task> " first_message; then
+        exit 0
+    fi
+done
+task_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+create_idempotency_key="agent-e2e-create-$task_id"
 task_request="$(jq -n \
+    --arg taskId "$task_id" \
     --arg laneId "$provider" \
     --arg workspaceId "$workspace_id" \
-    --arg title "Agent shell E2E" \
+    --arg message "$first_message" \
     --arg model "$model" \
     --arg effort "$effort" \
+    --arg idempotencyKey "$create_idempotency_key" \
     '{
+        taskId: $taskId,
         workspaceId: $workspaceId,
         laneId: $laneId,
-        title: $title,
+        message: $message,
+        idempotencyKey: $idempotencyKey,
         defaults: ({model: $model, permissionPolicy: "AUTO"}
             + if $effort == "" then {} else {effort: $effort} end)
     }')"
-task_id="$(curl -fsS --connect-timeout 2 --max-time 30 \
-    -H "X-ByteQuay-Session: $session_token" \
+created_task_id="$(printf '%s' "$task_request" \
+    | curl -q --config "$authenticated_curl_config" -fsS --connect-timeout 2 --max-time 30 \
     -H 'Content-Type: application/json' \
-    -d "$task_request" \
+    --data-binary @- \
     "$base_url/agent/tasks" | jq -er '.id')"
+if [[ "$created_task_id" != "$task_id" ]]; then
+    echo "Backend returned another task ID" >&2
+    exit 1
+fi
 
 interactive_session

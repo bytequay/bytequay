@@ -23,6 +23,8 @@ import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -113,6 +115,7 @@ class TestInteractiveAgentHttpContract
                         "knownUnsent",
                         "settings",
                         "terminalReason",
+                        "failureKind",
                         "metrics");
         assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
@@ -140,9 +143,9 @@ class TestInteractiveAgentHttpContract
     }
 
     @Test
-    void keepsInteractiveCreationCodexOnlyUntilClaudeParityExists()
+    void acceptsConfiguredInteractiveLanes()
     {
-        assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+        InteractiveAgentHttpContract.CreateTaskRequest request = new InteractiveAgentHttpContract.CreateTaskRequest(
                 "11111111-1111-1111-1111-111111111111",
                 "workspace-1",
                 "Task",
@@ -151,9 +154,9 @@ class TestInteractiveAgentHttpContract
                         Optional.of("claude-opus-4-1"),
                         Optional.empty(),
                         "AUTO"),
-                "create-key"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Codex");
+                "create-key");
+
+        assertThat(request.laneId()).isEqualTo("claude");
     }
 
     @Test
@@ -250,5 +253,36 @@ class TestInteractiveAgentHttpContract
         assertThat(taskJson.toString()).doesNotContain("worktree", "repository", "sessionReference");
         assertThat(turnJson.get("settings").isNull()).isTrue();
         assertThat(turnJson.toString()).doesNotContain("private-idempotency-key", "providerTurnReference");
+    }
+
+    @Test
+    void exposesTypedTurnFailureWithoutProviderHandles()
+    {
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTurn turn = AgentTurn.accepted(
+                        TurnId.random(),
+                        TaskId.random(),
+                        "private-key",
+                        new com.bytequay.agent.core.AgentTurnSettings(
+                                Optional.of("opus"),
+                                Optional.of("High"),
+                                AgentPermissionPolicy.AUTO,
+                                com.bytequay.agent.core.AgentSandboxPolicy.WORKSPACE_WRITE,
+                                java.time.Duration.ofMinutes(5),
+                                java.util.List.of()),
+                        now)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("private-provider-turn"), Optional.of("opus"))
+                .finish(
+                        TurnState.FAILED,
+                        TurnMetrics.empty(),
+                        Optional.of("Claude sign-in required"),
+                        Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED),
+                        now.plusSeconds(2));
+
+        JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
+
+        assertThat(json.required("failureKind").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
+        assertThat(json.toString()).doesNotContain("private-key", "private-provider-turn");
     }
 }

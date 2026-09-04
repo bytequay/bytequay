@@ -36,6 +36,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 
 import java.time.Clock;
@@ -198,7 +199,7 @@ public final class DefaultAgentTaskService
         }
         AgentProviderStatus status = driver.probe();
         if (!status.available()) {
-            throw new AgentUnavailableException(status.diagnostic());
+            throw new AgentProviderUnavailableException(status);
         }
     }
 

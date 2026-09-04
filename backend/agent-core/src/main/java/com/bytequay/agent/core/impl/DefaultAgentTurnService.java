@@ -68,10 +68,12 @@ import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -188,7 +190,7 @@ public final class DefaultAgentTurnService
                 return repeated.orElseThrow();
             }
 
-            AgentTask task = requireStartableTask(command.taskId());
+            AgentTask task = requireStartableTask(command);
             command.expectedTaskVersion().ifPresent(expectedVersion -> {
                 if (task.version() != expectedVersion) {
                     throw new AgentConflictException("Task version changed: " + task.id());
@@ -758,7 +760,30 @@ public final class DefaultAgentTurnService
         return requireTurn(started.turn().id());
     }
 
+    private AgentTask requireStartableTask(StartAgentTurnCommand command)
+    {
+        AgentTask task = requireStartableTaskWithoutReadiness(command.taskId());
+        if (command.useTrustedTaskCreationReadiness()) {
+            boolean trustedInitialTurn = task.interactive()
+                    && task.version() == 0
+                    && command.expectedTaskVersion().isPresent()
+                    && command.expectedTaskVersion().getAsLong() == 0
+                    && turnStore.list(task.id()).isEmpty();
+            if (!trustedInitialTurn) {
+                throw new InvalidAgentRequestException(
+                        "Task-creation readiness applies only to a fresh interactive task");
+            }
+            return task;
+        }
+        return requireReady(task);
+    }
+
     private AgentTask requireStartableTask(TaskId taskId)
+    {
+        return requireReady(requireStartableTaskWithoutReadiness(taskId));
+    }
+
+    private AgentTask requireStartableTaskWithoutReadiness(TaskId taskId)
     {
         AgentTask task = requireTask(taskId);
         if (task.state() != TaskState.OPEN) {
@@ -770,12 +795,17 @@ public final class DefaultAgentTurnService
         task.worktreeMutationClaim().ifPresent(claim -> {
             throw new AgentConflictException("Task worktree is claimed by " + claim.kind());
         });
-        runtimeRegistry.unverifiedClose(taskId).ifPresent(failure -> {
+        runtimeRegistry.unverifiedClose(task.id()).ifPresent(failure -> {
             throw new AgentConflictException("Task provider process is not verified stopped: " + failureMessage(failure));
         });
+        return task;
+    }
+
+    private AgentTask requireReady(AgentTask task)
+    {
         AgentProviderStatus status = driverRegistry.require(task.laneId()).probe();
         if (!status.available()) {
-            throw new AgentUnavailableException(status.diagnostic());
+            throw new AgentProviderUnavailableException(status);
         }
         return task;
     }
@@ -1195,7 +1225,8 @@ public final class DefaultAgentTurnService
                             turn,
                             terminalState,
                             terminalReason(result, terminalState),
-                            result.providerQuiescent());
+                            result.providerQuiescent(),
+                            result.failureKind());
                 }
                 else {
                     persistTerminalTurn(
@@ -1274,7 +1305,17 @@ public final class DefaultAgentTurnService
             Optional<String> reason,
             boolean providerQuiescent)
     {
-        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, false);
+        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, Optional.empty(), false);
+    }
+
+    private void persistTerminalTurn(
+            AgentTurn turn,
+            TurnState terminalState,
+            Optional<String> reason,
+            boolean providerQuiescent,
+            Optional<AgentTurnFailureKind> failureKind)
+    {
+        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, failureKind, false);
     }
 
     private void persistTerminalTurn(
@@ -1284,6 +1325,17 @@ public final class DefaultAgentTurnService
             boolean providerQuiescent,
             boolean knownUnsent)
     {
+        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, Optional.empty(), knownUnsent);
+    }
+
+    private void persistTerminalTurn(
+            AgentTurn turn,
+            TurnState terminalState,
+            Optional<String> reason,
+            boolean providerQuiescent,
+            Optional<AgentTurnFailureKind> failureKind,
+            boolean knownUnsent)
+    {
         EventId eventId = EventId.random();
         unitOfWork.execute(() -> {
             TurnMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
@@ -1291,7 +1343,7 @@ public final class DefaultAgentTurnService
             AgentTurn latest = requireTurn(turn.id());
             AgentTurn finished = knownUnsent
                     ? latest.finishKnownUnsent(finalMetrics, reason.orElseThrow(), endedAt)
-                    : latest.finish(terminalState, finalMetrics, reason, endedAt);
+                    : latest.finish(terminalState, finalMetrics, reason, failureKind, endedAt);
             AgentTurn terminal = turnStore.update(finished);
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
             AgentTask task = requireTask(terminal.taskId());

@@ -20,12 +20,25 @@ import { AgentHomeView } from './AgentHome';
 import { createPreviewBridge, previewTask } from './preview';
 import { TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
-import type { ModelOptionDto } from '../types';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
+import type { ModelOptionDto, ModelProviderDto } from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
 const MODELS: ModelOptionDto[] = [
   { id: 'gpt-5.6-sol', name: '5.6 Sol', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: ['text'] },
 ];
+const PROVIDERS: ModelProviderDto[] = [{
+  id: 'codex',
+  label: 'Codex',
+  readiness: 'READY',
+  version: '0.1.0',
+  diagnostic: '',
+  capabilities: NO_AGENT_CAPABILITIES,
+  models: MODELS,
+  selectedModel: 'gpt-5.6-sol',
+  selectedEffort: 'high',
+  main: true,
+}];
 const NOW = Date.parse('2026-08-20T10:12:00Z');
 
 function task(id: string, title: string, claim: string | null = null) {
@@ -41,7 +54,7 @@ function task(id: string, title: string, claim: string | null = null) {
 describe('task window', () => {
   it('scales the task screen into a card with the opening exchange and a caption', () => {
     const markup = renderToStaticMarkup(
-      <TaskCard task={task('t-1', 'Fix flaky preview', 'TURN')} events={events} models={MODELS} width={294} now={NOW} onOpen={() => {}} />);
+      <TaskCard task={task('t-1', 'Fix flaky preview', 'TURN')} events={events} providers={PROVIDERS} width={294} now={NOW} onOpen={() => {}} />);
 
     // One unitless width drives both the thumbnail height and the screen's scale.
     expect(markup).toContain('style="--card-w:294"');
@@ -57,12 +70,12 @@ describe('task window', () => {
 
   it('marks the task behind the overview and offers to close idle tasks only', () => {
     const idle = renderToStaticMarkup(
-      <TaskCard task={task('t-1', 'Audit storage')} events={[]} models={MODELS} width={294} active now={NOW} onOpen={() => {}} onClose={() => {}} />);
+      <TaskCard task={task('t-1', 'Audit storage')} events={[]} providers={PROVIDERS} width={294} active now={NOW} onOpen={() => {}} onClose={() => {}} />);
     expect(idle).toContain('agt-card is-active');
     expect(idle).toMatch(/<button[^>]*class="agt-card__close"(?![^>]*disabled)[^>]*aria-label="Close task: Audit storage"/);
 
     const running = renderToStaticMarkup(
-      <TaskCard task={task('t-2', 'Still going', 'TURN')} events={[]} models={MODELS} width={200} now={NOW} onOpen={() => {}} onClose={() => {}} />);
+      <TaskCard task={task('t-2', 'Still going', 'TURN')} events={[]} providers={PROVIDERS} width={200} now={NOW} onOpen={() => {}} onClose={() => {}} />);
     expect(running).toMatch(/<button[^>]*class="agt-card__close"[^>]*disabled/);
     expect(running).toContain('Complete unlocks when the task is idle');
   });
@@ -77,6 +90,7 @@ describe('agent home and overview', () => {
         repository="jackchen/trino"
         branch="master"
         laneId="codex"
+        providers={PROVIDERS}
         bridge={bridge}
         tasks={[task('t-1', 'Fix flaky preview', 'TURN'), task('t-2', 'Audit storage')]}
         models={MODELS}
@@ -85,6 +99,7 @@ describe('agent home and overview', () => {
         blocker={null}
         onDraftChange={() => {}}
         onSelectModel={() => {}}
+        onSelectProvider={() => {}}
         onCreate={() => {}}
         onOpenTask={() => {}}
         onShowAll={() => {}}
@@ -103,7 +118,7 @@ describe('agent home and overview', () => {
     const markup = renderToStaticMarkup(
       <TaskOverviewView
         tasks={[task('t-1', 'Fix flaky preview', 'TURN'), task('t-2', 'Audit storage')]}
-        models={MODELS}
+        providers={PROVIDERS}
         bridge={bridge}
         notice={null}
         activeTaskId="t-2"

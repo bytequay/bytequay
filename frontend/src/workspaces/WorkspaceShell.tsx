@@ -16,26 +16,21 @@ import AgentHome from '../agents/AgentHome';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView from '../agents/AgentTasksView';
 import TaskOverview from '../agents/TaskOverview';
-import Avatar from '../Avatar';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
-import type { PullTab } from '../pulls/model';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import WorkspaceSettings from './WorkspaceSettings';
 import type { CherryPickExecution, WorkspaceDto } from '../types';
-import { relativeTime } from '../relativeTime';
 import {
   workspaceHasReadableCode,
   workspaceIsUpdating,
-  workspacePhaseColor,
-  workspacePhaseLabel,
   type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, developmentBuild = false, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue, onRemoved }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -44,7 +39,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   initialIssueNumber: number | null;
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
-  developmentBuild?: boolean;
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
@@ -54,10 +48,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
-  const [initialPullsTab, setInitialPullsTab] = useState<PullTab | null>(null);
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const agentScreens = developmentBuild && (tab === 'home' || tab === 'tasks');
+  const agentScreens = tab === 'home' || tab === 'tasks';
   useEffect(() => {
     if (!agentScreens) return;
     const onKey = (event: KeyboardEvent): void => {
@@ -108,7 +101,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       setOpenExecutionId(null);
       setInitialCommitsRepo(null);
     }
-    if (tab !== 'prs') setInitialPullsTab(null);
   }, [tab]);
 
   useEffect(() => {
@@ -147,7 +139,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         initialPr={initialPullRequestNumber === null
           ? undefined
           : { repo: repository, number: initialPullRequestNumber }}
-        initialTab={initialPullsTab ?? undefined}
         repositoryScope={{ workspaceId: workspace.id, repository }}
         browserOpen={browserOpen}
         onSelectPullRequest={selectScopedPullRequest}
@@ -163,7 +154,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     />;
   }
   if (tab === 'tasks') {
-    if (developmentBuild && initialAgentTaskId !== null) {
+    if (initialAgentTaskId !== null) {
       // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
       // Keyed by task: moving between two open tasks must not carry one task's transcript and
       // sequence cursor into the other, which would drop the second task's early events as
@@ -175,13 +166,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
           onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
+          onOpenSettings={() => onSelectTab('settings')}
         />,
       );
     }
     const cherryPicks = (
       <WorkspaceTasks
         workspace={workspace}
-        embedded={developmentBuild}
+        embedded
         onOpenTask={execution => {
           setOpenExecutionId(execution.executionId);
           onSelectTab('commits');
@@ -193,20 +185,17 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         }}
       />
     );
-    if (developmentBuild) {
-      // The agent view owns the page: its composer stays anchored under both task sections.
-      return stage(
-        <AgentTasksView
-          workspaceId={workspace.id}
-          branch={workspace.defaultBranch}
-          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-          onOpenSettings={() => onSelectTab('settings')}
-        >
-          {cherryPicks}
-        </AgentTasksView>,
-      );
-    }
-    return <div className="ws-tab-page">{cherryPicks}</div>;
+    // The agent view owns the page: its composer stays anchored under both task sections.
+    return stage(
+      <AgentTasksView
+        workspaceId={workspace.id}
+        branch={workspace.defaultBranch}
+        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+        onOpenSettings={() => onSelectTab('settings')}
+      >
+        {cherryPicks}
+      </AgentTasksView>,
+    );
   }
   if (tab === 'settings') {
     return (
@@ -217,32 +206,16 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       />
     );
   }
-  if (developmentBuild) {
-    // The design's Home: the question, three starting points, the open tasks as windows.
-    return stage(
-      <AgentHome
-        workspaceId={workspace.id}
-        repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-        branch={workspace.defaultBranch}
-        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-        onOpenSettings={() => onSelectTab('settings')}
-        onShowAll={() => setOverviewOpen(true)}
-      />,
-    );
-  }
-  return (
-    <WorkspaceHome
-      workspace={workspace}
-      onCherryPickUpstream={() => {
-        setInitialCommitsRepo('upstream');
-        onSelectTab('commits');
-      }}
-      onReviewRequests={() => {
-        setInitialPullsTab('req');
-        onSelectTab('prs');
-      }}
-      onOpenIssues={() => onSelectTab('issues')}
-    />
+  // The design's Home: the question, three starting points, the open tasks as windows.
+  return stage(
+    <AgentHome
+      workspaceId={workspace.id}
+      repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+      branch={workspace.defaultBranch}
+      onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+      onOpenSettings={() => onSelectTab('settings')}
+      onShowAll={() => setOverviewOpen(true)}
+    />,
   );
 }
 
@@ -263,57 +236,5 @@ function WorkspaceTasks({ workspace, embedded = false, onOpenTask, onNewCherryPi
       onOpenTask={onOpenTask}
       onNewCherryPick={onNewCherryPick}
     />
-  );
-}
-
-const HOME_CARDS = [
-  { icon: '⇢', color: '#8250df', title: 'Cherry-pick from upstream', action: 'cherry-pick' },
-  { icon: '⑃', color: '#1a7f37', title: 'Review a pull request', action: 'review' },
-  { icon: '◉', color: '#bc4c00', title: 'Fix issues and failures', action: 'issues' },
-] as const;
-
-export function WorkspaceHome({ workspace, onCherryPickUpstream, onReviewRequests, onOpenIssues }: {
-  workspace: WorkspaceDto;
-  onCherryPickUpstream: () => void;
-  onReviewRequests: () => void;
-  onOpenIssues: () => void;
-}) {
-  const status = [
-    `${workspace.name} ${workspacePhaseLabel(workspace).toLowerCase()}`,
-    workspace.lastCodeSyncAt ? `synced ${relativeTime(workspace.lastCodeSyncAt)}` : 'not synced yet',
-    ...(workspace.upstreamOwner && workspace.upstreamRepo
-      ? [`upstream ${workspace.upstreamOwner}/${workspace.upstreamRepo} linked`]
-      : []),
-  ].join(' · ');
-
-  return (
-    <div className="ws-home">
-      <div className="ws-home-col">
-        <div className="ws-hero-tile">⑂</div>
-        <h1>What should we do?</h1>
-        <div className="ws-hero-status">
-          <Avatar login={workspace.selectedOwner} size={18} />
-          <span className="ws-hero-dot" style={{ background: workspacePhaseColor(workspace) }} aria-hidden="true" />
-          {status}
-        </div>
-        <div className="ws-action-cards">
-          {HOME_CARDS.map(card => (
-            <button
-              key={card.title}
-              type="button"
-              className="ws-action-card"
-              onClick={() => {
-                if (card.action === 'cherry-pick') onCherryPickUpstream();
-                else if (card.action === 'review') onReviewRequests();
-                else onOpenIssues();
-              }}
-            >
-              <div className="ws-action-icon" style={{ color: card.color }} aria-hidden="true">{card.icon}</div>
-              <div className="ws-action-title">{card.title}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }

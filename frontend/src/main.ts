@@ -19,6 +19,8 @@ import {
   parseAgentAttachment,
   parseAgentCompletion,
   parseAgentInputDelivery,
+  parseAgentProviderStatuses,
+  parseAgentProviderUnavailable,
   parseAgentQueue,
   parseAgentQueuedInput,
   parseAgentRuntimeStopImpact,
@@ -26,12 +28,14 @@ import {
   parseAgentTasks,
   parseAgentTurn,
   parseAgentTurnSettings,
+  parseModelSettings,
 } from './agents/contracts';
 import { parseAgentEventSequence } from './agents/events';
 import { AgentSubscriptions } from './agents/subscriptions';
 import type {
   AgentApprovalDecision,
   AgentAttachmentDto,
+  AgentProviderUnavailableDto,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
   CommitHistoryRefDto,
@@ -246,10 +250,31 @@ function extractMessage(body: string): string {
   }
 }
 
+class AgentProviderUnavailableError extends Error {
+  constructor(readonly detail: AgentProviderUnavailableDto) {
+    // Electron preserves an Error's message across IPC. The renderer validates the tagged JSON
+    // again before treating this as a known-unsent preflight refusal.
+    super(`AGENT_PROVIDER_UNAVAILABLE:${JSON.stringify(detail)}`);
+  }
+}
+
 async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, { signal: AbortSignal.timeout(60_000), ...init });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
+    if (response.status === 503 && body !== '') {
+      try {
+        const decoded: unknown = JSON.parse(body);
+        if (typeof decoded === 'object' && decoded !== null
+          && (decoded as { code?: unknown }).code === 'AGENT_PROVIDER_UNAVAILABLE') {
+          throw new AgentProviderUnavailableError(parseAgentProviderUnavailable(decoded));
+        }
+      }
+      catch (failure) {
+        if (failure instanceof AgentProviderUnavailableError) throw failure;
+        // A malformed typed error is handled as the ordinary HTTP failure below.
+      }
+    }
     throw new Error(extractMessage(body)
       || `${init?.method ?? 'GET'} ${input.toString()} returned ${response.status}`);
   }
@@ -348,8 +373,6 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
-  // The renderer has no environment of its own, so the one dev signal comes from here.
-  ipcMain.handle('app:is-development', () => !app.isPackaged);
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));
@@ -553,7 +576,7 @@ function registerIpc(): void {
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
-    }));
+    }).then(parseAgentProviderStatuses));
   ipcMain.handle('cherrypick:execution:start', (_event, request: CherryPickExecutionRequest) => {
     const { workspaceId, ...body } = request;
     return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions`, {
@@ -730,7 +753,8 @@ function registerIpc(): void {
   ipcMain.handle('pat:delete', () =>
     backendVoid(`${BACKEND_BASE}/api/auth/github/token`, { method: 'DELETE' }));
 
-  ipcMain.handle('settings:models', () => backendJson(`${BACKEND_BASE}/api/settings/models`));
+  ipcMain.handle('settings:models', () =>
+    backendJson(`${BACKEND_BASE}/api/settings/models`).then(parseModelSettings));
   ipcMain.handle('settings:models:select', (
     _event,
     configId: string,
@@ -740,23 +764,23 @@ function registerIpc(): void {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, effort }),
-  }));
+  }).then(parseModelSettings));
   ipcMain.handle('settings:models:main', (_event, configId: string) =>
     backendJson(`${BACKEND_BASE}/api/settings/models/main`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ configId }),
-    }));
+    }).then(parseModelSettings));
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
     backendJson(`${BACKEND_BASE}/api/settings/api-keys`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, alias, key }),
-    }));
+    }).then(parseModelSettings));
   ipcMain.handle('settings:api-keys:remove', (_event, alias: string) =>
     backendJson(`${BACKEND_BASE}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
       method: 'DELETE',
-    }));
+    }).then(parseModelSettings));
   ipcMain.handle('settings:quiet-hours', () =>
     backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`));
   ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>

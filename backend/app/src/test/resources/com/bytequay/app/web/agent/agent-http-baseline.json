@@ -69,6 +69,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,
@@ -98,6 +99,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,
@@ -133,6 +135,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,
@@ -162,6 +165,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,
@@ -197,6 +201,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,
@@ -226,6 +231,7 @@
           "attachments": []
         },
         "terminalReason": null,
+        "failureKind": null,
         "metrics": {
           "inputTokens": 0,
           "cachedInputTokens": 0,

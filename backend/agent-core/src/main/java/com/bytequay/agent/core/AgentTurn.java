@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.ProviderTurnRef;
 
 import java.time.Instant;
@@ -39,8 +40,45 @@ public record AgentTurn(
         Optional<String> model,
         Optional<AgentTurnSettings> settings,
         Optional<String> terminalReason,
+        Optional<AgentTurnFailureKind> failureKind,
         TurnMetrics metrics)
 {
+    public AgentTurn(
+            TurnId id,
+            TaskId taskId,
+            String idempotencyKey,
+            TurnState state,
+            long version,
+            Instant createdAt,
+            Optional<Instant> startedAt,
+            Optional<Instant> endedAt,
+            Optional<Instant> cancellationRequestedAt,
+            Optional<ProviderTurnRef> providerTurnReference,
+            boolean knownUnsent,
+            Optional<String> model,
+            Optional<AgentTurnSettings> settings,
+            Optional<String> terminalReason,
+            TurnMetrics metrics)
+    {
+        this(
+                id,
+                taskId,
+                idempotencyKey,
+                state,
+                version,
+                createdAt,
+                startedAt,
+                endedAt,
+                cancellationRequestedAt,
+                providerTurnReference,
+                knownUnsent,
+                model,
+                settings,
+                terminalReason,
+                Optional.empty(),
+                metrics);
+    }
+
     public AgentTurn
     {
         requireNonNull(id, "id is null");
@@ -55,6 +93,7 @@ public record AgentTurn(
         checkOptionalText(model, "model");
         requireNonNull(settings, "settings is null");
         checkOptionalText(terminalReason, "terminalReason");
+        requireNonNull(failureKind, "failureKind is null");
         requireNonNull(metrics, "metrics is null");
         checkArgument(version >= 0, "version is negative");
         checkArgument(providerTurnReference.isEmpty() || startedAt.isPresent(), "a provider reference requires delivery start time");
@@ -64,6 +103,7 @@ public record AgentTurn(
                 "known-unsent delivery requires an unacknowledged failed turn");
         checkArgument(state.active() != endedAt.isPresent(), "endedAt and turn state disagree");
         checkArgument((state != TurnState.COMPLETED && state.terminal()) == terminalReason.isPresent(), "terminalReason and turn state disagree");
+        checkArgument(failureKind.isEmpty() || state == TurnState.FAILED, "a typed failure requires a failed turn");
         checkArgument(startedAt.isEmpty() || !startedAt.orElseThrow().isBefore(createdAt), "startedAt is before createdAt");
         checkArgument(endedAt.isEmpty() || !endedAt.orElseThrow().isBefore(startedAt.orElse(createdAt)), "endedAt is before turn start");
         checkArgument(cancellationRequestedAt.isEmpty()
@@ -93,6 +133,7 @@ public record AgentTurn(
                 Optional.empty(),
                 Optional.of(requireNonNull(settings, "settings is null")),
                 Optional.empty(),
+                Optional.empty(),
                 TurnMetrics.empty());
     }
 
@@ -116,6 +157,7 @@ public record AgentTurn(
                 knownUnsent,
                 providerModel,
                 Optional.empty(),
+                failureKind,
                 metrics);
     }
 
@@ -126,7 +168,7 @@ public record AgentTurn(
         checkState(startedAt.isEmpty(), "provider delivery already started");
         checkArgument(!now.isBefore(createdAt), "delivery start is before turn acceptance");
         return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, metrics);
+                providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     public AgentTurn requestCancellation(Instant now)
@@ -140,7 +182,7 @@ public record AgentTurn(
         }
         checkArgument(!now.isBefore(startedAt.orElse(createdAt)), "cancellation time is before turn start");
         return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference,
-                knownUnsent, model, terminalReason, metrics);
+                knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     public AgentTurn finish(
@@ -149,26 +191,38 @@ public record AgentTurn(
             Optional<String> reason,
             Instant now)
     {
-        return finish(terminalState, finalMetrics, reason, now, false);
+        return finish(terminalState, finalMetrics, reason, Optional.empty(), now, false);
+    }
+
+    public AgentTurn finish(
+            TurnState terminalState,
+            TurnMetrics finalMetrics,
+            Optional<String> reason,
+            Optional<AgentTurnFailureKind> updatedFailureKind,
+            Instant now)
+    {
+        return finish(terminalState, finalMetrics, reason, updatedFailureKind, now, false);
     }
 
     /** Finishes an accepted request that provably failed before the provider call. */
     public AgentTurn finishKnownUnsent(TurnMetrics finalMetrics, String reason, Instant now)
     {
         checkNotBlank(reason, "reason");
-        return finish(TurnState.FAILED, finalMetrics, Optional.of(reason), now, true);
+        return finish(TurnState.FAILED, finalMetrics, Optional.of(reason), Optional.empty(), now, true);
     }
 
     private AgentTurn finish(
             TurnState terminalState,
             TurnMetrics finalMetrics,
             Optional<String> reason,
+            Optional<AgentTurnFailureKind> updatedFailureKind,
             Instant now,
             boolean updatedKnownUnsent)
     {
         requireNonNull(terminalState, "terminalState is null");
         requireNonNull(finalMetrics, "finalMetrics is null");
         checkOptionalText(reason, "reason");
+        requireNonNull(updatedFailureKind, "updatedFailureKind is null");
         requireNonNull(now, "now is null");
         checkArgument(terminalState.terminal(), "terminalState is not terminal");
         if (state.terminal()) {
@@ -177,21 +231,23 @@ public record AgentTurn(
         }
         checkState(state != TurnState.ACCEPTED || terminalState != TurnState.COMPLETED, "an accepted turn cannot complete before running");
         checkArgument((terminalState != TurnState.COMPLETED) == reason.isPresent(), "reason and terminalState disagree");
+        checkArgument(updatedFailureKind.isEmpty() || terminalState == TurnState.FAILED,
+                "a typed failure requires a failed turn");
         return copy(terminalState, version, startedAt, Optional.of(now), cancellationRequestedAt,
-                providerTurnReference, updatedKnownUnsent, model, reason, finalMetrics);
+                providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
     }
 
     public AgentTurn withMetrics(TurnMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, version, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, updatedMetrics);
+                providerTurnReference, knownUnsent, model, terminalReason, failureKind, updatedMetrics);
     }
 
     public AgentTurn withVersion(long updatedVersion)
     {
         return copy(state, updatedVersion, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, metrics);
+                providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     private AgentTurn copy(
@@ -204,6 +260,7 @@ public record AgentTurn(
             boolean updatedKnownUnsent,
             Optional<String> updatedModel,
             Optional<String> updatedTerminalReason,
+            Optional<AgentTurnFailureKind> updatedFailureKind,
             TurnMetrics updatedMetrics)
     {
         return new AgentTurn(
@@ -221,6 +278,7 @@ public record AgentTurn(
                 updatedModel,
                 settings,
                 updatedTerminalReason,
+                updatedFailureKind,
                 updatedMetrics);
     }
 

@@ -614,6 +614,7 @@ public record CiAutofixRun(
 
     public enum PauseReason
     {
+        AUTHENTICATION_REQUIRED,
         TURN_FAILED,
         TURN_INTERRUPTED,
         TURN_CANCELLED,

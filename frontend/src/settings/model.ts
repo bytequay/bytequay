@@ -30,7 +30,7 @@ export function providerAvailable(readiness: AgentProviderReadiness): boolean {
   return readiness === 'READY' || readiness === 'DEGRADED';
 }
 
-/** The Codex lane is the only one CP7 accepts tasks on; the rest are shown but not offered. */
+/** Initial lane when neither the workspace nor the catalog has supplied a selection yet. */
 export const INTERACTIVE_LANE_ID = 'codex';
 
 const LANE_LABELS: Record<string, string> = { codex: 'Codex', claude: 'Claude' };
@@ -76,27 +76,37 @@ export type ProviderRemedy = {
   command: string | null;
 };
 
-export function providerRemedy(readiness: AgentProviderReadiness): ProviderRemedy {
+const INSTALL_COMMANDS: Record<string, string> = {
+  codex: 'npm install -g @openai/codex',
+  claude: 'npm install -g @anthropic-ai/claude-code',
+};
+
+const LOGIN_COMMANDS: Record<string, string> = {
+  codex: 'codex login',
+  claude: 'claude auth login',
+};
+
+export function providerRemedy(readiness: AgentProviderReadiness, laneId = INTERACTIVE_LANE_ID): ProviderRemedy {
   switch (readiness) {
     case 'CLI_MISSING':
       return {
         kind: 'install',
         title: 'Install the CLI',
         detail: 'ByteQuay runs the CLI you already manage; it does not install one for you.',
-        command: 'npm install -g @openai/codex',
+        command: INSTALL_COMMANDS[laneId] ?? null,
       };
     case 'AUTHENTICATION_REQUIRED':
       return {
         kind: 'login',
         title: 'Sign in',
         detail: 'Sign in in your own terminal, then check again.',
-        command: 'codex login',
+        command: LOGIN_COMMANDS[laneId] ?? null,
       };
     case 'UNSUPPORTED':
       return {
         kind: 'report',
         title: 'Report an issue',
-        detail: 'This CLI reports a version ByteQuay cannot drive. Include the diagnostic below.',
+        detail: 'A required provider protocol or capability failed. Include the detected version and diagnostic below.',
         command: null,
       };
     default:

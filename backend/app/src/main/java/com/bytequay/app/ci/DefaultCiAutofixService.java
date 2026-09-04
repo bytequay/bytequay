@@ -35,6 +35,7 @@ import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
@@ -518,8 +519,12 @@ public class DefaultCiAutofixService
         observed = switch (turn.state()) {
             case COMPLETED -> observed.clearCurrentTurn(turn.id().toString(), now);
             case FAILED -> observed.pause(
-                    PauseReason.TURN_FAILED,
-                    terminalSummary("Agent turn failed", turn),
+                    turn.failureKind().filter(AgentTurnFailureKind.AUTHENTICATION_REQUIRED::equals).isPresent()
+                            ? PauseReason.AUTHENTICATION_REQUIRED
+                            : PauseReason.TURN_FAILED,
+                    turn.failureKind().filter(AgentTurnFailureKind.AUTHENTICATION_REQUIRED::equals).isPresent()
+                            ? "Agent provider sign-in required"
+                            : terminalSummary("Agent turn failed", turn),
                     now);
             case INTERRUPTED -> observed.pause(
                     PauseReason.TURN_INTERRUPTED,

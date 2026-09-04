@@ -29,12 +29,13 @@ import {
   deliveryUncertain,
   initialAgentTaskState,
   isIdle,
-  retryableMessage,
+  retryableInput,
   runtimeStatus,
   unloadedTurnIds,
   type AgentTaskState,
 } from './model';
 import { projectTranscript, type ApprovalBlock } from './transcript';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 const all = parseAgentEventSequence(fixture.events);
@@ -247,15 +248,34 @@ describe('deriving runtime status', () => {
     expect(isIdle({ ...base, task: openTask(turnClaim), turn: turn('FAILED') })).toBe(false);
   });
 
-  it('offers Retry only for a delivered, unfinished last message on an idle task', () => {
-    const idleAfterFailure = { ...apply(base, stream(1, 2)), turn: turn('FAILED', { startedAt: '2026-08-20T10:00:01Z' }) };
+  it('offers Retry only for the typed authentication failure and its exact durable input', () => {
+    const withMessage = apply(base, stream(1, 2));
+    const message = withMessage.events.find((event) => event.type === 'user_message');
+    expect(message?.turnId).not.toBeNull();
+    const idleAfterFailure = {
+      ...withMessage,
+      turn: turn('FAILED', {
+        id: message?.turnId ?? '',
+        startedAt: '2026-08-20T10:00:01Z',
+        failureKind: 'AUTHENTICATION_REQUIRED',
+      }),
+    };
 
-    expect(retryableMessage(idleAfterFailure)).toBe('Review the authentication change');
-    expect(retryableMessage({ ...idleAfterFailure, turn: turn('COMPLETED') })).toBeNull();
+    expect(retryableInput(idleAfterFailure)).toMatchObject({ text: 'Review the authentication change' });
+    const steeredAfterStart = apply(withMessage, [{
+      ...message,
+      eventId: 'steer-after-start',
+      sequence: 3,
+      payload: { text: 'A later steer', attachments: [], deliveryKind: 'STEER' },
+    } as AgentEventEnvelope]);
+    expect(retryableInput({ ...idleAfterFailure, events: steeredAfterStart.events }))
+      .toMatchObject({ text: 'Review the authentication change' });
+    expect(retryableInput({ ...idleAfterFailure, turn: turn('COMPLETED') })).toBeNull();
+    expect(retryableInput({ ...idleAfterFailure, turn: { ...idleAfterFailure.turn, failureKind: null } })).toBeNull();
     // Started but never acknowledged: it may have arrived, so it is never resent by a shortcut.
     const uncertain = turn('INTERRUPTED', { startedAt: '2026-08-20T10:00:01Z', delivered: false });
     expect(deliveryUncertain(uncertain)).toBe(true);
-    expect(retryableMessage({ ...idleAfterFailure, turn: uncertain })).toBeNull();
+    expect(retryableInput({ ...idleAfterFailure, turn: { ...uncertain, id: idleAfterFailure.turn.id, failureKind: 'AUTHENTICATION_REQUIRED' } })).toBeNull();
     // A failed turn without acknowledgement is durably known unsent, including a failure while
     // publishing the started lifecycle after its timestamp was stored.
     expect(deliveryUncertain(turn('FAILED', {
@@ -265,7 +285,7 @@ describe('deriving runtime status', () => {
     }))).toBe(false);
     // Never started delivering is known unsent, which is safe to send.
     expect(deliveryUncertain(turn('INTERRUPTED', { delivered: false }))).toBe(false);
-    expect(retryableMessage({ ...idleAfterFailure, turn: turn('RUNNING') })).toBeNull();
+    expect(retryableInput({ ...idleAfterFailure, turn: turn('RUNNING', { failureKind: 'AUTHENTICATION_REQUIRED' }) })).toBeNull();
   });
 });
 
@@ -374,11 +394,13 @@ describe('image attachments', () => {
       { id: 'text', name: 'Text', description: '', efforts: [], inputModalities: ['text'] },
       { id: 'old', name: 'Old', description: '', efforts: [] },
     ];
-    expect(acceptsImages(models, 'vision')).toBe(true);
-    expect(acceptsImages(models, 'text')).toBe(false);
+    const imageProvider = { ...NO_AGENT_CAPABILITIES, attachmentMediaTypes: ['image/png'] };
+    expect(acceptsImages(models, 'vision', imageProvider)).toBe(true);
+    expect(acceptsImages(models, 'text', imageProvider)).toBe(false);
     // A catalog entry that says nothing about modalities is not permission.
-    expect(acceptsImages(models, 'old')).toBe(false);
-    expect(acceptsImages(models, null)).toBe(false);
+    expect(acceptsImages(models, 'old', imageProvider)).toBe(false);
+    expect(acceptsImages(models, null, imageProvider)).toBe(false);
+    expect(acceptsImages(models, 'vision', NO_AGENT_CAPABILITIES)).toBe(false);
   });
 });
 
@@ -426,12 +448,12 @@ describe('steering and queueing', () => {
     turn: turn('RUNNING'),
     composer: 'also check the tests',
     connection: 'open',
-    steering: true,
+    capabilities: { ...NO_AGENT_CAPABILITIES, steering: true },
   };
 
   it('offers Steer only for a running turn on a lane that steers, with something to say', () => {
     expect(canSteer(running)).toBe(true);
-    expect(canSteer({ ...running, steering: false })).toBe(false);
+    expect(canSteer({ ...running, capabilities: { ...NO_AGENT_CAPABILITIES, steering: false } })).toBe(false);
     expect(canSteer({ ...running, composer: ' ' })).toBe(false);
     expect(canSteer({ ...running, sending: true })).toBe(false);
     expect(canSteer({ ...running, connection: 'failed' })).toBe(false);
@@ -442,7 +464,7 @@ describe('steering and queueing', () => {
 
   it('offers Run next while a turn runs, whatever the lane can steer', () => {
     expect(canQueue(running)).toBe(true);
-    expect(canQueue({ ...running, steering: false })).toBe(true);
+    expect(canQueue({ ...running, capabilities: { ...NO_AGENT_CAPABILITIES, steering: false } })).toBe(true);
     expect(canQueue({ ...running, composer: '' })).toBe(false);
     expect(canQueue({ ...running, turn: turn('COMPLETED') })).toBe(false);
   });
@@ -465,6 +487,16 @@ describe('steering and queueing', () => {
     submissions.settled('intent-2');
     expect(submissions.keyFor('queue', 'task-1', 'task-1', 'do it', ['image-1'], defaults)).toBe('intent-3');
     expect(createKey).toHaveBeenCalledTimes(3);
+  });
+
+  it('gives an explicit authentication retry a fresh identity and retains it while ambiguous', () => {
+    const createKey = vi.fn().mockReturnValueOnce('original').mockReturnValueOnce('retry');
+    const submissions = createDraftSubmissionTracker(createKey);
+    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
+
+    expect(submissions.keyFor('send', 'task-1', 'task-1', 'do it', [], defaults)).toBe('original');
+    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [], defaults)).toBe('retry');
+    expect(submissions.keyFor('retry', 'task-1', 'task-1', 'do it', [], defaults)).toBe('retry');
   });
 
   it('treats attachments, applicable settings, action, and the active steer turn as intent identity', () => {
@@ -514,14 +546,15 @@ describe('steering and queueing', () => {
       .toMatchObject({ taskId: 'intent-5', idempotencyKey: 'intent-6' });
   });
 
-  it('keeps the queue and the lane capability the server reported', () => {
-    let state = agentTaskReducer(initialAgentTaskState(), { type: 'steering/loaded', steering: true });
+  it('keeps the queue and normalized lane capabilities the server reported', () => {
+    const capabilities = { ...NO_AGENT_CAPABILITIES, steering: true, structuredPlans: true };
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'capabilities/loaded', capabilities });
     state = agentTaskReducer(state, {
       type: 'queue/loaded',
       queue: [queued('q-2', 'QUEUED', 'newer')],
     });
 
-    expect(state.steering).toBe(true);
+    expect(state.capabilities).toEqual(capabilities);
     expect(state.queue.map((input) => input.preview)).toEqual(['newer']);
   });
 

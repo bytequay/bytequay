@@ -3,8 +3,8 @@
 ByteQuay is a local-first macOS desktop application. Its Electron and React
 frontend talks to one Spring Boot sidecar on localhost. The sidecar integrates
 with GitHub, stores durable local state in SQLite, and hosts the implemented
-worktree-scoped agent service. A rich agent task UI over that service is
-proposed in [Agent Task UI Design](agent-task-ui.md).
+worktree-scoped agent service. Its implemented rich task surface is specified
+in [Agent Task UI Design](agent-task-ui.md).
 
 ## 1. Architecture decision
 
@@ -38,11 +38,11 @@ backend/
 This is the smallest split that gives SQLite and agent providers real
 boundaries without turning each package into a Maven module.
 
-The module and provider-process boxes below exist today. The diagram as a
-whole is the proposed rich-task flow from
-[Agent Task UI Design](agent-task-ui.md): authenticated renderer transport,
-child-thread multiplexing, rich normalized events, attachments, queueing, and
-task controls are target behavior rather than shipped UI behavior.
+The module, provider-process, and desktop boxes below exist today. The diagram
+shows the implemented rich-task flow from
+[Agent Task UI Design](agent-task-ui.md), including authenticated renderer
+transport, child-thread projection, normalized events, attachments, queueing,
+and task controls.
 
 ```mermaid
 flowchart LR
@@ -88,10 +88,10 @@ flowchart LR
     MAIN <-->|"localhost HTTP/SSE"| APP
     APP --> GITHUB
     AGENT_CLI <-->|"JSON-RPC over stdio"| APP_SERVER
-    AGENT_CLI -->|"launch and own"| EXEC_SERVER
+    AGENT_CLI -->|"launch and own per task"| APP_SERVER
     AGENT_CLI <-->|"stream-json"| CLAUDE
     WORKTREES -->|"provision · inspect · cleanup"| WORKTREE
-    EXEC_SERVER --> WORKTREE
+    APP_SERVER -->|"rooted at"| WORKTREE
     CLAUDE --> WORKTREE
 ```
 
@@ -108,10 +108,9 @@ The current SQLite package already contains a cohesive adapter:
 - SQLite- and Hibernate-specific transactions; and
 - credential-at-rest encryption used by the credential store.
 
-The current agent service stores task, turn, metric, durable approval, and
-event-outbox facts in the same database; only the live approval callback
-remains process-local. The proposed rich task surface adds the input-delivery
-and queued-input facts defined by the service design. A task stores the immutable
+The current agent service stores task, turn, metric, durable approval,
+event-outbox, input-delivery, and queued-input facts in the same database; only
+the live approval callback remains process-local. A task stores the immutable
 ownership facts returned by `WorktreeService`; there is no separate worktree
 allocation table or lifecycle. Keeping the durable implementations together
 localizes Hibernate, Spring Data JPA, the SQLite driver, entity scanning,
@@ -335,11 +334,10 @@ Issue display and refresh use the same local-first boundary:
 4. Direct comment, close, type, assignee, and label writes update the affected local projection so
    later display requests still read SQLite. Closing removes the issue from the open-only projection.
 
-### 6.3 Target rich-agent flow
+### 6.3 Agent task flow
 
-The current Codex/Claude adapters and backend task/event services are the base.
-The following is the proposed end-to-end flow after the documented contract
-gaps are implemented:
+The Codex/Claude adapters, backend task/event services, Electron bridge, and
+React projection implement this end-to-end flow:
 
 1. The React renderer calls typed preload operations; Electron main adds the
    private desktop session credential and sends localhost HTTP requests.
@@ -387,7 +385,7 @@ gaps are implemented:
     event streaming, approvals, and recovery paths work end to end.
 
 The detailed backend contract is in
-[Agent Service Design](agent-service.md); the proposed frontend behavior is in
+[Agent Service Design](agent-service.md); the frontend behavior is in
 [Agent Task UI Design](agent-task-ui.md).
 
 ## 7. Operational boundaries
@@ -458,8 +456,7 @@ The detailed backend contract is in
 - A task's process working directory is its sandbox root: under
   `workspace-write` App Server's default environment confines writes to it, so
   no separate execution environment is registered and no loopback listener is
-  opened. Nothing declares the experimental API, whose only use here was that
-  environment family.
+  opened. Nothing declares the experimental environment API.
 - A session owns the App Server process serving its task and closes it. The
   runtime registry closes every session it still holds at backend shutdown,
   because completing a task is otherwise the only thing that releases one.
@@ -467,14 +464,14 @@ The detailed backend contract is in
   `--code-mode-host` option unset. It is not a per-task tool-routing API; any
   future custom Code Mode host needs a separately validated protocol design.
 - App Server's command-level experimental maturity is an explicit product
-  risk. The per-task environment and background-terminal APIs are also
-  experimental. A fixed v0.151.0 reference fixture generates bindings with
-  experimental definitions enabled, but it does not gate the production CLI.
-  Production keeps Codex's startup self-update enabled and uses the
-  user-managed installed version without treating any reported version text,
-  including an unparseable string, as a readiness gate. A real protocol
-  incompatibility blocks the affected operation and reports that detected version
-  so the issue can be fixed.
+  risk. ByteQuay uses its background-terminal API but not the removed
+  experimental environment family. A fixed v0.151.0 reference fixture
+  generates bindings with experimental definitions enabled, but it does not
+  gate the production CLI. Production updates a user-managed Codex CLI only
+  when its parsed version is below the supported minimum and leaves newer or
+  unparseable version text alone; neither is a readiness gate. A real protocol
+  incompatibility blocks the affected operation and reports that detected
+  version so the issue can be fixed.
 - Maven module boundaries do not create processes or network boundaries.
 - The packaged app starts only the `app` executable; library modules are
   ordinary JAR dependencies.

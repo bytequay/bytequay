@@ -17,7 +17,7 @@ import { INTERACTIVE_LANE_ID } from '../settings/model';
 import { TaskComposer, useAgentTaskCreation } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
-import type { AgentTaskDto, ModelOptionDto } from '../types';
+import type { AgentTaskDto, ModelOptionDto, ModelProviderDto } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS = [
@@ -42,12 +42,13 @@ export default function AgentHome({
   workspaceId, repository, branch, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, laneId, bridge: live, onOpenTask });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
   return (
     <AgentHomeView
       repository={repository}
       branch={branch}
-      laneId={laneId}
+      laneId={creation.laneId}
+      providers={creation.catalog?.providers ?? []}
       bridge={live}
       tasks={creation.tasks.filter((task) => task.state === 'OPEN')}
       models={creation.models}
@@ -55,6 +56,7 @@ export default function AgentHome({
       draft={creation.draft}
       blocker={creation.blocker}
       onDraftChange={creation.setDraft}
+      onSelectProvider={creation.selectProvider}
       onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
       onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
@@ -65,12 +67,13 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, branch, laneId, bridge, tasks, models, selection, draft, blocker,
-  onDraftChange, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
+  repository, branch, laneId, providers, bridge, tasks, models, selection, draft, blocker,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
 }: {
   repository: string;
   branch?: string;
   laneId: string;
+  providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
   /** The open tasks, drawn as windows under the hero. */
   tasks: AgentTaskDto[];
@@ -79,6 +82,7 @@ export function AgentHomeView({
   draft: string;
   blocker: string | null;
   onDraftChange: (draft: string) => void;
+  onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
@@ -108,7 +112,7 @@ export function AgentHomeView({
               </button>
             </div>
             <div className="agt-windows">
-              <TaskWindows tasks={tasks} models={models} width={200} bridge={bridge} onOpen={onOpenTask} />
+              <TaskWindows tasks={tasks} providers={providers} width={200} bridge={bridge} onOpen={onOpenTask} />
             </div>
           </div>
         </div>
@@ -118,9 +122,11 @@ export function AgentHomeView({
         blocker={blocker}
         branch={branch}
         laneId={laneId}
+        providers={providers}
         models={models}
         selection={selection}
         onDraftChange={onDraftChange}
+        onSelectProvider={onSelectProvider}
         onSelectModel={onSelectModel}
         onCreate={onCreate}
         onOpenSettings={onOpenSettings}

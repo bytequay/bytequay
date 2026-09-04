@@ -15,6 +15,8 @@
 import type { AgentEventEnvelope } from './events';
 import type { ApprovalBlock } from './transcript';
 import type {
+  AgentCapabilitiesDto,
+  AgentAttachmentReferenceDto,
   AgentApprovalDecision,
   AgentAttachmentDto,
   AgentQueuedInputDto,
@@ -55,7 +57,8 @@ export type AgentBridgePort = Pick<Bridge,
   | 'updateAgentTaskDefaults'
   | 'renameAgentTask'
   | 'listAgentTaskPullRequests'
-  | 'getEffectiveTurnSettings'>;
+  | 'getEffectiveTurnSettings'
+  | 'refreshAgentProviderReadiness'>;
 
 export interface AgentTaskState {
   task: AgentTaskDto | null;
@@ -88,8 +91,8 @@ export interface AgentTaskState {
   notice: string | null;
   /** What waits behind the current turn, read from the server whenever the task's lifecycle moves. */
   queue: AgentQueuedInputDto[];
-  /** Whether this task's lane can take input into a running turn. */
-  steering: boolean;
+  /** The immutable task lane's normalized feature shape. Unknown capabilities grant nothing. */
+  capabilities: AgentCapabilitiesDto | null;
 }
 
 export type AgentTaskAction =
@@ -108,7 +111,7 @@ export type AgentTaskAction =
   | { type: 'queue/loaded'; queue: AgentQueuedInputDto[] }
   | { type: 'queue/upserted'; input: AgentQueuedInputDto }
   | { type: 'queue/removed'; queuedInputId: string }
-  | { type: 'steering/loaded'; steering: boolean };
+  | { type: 'capabilities/loaded'; capabilities: AgentCapabilitiesDto };
 
 export function initialAgentTaskState(): AgentTaskState {
   return {
@@ -130,7 +133,7 @@ export function initialAgentTaskState(): AgentTaskState {
     lifecycleEpoch: 0,
     notice: null,
     queue: [],
-    steering: false,
+    capabilities: null,
   };
 }
 
@@ -173,8 +176,8 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       };
     case 'queue/removed':
       return { ...state, queue: state.queue.filter((input) => input.id !== action.queuedInputId) };
-    case 'steering/loaded':
-      return { ...state, steering: action.steering };
+    case 'capabilities/loaded':
+      return { ...state, capabilities: action.capabilities };
     case 'events/applied':
       return applyEvents(state, action.events);
     default:
@@ -355,9 +358,15 @@ export function isIdle(state: AgentTaskState): boolean {
  * Whether the selected model advertises image input. A catalog entry recorded before modalities
  * were carried says nothing, and nothing is not permission.
  */
-export function acceptsImages(models: ModelOptionDto[], modelId: string | null | undefined): boolean {
+export function acceptsImages(
+  models: ModelOptionDto[],
+  modelId: string | null | undefined,
+  capabilities: AgentCapabilitiesDto | null,
+): boolean {
   if (modelId === null || modelId === undefined) return false;
-  return models.find((model) => model.id === modelId)?.inputModalities?.includes('image') ?? false;
+  const providerAcceptsImages = capabilities?.attachmentMediaTypes.some((mediaType) => mediaType.startsWith('image/')) ?? false;
+  return providerAcceptsImages
+    && (models.find((model) => model.id === modelId)?.inputModalities?.includes('image') ?? false);
 }
 
 /** Whether Send may fire: idle, connected, not already sending, and with something to say. */
@@ -374,7 +383,7 @@ export function canSend(state: AgentTaskState): boolean {
  */
 export function canSteer(state: AgentTaskState): boolean {
   return runtimeStatus(state) === 'running'
-    && state.steering
+    && state.capabilities?.steering === true
     && state.turn !== null
     && state.turn.state === 'RUNNING'
     && !state.sending
@@ -392,7 +401,7 @@ export function canQueue(state: AgentTaskState): boolean {
 }
 
 export type DraftSubmissionTracker = {
-  keyFor: (kind: 'send' | 'steer' | 'queue', targetId: string, taskId: string, message: string, attachmentIds: string[], defaults: AgentTaskDefaultsDto | null) => string;
+  keyFor: (kind: 'send' | 'retry' | 'steer' | 'queue', targetId: string, taskId: string, message: string, attachmentIds: string[], defaults: AgentTaskDefaultsDto | null) => string;
   draftChanged: (taskId: string, message: string, attachmentIds: string[], defaults: AgentTaskDefaultsDto | null) => void;
   settled: (idempotencyKey: string) => void;
 };
@@ -443,9 +452,9 @@ export function createTaskCreationTracker(createKey: () => string = () => global
 
 /** Retains one random key until its exact draft changes or the server gives a durable response. */
 export function createDraftSubmissionTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): DraftSubmissionTracker {
-  let retained: { kind: 'send' | 'steer' | 'queue'; draft: string; request: string; key: string } | null = null;
+  let retained: { kind: 'send' | 'retry' | 'steer' | 'queue'; draft: string; request: string; key: string } | null = null;
   const signature = (
-    kind: 'send' | 'steer' | 'queue',
+    kind: 'send' | 'retry' | 'steer' | 'queue',
     taskId: string,
     message: string,
     attachmentIds: string[],
@@ -515,14 +524,24 @@ export function unloadedTurnIds(state: AgentTaskState): string[] {
   return ids;
 }
 
-/** The text a Retry would send again: the most recent user message, once the task is idle. */
-export function retryableMessage(state: AgentTaskState): string | null {
-  if (!isIdle(state) || state.turn === null || state.turn.state === 'COMPLETED' || deliveryUncertain(state.turn)) {
+export type RetryableInput = { text: string; attachments: AgentAttachmentReferenceDto[] };
+
+/** The durable input a Retry would resend, only after its exact turn is quiescent and unambiguous. */
+export function retryableInput(state: AgentTaskState): RetryableInput | null {
+  if (!isIdle(state)
+    || state.turn === null
+    || state.turn.failureKind !== 'AUTHENTICATION_REQUIRED'
+    || state.turn.state === 'COMPLETED'
+    || deliveryUncertain(state.turn)) {
     return null;
   }
   for (let index = state.events.length - 1; index >= 0; index--) {
     const event = state.events[index];
-    if (event.type === 'user_message') return event.payload.text;
+    if (event.type === 'user_message'
+      && event.turnId === state.turn.id
+      && event.payload.deliveryKind !== 'STEER') {
+      return { text: event.payload.text, attachments: event.payload.attachments };
+    }
   }
   return null;
 }

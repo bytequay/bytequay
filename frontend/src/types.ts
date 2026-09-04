@@ -482,13 +482,32 @@ export type AgentProviderReadiness =
   | 'DEGRADED'
   | 'TEMPORARILY_UNAVAILABLE';
 
+export type AgentCostProvenance = 'PROVIDER_REPORTED' | 'CLI_ESTIMATE' | 'UNAVAILABLE';
+
+/** Provider facts that control what the shared task UI may truthfully offer or render. */
+export type AgentCapabilitiesDto = {
+  sessionResume: boolean;
+  partialAssistantText: boolean;
+  structuredPlans: boolean;
+  toolLifecycle: boolean;
+  incrementalCommandOutput: boolean;
+  hookLifecycle: boolean;
+  nestedAgentActivity: boolean;
+  interactiveApprovals: boolean;
+  tokenUsage: boolean;
+  steering: boolean;
+  costProvenance: AgentCostProvenance;
+  permissionPolicies: string[];
+  attachmentMediaTypes: string[];
+};
+
 /** Token and cost totals the backend reports for a task or turn. */
 export type AgentMetricsDto = {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
   cost: number | null;
-  costProvenance: string;
+  costProvenance: AgentCostProvenance;
   elapsed: string;
 };
 
@@ -586,6 +605,8 @@ export type AgentTurnDto = {
   /** Core proved the request failed before the provider call, so an explicit retry is safe. */
   knownUnsent: boolean;
   settings: AgentTurnSettingsDto | null;
+  /** Typed operational cause for a failed turn; absent/null on ordinary and legacy failures. */
+  failureKind?: 'AUTHENTICATION_REQUIRED' | null;
   terminalReason: string | null;
   metrics: AgentMetricsDto;
 };
@@ -684,7 +705,7 @@ export type AgentApprovalDto = {
   timedOut: boolean;
 };
 
-/** What stopping a task's Codex server would interrupt, and the generation the stop must echo. */
+/** What stopping a task's provider runtime would interrupt, and the generation the stop must echo. */
 export type AgentRuntimeStopImpactDto = {
   taskId: string;
   generation: string;
@@ -722,8 +743,21 @@ export type AgentProviderStatus = {
   readiness: AgentProviderReadiness;
   version?: string | null;
   diagnostic: string;
+  capabilities: AgentCapabilitiesDto;
   /** The exact command that signs this lane in, when a generic login would land elsewhere. */
   signInCommand?: string | null;
+};
+
+/** Typed preflight refusal: no task/turn mutation happened and the lane remedy is safe to show. */
+export type AgentProviderUnavailableDto = {
+  timestamp: string;
+  status: 503;
+  code: 'AGENT_PROVIDER_UNAVAILABLE';
+  laneId: string;
+  readiness: AgentProviderReadiness;
+  diagnostic: string;
+  signInCommand: string | null;
+  path: string;
 };
 
 export type CherryPickExecutionItem = {
@@ -904,6 +938,7 @@ export type ModelProviderDto = {
   diagnostic: string;
   /** The exact command that signs this lane in, when a generic login would land elsewhere. */
   signInCommand?: string | null;
+  capabilities: AgentCapabilitiesDto;
   /** Whether a running turn on this lane accepts more input; absent on catalogs recorded before it was carried. */
   steering?: boolean;
   models: ModelOptionDto[];
@@ -1288,8 +1323,6 @@ export type Bridge = {
   clearRecent: () => Promise<void>;
   clearRecentRow: (id: string) => Promise<void>;
 
-  /** True only in an unpackaged build; gates surfaces that must never ship. */
-  isDevelopmentBuild: () => Promise<boolean>;
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
@@ -1328,7 +1361,7 @@ export type Bridge = {
   /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */
   markAgentTaskFailed: (taskId: string, workspaceId: string, reason: string) => Promise<AgentTaskDto>;
   getAgentRuntimeStopImpact: (taskId: string, workspaceId: string) => Promise<AgentRuntimeStopImpactDto>;
-  /** Stops only this task's Codex server; the generation is the one the user confirmed. */
+  /** Stops only this task's provider runtime; the generation is the one the user confirmed. */
   stopAgentRuntime: (taskId: string, workspaceId: string, generation: string) => Promise<AgentTaskDto>;
   /** Opens the native image picker; Electron main reads the files and uploads them, the renderer sees facts only. */
   pickAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;

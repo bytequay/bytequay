@@ -336,6 +336,7 @@ public sealed interface AgentEventPayload
     enum MessageKind
     {
         ANSWER,
+        COMMENTARY,
         REASONING_SUMMARY,
         PLAN_TEXT,
         PROMPT

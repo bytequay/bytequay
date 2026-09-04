@@ -41,11 +41,19 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { INTERACTIVE_LANE_ID, displayModelName } from '../settings/model';
+import {
+  displayModelName,
+  laneLabel,
+  providerAvailable,
+  providerRemedy,
+  remedyCommand,
+} from '../settings/model';
 import { useResizablePane } from '../useResizablePane';
 import { AgentMark } from './AgentMark';
 import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
+import { agentProviderUnavailableFrom } from './contracts';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
@@ -61,12 +69,14 @@ import {
   createDraftSubmissionTracker,
   initialAgentTaskState,
   runtimeStatus,
+  retryableInput,
   startAgentTaskSession,
   unloadedTurnIds,
   type AgentBridgePort,
   type DraftSubmissionTracker,
   type AgentRuntimeStatus,
   type AgentTaskState,
+  type RetryableInput,
 } from './model';
 import {
   activeAgents,
@@ -94,7 +104,18 @@ import {
   type TranscriptTurn,
   type TurnBlock,
 } from './transcript';
-import type { AgentApprovalDecision, AgentChildSummaryDto, AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto, PullRequestDto } from '../types';
+import type {
+  AgentApprovalDecision,
+  AgentCapabilitiesDto,
+  AgentChildSummaryDto,
+  AgentProviderUnavailableDto,
+  AgentProviderStatus,
+  AgentQueuedInputDto,
+  AgentTaskDto,
+  AgentTurnDto,
+  ModelOptionDto,
+  PullRequestDto,
+} from '../types';
 
 export type PanelTab = 'agents' | 'prs';
 
@@ -130,8 +151,8 @@ export interface AgentTaskScreenProps {
   onBack: () => void;
   /** Opens the existing pull-request page for one found on the task's branch. */
   onOpenPullRequest?: (number: number) => void;
-  /** Fixed at creation; the screen reads its catalog, it does not offer a choice. */
-  laneId?: string;
+  /** Opens the provider settings used by authentication recovery. */
+  onOpenSettings?: () => void;
 }
 
 function stateClass(state: string): string {
@@ -691,27 +712,38 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
 }
 
 /** The header's second line: where the task is, in the fewest words that are still facts. */
-function headerMeta(turns: TranscriptTurn[], status: AgentRuntimeStatus, waiting: boolean, now: number, state: AgentTaskState, models: ModelOptionDto[]): string {
+function headerMeta(
+  turns: TranscriptTurn[],
+  status: AgentRuntimeStatus,
+  waiting: boolean,
+  now: number,
+  state: AgentTaskState,
+  models: ModelOptionDto[],
+  provider: string,
+): string {
+  const identity = state.task === null
+    ? ''
+    : `${provider || laneLabel(state.task.laneId)} · ${modelName(models, state.task.defaults.model)} · `;
   const last = turns[turns.length - 1];
   if (status === 'recovery') {
-    return `${last === undefined ? '' : `Turn ${last.ordinal} interrupted · `}workspace reserved`;
+    return `${identity}${last === undefined ? '' : `Turn ${last.ordinal} interrupted · `}workspace reserved`;
   }
-  if (status === 'closing') return 'Closing…';
+  if (status === 'closing') return `${identity}Closing…`;
   if (status === 'running' && last !== undefined) {
     const queued = state.queue.filter((input) => input.state === 'QUEUED').length;
     const queueText = queued === 0 ? '' : ` · ${queued} queued`;
-    if (waiting) return `Turn ${last.ordinal} · waiting on you${queueText}`;
+    if (waiting) return `${identity}Turn ${last.ordinal} · waiting on you${queueText}`;
     const elapsed = turnElapsedMs(last, now);
-    return `Turn ${last.ordinal}${elapsed === null ? '' : ` · ${formatDuration(elapsed)}`}${queueText}`;
+    return `${identity}Turn ${last.ordinal}${elapsed === null ? '' : ` · ${formatDuration(elapsed)}`}${queueText}`;
   }
   if (last !== undefined) {
     const ended = [...turns].reverse().find((turn) => turn.endedAt !== null);
-    return `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}${ended === undefined ? '' : ` · ${clock(ended.endedAt as string)}`}`;
+    return `${identity}${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}${ended === undefined ? '' : ` · ${clock(ended.endedAt as string)}`}`;
   }
   if (state.effective !== null) {
-    return `${modelName(models, state.effective.model)}${state.effective.effort === null ? '' : ` ${state.effective.effort}`} · ${permissionLabel(state.effective.permissionPolicy)}`;
+    return `${identity}${state.effective.effort === null ? '' : `${state.effective.effort} · `}${permissionLabel(state.effective.permissionPolicy)}`;
   }
-  return '';
+  return identity.endsWith(' · ') ? identity.slice(0, -3) : identity;
 }
 
 const QUEUE_LABELS: Record<string, string> = {
@@ -726,10 +758,11 @@ const QUEUE_LABELS: Record<string, string> = {
  * offers to resume the queue; an uncertain one, which may or may not have reached the agent, is
  * only ever discarded by hand.
  */
-function QueueStrip({ queue, running, idle, models, onRemove, onResume }: {
+function QueueStrip({ queue, running, idle, resumeBlocked, models, onRemove, onResume }: {
   queue: AgentQueuedInputDto[];
   running: boolean;
   idle: boolean;
+  resumeBlocked: boolean;
   models: ModelOptionDto[];
   onRemove: (queuedInputId: string) => void;
   onResume: () => void;
@@ -760,7 +793,15 @@ function QueueStrip({ queue, running, idle, models, onRemove, onResume }: {
               {modelName(models, input.settings.model)}{input.settings.effort === null ? '' : ` ${input.settings.effort}`}
             </span>
             {state === 'PAUSED' && input.id === head.id && idle && (
-              <button type="button" className="agt-queue__link" onClick={onResume}>Resume queue</button>
+              <button
+                type="button"
+                className="agt-queue__link"
+                disabled={resumeBlocked}
+                title={resumeBlocked ? 'Check provider readiness before resuming the queue' : undefined}
+                onClick={onResume}
+              >
+                Resume queue
+              </button>
             )}
             {state === 'UNCERTAIN' && (
               <button type="button" className="agt-queue__link is-danger" onClick={() => onRemove(input.id)}>Discard</button>
@@ -780,8 +821,8 @@ function QueueStrip({ queue, running, idle, models, onRemove, onResume }: {
 /**
  * Replaces the mutation controls while the checkout is still reserved.
  *
- * Nothing here edits or cleans that checkout. A claim from a turn means this task's own Codex
- * server could not be shown to have stopped writing, and stopping it is the way out. A recovery
+ * Nothing here edits or cleans that checkout. A claim from a turn means this task's own provider
+ * runtime could not be shown to have stopped writing, and stopping it is the way out. A recovery
  * claim means the process predates this ByteQuay, so nothing here can stop it: the checkout stays
  * reserved until that process is gone and a restart verifies it.
  */
@@ -806,9 +847,9 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           disabled={oldProcess}
           title={oldProcess
             ? 'That process predates this ByteQuay run; stop it yourself, then restart ByteQuay'
-            : 'Kills only this task’s Codex server, after confirmation'}
+            : 'Stops only this task’s provider runtime, after confirmation'}
         >
-          Stop this task&apos;s Codex server…
+          Stop this task&apos;s agent runtime…
         </button>
       </div>
       <div className="agt-recovery__body">
@@ -816,7 +857,7 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           ? 'ByteQuay restarted while this task was working, and a process from before the restart '
             + 'could not be verified stopped. The transcript is safe; the checkout stays reserved until '
             + 'that process is gone and ByteQuay has restarted.'
-          : 'The last turn ended, but its Codex process could not be shown to have stopped writing '
+          : 'The last turn ended, but its provider process could not be shown to have stopped writing '
             + 'here. The transcript is safe; new messages wait until nothing from that run can still '
             + 'change files.'}
         {turn?.terminalReason && <div className="agt-row-meta">{turn.terminalReason}</div>}
@@ -841,7 +882,102 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           Retry last message
         </button>
         <span className="agt-spacer" />
-        <span className="agt-recovery__note">Only this task&apos;s Codex server is stopped</span>
+        <span className="agt-recovery__note">Only this task&apos;s provider runtime is stopped</span>
+      </div>
+    </section>
+  );
+}
+
+/** A typed readiness block, retaining the auth-only explicit retry when its input is safe. */
+function ProviderRecoveryCard({
+  provider,
+  status,
+  statusFresh,
+  failedTurn,
+  checking,
+  input,
+  sending,
+  onRefresh,
+  onRetry,
+  onOpenSettings,
+}: {
+  provider: string;
+  status: AgentProviderStatus | null;
+  /** True only after readiness was probed after this exact failed turn became durable. */
+  statusFresh: boolean;
+  failedTurn: boolean;
+  checking: boolean;
+  input: RetryableInput | null;
+  sending: boolean;
+  onRefresh: () => void;
+  onRetry: () => void;
+  onOpenSettings?: () => void;
+}): React.JSX.Element {
+  const ready = statusFresh && status !== null && providerAvailable(status.readiness);
+  const providerName = provider || (status === null ? 'Provider' : laneLabel(status.laneId));
+  // A READY row from before the failed turn is stale until the post-failure probe proves it again.
+  const readiness = failedTurn && (status === null || providerAvailable(status.readiness))
+    ? 'AUTHENTICATION_REQUIRED'
+    : status?.readiness ?? 'AUTHENTICATION_REQUIRED';
+  const remedy = providerRemedy(readiness, status?.laneId ?? '');
+  const command = status === null ? remedy.command : remedyCommand(status, remedy);
+  const title = readiness === 'AUTHENTICATION_REQUIRED'
+    ? `${providerName} sign-in required`
+    : readiness === 'CLI_MISSING'
+      ? `${providerName} CLI not installed`
+      : readiness === 'UNSUPPORTED'
+        ? `${providerName} is unsupported`
+        : `${providerName} is unavailable`;
+  const retryDisabled = !ready || input === null || checking || sending;
+  const retryTitle = input === null
+    ? 'Retry is unavailable until the failed turn is quiescent and its delivery is known'
+    : ready ? 'Confirms and resends the last message as a new turn' : 'Check provider readiness after following the remedy';
+  return (
+    <section className="agt-recovery is-auth" aria-labelledby="agt-auth-recovery-title">
+      <div className="agt-recovery__head">
+        <TriangleAlert aria-hidden="true" />
+        <span id="agt-auth-recovery-title">{title}</span>
+      </div>
+      <div className="agt-recovery__body">
+        {input === null
+          ? failedTurn
+            ? 'The failed turn has no safely retryable input. Its delivery may be uncertain, so ByteQuay will not offer to resend it.'
+            : 'This task cannot start another turn until the provider is ready. No new turn or delivery was created.'
+          : 'The last turn stopped because this provider needs authentication. The task and checkout were preserved.'}
+        {!ready && <div className="agt-row-meta"><strong>{remedy.title}.</strong> {remedy.detail}</div>}
+        {readiness === 'UNSUPPORTED' && status?.version && <div className="agt-row-meta">Detected CLI version: {status.version}</div>}
+        {status?.diagnostic && <div className="agt-row-meta">{status.diagnostic}</div>}
+        {command && !ready && <div className="agt-mono agt-auth-command">{command}</div>}
+        {ready && <div className="agt-auth-ready">Login status is ready. Retry remains a separate confirmed action.</div>}
+        {input !== null && (
+          <div className="agt-auth-input" aria-label="Message that will be retried">
+            <strong>Message to resend</strong>
+            <div className="agt-auth-input__text">
+              {input.text.length > 500 ? `${input.text.slice(0, 500)}…` : input.text}
+            </div>
+            {input.attachments.length > 0 && (
+              <div className="agt-auth-input__attachments">
+                <strong>{input.attachments.length} {input.attachments.length === 1 ? 'attachment' : 'attachments'}:</strong>{' '}
+                {input.attachments.map((attachment) => `${attachment.name} (${attachment.mediaType})`).join(', ')}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="agt-recovery__actions">
+        <button type="button" className="agt-action" disabled={checking || sending} onClick={onRefresh}>
+          {checking ? 'Checking…' : failedTurn || readiness === 'AUTHENTICATION_REQUIRED' ? 'Refresh login status' : 'Check again'}
+        </button>
+        {!ready && onOpenSettings !== undefined && (
+          <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
+        )}
+        {input !== null && (
+          <button type="button" className="agt-action" disabled={retryDisabled} title={retryTitle} onClick={onRetry}>
+            {sending ? 'Retrying…' : 'Retry last message…'}
+          </button>
+        )}
+        <span className="agt-spacer" />
+        <span className="agt-recovery__note">Nothing is resent automatically</span>
       </div>
     </section>
   );
@@ -935,16 +1071,19 @@ function checksPill(pr: PullRequestDto): { label: string; className: string; spi
   }
 }
 
-function PanelTabs({ tab, onSelect, onHide }: {
+function PanelTabs({ tab, showAgents, onSelect, onHide }: {
   tab: PanelTab;
+  showAgents: boolean;
   onSelect: (tab: PanelTab) => void;
   onHide: () => void;
 }): React.JSX.Element {
   return (
     <div className="agt-panel__tabs" role="tablist">
-      <button type="button" role="tab" className={`agt-panel__tab${tab === 'agents' ? ' is-current' : ''}`} aria-selected={tab === 'agents'} onClick={() => onSelect('agents')}>
-        <span className="agt-panel__tab-mark" aria-hidden="true">❋</span>Subagents
-      </button>
+      {showAgents && (
+        <button type="button" role="tab" className={`agt-panel__tab${tab === 'agents' ? ' is-current' : ''}`} aria-selected={tab === 'agents'} onClick={() => onSelect('agents')}>
+          <span className="agt-panel__tab-mark" aria-hidden="true">❋</span>Subagents
+        </button>
+      )}
       <button type="button" role="tab" className={`agt-panel__tab${tab === 'prs' ? ' is-current' : ''}`} aria-selected={tab === 'prs'} onClick={() => onSelect('prs')}>
         <span className="agt-panel__tab-mark" aria-hidden="true">⑃</span>Pull requests
       </button>
@@ -1017,7 +1156,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
-  width, logChoice = null, onToggleLog = () => {},
+  width, showAgents, logChoice = null, onToggleLog = () => {},
 }: {
   agents: AgentNode[];
   openAgent: string | null;
@@ -1036,6 +1175,7 @@ function SidePanel({
   onHide: () => void;
   onOpenPullRequest?: (number: number) => void;
   width: number;
+  showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
@@ -1043,7 +1183,7 @@ function SidePanel({
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
-  const tabs = <PanelTabs tab={tab} onSelect={onSelectTab} onHide={onHide} />;
+  const tabs = <PanelTabs tab={tab} showAgents={showAgents} onSelect={onSelectTab} onHide={onHide} />;
   if (tab === 'prs') {
     return (
       <PanelFrame label="Pull requests" tabs={tabs} width={width}>
@@ -1185,6 +1325,12 @@ export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
   onStopServer, onMarkFailed, onRename, composerRef,
   provider = '',
+  providerStatus = null,
+  providerStatusFresh = false,
+  providerChecking = false,
+  onRefreshProvider = () => {},
+  onRetryAuthentication = () => {},
+  onOpenSettings,
   now = Date.now(),
   activityChoice = {},
   turnChoice = {},
@@ -1215,6 +1361,14 @@ export function AgentTaskBody({
   models: ModelOptionDto[];
   /** The lane's label, as the heading of its model list. */
   provider?: string;
+  /** Fresh status for the immutable task lane, used only by typed authentication recovery. */
+  providerStatus?: AgentProviderStatus | null;
+  /** A readiness probe completed after the typed failed turn currently on screen. */
+  providerStatusFresh?: boolean;
+  providerChecking?: boolean;
+  onRefreshProvider?: () => void;
+  onRetryAuthentication?: () => void;
+  onOpenSettings?: () => void;
   onBack: () => void;
   onSend: () => void;
   onCancel: () => void;
@@ -1276,13 +1430,15 @@ export function AgentTaskBody({
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
-  const agents = projectAgents(state.events);
+  const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
+  const agents = supportsNestedAgents ? projectAgents(state.events) : [];
   const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const working = activeAgents(agents);
   // A child the summary names but the events no longer hold: its steps were cleaned up.
-  const expiredChildren = (state.task?.summary?.children ?? [])
+  const expiredChildren = (supportsNestedAgents ? state.task?.summary?.children ?? [] : [])
     .filter((child) => !agents.some((agent) => agent.threadId === child.threadId));
   const hasAgents = agents.length > 0 || expiredChildren.length > 0;
+  const visiblePanelTab: PanelTab = supportsNestedAgents ? panelTab : 'prs';
   const status = runtimeStatus(state);
   const terminal = status === 'completed' || status === 'failed';
   const waiting = turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
@@ -1290,11 +1446,11 @@ export function AgentTaskBody({
   const statusText = state.turn === null
     ? STATUS_LABELS[status]
     : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
-  const plan = status === 'running' ? currentPlan(turns) : null;
-  const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model);
-  const activeImagesAccepted = acceptsImages(models, state.turn?.settings?.model);
+  const plan = status === 'running' && state.capabilities?.structuredPlans === true ? currentPlan(turns) : null;
+  const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model, state.capabilities);
+  const activeImagesAccepted = acceptsImages(models, state.turn?.settings?.model, state.capabilities);
   const imagesAccepted = status === 'running'
-    ? nextImagesAccepted || (state.steering && activeImagesAccepted)
+    ? nextImagesAccepted || (state.capabilities?.steering === true && activeImagesAccepted)
     : nextImagesAccepted;
   const attachTitle = status === 'running'
     ? (imagesAccepted ? 'The current or next-turn model accepts images' : 'Neither the current nor next-turn model accepts images')
@@ -1304,6 +1460,11 @@ export function AgentTaskBody({
   const hasDraftImages = state.attachments.length > 0;
   const steerImageBlocked = hasDraftImages && !activeImagesAccepted;
   const queueImageBlocked = hasDraftImages && !nextImagesAccepted;
+  const authenticationFailure = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED';
+  const providerBlocked = providerStatus !== null && !providerAvailable(providerStatus.readiness);
+  const providerRecoveryRequired = status === 'idle' && (authenticationFailure || providerBlocked);
+  const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
+  const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
@@ -1318,11 +1479,10 @@ export function AgentTaskBody({
           {(status === 'recovery' || status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
-        <span className="agt-mono agt-meta">{headerMeta(turns, status, waiting, now, state, models)}</span>
+        <span className="agt-mono agt-meta">{headerMeta(turns, status, waiting, now, state, models, provider)}</span>
         <span className="agt-spacer" />
         <span
           className={`agt-conn-dot is-${stateClass(state.connection)}`}
-          role="status"
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
@@ -1344,9 +1504,11 @@ export function AgentTaskBody({
             className="agt-headbtn"
             aria-label="Show or hide the side panel"
             aria-pressed={panelOpen}
-            title={hasAgents
-              ? `Subagents (${agents.length + expiredChildren.length}) and pull requests`
-              : 'Subagents and pull requests'}
+            title={supportsNestedAgents
+              ? (hasAgents
+                ? `Subagents (${agents.length + expiredChildren.length}) and pull requests`
+                : 'Subagents and pull requests')
+              : 'Pull requests'}
             onClick={onTogglePanel}
           >
             <PanelRight aria-hidden="true" />
@@ -1356,7 +1518,7 @@ export function AgentTaskBody({
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
       {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
-        <div className={`agt-conn is-${stateClass(state.connection)}`} role="status">
+        <div className={`agt-conn is-${stateClass(state.connection)}`}>
           {state.connection === 'reconnecting' && <Spinner warn />}
           {connectionText(state)}
           {state.gap ? ' — waiting for a missing event' : ''}
@@ -1376,7 +1538,7 @@ export function AgentTaskBody({
         }}
       >
         {turns.length === 0 && state.connection === 'connecting' && (
-          <div className="agt-skeleton" role="status">
+          <div className="agt-skeleton">
             <div className="agt-skeleton__note">Connecting — loading task history…</div>
             <div className="agt-skeleton__bar is-1" /><div className="agt-skeleton__bar is-2" />
             <div className="agt-skeleton__bar is-3" /><div className="agt-skeleton__block" />
@@ -1426,12 +1588,12 @@ export function AgentTaskBody({
           />
           <SidePanel
             agents={agents}
-            openAgent={openAgent}
+            openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
             deleteAfter={state.task.deleteAfter}
-            transcript={openAgent === null ? [] : projectTranscript(state.events, openAgent)}
+            transcript={!supportsNestedAgents || openAgent === null ? [] : projectTranscript(state.events, openAgent)}
             now={now}
-            tab={panelTab}
+            tab={visiblePanelTab}
             pullRequests={pullRequests}
             activityChoice={activityChoice}
             onOpenAgent={onOpenAgent}
@@ -1442,6 +1604,7 @@ export function AgentTaskBody({
             onHide={onTogglePanel}
             onOpenPullRequest={onOpenPullRequest}
             width={sidePanel.width}
+            showAgents={supportsNestedAgents}
             logChoice={logChoice}
             onToggleLog={onToggleLog}
           />
@@ -1462,6 +1625,7 @@ export function AgentTaskBody({
           queue={state.queue}
           running={status === 'running'}
           idle={status === 'idle'}
+          resumeBlocked={providerStartBlocked}
           models={models}
           onRemove={onRemoveQueued}
           onResume={onResumeQueue}
@@ -1472,8 +1636,23 @@ export function AgentTaskBody({
         <RecoveryCard task={state.task} turn={state.turn} working={working} onStopServer={onStopServer} onMarkFailed={onMarkFailed} />
       )}
 
+      {providerRecoveryRequired && (
+        <ProviderRecoveryCard
+          provider={provider}
+          status={providerStatus}
+          statusFresh={providerStatusFresh}
+          failedTurn={authenticationFailure}
+          checking={providerChecking}
+          input={authenticationRetry}
+          sending={state.sending}
+          onRefresh={onRefreshProvider}
+          onRetry={onRetryAuthentication}
+          onOpenSettings={onOpenSettings}
+        />
+      )}
+
       {/* The design's composer: the message above one row of controls, and one round button. */}
-      {!terminal && status !== 'recovery' && (
+      {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <div className="agt-compose-dock is-task">
           {state.attachments.length > 0 && (
             <div className="agt-drafts" aria-label="Images to send">
@@ -1522,9 +1701,9 @@ export function AgentTaskBody({
               >
                 +
               </button>
-              <button type="button" className="agt-compose__chip agt-fake" data-fake="CP11 · permission choice" title="Auto asks before anything risky" disabled>
-                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')} <Chevron open size={11} />
-              </button>
+              <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">
+                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
+              </span>
               <span className="agt-spacer" />
               <ModelPicker
                 ariaLabel="Model and effort for the next message"
@@ -1543,7 +1722,7 @@ export function AgentTaskBody({
                     disabled={!canSteer(state) || steerImageBlocked}
                     title={steerImageBlocked
                       ? 'The running turn’s model does not accept images'
-                      : state.steering ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
+                      : state.capabilities?.steering === true ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
                     onClick={onSteer}
                   >
                     Steer
@@ -1604,13 +1783,16 @@ function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: Tra
   if (task === null || turns.length === 0) return null;
   const steps = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
-  const { inputTokens, cachedInputTokens, outputTokens, cost } = task.metrics;
+  const { inputTokens, cachedInputTokens, outputTokens, cost, costProvenance } = task.metrics;
   const groups = [
     `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${steps} ${steps === 1 ? 'step' : 'steps'}`,
     `Worked ${formatDuration(worked)}`,
   ];
   if (inputTokens > 0) groups.push(`Cache hit ${Math.round((cachedInputTokens / inputTokens) * 100)}%`);
-  groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${cost === null ? '' : ` · $${cost.toFixed(2)}`}`);
+  const costText = cost === null
+    ? ' · Cost unavailable'
+    : costProvenance === 'CLI_ESTIMATE' ? ` · Approx. $${cost.toFixed(2)}` : ` · $${cost.toFixed(2)}`;
+  groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${costText}`);
   return (
     <div className="agt-compose__stats" aria-label="Task statistics">
       {groups.map((group, index) => (
@@ -1624,7 +1806,29 @@ function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: Tra
 }
 
 function failureText(failure: unknown): string {
+  const unavailable = agentProviderUnavailableFrom(failure);
+  if (unavailable !== null) {
+    const command = unavailable.signInCommand ? ` Run: ${unavailable.signInCommand}` : '';
+    return `${laneLabel(unavailable.laneId)} is not ready — ${unavailable.diagnostic}${command}`;
+  }
   return failure instanceof Error ? failure.message : String(failure);
+}
+
+/** Replaces a possibly stale READY row with the typed refusal returned by the turn preflight. */
+export function providerStatusFromUnavailable(
+  unavailable: AgentProviderUnavailableDto,
+  current: AgentProviderStatus | null,
+  fallbackCapabilities: AgentCapabilitiesDto,
+): AgentProviderStatus {
+  const sameLane = current?.laneId === unavailable.laneId;
+  return {
+    laneId: unavailable.laneId,
+    readiness: unavailable.readiness,
+    version: sameLane ? current.version : null,
+    diagnostic: unavailable.diagnostic,
+    capabilities: sameLane ? current.capabilities : fallbackCapabilities,
+    signInCommand: unavailable.signInCommand,
+  };
 }
 
 export default function AgentTaskScreen({
@@ -1633,11 +1837,14 @@ export default function AgentTaskScreen({
   bridge: explicitBridge,
   onBack,
   onOpenPullRequest,
-  laneId = INTERACTIVE_LANE_ID,
+  onOpenSettings,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [provider, setProvider] = useState('');
+  const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
+  const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
+  const [providerChecking, setProviderChecking] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // Fold choices are the user's, kept here so a live update can never override them.
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
@@ -1717,6 +1924,7 @@ export default function AgentTaskScreen({
     dispatch({ type: 'turn/changed', turn });
   }, []);
 
+  const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
     let active = true;
     const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active);
@@ -1729,6 +1937,13 @@ export default function AgentTaskScreen({
     };
   }, [live, taskId, workspaceId]);
 
+  const authenticationTurnId = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED'
+    ? state.turn.id
+    : null;
+  useEffect(() => {
+    setProviderStatusTurnId(null);
+  }, [authenticationTurnId, taskLaneId]);
+
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -1737,14 +1952,24 @@ export default function AgentTaskScreen({
         live().getEffectiveTurnSettings(taskId, workspaceId),
       ]);
       if (!active) return;
-      const lane = catalog.providers.find((candidate) => candidate.id === laneId);
+      const lane = catalog.providers.find((candidate) => candidate.id === taskLaneId);
       setModels(lane?.models ?? []);
       setProvider(lane?.label ?? '');
-      dispatch({ type: 'steering/loaded', steering: lane?.steering === true });
+      if (lane !== undefined) {
+        dispatch({ type: 'capabilities/loaded', capabilities: lane.capabilities });
+        setProviderStatus({
+          laneId: lane.id,
+          readiness: lane.readiness,
+          version: lane.version,
+          diagnostic: lane.diagnostic,
+          capabilities: lane.capabilities,
+          signInCommand: lane.signInCommand,
+        });
+      }
       dispatch({ type: 'settings/loaded', settings: effective });
     })().catch(() => { /* the composer then shows no catalog, which the list already explains */ });
     return () => { active = false; };
-  }, [live, laneId, taskId, workspaceId]);
+  }, [live, taskId, taskLaneId, workspaceId]);
 
   useEffect(() => {
     void refreshProjection(null).catch((failure: unknown) => {
@@ -1780,8 +2005,9 @@ export default function AgentTaskScreen({
 
   // The branch is derived from the task, so this is only a lookup; it is repeated while the tab is
   // showing whenever something about the task changed.
+  const effectivePanelTab: PanelTab = state.capabilities?.nestedAgentActivity === true ? panelTab : 'prs';
   useEffect(() => {
-    if (!panelOpen || panelTab !== 'prs') return;
+    if (!panelOpen || effectivePanelTab !== 'prs') return;
     let active = true;
     void live().listAgentTaskPullRequests(taskId, workspaceId)
       .then((found) => { if (active) setPullRequests(found); })
@@ -1789,7 +2015,7 @@ export default function AgentTaskScreen({
         if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
       });
     return () => { active = false; };
-  }, [live, panelOpen, panelTab, taskId, workspaceId, lifecycleEpoch]);
+  }, [live, panelOpen, effectivePanelTab, taskId, workspaceId, lifecycleEpoch]);
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -1811,6 +2037,38 @@ export default function AgentTaskScreen({
       dispatch({ type: 'notice/changed', notice: failureText(failure) });
     }
   }, [refreshProjection]);
+
+  const refreshProviderStatus = useCallback(async (): Promise<AgentProviderStatus | null> => {
+    const laneId = stateRef.current.task?.laneId;
+    if (laneId === undefined) return null;
+    const observedTurn = stateRef.current.turn;
+    const observedAuthenticationTurnId = observedTurn?.failureKind === 'AUTHENTICATION_REQUIRED'
+      ? observedTurn.id
+      : null;
+    const statuses = await live().refreshAgentProviderReadiness();
+    const status = statuses.find((candidate) => candidate.laneId === laneId);
+    if (status === undefined) throw new Error(`${laneLabel(laneId)} readiness was not returned`);
+    setProviderStatus(status);
+    const currentTurn = stateRef.current.turn;
+    setProviderStatusTurnId(currentTurn?.failureKind === 'AUTHENTICATION_REQUIRED'
+      && currentTurn.id === observedAuthenticationTurnId
+      ? currentTurn.id
+      : null);
+    dispatch({ type: 'capabilities/loaded', capabilities: status.capabilities });
+    return status;
+  }, [live]);
+
+  const recordProviderUnavailable = useCallback((failure: unknown): boolean => {
+    const unavailable = agentProviderUnavailableFrom(failure);
+    if (unavailable === null) return false;
+    setProviderStatus((current) => providerStatusFromUnavailable(
+      unavailable,
+      current,
+      stateRef.current.capabilities ?? NO_AGENT_CAPABILITIES,
+    ));
+    setProviderStatusTurnId(null);
+    return true;
+  }, []);
 
   const selectModel = useCallback((model: string, effort: string | null) => run(async () => {
     const task = state.task;
@@ -1857,10 +2115,14 @@ export default function AgentTaskScreen({
         // The accepted turn is still authoritative; lifecycle replay can repair this projection.
       }
     }
+    catch (failure) {
+      recordProviderUnavailable(failure);
+      throw failure;
+    }
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }, [applyTurn, live, refreshProjection, submissions, taskId]);
+  }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
     const message = state.composer.trim();
@@ -1940,10 +2202,16 @@ export default function AgentTaskScreen({
   }), [live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
 
   const resumeQueue = useCallback(() => run(async () => {
-    const turn = await live().resumeAgentQueue(taskId, workspaceId);
-    applyTurn(turn);
-    await refreshProjection(turn.id);
-  }), [applyTurn, live, refreshProjection, run, taskId, workspaceId]);
+    try {
+      const turn = await live().resumeAgentQueue(taskId, workspaceId);
+      applyTurn(turn);
+      await refreshProjection(turn.id);
+    }
+    catch (failure) {
+      recordProviderUnavailable(failure);
+      throw failure;
+    }
+  }), [applyTurn, live, recordProviderUnavailable, refreshProjection, run, taskId, workspaceId]);
 
   const attach = useCallback(() => run(async () => {
     const stored = await live().pickAgentAttachments(taskId, workspaceId);
@@ -2034,7 +2302,7 @@ export default function AgentTaskScreen({
     const consequence = impact.activeTurnId === null
       ? 'No turn is running; the checkout is released once the process is verified stopped.'
       : 'The running turn is interrupted and its pending approvals denied.';
-    if (!window.confirm(`Stop this task's Codex server? Only this task is affected.\n\n${consequence}`)) return;
+    if (!window.confirm(`Stop this task's agent runtime? Only this task is affected.\n\n${consequence}`)) return;
     applyTask(await live().stopAgentRuntime(taskId, workspaceId, impact.generation));
     if (latestTurnId !== null) {
       applyTurn(await live().getAgentTurn(latestTurnId));
@@ -2049,6 +2317,34 @@ export default function AgentTaskScreen({
     await refreshProjection(stateRef.current.latestTurnId);
   }), [applyTask, live, refreshProjection, run, taskId, workspaceId]);
 
+  const refreshProvider = useCallback(() => run(async () => {
+    setProviderChecking(true);
+    try {
+      await refreshProviderStatus();
+    }
+    finally {
+      setProviderChecking(false);
+    }
+  }), [refreshProviderStatus, run]);
+
+  const retryAuthentication = useCallback(() => run(async () => {
+    const current = stateRef.current;
+    const task = current.task;
+    const input = retryableInput(current);
+    if (task === null
+      || current.turn?.failureKind !== 'AUTHENTICATION_REQUIRED'
+      || input === null
+      || providerStatus === null
+      || providerStatusTurnId !== current.turn.id
+      || !providerAvailable(providerStatus.readiness)) return;
+    if (!window.confirm(`Retry the last message? This creates a new turn and may run commands again.\n\n${input.text}`)) return;
+    const attachmentIds = input.attachments.map((attachment) => attachment.id);
+    // The failed turn's key is never reused. The tracker retains this new key only if this reply is
+    // ambiguous, so a second confirmed click cannot create a duplicate retry turn.
+    const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds, task.defaults);
+    await startTurn(input.text, attachmentIds, idempotencyKey, task.version);
+  }), [providerStatus, providerStatusTurnId, run, startTurn, submissions, taskId]);
+
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision) => run(async () => {
     await live().resolveAgentApproval(approvalId, decision);
     // The buttons that had focus disappear with the decision; the composer is the next thing to do.
@@ -2060,6 +2356,9 @@ export default function AgentTaskScreen({
       state={state}
       models={models}
       provider={provider}
+      providerStatus={providerStatus}
+      providerStatusFresh={authenticationTurnId !== null && providerStatusTurnId === authenticationTurnId}
+      providerChecking={providerChecking}
       composerRef={composerRef}
       onBack={onBack}
       onSend={() => { void send(); }}
@@ -2074,6 +2373,9 @@ export default function AgentTaskScreen({
       onSelectModel={(model, effort) => { void selectModel(model, effort); }}
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
+      onRefreshProvider={() => { void refreshProvider(); }}
+      onRetryAuthentication={() => { void retryAuthentication(); }}
+      onOpenSettings={onOpenSettings}
       onRename={(title) => { void rename(title); }}
       now={now}
       activityChoice={activityChoice}

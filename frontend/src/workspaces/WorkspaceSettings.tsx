@@ -14,7 +14,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ModelChip } from '../settings/SettingsShell';
 import {
-  INTERACTIVE_LANE_ID,
   laneLabel,
   providerRemedy,
   remedyCommand,
@@ -105,7 +104,7 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
           onChanged={load}
           onError={report}
         />
-        <AgentProvidersCard onError={report} />
+        <AgentProvidersCard catalog={models} onError={report} />
         <GitHubTokenCard
           workspaceId={workspace.id}
           settings={settings}
@@ -547,14 +546,21 @@ function GitHubTokenCard({ workspaceId, settings, onChanged, onError }: {
 /** Where a CLI ByteQuay cannot drive gets reported. */
 const REPORT_ISSUE_URL = 'https://github.com/bytequay/bytequay/issues/new';
 
-function AgentProvidersCard({ onError }: { onError: (failure: unknown) => void }) {
+function AgentProvidersCard({ catalog, onError }: {
+  catalog: ModelSettingsDto | null;
+  onError: (failure: unknown) => void;
+}) {
   const [providers, setProviders] = useState<AgentProviderStatus[] | null>(null);
   const [checking, setChecking] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
 
   const check = useCallback(() => {
     setChecking(true);
     window.bridge.refreshAgentProviderReadiness()
-      .then(setProviders)
+      .then(value => {
+        setProviders(value);
+        setCheckedAt(new Date());
+      })
       .catch(onError)
       .finally(() => setChecking(false));
   }, [onError]);
@@ -565,7 +571,11 @@ function AgentProvidersCard({ onError }: { onError: (failure: unknown) => void }
     <section className="sets-card">
       <div className="sets-card-head">
         <span className="sets-card-title">Agent providers</span>
-        <span className="sets-card-hint">Readiness is probed fresh, never cached</span>
+        <span className="sets-card-hint">
+          {checkedAt === null
+            ? 'Readiness is probed fresh, never cached'
+            : `Last checked ${checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+        </span>
         <button type="button" className="sets-link sets-check" onClick={check} disabled={checking}>
           {checking ? 'Checking\u2026' : 'Check again'}
         </button>
@@ -573,32 +583,34 @@ function AgentProvidersCard({ onError }: { onError: (failure: unknown) => void }
       {providers === null
         ? <div className="sets-card-note">Checking providers\u2026</div>
         : providers.map(provider => (
-          <AgentProviderRow key={provider.laneId} provider={provider} checking={checking} />
+          <AgentProviderRow
+            key={provider.laneId}
+            provider={provider}
+            label={catalog?.providers.find((candidate) => candidate.id === provider.laneId)?.label}
+            checking={checking}
+          />
         ))}
     </section>
   );
 }
 
 /** One provider's readiness and the action the user can take about it. */
-export function AgentProviderRow({ provider, checking }: {
+export function AgentProviderRow({ provider, label, checking }: {
   provider: AgentProviderStatus;
+  label?: string;
   checking: boolean;
 }) {
   const status = providerStatusLabel(provider.readiness, checking);
-  const remedy = providerRemedy(provider.readiness);
-  // CP7 accepts tasks on Codex only; another lane is reported honestly rather than offered.
-  const interactive = provider.laneId === INTERACTIVE_LANE_ID;
+  const remedy = providerRemedy(provider.readiness, provider.laneId);
   return (
     <div className="sets-row">
       <div className="sets-row-main">
         <div className="sets-row-title">
-          <span className="sets-name">{laneLabel(provider.laneId)} CLI</span>
+          <span className="sets-name">{label ?? laneLabel(provider.laneId)} CLI</span>
           <span className={`sets-badge ${status.tone}`}>{status.label}</span>
-          {!interactive && <span className="sets-badge is-neutral">Preview</span>}
         </div>
         <div className="sets-row-sub">
           {provider.version ? `v${provider.version}` : 'version unknown'}
-          {!interactive && ' \u00b7 agent tasks run on Codex until Claude reaches parity'}
         </div>
         {provider.readiness !== 'READY' && (
           <div className="sets-row-sub">

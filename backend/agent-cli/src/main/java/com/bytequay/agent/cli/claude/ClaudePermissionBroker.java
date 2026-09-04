@@ -125,7 +125,12 @@ public final class ClaudePermissionBroker
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
-        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor));
+        contexts.put(token, new PermissionContext(
+                taskId,
+                worktree,
+                permissionPolicy,
+                approvals,
+                redactor.withSecret(token)));
         try {
             Files.createDirectories(providerDirectory);
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
@@ -469,6 +474,11 @@ public final class ClaudePermissionBroker
         Path settingsFile()
         {
             return settingsFile;
+        }
+
+        String token()
+        {
+            return token;
         }
 
         @Override

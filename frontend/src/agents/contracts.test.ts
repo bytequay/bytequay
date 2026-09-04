@@ -19,12 +19,32 @@ import {
   parseAgentAttachment,
   parseAgentCompletion,
   parseAgentInputDelivery,
+  agentProviderUnavailableFrom,
+  parseAgentProviderStatus,
+  parseAgentProviderUnavailable,
   parseAgentQueue,
   parseAgentQueuedInput,
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
+  parseModelSettings,
 } from './contracts';
+
+const capabilities = {
+  sessionResume: true,
+  partialAssistantText: true,
+  structuredPlans: true,
+  toolLifecycle: true,
+  incrementalCommandOutput: true,
+  hookLifecycle: false,
+  nestedAgentActivity: true,
+  interactiveApprovals: true,
+  tokenUsage: true,
+  steering: true,
+  costProvenance: 'CLI_ESTIMATE',
+  permissionPolicies: ['AUTO'],
+  attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
+};
 
 describe('agent contract parsing', () => {
   it('reads a task the backend actually returns', () => {
@@ -73,6 +93,12 @@ describe('agent contract parsing', () => {
       .toThrow(/attachments\[0\]/);
   });
 
+  it('keeps the typed authentication cause and rejects an invented failure kind', () => {
+    expect(parseAgentTurn({ ...fixture.turn, failureKind: 'AUTHENTICATION_REQUIRED' }).failureKind)
+      .toBe('AUTHENTICATION_REQUIRED');
+    expect(() => parseAgentTurn({ ...fixture.turn, failureKind: 'LOGIN_FAILED' })).toThrow(/failureKind/);
+  });
+
   it('reads a completion', () => {
     const completion = parseAgentCompletion(fixture.completion);
 
@@ -116,6 +142,66 @@ describe('agent contract parsing', () => {
   it('reads a list of tasks and names the offending entry', () => {
     expect(parseAgentTasks([fixture.task, fixture.finalTask])).toHaveLength(2);
     expect(() => parseAgentTasks([fixture.task, { id: 'broken' }])).toThrow(/tasks\[1\]/);
+  });
+});
+
+describe('provider contracts', () => {
+  it('requires the complete normalized capability object on status and model catalog rows', () => {
+    const provider = {
+      laneId: 'codex',
+      readiness: 'READY',
+      version: '0.152.1',
+      diagnostic: 'ready',
+      capabilities,
+      signInCommand: null as string | null,
+    };
+    expect(parseAgentProviderStatus(provider).capabilities.attachmentMediaTypes).toEqual([
+      'image/png', 'image/jpeg', 'image/gif',
+    ]);
+    expect(() => parseAgentProviderStatus({ ...provider, capabilities: { ...capabilities, steering: undefined } }))
+      .toThrow(/steering/);
+
+    const settings = parseModelSettings({
+      mainId: 'codex',
+      providers: [{
+        id: 'codex',
+        label: 'Codex',
+        readiness: 'READY',
+        version: '0.152.1',
+        diagnostic: 'ready',
+        signInCommand: null,
+        capabilities,
+        models: [
+          { id: 'm', name: 'Model', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: ['text', 'image'] },
+          { id: 'legacy', name: 'Legacy', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: null },
+        ],
+        selectedModel: 'm',
+        selectedEffort: 'high',
+        main: true,
+      }],
+      apiKeys: [],
+      keyProviders: [],
+    });
+    expect(settings.providers[0].capabilities).toEqual(capabilities);
+    expect(settings.providers[0].models[0].inputModalities).toEqual(['text', 'image']);
+    expect(settings.providers[0].models[1].inputModalities).toBeUndefined();
+  });
+
+  it('validates and recovers the typed known-unsent preflight error from Electron error text', () => {
+    const detail = {
+      timestamp: '2026-09-04T10:00:00Z',
+      status: 503,
+      code: 'AGENT_PROVIDER_UNAVAILABLE',
+      laneId: 'claude',
+      readiness: 'AUTHENTICATION_REQUIRED',
+      diagnostic: 'Claude login required',
+      signInCommand: 'claude auth login',
+      path: '/agent/tasks',
+    };
+    expect(parseAgentProviderUnavailable(detail).laneId).toBe('claude');
+    const serialized = new Error(`Error invoking remote method: AGENT_PROVIDER_UNAVAILABLE:${JSON.stringify(detail)}`);
+    expect(agentProviderUnavailableFrom(serialized)).toEqual(detail);
+    expect(agentProviderUnavailableFrom(new Error('ordinary failure'))).toBeNull();
   });
 });
 

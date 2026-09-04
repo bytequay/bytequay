@@ -307,69 +307,6 @@
 
 .ws-tab-page h1 { margin: 0; font-size: 20px; font-weight: 700; color: #1f2328; }
 
-/* ── Workspace home (What should we do?) ────────────────── */
-
-.ws-home { height: 100%; overflow: auto; padding: 26px 32px; box-sizing: border-box; }
-
-.ws-home-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-height: 100%;
-  box-sizing: border-box;
-  padding-top: 8vh;
-}
-
-.ws-hero-tile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  height: 52px;
-  border: 2px solid #d0d7de;
-  border-radius: 16px;
-  font-size: 22px;
-  color: #8c959f;
-  font-family: ui-monospace, Menlo, monospace;
-}
-
-.ws-home-col h1 { margin: 22px 0 0; font-size: 26px; font-weight: 600; color: #1f2328; }
-
-.ws-hero-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  font-size: 12.5px;
-  color: #8c959f;
-}
-
-.ws-hero-dot { width: 7px; height: 7px; border-radius: 50%; }
-
-.ws-action-cards {
-  display: flex;
-  gap: 14px;
-  margin-top: 34px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.ws-action-card {
-  width: 170px;
-  border: 1px solid #e3e3e6;
-  border-radius: 14px;
-  background: #ffffff;
-  cursor: pointer;
-  padding: 18px 18px 20px;
-  text-align: left;
-}
-
-.ws-action-card:hover { border-color: #b6b6bc; box-shadow: 0 4px 14px rgba(27, 31, 36, 0.08); }
-
-.ws-action-icon { font-size: 18px; }
-
-.ws-action-title { font-size: 14px; font-weight: 600; color: #1f2328; margin-top: 14px; line-height: 1.4; }
-
 /* Workspace settings (design: Settings & Workspace Settings state board) */
 .wss-cards { max-width: 780px; margin-top: 4px; }
 .wss-grid { display: grid; grid-template-columns: 170px 1fr; row-gap: 12px; column-gap: 12px; padding: 14px; align-items: center; }

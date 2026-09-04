@@ -13,12 +13,16 @@
  */
 
 import type {
+  AgentCapabilitiesDto,
   AgentApprovalDto,
   AgentAttachmentDto,
   AgentCompletionDto,
   AgentInputDeliveryDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
+  AgentProviderReadiness,
+  AgentProviderStatus,
+  AgentProviderUnavailableDto,
   AgentQueuedInputDto,
   AgentRuntimeStopImpactDto,
   AgentTaskDefaultsDto,
@@ -26,7 +30,13 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  ModelApiKeyDto,
+  ModelOptionDto,
+  ModelProviderDto,
+  ModelSettingsDto,
 } from '../types';
+
+export const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
 
 /**
  * Narrows the backend's task, turn, approval and completion responses.
@@ -52,6 +62,73 @@ function text(value: unknown, path: string): string {
 
 function optionalText(value: unknown, path: string): string | null {
   return value === null || value === undefined ? null : text(value, path);
+}
+
+function flag(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`${path} is not a boolean`);
+  }
+  return value;
+}
+
+function enumText<const Values extends readonly string[]>(
+  value: unknown,
+  values: Values,
+  path: string,
+): Values[number] {
+  const found = text(value, path);
+  if (!(values as readonly string[]).includes(found)) {
+    throw new Error(`${path} is not supported`);
+  }
+  return found as Values[number];
+}
+
+export function parseAgentProviderUnavailable(
+  value: unknown,
+  path = 'providerUnavailable',
+): AgentProviderUnavailableDto {
+  const source = object(value, path);
+  const status = count(source.status, `${path}.status`);
+  if (status !== 503) throw new Error(`${path}.status is not 503`);
+  const code = text(source.code, `${path}.code`);
+  if (code !== 'AGENT_PROVIDER_UNAVAILABLE') {
+    throw new Error(`${path}.code is not AGENT_PROVIDER_UNAVAILABLE`);
+  }
+  return {
+    timestamp: text(source.timestamp, `${path}.timestamp`),
+    status,
+    code,
+    laneId: text(source.laneId, `${path}.laneId`),
+    readiness: enumText(
+      source.readiness,
+      ['READY', 'AUTHENTICATION_REQUIRED', 'CLI_MISSING', 'UNSUPPORTED', 'DEGRADED', 'TEMPORARILY_UNAVAILABLE'] as const,
+      `${path}.readiness`,
+    ),
+    diagnostic: text(source.diagnostic, `${path}.diagnostic`),
+    signInCommand: optionalText(source.signInCommand, `${path}.signInCommand`),
+    path: text(source.path, `${path}.path`),
+  };
+}
+
+/** Reads either a direct bridge rejection or Electron's serialized Error message. */
+export function agentProviderUnavailableFrom(failure: unknown): AgentProviderUnavailableDto | null {
+  if (typeof failure === 'object' && failure !== null && 'code' in failure) {
+    try {
+      return parseAgentProviderUnavailable(failure);
+    }
+    catch {
+      return null;
+    }
+  }
+  const message = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
+  const marker = message.indexOf(AGENT_PROVIDER_UNAVAILABLE_MARKER);
+  if (marker < 0) return null;
+  try {
+    return parseAgentProviderUnavailable(JSON.parse(message.slice(marker + AGENT_PROVIDER_UNAVAILABLE_MARKER.length)));
+  }
+  catch {
+    return null;
+  }
 }
 
 function count(value: unknown, path: string): number {
@@ -86,7 +163,11 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
     cachedInputTokens: count(source.cachedInputTokens, `${path}.cachedInputTokens`),
     outputTokens: count(source.outputTokens, `${path}.outputTokens`),
     cost: optionalCount(source.cost, `${path}.cost`),
-    costProvenance: text(source.costProvenance, `${path}.costProvenance`),
+    costProvenance: enumText(
+      source.costProvenance,
+      ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const,
+      `${path}.costProvenance`,
+    ),
     elapsed: text(source.elapsed, `${path}.elapsed`),
   };
 }
@@ -209,8 +290,125 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     settings: source.settings === null || source.settings === undefined
       ? null
       : parseAgentTurnSettings(source.settings, `${path}.settings`),
+    failureKind: source.failureKind === null || source.failureKind === undefined
+      ? null
+      : enumText(source.failureKind, ['AUTHENTICATION_REQUIRED'] as const, `${path}.failureKind`),
     terminalReason: optionalText(source.terminalReason, `${path}.terminalReason`),
     metrics: metrics(source.metrics, `${path}.metrics`),
+  };
+}
+
+/** Narrows a provider capability shape before it can decide which renderer controls exist. */
+export function parseAgentCapabilities(value: unknown, path = 'capabilities'): AgentCapabilitiesDto {
+  const source = object(value, path);
+  return {
+    sessionResume: flag(source.sessionResume, `${path}.sessionResume`),
+    partialAssistantText: flag(source.partialAssistantText, `${path}.partialAssistantText`),
+    structuredPlans: flag(source.structuredPlans, `${path}.structuredPlans`),
+    toolLifecycle: flag(source.toolLifecycle, `${path}.toolLifecycle`),
+    incrementalCommandOutput: flag(source.incrementalCommandOutput, `${path}.incrementalCommandOutput`),
+    hookLifecycle: flag(source.hookLifecycle, `${path}.hookLifecycle`),
+    nestedAgentActivity: flag(source.nestedAgentActivity, `${path}.nestedAgentActivity`),
+    interactiveApprovals: flag(source.interactiveApprovals, `${path}.interactiveApprovals`),
+    tokenUsage: flag(source.tokenUsage, `${path}.tokenUsage`),
+    steering: flag(source.steering, `${path}.steering`),
+    costProvenance: enumText(
+      source.costProvenance,
+      ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const,
+      `${path}.costProvenance`,
+    ),
+    permissionPolicies: textList(source.permissionPolicies, `${path}.permissionPolicies`),
+    attachmentMediaTypes: textList(source.attachmentMediaTypes, `${path}.attachmentMediaTypes`),
+  };
+}
+
+const PROVIDER_READINESS = [
+  'READY',
+  'AUTHENTICATION_REQUIRED',
+  'CLI_MISSING',
+  'UNSUPPORTED',
+  'DEGRADED',
+  'TEMPORARILY_UNAVAILABLE',
+] as const satisfies readonly AgentProviderReadiness[];
+
+export function parseAgentProviderStatus(value: unknown, path = 'provider'): AgentProviderStatus {
+  const source = object(value, path);
+  return {
+    laneId: text(source.laneId, `${path}.laneId`),
+    readiness: enumText(source.readiness, PROVIDER_READINESS, `${path}.readiness`),
+    version: optionalText(source.version, `${path}.version`),
+    diagnostic: text(source.diagnostic, `${path}.diagnostic`),
+    capabilities: parseAgentCapabilities(source.capabilities, `${path}.capabilities`),
+    signInCommand: optionalText(source.signInCommand, `${path}.signInCommand`),
+  };
+}
+
+export function parseAgentProviderStatuses(value: unknown): AgentProviderStatus[] {
+  return list(value, 'providers').map((provider, index) => parseAgentProviderStatus(provider, `providers[${index}]`));
+}
+
+function modelOption(value: unknown, path: string): ModelOptionDto {
+  const source = object(value, path);
+  const inputModalities = source.inputModalities === undefined || source.inputModalities === null
+    ? undefined
+    : textList(source.inputModalities, `${path}.inputModalities`);
+  return {
+    id: text(source.id, `${path}.id`),
+    name: text(source.name, `${path}.name`),
+    description: text(source.description, `${path}.description`),
+    efforts: textList(source.efforts, `${path}.efforts`),
+    defaultEffort: optionalText(source.defaultEffort, `${path}.defaultEffort`),
+    ...(inputModalities === undefined ? {} : { inputModalities }),
+  };
+}
+
+function modelProvider(value: unknown, path: string): ModelProviderDto {
+  const source = object(value, path);
+  return {
+    id: text(source.id, `${path}.id`),
+    label: text(source.label, `${path}.label`),
+    readiness: enumText(source.readiness, PROVIDER_READINESS, `${path}.readiness`),
+    version: optionalText(source.version, `${path}.version`),
+    diagnostic: text(source.diagnostic, `${path}.diagnostic`),
+    signInCommand: optionalText(source.signInCommand, `${path}.signInCommand`),
+    capabilities: parseAgentCapabilities(source.capabilities, `${path}.capabilities`),
+    steering: source.steering === undefined ? undefined : flag(source.steering, `${path}.steering`),
+    models: list(source.models, `${path}.models`).map((model, index) => modelOption(model, `${path}.models[${index}]`)),
+    selectedModel: text(source.selectedModel, `${path}.selectedModel`),
+    selectedEffort: text(source.selectedEffort, `${path}.selectedEffort`),
+    main: flag(source.main, `${path}.main`),
+  };
+}
+
+function modelApiKey(value: unknown, path: string): ModelApiKeyDto {
+  const source = object(value, path);
+  return {
+    id: text(source.id, `${path}.id`),
+    alias: text(source.alias, `${path}.alias`),
+    provider: text(source.provider, `${path}.provider`),
+    maskedKey: text(source.maskedKey, `${path}.maskedKey`),
+    createdAt: text(source.createdAt, `${path}.createdAt`),
+    models: textList(source.models, `${path}.models`),
+    selectedModel: text(source.selectedModel, `${path}.selectedModel`),
+    main: flag(source.main, `${path}.main`),
+  };
+}
+
+export function parseModelSettings(value: unknown): ModelSettingsDto {
+  const source = object(value, 'modelSettings');
+  return {
+    mainId: text(source.mainId, 'modelSettings.mainId'),
+    providers: list(source.providers, 'modelSettings.providers')
+      .map((provider, index) => modelProvider(provider, `modelSettings.providers[${index}]`)),
+    apiKeys: list(source.apiKeys, 'modelSettings.apiKeys')
+      .map((key, index) => modelApiKey(key, `modelSettings.apiKeys[${index}]`)),
+    keyProviders: list(source.keyProviders, 'modelSettings.keyProviders').map((entry, index) => {
+      const item = object(entry, `modelSettings.keyProviders[${index}]`);
+      return {
+        name: text(item.name, `modelSettings.keyProviders[${index}].name`),
+        models: textList(item.models, `modelSettings.keyProviders[${index}].models`),
+      };
+    }),
   };
 }
 

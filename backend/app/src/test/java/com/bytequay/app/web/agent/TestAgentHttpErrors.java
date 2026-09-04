@@ -22,7 +22,11 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.git.GitCommandRunner;
@@ -38,9 +42,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
@@ -50,6 +58,9 @@ class TestAgentHttpErrors
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentDriverRegistry driverRegistry;
+    private AgentDriver driver;
+    private WorkspaceRepositoryService workspaces;
+    private GitCommandRunner git;
 
     @BeforeEach
     void setUp()
@@ -57,14 +68,18 @@ class TestAgentHttpErrors
         taskService = mock(AgentTaskService.class);
         turnService = mock(AgentTurnService.class);
         driverRegistry = mock(AgentDriverRegistry.class);
+        driver = mock(AgentDriver.class);
+        workspaces = mock(WorkspaceRepositoryService.class);
+        git = mock(GitCommandRunner.class);
         AgentController controller = new AgentController(
                 taskService,
                 new InteractiveAgentTaskCreator(
                         taskService,
+                        turnService,
                         driverRegistry,
                         mock(ModelSettingsService.class),
-                        mock(WorkspaceRepositoryService.class),
-                        mock(GitCommandRunner.class)),
+                        workspaces,
+                        git),
                 turnService,
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
@@ -77,6 +92,44 @@ class TestAgentHttpErrors
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void returnsTypedProviderFailureBeforeInteractiveAllocation()
+            throws Exception
+    {
+        AgentLaneId claude = new AgentLaneId("claude");
+        when(taskService.getInteractive(any(), any())).thenAnswer(invocation -> {
+            throw new AgentTaskNotFoundException(invocation.getArgument(1));
+        });
+        when(driverRegistry.require(claude)).thenReturn(driver);
+        when(driver.capabilities()).thenReturn(AgentCapabilities.none());
+        when(driver.probe()).thenReturn(new AgentProviderStatus(
+                claude,
+                AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
+                java.util.Optional.of("2.1.259"),
+                "Claude sign-in required",
+                AgentCapabilities.none(),
+                java.util.Optional.of("claude auth login")));
+
+        mvc.perform(post("/agent/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"taskId":"11111111-1111-1111-1111-111111111111",
+                                "workspaceId":"workspace-1","message":"Review this",
+                                "laneId":"claude","defaults":{"model":"opus","effort":"High",
+                                "permissionPolicy":"AUTO"},"idempotencyKey":"create-1"}
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AGENT_PROVIDER_UNAVAILABLE"))
+                .andExpect(jsonPath("$.laneId").value("claude"))
+                .andExpect(jsonPath("$.readiness").value("AUTHENTICATION_REQUIRED"))
+                .andExpect(jsonPath("$.diagnostic").value("Claude sign-in required"))
+                .andExpect(jsonPath("$.signInCommand").value("claude auth login"));
+
+        verify(taskService, never()).createInteractive(any());
+        verify(turnService, never()).start(any());
+        verifyNoInteractions(workspaces, git);
     }
 
     @Test

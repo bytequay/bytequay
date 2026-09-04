@@ -16,15 +16,18 @@ package com.bytequay.agent.cli.claude;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -35,6 +38,8 @@ final class ClaudeEventMapper
 
     private final SecretRedactor redactor;
     private final Map<String, ToolCall> tools = new HashMap<>();
+    private final Map<TextStreamKey, TextStream> textStreams = new HashMap<>();
+    private Optional<String> latestRootTextItemId = Optional.empty();
 
     ClaudeEventMapper(SecretRedactor redactor)
     {
@@ -49,14 +54,7 @@ final class ClaudeEventMapper
             case ClaudeProtocol.StreamEventMessage stream -> mapStream(stream);
             case ClaudeProtocol.AssistantMessage assistant -> mapAssistant(assistant);
             case ClaudeProtocol.UserMessage user -> mapUser(user);
-            case ClaudeProtocol.ToolProgressMessage progress -> ImmutableList.of(new ProviderAgentEvent.Tool(
-                    progress.uuid(),
-                    Optional.empty(),
-                    progress.toolUseId(),
-                    progress.toolName(),
-                    ProviderAgentEvent.ActivityState.PROGRESS,
-                    "Running for %.1f seconds".formatted(progress.elapsedTimeSeconds()),
-                    progress.parentToolUseId()));
+            case ClaudeProtocol.ToolProgressMessage progress -> mapProgress(progress);
             case ClaudeProtocol.RateLimitMessage rateLimit ->
                 rateLimit.rateLimitInfo().status().equalsIgnoreCase("allowed")
                         ? ImmutableList.of()
@@ -103,12 +101,19 @@ final class ClaudeEventMapper
         if (message.event() instanceof ClaudeProtocol.ContentBlockDeltaEvent content
                 && content.delta() instanceof ClaudeProtocol.TextDelta text
                 && !text.text().isEmpty()) {
+            TextStreamKey key = new TextStreamKey(message.parentToolUseId(), content.index());
+            TextStream stream = textStreams.computeIfAbsent(
+                    key,
+                    ignored -> new TextStream(message.uuid().orElseGet(() -> "claude-message-" + UUID.randomUUID())));
+            stream.append(text.text());
             return ImmutableList.of(new ProviderAgentEvent.Message(
-                    message.uuid(),
                     Optional.empty(),
+                    Optional.empty(),
+                    ProviderAgentEvent.MessageKind.COMMENTARY,
                     ProviderAgentEvent.MessagePhase.PARTIAL,
-                    redactor.redact(text.text()),
-                    message.parentToolUseId()));
+                    bounded(text.text()),
+                    message.parentToolUseId(),
+                    ProviderAgentEventSource.item(stream.itemId())));
         }
         return ImmutableList.of();
     }
@@ -120,12 +125,22 @@ final class ClaudeEventMapper
         int index = 0;
         for (ClaudeProtocol.ContentBlock block : message.message().content()) {
             if (block instanceof ClaudeProtocol.TextBlock text && !text.text().isEmpty()) {
+                int contentIndex = index;
+                String itemId = takeTextStream(message.parentToolUseId(), contentIndex, text.text())
+                        .map(TextStream::itemId)
+                        .orElseGet(() -> eventId(message.uuid(), "text-item", contentIndex)
+                                .orElseGet(() -> "claude-message-" + UUID.randomUUID()));
                 events.add(new ProviderAgentEvent.Message(
                         eventId(message.uuid(), "text", index),
                         timestamp,
+                        ProviderAgentEvent.MessageKind.COMMENTARY,
                         ProviderAgentEvent.MessagePhase.FINAL,
                         bounded(text.text()),
-                        message.parentToolUseId()));
+                        message.parentToolUseId(),
+                        ProviderAgentEventSource.item(itemId)));
+                if (message.parentToolUseId().isEmpty()) {
+                    latestRootTextItemId = Optional.of(itemId);
+                }
             }
             else if (block instanceof ClaudeProtocol.ToolUseBlock tool) {
                 ToolCall call = new ToolCall(tool.name(), tool.input(), message.parentToolUseId());
@@ -135,6 +150,30 @@ final class ClaudeEventMapper
             index++;
         }
         return events.build();
+    }
+
+    private Optional<TextStream> takeTextStream(Optional<String> parentToolUseId, int contentIndex, String text)
+    {
+        TextStream exact = textStreams.remove(new TextStreamKey(parentToolUseId, contentIndex));
+        if (exact != null) {
+            return Optional.of(exact);
+        }
+
+        TextStreamKey matchingKey = null;
+        TextStream matchingStream = null;
+        for (Map.Entry<TextStreamKey, TextStream> entry : textStreams.entrySet()) {
+            if (entry.getKey().parentToolUseId().equals(parentToolUseId) && entry.getValue().matches(text)) {
+                if (matchingStream != null) {
+                    return Optional.empty();
+                }
+                matchingKey = entry.getKey();
+                matchingStream = entry.getValue();
+            }
+        }
+        if (matchingKey != null) {
+            textStreams.remove(matchingKey);
+        }
+        return Optional.ofNullable(matchingStream);
     }
 
     private List<ProviderAgentEvent> mapUser(ClaudeProtocol.UserMessage message)
@@ -164,6 +203,20 @@ final class ClaudeEventMapper
     {
         ImmutableList.Builder<ProviderAgentEvent> events = ImmutableList.builder();
         Instant observedAt = Instant.now();
+        if (result.successful()) {
+            result.result()
+                    .filter(value -> !value.isBlank())
+                    .ifPresent(response -> events.add(new ProviderAgentEvent.Message(
+                            eventId(result.uuid(), "answer", 0),
+                            Optional.empty(),
+                            ProviderAgentEvent.MessageKind.ANSWER,
+                            ProviderAgentEvent.MessagePhase.FINAL,
+                            bounded(response),
+                            Optional.empty(),
+                            ProviderAgentEventSource.item(latestRootTextItemId.orElseGet(() ->
+                                    eventId(result.uuid(), "answer-item", 0)
+                                            .orElseGet(() -> "claude-message-" + UUID.randomUUID()))))));
+        }
         ClaudeProtocol.Usage usage = result.usage();
         events.add(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 result.uuid(),
@@ -184,7 +237,39 @@ final class ClaudeEventMapper
                     bounded(result.errorMessage()),
                     false));
         }
-        return events.build();
+        List<ProviderAgentEvent> mapped = events.build();
+        latestRootTextItemId = Optional.empty();
+        textStreams.clear();
+        tools.clear();
+        return mapped;
+    }
+
+    private List<ProviderAgentEvent> mapProgress(ClaudeProtocol.ToolProgressMessage progress)
+    {
+        ToolCall call = tools.get(progress.toolUseId());
+        if (call != null && call.isCommand()) {
+            return ImmutableList.of(new ProviderAgentEvent.Command(
+                    progress.uuid(),
+                    Optional.empty(),
+                    progress.toolUseId(),
+                    ProviderAgentEvent.ActivityState.PROGRESS,
+                    call.input().command().stream().map(this::bounded).collect(toImmutableList()),
+                    Optional.empty(),
+                    Optional.empty(),
+                    false,
+                    ProviderAgentEventSource.item(progress.toolUseId()),
+                    Optional.empty(),
+                    Optional.of(Duration.ofMillis(Math.max(0, Math.round(progress.elapsedTimeSeconds() * 1000)))),
+                    ImmutableList.of()));
+        }
+        return ImmutableList.of(new ProviderAgentEvent.Tool(
+                progress.uuid(),
+                Optional.empty(),
+                progress.toolUseId(),
+                progress.toolName(),
+                ProviderAgentEvent.ActivityState.PROGRESS,
+                "Running for %.1f seconds".formatted(progress.elapsedTimeSeconds()),
+                progress.parentToolUseId()));
     }
 
     private ProviderAgentEvent startedTool(
@@ -330,6 +415,50 @@ final class ClaudeEventMapper
         private boolean isCommand()
         {
             return name.equalsIgnoreCase("Bash");
+        }
+    }
+
+    private record TextStreamKey(Optional<String> parentToolUseId, int contentIndex)
+    {
+        private TextStreamKey
+        {
+            requireNonNull(parentToolUseId, "parentToolUseId is null");
+        }
+    }
+
+    private static final class TextStream
+    {
+        private final String itemId;
+        private final StringBuilder text = new StringBuilder();
+        private boolean exactContentAvailable = true;
+
+        private TextStream(String itemId)
+        {
+            this.itemId = requireNonNull(itemId, "itemId is null");
+        }
+
+        private String itemId()
+        {
+            return itemId;
+        }
+
+        private void append(String value)
+        {
+            requireNonNull(value, "value is null");
+            if (!exactContentAvailable) {
+                return;
+            }
+            if (value.length() > MAX_OUTPUT_CHARACTERS - text.length()) {
+                text.setLength(0);
+                exactContentAvailable = false;
+                return;
+            }
+            text.append(value);
+        }
+
+        private boolean matches(String value)
+        {
+            return exactContentAvailable && value.contentEquals(text);
         }
     }
 }

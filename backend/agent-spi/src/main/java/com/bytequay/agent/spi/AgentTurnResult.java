@@ -25,7 +25,8 @@ public record AgentTurnResult(
         Optional<String> finalResponse,
         Optional<String> terminalReason,
         Duration elapsed,
-        boolean providerQuiescent)
+        boolean providerQuiescent,
+        Optional<AgentTurnFailureKind> failureKind)
 {
     /**
      * A result from a provider that does not measure quiescence separately.
@@ -44,7 +45,17 @@ public record AgentTurnResult(
             Optional<String> terminalReason,
             Duration elapsed)
     {
-        this(state, finalResponse, terminalReason, elapsed, true);
+        this(state, finalResponse, terminalReason, elapsed, true, Optional.empty());
+    }
+
+    public AgentTurnResult(
+            State state,
+            Optional<String> finalResponse,
+            Optional<String> terminalReason,
+            Duration elapsed,
+            boolean providerQuiescent)
+    {
+        this(state, finalResponse, terminalReason, elapsed, providerQuiescent, Optional.empty());
     }
 
     public AgentTurnResult
@@ -53,9 +64,11 @@ public record AgentTurnResult(
         checkOptionalText(finalResponse, "finalResponse");
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(elapsed, "elapsed is null");
+        requireNonNull(failureKind, "failureKind is null");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
         checkArgument(state != State.COMPLETED || terminalReason.isEmpty(), "a completed turn cannot have a terminal reason");
         checkArgument(state == State.COMPLETED || terminalReason.isPresent(), "a non-completed turn requires a terminal reason");
+        checkArgument(failureKind.isEmpty() || state == State.FAILED, "a typed failure requires a failed turn");
     }
 
     public enum State

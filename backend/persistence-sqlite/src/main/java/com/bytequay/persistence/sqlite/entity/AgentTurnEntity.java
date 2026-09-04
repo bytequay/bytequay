@@ -21,6 +21,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
@@ -121,6 +122,9 @@ public class AgentTurnEntity
 
     private String terminalReason;
 
+    @Enumerated(EnumType.STRING)
+    private AgentTurnFailureKind failureKind;
+
     @Column(nullable = false)
     private long inputTokens;
 
@@ -177,6 +181,7 @@ public class AgentTurnEntity
                 .map(AgentAttachmentReferenceJson::encode)
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
+        failureKind = turn.failureKind().orElse(null);
         inputTokens = turn.metrics().inputTokens();
         cachedInputTokens = turn.metrics().cachedInputTokens();
         outputTokens = turn.metrics().outputTokens();
@@ -210,6 +215,7 @@ public class AgentTurnEntity
                 Optional.ofNullable(model),
                 settings,
                 Optional.ofNullable(terminalReason),
+                Optional.ofNullable(failureKind),
                 new TurnMetrics(
                         inputTokens,
                         cachedInputTokens,

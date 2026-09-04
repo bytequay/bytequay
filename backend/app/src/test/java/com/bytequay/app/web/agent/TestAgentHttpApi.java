@@ -13,14 +13,19 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -40,6 +45,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -98,6 +104,12 @@ class TestAgentHttpApi
         {
             return new DeterministicAgentDriver(AgentLaneId.CODEX_CLI);
         }
+
+        @Bean
+        DeterministicAgentDriver deterministicClaudeAgentDriver()
+        {
+            return new DeterministicAgentDriver(AgentLaneId.CLAUDE_CLI);
+        }
     }
 
     private static final String SESSION_TOKEN = "test-session";
@@ -140,7 +152,21 @@ class TestAgentHttpApi
     private AgentTaskService tasks;
 
     @Autowired
+    private AgentTurnService turns;
+
+    @Autowired
+    private AgentResourceService resources;
+
+    @Autowired
+    private InteractiveAgentTaskCreator taskCreator;
+
+    @Autowired
+    @Qualifier("deterministicAgentDriver")
     private DeterministicAgentDriver driver;
+
+    @Autowired
+    @Qualifier("deterministicClaudeAgentDriver")
+    private DeterministicAgentDriver claudeDriver;
 
     @Autowired
     private PullRequestStore pullRequests;
@@ -153,6 +179,7 @@ class TestAgentHttpApi
             throws IOException, InterruptedException
     {
         driver.reset();
+        claudeDriver.reset();
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
@@ -267,7 +294,7 @@ class TestAgentHttpApi
     }
 
     @Test
-    void rejectsInvalidAndNonCodexTaskRequests()
+    void rejectsInvalidAndUnavailableTaskRequests()
             throws Exception
     {
         ResponseEntity<JsonNode> invalid = post(
@@ -283,7 +310,7 @@ class TestAgentHttpApi
                 "/agent/tasks",
                 createTaskBody("missing-lane"),
                 null);
-        assertThat(unsupported.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(unsupported.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
 
         ResponseEntity<JsonNode> unknownModel = post(
                 "/agent/tasks",
@@ -577,6 +604,47 @@ class TestAgentHttpApi
     }
 
     @Test
+    void createsRunsAndReplaysAClaudeTaskWithoutCrossLaneEvents()
+            throws Exception
+    {
+        ResponseEntity<JsonNode> created = post(
+                "/agent/tasks",
+                createTaskBody("claude", "test-model", "Claude first"),
+                null);
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String claudeTaskId = created.getBody().required("id").asText();
+        assertThat(created.getBody().required("laneId").asText()).isEqualTo("claude");
+        assertThat(claudeDriver.openCount()).isEqualTo(1);
+        assertThat(driver.openCount()).isZero();
+
+        JsonNode claudeEvents = get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody();
+        assertThat(claudeEvents)
+                .extracting(event -> event.required("type").asText())
+                .containsExactly("user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle");
+        assertThat(claudeEvents.get(0).required("payload").required("text").asText()).isEqualTo("Claude first");
+        assertThat(claudeEvents.get(3).required("payload").required("text").asText()).isEqualTo("deterministic: Claude first");
+        String turnId = claudeEvents.get(0).required("turnId").asText();
+        assertThat(get("/agent/turns/" + turnId).getBody().required("state").asText()).isEqualTo("COMPLETED");
+
+        long userSequence = claudeEvents.get(0).required("sequence").asLong();
+        JsonNode replay = get("/agent/tasks/" + claudeTaskId + "/events?after=" + userSequence + "&limit=20").getBody();
+        assertThat(replay).hasSize(4);
+        assertThat(objectMapper.readTree(firstSseData(claudeTaskId, userSequence))).isEqualTo(replay.get(0));
+
+        ResponseEntity<JsonNode> codexCreated = post(
+                "/agent/tasks",
+                createTaskBody("codex", "test-model", "Codex first"),
+                null);
+        assertThat(codexCreated.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(driver.openCount()).isEqualTo(1);
+        assertThat(claudeDriver.openCount()).isEqualTo(1);
+        assertThat(get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody())
+                .extracting(event -> event.required("payload").path("text").asText())
+                .doesNotContain("Codex first", "deterministic: Codex first");
+    }
+
+    @Test
     void replaysCompositeTaskCreationAndRejectsAChangedIntent()
             throws Exception
     {
@@ -600,6 +668,72 @@ class TestAgentHttpApi
         changed = new HashMap<>(request);
         changed.put("idempotencyKey", "a-different-first-turn-key");
         assertThat(post("/agent/tasks", changed, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void compositeCreationTrustsItsCreationProbeButLaterTurnsStillProbe()
+            throws Exception
+    {
+        Map<String, Object> request = createTaskBody("codex");
+        long probesBeforeCreation = driver.probeCount();
+        driver.probeReadiness(
+                AgentProviderStatus.Readiness.READY,
+                AgentProviderStatus.Readiness.READY,
+                AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+
+        ResponseEntity<JsonNode> created = post("/agent/tasks", request, null);
+        ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(replay.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
+        String taskId = created.getBody().required("id").asText();
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
+                .filteredOn(event -> event.required("type").asText().equals("user_message"))
+                .hasSize(1);
+
+        ResponseEntity<JsonNode> laterTurn = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of("message", "Later request", "expectedVersion", taskVersion(taskId)),
+                "later-turn");
+
+        assertThat(laterTurn.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(laterTurn.getBody().required("readiness").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 3);
+    }
+
+    @Test
+    void orphanCompositeReplayReprobesBeforeAddingATurnOrResources()
+            throws Exception
+    {
+        Map<String, Object> request = createTaskBody("codex");
+        long probesBeforeCreation = driver.probeCount();
+        TaskId taskId = TaskId.valueOf((String) request.get("taskId"));
+        String idempotencyKey = (String) request.get("idempotencyKey");
+        AgentTask orphan = taskCreator.create(
+                taskId,
+                workspaceId,
+                "Agent HTTP test",
+                AgentLaneId.CODEX_CLI,
+                new AgentTaskDefaults(Optional.of("test-model"), Optional.of("high"), AgentPermissionPolicy.AUTO),
+                idempotencyKey);
+        TaskResources existingResources = resources.require(taskId);
+        long runtimeEntries = entryCount(existingResources.runtimeDirectory());
+        long worktrees = entryCount(workspacePaths.worktrees(workspaceId));
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 2);
+        assertThat(turns.findTurnByIdempotencyKey(taskId, idempotencyKey)).isEmpty();
+        driver.probeReadiness(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+
+        ResponseEntity<JsonNode> failedReplay = post("/agent/tasks", request, null);
+
+        assertThat(failedReplay.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(failedReplay.getBody().required("readiness").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeCreation + 3);
+        assertThat(turns.findTurnByIdempotencyKey(taskId, idempotencyKey)).isEmpty();
+        assertThat(resources.require(taskId)).isEqualTo(existingResources);
+        assertThat(entryCount(existingResources.runtimeDirectory())).isEqualTo(runtimeEntries);
+        assertThat(entryCount(workspacePaths.worktrees(workspaceId))).isEqualTo(worktrees);
+        assertThat(tasks.get(taskId)).isEqualTo(orphan);
     }
 
     private void addTurnTranscript(
@@ -925,6 +1059,27 @@ class TestAgentHttpApi
     }
 
     @Test
+    void refusesImagesWhenTheLaneDoesNotAdvertiseTheirMediaType()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String attachmentId = uploadImage(taskId, "unsupported.png");
+        driver.disableImageAttachments();
+
+        ResponseEntity<JsonNode> refused = post(
+                "/agent/tasks/" + taskId + "/turns",
+                ImmutableMap.of(
+                        "message", "look",
+                        "attachments", ImmutableList.of(attachmentId),
+                        "expectedVersion", taskVersion(taskId)),
+                "unsupported-provider-image");
+
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refused.getBody().path("message").asText())
+                .contains("Provider codex").contains("image/png");
+    }
+
+    @Test
     void replaysAnImageTurnBeforeReadingChangedDefaultsOrADeletedAttachment()
             throws Exception
     {
@@ -1156,6 +1311,14 @@ class TestAgentHttpApi
                 Thread.currentThread().interrupt();
                 throw new AssertionError("interrupted while waiting", e);
             }
+        }
+    }
+
+    private static long entryCount(Path directory)
+            throws IOException
+    {
+        try (Stream<Path> entries = Files.walk(directory)) {
+            return entries.count();
         }
     }
 

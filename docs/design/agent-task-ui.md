@@ -1,11 +1,11 @@
 # Agent Task UI Design
 
-This document defines the approved rich, worktree-scoped agent task surface that
-ByteQuay will build over the existing agent service. It defines the product
-interaction, frontend projection, Electron transport, and the additional
-service capabilities required by that UI. Provider lifecycle and storage
-contracts remain in [Agent Service Design](agent-service.md); Maven and process
-boundaries remain in [ByteQuay Architecture](architecture.md).
+This document defines the implemented rich, worktree-scoped agent task surface
+over the existing agent service. It defines the product interaction, frontend
+projection, Electron transport, and service capabilities used by that UI.
+Provider lifecycle and storage contracts remain in
+[Agent Service Design](agent-service.md); Maven and process boundaries remain
+in [ByteQuay Architecture](architecture.md).
 
 The surface recreates the useful interaction model of a Codex task with
 ByteQuay-owned React components. Codex App Server supplies the agent loop,
@@ -13,19 +13,20 @@ thread history, approvals, and typed events; it is not a frontend component
 library. Claude remains a separate provider adapter behind the same
 capability-driven ByteQuay contract.
 
-This is technically feasible, but it has an explicit product risk: the
+The implemented surface carries an explicit product risk: the
 [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
 currently marks the `app-server` command as experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the planned first
-release on 2026-08-31. Shipping still requires the fixed reference-schema fixture and
-compatibility tests. That fixture does not gate the user-managed production CLI: Codex's
-startup self-update remains enabled and no reported version text, including
-unparseable output, makes the lane unavailable. ByteQuay uses documented stdio
-and does not adopt the experimental WebSocket transport.
+release on 2026-08-31; CP11 requires an explicit release-candidate
+reconfirmation. The fixed reference-schema fixture and compatibility tests do
+not gate the user-managed production CLI. ByteQuay updates an installed Codex
+CLI only when its parsed version is below the supported minimum; newer or
+unparseable version text is left alone and never makes the lane unavailable.
+ByteQuay uses documented stdio and does not adopt the experimental WebSocket
+transport.
 
-Two HTML design files accompany this document, and when the UI is being
-built they are the source of truth for what the screens look like and how
-they respond:
+Two HTML design files accompany this document as the presentation references
+for reviewing or changing how the implemented screens look and respond:
 
 - [Agent Task UI.html](Agent%20Task%20UI.html) is the user-facing
   prototype: the accepted visual reference (commit
@@ -48,10 +49,13 @@ production code and neither claims backend or provider integration.
 
 ## 1. Decision summary
 
-This section describes the approved target shape. CP0 selected a separate
-ByteQuay-managed worktree per task and accepted the experimental App Server and
-unauthenticated same-host executor boundaries on 2026-08-31. Those decisions do
-not weaken the remaining compatibility, isolation, and release gates.
+This section describes the implemented shape. CP0 selected a separate
+ByteQuay-managed worktree per task and accepted experimental App Server on
+2026-08-31. The earlier unauthenticated loopback executor boundary was removed:
+each Codex task now owns its App Server process and opens no ByteQuay listener.
+The remaining same-host risk is ordinary same-user filesystem and provider
+account-profile trust. These facts do not weaken the remaining compatibility,
+isolation, and release gates.
 
 - Workspace **Tasks** gains a separate agent-task list and detail screen. The
   existing cherry-pick task model and UI remain separate; there is no generic
@@ -81,7 +85,8 @@ not weaken the remaining compatibility, isolation, and release gates.
   Claude or Codex features remain visibly unavailable instead of being
   synthesized.
 - The first integration uses App Server's built-in tool loop inside the
-  selected task environment and renders its typed calls, progress, and results.
+  task-owned process and worktree and renders its typed calls, progress, and
+  results.
   ByteQuay does not register custom business tools, hooks, or product workflows
   in this phase.
 - Inherited Codex MCP servers, apps/plugins, dynamic tools, and lifecycle hooks
@@ -100,8 +105,9 @@ not weaken the remaining compatibility, isolation, and release gates.
 - Send multiple turns to the same root provider conversation.
 - Rebuild the transcript from persisted events after navigation, renderer
   reload, SSE reconnect, or backend restart.
-- Allow multiple ByteQuay tasks to run through the one Codex App Server while
-  preserving task, root-thread, child-thread, turn, and item identity.
+- Allow multiple ByteQuay tasks to run concurrently through their separate
+  task-owned Codex App Server processes while preserving task, root-thread,
+  child-thread, turn, and item identity.
 - Display task lifecycle, derived runtime status, turn state, selected
   provider/model, elapsed time, token usage when available, and terminal
   errors.
@@ -117,7 +123,8 @@ The composer provides:
   image input;
 - provider selection when creating the task, then model and reasoning-effort
   selection for each turn;
-- a permission selector, initially including **Auto**;
+- a truthful **Auto** permission fact for the first release; it is not styled
+  or labeled as a menu until more than one interactive policy is supported;
 - **Send** while the task is idle;
 - **Steer** and **Run next** while a turn is active; and
 - cancellation of the active turn.
@@ -140,9 +147,17 @@ For Codex, **Auto** maps to App Server's generated on-request approval value
 workspace-write sandbox rooted at the generated task worktree. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the
-active parent turn's effective sandbox and approval choices. The task executor
-applies that App Server policy consistently to root and child execution;
+active parent turn's effective sandbox and approval choices. The task-owned App
+Server applies that policy consistently to root and child execution;
 ByteQuay does not introduce a parallel permission path in this phase.
+
+The renderer receives one normalized capability object for the selected lane,
+not provider-name conditionals. It includes structured plans, tool and
+incremental activity, hooks, subagents, approvals, usage, steering, supported
+interactive permission policies, and attachment media types. Image attachment
+controls require both a provider-supported image media type and the selected
+model's image input modality. A missing capability is false; Claude therefore
+does not acquire a synthetic checklist, image input, or steering control.
 
 ### 2.3 Transcript and live activity
 
@@ -216,8 +231,9 @@ resurrect a resolved approval as pending.
 
 ### 2.5 Subagents
 
-- Render one card in the parent transcript when Codex or Claude delegates
-  work.
+- Render one card in the parent transcript only when the selected lane
+  advertises nested-agent activity and supplies canonical direct parent/child
+  thread identity. The current Claude stream does not meet that contract.
 - Show read-only **Active** and **Done** lists with agent label, prompt or
   purpose when available, status, elapsed time, and result summary.
 - Open an agent to inspect its messages, plans, tools, logs, approvals, and
@@ -400,8 +416,18 @@ items/background terminals or an unverifiable process receipt. The UI never
 releases the task's worktree-mutation claim
 merely because the root is marked interrupted. If provider-process ownership
 or exit cannot be proven, the task remains blocked and its worktree stays
-untouched, with an actionable diagnostic. A last-resort **Stop shared Codex server** action
-requires confirmation and lists every other Codex task it will interrupt.
+untouched, with an actionable diagnostic. A last-resort **Stop this task's
+provider runtime** action requires confirmation and affects no other task.
+
+A quiescent failed turn with `failureKind: AUTHENTICATION_REQUIRED` instead
+shows an authentication recovery card while leaving the task and worktree
+intact. **Refresh login status** calls the shared typed readiness operation for
+the task's immutable lane. Once it returns ready, **Retry last message** shows
+the original durable text and attachment names, requires explicit resend
+confirmation, and calls the existing typed turn-start operation with those
+opaque attachment references and a fresh idempotency key. The action is absent
+until quiescence, disabled for `UNKNOWN` delivery, and never silently reuses a
+delivery row. Ordinary failed turns do not gain this auth-only shortcut.
 
 **Complete** is enabled only while the task is idle and no live queued input is
 `QUEUED`, `PAUSED`, or `STARTING`. If an
@@ -441,7 +467,7 @@ flowchart LR
 
     subgraph CODEX["Codex lane"]
         DRIVER["Codex driver<br/>JSON-RPC mapping"]
-        SERVER["one long-lived<br/>Codex App Server"]
+        SERVER["one Codex App Server<br/>per active task"]
         THREADS["root and child threads"]
         LOOP["Codex harness<br/>reason · tool · observe · repeat"]
         MODEL["selected model provider"]
@@ -612,7 +638,7 @@ complete.
   completion removes the verified clean worktree while preserving its generated
   result branch, and task creation never trusts a renderer-supplied path.
 - An unavailable or authentication-required provider cannot create a task,
-  runtime directory, or worktree; the New task dialog links to the same actionable
+  runtime directory, or worktree; the New task composer links to the same actionable
   Workspace Settings state, and a successful readiness refresh enables Create.
 - Renderer reload and SSE reconnect preserve a live run and neither lose nor
   duplicate completed items. After backend restart, the same transcript is
@@ -650,7 +676,8 @@ complete.
   and reported rather than adopted or deleted; ByteQuay does not run automatic
   worktree reconciliation at startup.
 - The Claude lane hides unsupported controls while retaining shared messages,
-  tools, approvals, metrics, and nested activity that its current CLI exposes.
+  tools, approvals, metrics, and root-level task activity that its current CLI
+  exposes. A `parent_tool_use_id` alone is not presented as a nested agent.
 - Codex task startup verifies that inherited MCP servers, apps/plugins,
   dynamic tools, and lifecycle hooks are absent or disabled. A capability that
   cannot be disabled makes the lane unavailable; ByteQuay-specific tool

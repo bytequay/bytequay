@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -26,7 +27,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -61,6 +62,7 @@ class TestInteractiveAgentTaskCreator
     private Path temporaryDirectory;
 
     private AgentTaskService tasks;
+    private AgentTurnService turns;
     private AgentDriver driver;
     private ModelSettingsService models;
     private WorkspaceRepositoryService workspaces;
@@ -71,6 +73,7 @@ class TestInteractiveAgentTaskCreator
     void setUp()
     {
         tasks = mock(AgentTaskService.class);
+        turns = mock(AgentTurnService.class);
         driver = mock(AgentDriver.class);
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         models = mock(ModelSettingsService.class);
@@ -82,7 +85,7 @@ class TestInteractiveAgentTaskCreator
             throw new AgentTaskNotFoundException(invocation.getArgument(1));
         });
         ready();
-        creator = new InteractiveAgentTaskCreator(tasks, drivers, models, workspaces, git);
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, git);
     }
 
     @Test
@@ -147,7 +150,9 @@ class TestInteractiveAgentTaskCreator
                 AgentCapabilities.none()));
 
         assertThatThrownBy(() -> create(defaults()))
-                .isInstanceOf(AgentUnavailableException.class);
+                .isInstanceOfSatisfying(AgentProviderUnavailableException.class, failure ->
+                        assertThat(failure.status().readiness())
+                                .isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED));
 
         verifyNoInteractions(workspaces, git);
     }

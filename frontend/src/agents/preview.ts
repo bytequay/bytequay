@@ -16,6 +16,7 @@ import contracts from './fixtures/agent-contracts-v1.json';
 import eventFixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import type { AgentBridgePort } from './model';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentQueuedInputDto,
   AgentStreamMessage,
@@ -42,6 +43,18 @@ export interface PreviewOptions {
 
 const FIXTURE_EVENTS: AgentEventEnvelope[] = parseAgentEventSequence(eventFixture.events);
 
+const PREVIEW_CAPABILITIES = {
+  ...NO_AGENT_CAPABILITIES,
+  sessionResume: true,
+  structuredPlans: true,
+  toolLifecycle: true,
+  incrementalCommandOutput: true,
+  interactiveApprovals: true,
+  tokenUsage: true,
+  steering: true,
+  attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
+};
+
 /** A catalog shaped like a probed Codex lane, so the preview exercises real selection code. */
 const PREVIEW_CATALOG: ModelSettingsDto = {
   mainId: 'codex',
@@ -51,6 +64,8 @@ const PREVIEW_CATALOG: ModelSettingsDto = {
     readiness: 'READY',
     version: '0.151.0',
     diagnostic: '',
+    capabilities: PREVIEW_CAPABILITIES,
+    steering: true,
     models: [
       { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high' },
       { id: 'gpt-5.6-codex-mini', name: '5.6 Sol', description: 'Faster', efforts: ['medium'], defaultEffort: 'medium' },
@@ -124,6 +139,18 @@ export function createPreviewBridge(
     getModelSettings: async () => {
       record('getModelSettings');
       return PREVIEW_CATALOG;
+    },
+
+    refreshAgentProviderReadiness: async () => {
+      record('refreshAgentProviderReadiness');
+      return PREVIEW_CATALOG.providers.map((provider) => ({
+        laneId: provider.id,
+        readiness: provider.readiness,
+        version: provider.version,
+        diagnostic: provider.diagnostic,
+        capabilities: provider.capabilities,
+        signInCommand: provider.signInCommand,
+      }));
     },
 
     listAgentTasks: async (id, limit) => {

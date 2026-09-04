@@ -39,7 +39,9 @@ describe('settings model helpers', () => {
     expect(providerStatusLabel('TEMPORARILY_UNAVAILABLE', false).label).toBe('Unavailable');
     expect(providerAvailable('READY')).toBe(true);
     expect(providerAvailable('DEGRADED')).toBe(true);
-    expect(providerAvailable('AUTHENTICATION_REQUIRED')).toBe(false);
+    for (const readiness of ['AUTHENTICATION_REQUIRED', 'CLI_MISSING', 'UNSUPPORTED', 'TEMPORARILY_UNAVAILABLE'] as const) {
+      expect(providerAvailable(readiness)).toBe(false);
+    }
   });
 });
 
@@ -50,6 +52,8 @@ describe('provider remedies', () => {
     expect(providerRemedy('AUTHENTICATION_REQUIRED').kind).toBe('login');
     // The probe shells out to `codex login status`, so this is the command that clears it.
     expect(providerRemedy('AUTHENTICATION_REQUIRED').command).toBe('codex login');
+    expect(providerRemedy('CLI_MISSING', 'claude').command).toBe('npm install -g @anthropic-ai/claude-code');
+    expect(providerRemedy('AUTHENTICATION_REQUIRED', 'claude').command).toBe('claude auth login');
   });
 
   it('routes an undriveable CLI to a report and everything else to a re-probe', () => {
@@ -60,4 +64,3 @@ describe('provider remedies', () => {
     }
   });
 });
-

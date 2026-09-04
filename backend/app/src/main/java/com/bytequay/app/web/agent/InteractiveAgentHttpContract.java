@@ -27,6 +27,7 @@ import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -109,6 +110,7 @@ final class InteractiveAgentHttpContract
                 turn.knownUnsent(),
                 turn.settings().map(InteractiveAgentHttpContract::settings),
                 turn.terminalReason(),
+                turn.failureKind(),
                 turn.metrics());
     }
 
@@ -211,9 +213,7 @@ final class InteractiveAgentHttpContract
             checkNotBlank(laneId, "laneId");
             requireNonNull(defaults, "defaults is null");
             checkNotBlank(idempotencyKey, "idempotencyKey");
-            if (!AgentLaneId.CODEX_CLI.value().equals(laneId)) {
-                throw new IllegalArgumentException("Interactive tasks currently support only the Codex lane");
-            }
+            new AgentLaneId(laneId);
             if (defaults.model().isEmpty()) {
                 throw new IllegalArgumentException("model must not be blank");
             }
@@ -321,6 +321,7 @@ final class InteractiveAgentHttpContract
             boolean knownUnsent,
             Optional<TurnSettings> settings,
             Optional<String> terminalReason,
+            Optional<AgentTurnFailureKind> failureKind,
             TurnMetrics metrics) {}
 
     /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */

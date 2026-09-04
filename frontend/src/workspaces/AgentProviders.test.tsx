@@ -15,6 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentProviderRow } from './WorkspaceSettings';
+import { NO_AGENT_CAPABILITIES } from '../agents/capabilities';
 import type { AgentProviderStatus, AgentProviderReadiness } from '../types';
 
 function row(readiness: AgentProviderReadiness, over: Partial<AgentProviderStatus> = {}): string {
@@ -23,6 +24,7 @@ function row(readiness: AgentProviderReadiness, over: Partial<AgentProviderStatu
     readiness,
     version: '0.151.0',
     diagnostic: 'probe said so',
+    capabilities: NO_AGENT_CAPABILITIES,
     ...over,
   };
   return renderToStaticMarkup(<AgentProviderRow provider={provider} checking={false} />);
@@ -63,13 +65,13 @@ describe('agent provider rows', () => {
     expect(ready).not.toContain('Install the CLI');
   });
 
-  it('marks a non-Codex lane as preview rather than offering it', () => {
+  it('treats a ready Claude lane as a real provider and gives lane-correct remedies', () => {
     const claude = row('READY', { laneId: 'claude' });
     expect(claude).toContain('Claude CLI');
-    expect(claude).toContain('Preview');
-    expect(claude).toContain('until Claude reaches parity');
-    // Codex carries no preview caveat.
-    expect(row('READY')).not.toContain('Preview');
+    expect(claude).not.toContain('Preview');
+    expect(claude).not.toContain('tasks run on Codex');
+    expect(row('CLI_MISSING', { laneId: 'claude' })).toContain('npm install -g @anthropic-ai/claude-code');
+    expect(row('AUTHENTICATION_REQUIRED', { laneId: 'claude' })).toContain('claude auth login');
   });
 
   it('keeps the probe diagnostic visible so a report can quote it', () => {

@@ -18,7 +18,8 @@ import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { previewTask } from './preview';
-import type { AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
+import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
 const events = parseAgentEventSequence(fixture.events).filter((event) => event.type !== 'approval_requested');
@@ -61,11 +62,12 @@ function queued(id: string, state: string, preview: string, extra: Partial<Agent
   };
 }
 
-function body(state: Partial<AgentTaskState>): string {
+function body(state: Partial<AgentTaskState>, providerStatus: AgentProviderStatus | null = null): string {
   return renderToStaticMarkup(
     <AgentTaskBody
       state={{ ...initialAgentTaskState(), task: { ...previewTask('workspace-1', 't-1'), state: 'OPEN' }, connection: 'open', ...state }}
       models={MODELS}
+      providerStatus={providerStatus}
       onSelectModel={() => {}}
       onBack={() => {}}
       onSend={() => {}}
@@ -117,6 +119,19 @@ describe('the queue behind a running turn', () => {
     // While a turn runs, a paused row waits without offering to resume.
     const running = body({ turn: turn('RUNNING'), queue: [queued('q-1', 'PAUSED', 'Later', { pauseReason: 'Backend restarted' })] });
     expect(running).not.toContain('Resume queue');
+
+    const unavailable = body({
+      turn: turn('FAILED'),
+      queue: [queued('q-1', 'PAUSED', 'Wait for the provider', { pauseReason: 'Provider unavailable' })],
+    }, {
+      laneId: 'claude',
+      readiness: 'TEMPORARILY_UNAVAILABLE',
+      diagnostic: 'readiness probe timed out',
+      capabilities: NO_AGENT_CAPABILITIES,
+      signInCommand: null,
+    });
+    expect(unavailable).toMatch(/class="agt-queue__link"[^>]*disabled[^>]*title="Check provider readiness before resuming the queue"/);
+    expect(unavailable).toContain('Claude is unavailable');
   });
 
   it('marks an uncertain delivery, offers only Discard, and never a resend', () => {
@@ -160,16 +175,16 @@ describe('the queue behind a running turn', () => {
   });
 
   it('gates Steer on the lane and Run next on a draft while a turn runs', () => {
-    const running = body({ turn: turn('RUNNING'), composer: 'also check the tests', steering: true });
+    const running = body({ turn: turn('RUNNING'), composer: 'also check the tests', capabilities: { ...NO_AGENT_CAPABILITIES, steering: true } });
     expect(running).toMatch(/<button[^>]*class="agt-steer"(?![^>]*disabled)[^>]*title="Sends into the running turn now"/);
     expect(running).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*title="Runs after this turn finishes"/);
 
-    const noSteering = body({ turn: turn('RUNNING'), composer: 'also check the tests', steering: false });
+    const noSteering = body({ turn: turn('RUNNING'), composer: 'also check the tests', capabilities: { ...NO_AGENT_CAPABILITIES, steering: false } });
     expect(noSteering).toMatch(/<button[^>]*class="agt-steer"[^>]*disabled[^>]*title="This provider cannot take input into a running turn"/);
     expect(noSteering).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*>Run next</);
 
     // Neither control appears while idle, where Send is the only way to speak.
-    const idle = body({ turn: turn('COMPLETED'), composer: 'next', steering: true });
+    const idle = body({ turn: turn('COMPLETED'), composer: 'next', capabilities: { ...NO_AGENT_CAPABILITIES, steering: true } });
     expect(idle).not.toContain('>Steer<');
     expect(idle).not.toContain('>Run next<');
   });

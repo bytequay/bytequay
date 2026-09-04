@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueuedInputNotFoundException;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
@@ -46,6 +47,7 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.Set;
 
 @RestControllerAdvice
@@ -121,6 +123,23 @@ public class GlobalExceptionHandler
         return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
     }
 
+    @ExceptionHandler(AgentProviderUnavailableException.class)
+    public ResponseEntity<AgentProviderUnavailableResponse> handleAgentProviderUnavailable(
+            AgentProviderUnavailableException exception, HttpServletRequest request)
+    {
+        var status = exception.status();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new AgentProviderUnavailableResponse(
+                        Instant.now(),
+                        HttpStatus.SERVICE_UNAVAILABLE.value(),
+                        "AGENT_PROVIDER_UNAVAILABLE",
+                        status.laneId().value(),
+                        status.readiness().name(),
+                        status.diagnostic(),
+                        status.signInCommand(),
+                        request.getRequestURI()));
+    }
+
     @ExceptionHandler(AgentUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleAgentUnavailable(
             AgentUnavailableException exception, HttpServletRequest request)
@@ -194,6 +213,16 @@ public class GlobalExceptionHandler
     }
 
     public record ErrorResponse(Instant timestamp, int status, String message, String path) {}
+
+    public record AgentProviderUnavailableResponse(
+            Instant timestamp,
+            int status,
+            String code,
+            String laneId,
+            String readiness,
+            String diagnostic,
+            Optional<String> signInCommand,
+            String path) {}
 
     public record WorkspaceErrorResponse(String code, String message, boolean retryable) {}
 }

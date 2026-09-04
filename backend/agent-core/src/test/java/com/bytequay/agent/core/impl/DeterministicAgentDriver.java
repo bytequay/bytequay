@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -72,6 +73,7 @@ final class DeterministicAgentDriver
     private final List<AgentTurnInput> steers = new ArrayList<>();
     private RuntimeException nextSteerFailure;
     private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
+    private int probeCount;
     private RuntimeException probeFailure;
     private RuntimeException nextSessionReferenceAndCloseFailure;
     private RuntimeException nextTurnReferenceAndCancelFailure;
@@ -97,8 +99,9 @@ final class DeterministicAgentDriver
     }
 
     @Override
-    public AgentProviderStatus probe()
+    public synchronized AgentProviderStatus probe()
     {
+        probeCount++;
         if (probeFailure != null) {
             throw probeFailure;
         }
@@ -136,6 +139,11 @@ final class DeterministicAgentDriver
     synchronized void readiness(AgentProviderStatus.Readiness value)
     {
         readiness = value;
+    }
+
+    synchronized int probeCount()
+    {
+        return probeCount;
     }
 
     synchronized void failProbe(RuntimeException failure)
@@ -220,6 +228,11 @@ final class DeterministicAgentDriver
     synchronized void failCompletion(RuntimeException failure)
     {
         requireCurrentTurn().failCompletion(failure);
+    }
+
+    synchronized void fail(String reason, AgentTurnFailureKind failureKind)
+    {
+        requireCurrentTurn().fail(reason, failureKind);
     }
 
     synchronized List<AgentSessionRef> openedReferences()
@@ -464,6 +477,18 @@ final class DeterministicAgentDriver
                     Optional.of("provider activity could not be shown stopped"),
                     Duration.ZERO,
                     false));
+        }
+
+        private void fail(String reason, AgentTurnFailureKind failureKind)
+        {
+            checkState(!completion.isDone(), "deterministic turn is already complete");
+            completion.complete(new AgentTurnResult(
+                    AgentTurnResult.State.FAILED,
+                    Optional.empty(),
+                    Optional.of(reason),
+                    Duration.ZERO,
+                    true,
+                    Optional.of(failureKind)));
         }
 
         private void failCompletion(RuntimeException failure)

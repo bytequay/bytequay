@@ -130,6 +130,20 @@ describe('projecting the transcript', () => {
     expect(turns[0].answer).toEqual({ id: 'event-1', text: 'Root cause found.', complete: true });
   });
 
+  it('preserves earlier completed commentary when the latest item becomes the terminal answer', () => {
+    const turns = projectTranscript([
+      event('assistant_message', { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'I will inspect the tests.' }, { itemId: 'm-1' }),
+      event('assistant_message', { messageKind: 'COMMENTARY', phase: 'PARTIAL', text: 'The fix is ' }, { itemId: 'm-2', complete: false }),
+      event('assistant_message', { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'The fix is ready.' }, { itemId: 'm-2' }),
+      event('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: 'The fix is ready and verified.' }, { itemId: 'm-2' }),
+    ]);
+
+    expect(turns[0].blocks).toEqual([
+      { kind: 'text', id: 'event-1', role: 'commentary', text: 'I will inspect the tests.', complete: true },
+    ]);
+    expect(turns[0].answer).toEqual({ id: 'event-2', text: 'The fix is ready and verified.', complete: true });
+  });
+
   it('keeps reasoning summaries and plan text as their own readable blocks', () => {
     const turns = projectTranscript([
       event('assistant_message', { messageKind: 'REASONING_SUMMARY', phase: 'FINAL', text: 'Checked the failing test first.' }, { itemId: 'r-1' }),

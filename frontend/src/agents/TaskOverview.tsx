@@ -13,10 +13,9 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { INTERACTIVE_LANE_ID } from '../settings/model';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
-import type { AgentTaskDto, ModelOptionDto } from '../types';
+import type { AgentTaskDto, ModelProviderDto } from '../types';
 
 export interface TaskOverviewProps {
   workspaceId: string;
@@ -26,16 +25,15 @@ export interface TaskOverviewProps {
   onOpenTask: (taskId: string) => void;
   onNewTask: () => void;
   onDismiss: () => void;
-  laneId?: string;
 }
 
 /** Reads the tasks itself: the overlay is transient, and nothing else on screen owns this list. */
 export default function TaskOverview({
-  workspaceId, bridge: explicitBridge, activeTaskId, onOpenTask, onNewTask, onDismiss, laneId = INTERACTIVE_LANE_ID,
+  workspaceId, bridge: explicitBridge, activeTaskId, onOpenTask, onNewTask, onDismiss,
 }: TaskOverviewProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
-  const [models, setModels] = useState<ModelOptionDto[]>([]);
+  const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = useCallback(() => live().listAgentTasks(workspaceId)
     .then((found) => setTasks(found.filter((task) => task.state === 'OPEN')))
@@ -43,9 +41,9 @@ export default function TaskOverview({
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
     void live().getModelSettings()
-      .then((catalog) => setModels(catalog.providers.find((provider) => provider.id === laneId)?.models ?? []))
+      .then((catalog) => setProviders(catalog.providers))
       .catch(() => {});
-  }, [live, laneId]);
+  }, [live]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onDismiss(); };
     window.addEventListener('keydown', onKey);
@@ -61,7 +59,7 @@ export default function TaskOverview({
   return (
     <TaskOverviewView
       tasks={tasks}
-      models={models}
+      providers={providers}
       bridge={live}
       notice={notice}
       activeTaskId={activeTaskId}
@@ -72,9 +70,9 @@ export default function TaskOverview({
   );
 }
 
-export function TaskOverviewView({ tasks, models, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask }: {
+export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask }: {
   tasks: AgentTaskDto[];
-  models: ModelOptionDto[];
+  providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
   notice: string | null;
   activeTaskId: string | null;
@@ -95,7 +93,7 @@ export function TaskOverviewView({ tasks, models, bridge, notice, activeTaskId, 
       </div>
       {notice !== null && <div className="agt-notice agt-overview__notice" role="alert">{notice}</div>}
       <div className="agt-overview__grid">
-        <TaskWindows tasks={tasks} models={models} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
+        <TaskWindows tasks={tasks} providers={providers} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
         <button type="button" className="agt-card-new" aria-label="New task" onClick={onNewTask}>
           <span className="agt-card-new__plus" aria-hidden="true">+</span>
           <span>New task</span>

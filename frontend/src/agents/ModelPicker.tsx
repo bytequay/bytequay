@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
@@ -36,22 +36,47 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<PickerView>('menu');
   const current = models.find((model) => model.id === selectedModel);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const cardId = useId();
 
   useEffect(() => {
     if (!open) return;
+    const first = pickerRef.current?.querySelector<HTMLButtonElement>('.agt-picker__card [aria-selected="true"]')
+      ?? pickerRef.current?.querySelector<HTMLButtonElement>('.agt-picker__card button:not(:disabled)');
+    first?.focus();
     const close = (): void => setOpen(false);
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
     window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, view]);
 
   return (
-    <div className="agt-picker" onMouseDown={(event) => event.stopPropagation()}>
+    <div ref={pickerRef} className="agt-picker" onMouseDown={(event) => event.stopPropagation()}>
       <button
+        ref={triggerRef}
         type="button"
         className="agt-picker__chip"
         aria-label={ariaLabel}
+        aria-haspopup={current === undefined ? 'listbox' : 'menu'}
         aria-expanded={open}
+        aria-controls={open ? cardId : undefined}
         disabled={disabled}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          setView(current === undefined ? 'models' : 'menu');
+          setOpen(true);
+        }}
         onClick={() => {
           setView(current === undefined ? 'models' : 'menu');
           setOpen((value) => !value);
@@ -71,6 +96,7 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
           provider={provider}
           selectedModel={selectedModel}
           selectedEffort={selectedEffort}
+          cardId={cardId}
           onSelect={onSelect}
           onView={setView}
         />
@@ -80,19 +106,20 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
 }
 
 /** The floating card itself, one of three views; split out so each view can be rendered on its own. */
-export function ModelPickerCard({ view, models, provider = '', selectedModel, selectedEffort, onSelect, onView }: {
+export function ModelPickerCard({ view, models, provider = '', selectedModel, selectedEffort, cardId, onSelect, onView }: {
   view: PickerView;
   models: ModelOptionDto[];
   provider?: string;
   selectedModel: string;
   selectedEffort?: string;
+  cardId?: string;
   onSelect: (model: string, effort: string | null) => void;
   onView: (view: PickerView) => void;
 }): React.JSX.Element {
   const current = models.find((model) => model.id === selectedModel);
   if (view === 'models' || current === undefined) {
     return (
-      <div className="agt-picker__card" role="listbox" aria-label="Models">
+      <div id={cardId} className="agt-picker__card" role="listbox" aria-label="Models">
         {provider !== '' && <div className="agt-picker__heading">{provider}</div>}
         {models.map((model) => (
           <button
@@ -119,7 +146,7 @@ export function ModelPickerCard({ view, models, provider = '', selectedModel, se
   }
   if (view === 'effort') {
     return (
-      <div className="agt-picker__card" role="listbox" aria-label={`Effort for ${displayModelName(current.name)}`}>
+      <div id={cardId} className="agt-picker__card" role="listbox" aria-label={`Effort for ${displayModelName(current.name)}`}>
         <div className="agt-picker__heading">Effort</div>
         {current.efforts.map((effort) => (
           <button
@@ -142,7 +169,7 @@ export function ModelPickerCard({ view, models, provider = '', selectedModel, se
     );
   }
   return (
-    <div className="agt-picker__card" role="menu" aria-label="Model and effort">
+    <div id={cardId} className="agt-picker__card" role="menu" aria-label="Model and effort">
       <button type="button" role="menuitem" className="agt-picker__item" onClick={() => onView('models')}>
         <span>Model</span>
         <span className="agt-picker__value">{displayModelName(current.name)}</span>

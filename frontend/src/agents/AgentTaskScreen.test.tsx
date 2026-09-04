@@ -17,16 +17,48 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList, creationBlocker } from './AgentTasksView';
-import { AgentTaskBody } from './AgentTaskScreen';
+import { AgentTaskBody, providerStatusFromUnavailable } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { previewTask } from './preview';
-import type { AgentTaskDto, AgentTurnDto, ModelOptionDto, ModelSettingsDto, PullRequestDto } from '../types';
+import { NO_AGENT_CAPABILITIES } from './capabilities';
+import type {
+  AgentCapabilitiesDto,
+  AgentProviderReadiness,
+  AgentProviderStatus,
+  AgentProviderUnavailableDto,
+  AgentTaskDto,
+  AgentTurnDto,
+  ModelOptionDto,
+  ModelSettingsDto,
+  PullRequestDto,
+} from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
+
+const CAPABILITIES: AgentCapabilitiesDto = {
+  ...NO_AGENT_CAPABILITIES,
+  partialAssistantText: true,
+  structuredPlans: true,
+  nestedAgentActivity: true,
+  steering: true,
+  attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
+};
+
+function providerStatus(readiness: AgentProviderReadiness, extra: Partial<AgentProviderStatus> = {}): AgentProviderStatus {
+  return {
+    laneId: 'claude',
+    readiness,
+    version: '2.1.259',
+    diagnostic: 'provider readiness diagnostic',
+    capabilities: CAPABILITIES,
+    signInCommand: readiness === 'AUTHENTICATION_REQUIRED' ? 'CLAUDE_CONFIG_DIR=/provider-home claude auth login' : null,
+    ...extra,
+  };
+}
 
 /** A catalog shaped like a probed, ready Codex lane. */
 function readyCatalog(models: ModelOptionDto[]): ModelSettingsDto {
@@ -42,6 +74,7 @@ function readyCatalog(models: ModelOptionDto[]): ModelSettingsDto {
       selectedModel: models[0]?.id ?? '',
       selectedEffort: 'high',
       main: true,
+      capabilities: CAPABILITIES,
     }],
     apiKeys: [],
     keyProviders: [],
@@ -56,12 +89,14 @@ const MODELS: ModelOptionDto[] = [
 /** Everything the list needs beyond its rows, so each test states only what it varies. */
 const listProps = {
   laneId: 'codex',
+  providers: readyCatalog(MODELS).providers,
   models: MODELS,
   selection: { model: 'gpt-5.6-codex', effort: 'high' as string | null },
   draft: 'Fix the flaky preview test',
   blocker: null as string | null,
   onDraftChange: () => {},
   onSelectModel: () => {},
+  onSelectProvider: () => {},
   onCreate: () => {},
   onOpenTask: () => {},
   onOpenSettings: () => {},
@@ -102,7 +137,7 @@ function body(
 ): string {
   return renderToStaticMarkup(
     <AgentTaskBody
-      state={{ ...initialAgentTaskState(), ...state }}
+      state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, ...state }}
       activityChoice={activityChoice}
       turnChoice={turnChoice}
       models={MODELS}
@@ -154,7 +189,7 @@ describe('agent task layout', () => {
 
     expect(markup).toContain('Turn 1 · Worked for 11s');
     expect(markup).not.toContain('Working for');
-    expect(markup).toMatch(/<span class="agt-mono agt-meta">1 turn · [^<]+<\/span>/);
+    expect(markup).toMatch(/<span class="agt-mono agt-meta">Codex · test-model · 1 turn · [^<]+<\/span>/);
   });
 
   it('opens the composer picker upward as a floating card, and names models the short way', () => {
@@ -211,15 +246,16 @@ describe('agent task list', () => {
     expect(markup).not.toContain('Fixture data');
   });
 
-  it('pins the lane and offers the catalog model, not an invented one', () => {
+  it('offers the ready provider and catalog model as real controls', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
 
-    // The lane cannot be chosen until Claude parity lands, and the composer says so visibly.
+    // Creation selects a real ready lane; permission is the truthful fixed Auto policy.
     expect(markup).toContain('Codex');
-    expect(markup).toMatch(/<button[^>]*class="agt-compose__chip agt-fake"[^>]*data-fake="CP11 · provider choice"[^>]*disabled/);
+    expect(markup).toMatch(/<button[^>]*class="agt-compose__chip"[^>]*aria-label="Provider: Codex"/);
     expect(markup).toContain('5.6 Terra');
     expect(markup).toContain('High');
+    expect(markup).toContain('class="agt-compose__chip is-fact"');
     // The one real choice, the model, is live.
     expect(markup).not.toMatch(/class="agt-picker__chip"[^>]*disabled/);
     expect(markup).not.toMatch(/class="agt-send"[^>]*disabled/);
@@ -360,19 +396,13 @@ describe('agent prose', () => {
   });
 });
 
-describe('placeholders for later checkpoints', () => {
-  const fakes = (markup: string): string[] =>
-    (markup.match(/data-fake="([^"]+)"/g) ?? []).map((match) => match.replace(/^data-fake="|"$/g, ''));
-
-  it('leaves only the two CP11 placeholders, and none anywhere else', () => {
+describe('truthful task controls', () => {
+  it('ships no placeholder marker and renders Auto as a noninteractive fact', () => {
     const list = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
     const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
-    // The ledger: grep -rn data-fake frontend/src must list these and only these.
-    expect([...new Set([...fakes(list), ...fakes(drafting)])].sort())
-      .toEqual(['CP11 · permission choice', 'CP11 · provider choice']);
-    // Idle, only the permission chip stands in; a finished task ships nothing that does.
-    expect(fakes(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open', composer: 'x' }))).toEqual(['CP11 · permission choice']);
-    expect(fakes(body({ task: task('t-1', 'COMPLETED', 'x'), connection: 'open' }))).toEqual([]);
+    expect(list).toContain('aria-label="Provider: Codex"');
+    expect(drafting).toContain('<span class="agt-compose__chip is-fact"');
+    expect(drafting).not.toMatch(/<button[^>]*>Auto<\/button>/);
   });
 });
 
@@ -389,7 +419,12 @@ describe('agent task side panel', () => {
     onStopServer: () => {},
     onMarkFailed: () => {},
   };
-  const state = { ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open' as const };
+  const state = {
+    ...initialAgentTaskState(),
+    task: task('t-1', 'OPEN', 'x'),
+    connection: 'open' as const,
+    capabilities: CAPABILITIES,
+  };
 
   it('opens for any loaded task and switches between subagents and pull requests', () => {
     const agents = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen {...props} />);
@@ -411,6 +446,21 @@ describe('agent task side panel', () => {
     expect(prs).toContain('aria-label="Pull requests"');
     expect(prs).toContain('No pull requests from this task yet');
     expect(prs).not.toContain('Active · ');
+  });
+
+  it('hides subagent controls when the lane does not advertise nested activity', () => {
+    const claudeState = {
+      ...state,
+      capabilities: { ...CAPABILITIES, nestedAgentActivity: false },
+    };
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody state={claudeState} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
+
+    expect(markup).toContain('aria-label="Pull requests"');
+    expect(markup).toContain('No pull requests from this task yet');
+    expect(markup).not.toContain('Subagents');
+    expect(markup).not.toContain('No active subagents');
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^<]*<span[^>]*>⑃<\/span>Pull requests/);
   });
 
   it('lists the pull requests on the task branch and hands one to the existing page', () => {
@@ -573,6 +623,7 @@ describe('agent task detail', () => {
     expect(idle).toContain('>Ready<');
     // The bounded status line is what assistive technology hears; it names the state, not tokens.
     expect(idle).toContain('aria-live="polite"');
+    expect(idle.match(/role="status"/g)).toHaveLength(1);
     // The settings the next turn runs with are the chips, in prose rather than enum names.
     expect(idle).toContain('5.6 Terra');
     expect(idle).toContain('Auto');
@@ -589,10 +640,130 @@ describe('agent task detail', () => {
     expect(running).not.toContain('CP10');
 
     // CP10 has replaced both placeholders with real, capability-gated controls.
-    const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests', steering: true });
+    const drafting = body({ task: vision, turn: turn('RUNNING'), connection: 'open', composer: 'also check the tests', capabilities: CAPABILITIES });
     expect(drafting).toMatch(/<button[^>]*class="agt-steer"(?![^>]*disabled)[^>]*>Steer<\/button>/);
     expect(drafting).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*>Run next<\/button>/);
     expect(drafting).not.toContain('CP10');
+  });
+
+  it('requires a post-failure readiness probe before offering an explicit authentication retry', () => {
+    const user = events.find((event) => event.type === 'user_message');
+    const authTurn = turn('FAILED', {
+      id: user?.turnId ?? '',
+      endedAt: '2026-08-20T10:00:12Z',
+      failureKind: 'AUTHENTICATION_REQUIRED',
+    });
+    const ready: AgentProviderStatus = {
+      laneId: 'codex',
+      readiness: 'READY',
+      version: '0.152.1',
+      diagnostic: 'signed in',
+      capabilities: CAPABILITIES,
+      signInCommand: null,
+    };
+    const renderAuth = (fresh: boolean, failed = authTurn) => renderToStaticMarkup(
+      <AgentTaskBody
+        state={{
+          ...initialAgentTaskState(),
+          task: task('t-1', 'OPEN', 'Authentication'),
+          turn: failed,
+          events,
+          connection: 'open',
+          capabilities: CAPABILITIES,
+        }}
+        models={MODELS}
+        provider="Codex"
+        providerStatus={ready}
+        providerStatusFresh={fresh}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+      />);
+
+    const stale = renderAuth(false);
+    expect(stale).toContain('Codex sign-in required');
+    expect(stale).toContain('Message to resend');
+    expect(stale).toContain('Review the authentication change');
+    expect(stale).toContain('1 attachment');
+    expect(stale).toContain('flow.png (image/png)');
+    expect(stale).toMatch(/<button[^>]*disabled[^>]*>Retry last message…<\/button>/);
+
+    const refreshed = renderAuth(true);
+    expect(refreshed).toContain('Codex sign-in required');
+    expect(refreshed).toContain('Login status is ready');
+    expect(refreshed).toMatch(/<button(?![^>]*disabled)[^>]*>Retry last message…<\/button>/);
+
+    const uncertain = renderAuth(true, { ...authTurn, delivered: false, knownUnsent: false });
+    expect(uncertain).toContain('delivery may be uncertain');
+    expect(uncertain).not.toContain('Retry last message…');
+  });
+
+  it.each([
+    ['CLI_MISSING', 'Claude CLI not installed', 'Install the CLI', 'npm install -g @anthropic-ai/claude-code', 'Check again'],
+    ['AUTHENTICATION_REQUIRED', 'Claude sign-in required', 'Sign in', 'CLAUDE_CONFIG_DIR=/provider-home claude auth login', 'Refresh login status'],
+    ['UNSUPPORTED', 'Claude is unsupported', 'Report an issue', 'Detected CLI version: 2.1.259', 'Check again'],
+    ['TEMPORARILY_UNAVAILABLE', 'Claude is unavailable', 'Check again', 'provider readiness diagnostic', 'Check again'],
+  ] as const)('blocks a new turn and shows the typed %s remedy', (readiness, heading, remedy, detail, checkAction) => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{
+          ...initialAgentTaskState(),
+          task: task('t-1', 'OPEN', 'Provider blocked'),
+          connection: 'open',
+          composer: 'keep this draft',
+          capabilities: CAPABILITIES,
+        }}
+        models={MODELS}
+        provider="Claude"
+        providerStatus={providerStatus(readiness)}
+        onOpenSettings={() => {}}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+      />);
+
+    expect(markup).toContain(heading);
+    expect(markup).toContain(remedy);
+    expect(markup).toContain(detail);
+    expect(markup).toContain(checkAction);
+    expect(markup).toContain('Open workspace settings');
+    expect(markup).not.toContain('agt-compose-dock');
+    expect(markup).not.toContain('aria-label="Send message"');
+  });
+
+  it('replaces a stale ready status with the typed turn-preflight refusal', () => {
+    const unavailable: AgentProviderUnavailableDto = {
+      timestamp: '2026-09-04T10:00:00Z',
+      status: 503,
+      code: 'AGENT_PROVIDER_UNAVAILABLE',
+      laneId: 'claude',
+      readiness: 'UNSUPPORTED',
+      diagnostic: 'required stream-json capability is unavailable',
+      signInCommand: null,
+      path: '/agent/tasks/t-1/turns',
+    };
+
+    expect(providerStatusFromUnavailable(unavailable, providerStatus('READY'), NO_AGENT_CAPABILITIES))
+      .toEqual({
+        laneId: 'claude',
+        readiness: 'UNSUPPORTED',
+        version: '2.1.259',
+        diagnostic: 'required stream-json capability is unavailable',
+        capabilities: CAPABILITIES,
+        signInCommand: null,
+      });
   });
 
   it('replaces the mutation controls with the recovery card while the checkout is reserved', () => {
@@ -742,6 +913,13 @@ describe('agent task detail', () => {
     const noImages = body({ task: textOnly, connection: 'open' });
     expect(noImages).toMatch(/<button[^>]*class="agt-attach"[^>]*title="Text only does not accept images"[^>]*disabled/);
 
+    const providerWithoutImages = body({
+      task: vision,
+      connection: 'open',
+      capabilities: { ...CAPABILITIES, attachmentMediaTypes: ['text/plain'] },
+    });
+    expect(providerWithoutImages).toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
+
     const attachment = { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 };
     const currentVision = body({
       task: textOnly,
@@ -749,7 +927,7 @@ describe('agent task detail', () => {
       connection: 'open',
       composer: 'look here',
       attachments: [attachment],
-      steering: true,
+      capabilities: CAPABILITIES,
     });
     expect(currentVision).not.toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
     expect(currentVision).toMatch(/<button[^>]*class="agt-steer"(?![^>]*disabled)/);
@@ -761,7 +939,7 @@ describe('agent task detail', () => {
       connection: 'open',
       composer: 'look later',
       attachments: [attachment],
-      steering: true,
+      capabilities: CAPABILITIES,
     });
     expect(nextVision).toMatch(/<button[^>]*class="agt-steer"[^>]*disabled[^>]*title="The running turn’s model does not accept images"/);
     expect(nextVision).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*title="Runs after this turn finishes"/);
@@ -826,7 +1004,12 @@ describe('agent task detail', () => {
       child('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: '3 tests failed' }),
       child('lifecycle', { phase: 'AGENT_STARTED', message: 'Renderer range' }, 'child-2', 'Renderer range'),
     ] as typeof events;
-    const state = { task: task('t-1', 'OPEN', 'x'), events: withAgents, connection: 'open' as const };
+    const state = {
+      task: task('t-1', 'OPEN', 'x'),
+      events: withAgents,
+      connection: 'open' as const,
+      capabilities: CAPABILITIES,
+    };
 
     const closed = body(state);
     // The parent transcript names the agents; their work is not inlined into it.
@@ -915,14 +1098,18 @@ describe('agent task detail', () => {
       onMarkFailed: () => {},
     };
     const listed = renderToStaticMarkup(
-      <AgentTaskBody state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }} panelOpen {...props} />);
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
+        panelOpen
+        {...props}
+      />);
     expect(listed).toContain('Range probe');
     expect(listed).toContain('expired');
     expect(listed).toContain('Aug 20');
 
     const opened = renderToStaticMarkup(
       <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }}
+        state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
         panelOpen
         openAgent="child-gone"
         {...props}

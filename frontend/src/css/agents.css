@@ -520,6 +520,54 @@
   background: #f0f1f3;
 }
 
+.agt-picker__row:disabled {
+  color: #8c959f;
+  cursor: not-allowed;
+}
+
+.agt-provider-picker__card {
+  right: auto;
+  left: 0;
+  width: 340px;
+}
+
+.agt-provider-picker__row + .agt-provider-picker__row {
+  border-top: 1px solid #eceff2;
+}
+
+.agt-provider-picker__status {
+  margin-left: auto;
+  padding-left: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agt-provider-picker__status.is-ok { color: #1a7f37; }
+.agt-provider-picker__status.is-warn { color: #9a6700; }
+.agt-provider-picker__status.is-danger { color: #cf222e; }
+.agt-provider-picker__status.is-neutral { color: #57606a; }
+
+.agt-provider-picker__remedy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 12px 9px;
+  color: #57606a;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.agt-provider-picker__remedy > span {
+  flex: 1;
+}
+
+.agt-provider-picker__remedy .agt-action {
+  flex: none;
+  padding: 3px 7px;
+  font-size: 10.5px;
+}
+
 .agt-picker__check {
   margin-left: auto;
   color: #1f2328;
@@ -776,35 +824,6 @@
   stroke-width: 1.75;
 }
 
-/*
- * A control standing in for a backend that does not exist yet. Striped and labelled with the
- * checkpoint that retires it, so it is obvious in the app and in any screenshot; deleted with
- * the last placeholder.
- */
-.agt-fake {
-  position: relative;
-  outline: 1px dashed #d4a72c;
-  background: repeating-linear-gradient(45deg, transparent 0 6px, rgba(154, 103, 0, 0.1) 6px 12px);
-}
-
-.agt-fake::after {
-  content: attr(data-fake);
-  position: absolute;
-  top: -9px;
-  left: 0;
-  padding: 0 4px;
-  font: 600 9px ui-monospace, Menlo, monospace;
-  color: #9a6700;
-  background: #fff8c5;
-  white-space: nowrap;
-}
-
-/* Two placeholders side by side label above and below, so neither hides the other's name. */
-.agt-fake + .agt-fake::after {
-  top: auto;
-  bottom: -9px;
-}
-
 /* Connecting: the transcript's shape, pulsing, until the history arrives. */
 .agt-skeleton {
   width: 100%;
@@ -915,6 +934,47 @@
   font-size: 10.5px;
   color: #8c959f;
   white-space: nowrap;
+}
+
+.agt-recovery.is-auth .agt-recovery__head > svg {
+  width: 15px;
+  height: 15px;
+  color: #9a6700;
+}
+
+.agt-auth-command {
+  margin-top: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #ffffff;
+  overflow-wrap: anywhere;
+}
+
+.agt-auth-ready {
+  margin-top: 6px;
+  color: #1a7f37;
+  font-weight: 600;
+}
+
+.agt-auth-input {
+  margin-top: 9px;
+  padding: 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.agt-auth-input__text {
+  max-height: 5.25em;
+  margin-top: 4px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agt-auth-input__attachments {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
 }
 
 .agt-action.is-danger {

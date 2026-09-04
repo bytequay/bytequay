@@ -18,7 +18,7 @@ import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { WorkspaceCards } from './WorkspacesPage';
 import WorkspaceSettings from './WorkspaceSettings';
-import WorkspaceShell, { WorkspaceHome } from './WorkspaceShell';
+import WorkspaceShell from './WorkspaceShell';
 
 describe('watched repository workspace UI', () => {
   it('keeps global navigation above app and workspace navigation', () => {
@@ -68,37 +68,7 @@ describe('watched repository workspace UI', () => {
     expect(list).toContain('queued');
   });
 
-  it('shows only implemented actions on Workspace Home', () => {
-    const html = renderToStaticMarkup(<WorkspaceHome
-      workspace={workspace('FORK')}
-      onCherryPickUpstream={() => {}}
-      onReviewRequests={() => {}}
-      onOpenIssues={() => {}}
-    />);
-
-    expect(html).toContain('What should we do?');
-    expect(html).toContain('contributor/project');
-    expect(html).toContain('upstream upstream/project linked');
-    expect(html).toContain('Cherry-pick from upstream');
-    expect(html).toContain('Review a pull request');
-    expect(html).toContain('Fix issues and failures');
-    expect(html).not.toContain('Explore and understand code');
-    expect(html).not.toContain('4 open pull requests');
-    expect(html).not.toContain('Do anything in this workspace…');
-  });
-
-  it('omits the upstream note for a direct repository', () => {
-    const html = renderToStaticMarkup(<WorkspaceHome
-      workspace={workspace('DIRECT')}
-      onCherryPickUpstream={() => {}}
-      onReviewRequests={() => {}}
-      onOpenIssues={() => {}}
-    />);
-
-    expect(html).not.toContain('linked');
-  });
-
-  it('shows the agent task preview only in a development build', () => {
+  it('ships the agent task surfaces in every build', () => {
     const props = {
       workspace: workspace('FORK'),
       tab: 'tasks' as const,
@@ -113,21 +83,17 @@ describe('watched repository workspace UI', () => {
       onRemoved: () => {},
     };
 
-    const development = renderToStaticMarkup(<WorkspaceShell {...props} developmentBuild />);
-    expect(development).toContain('Agent tasks');
-    expect(development).toContain('Describe a task');
+    const tasks = renderToStaticMarkup(<WorkspaceShell {...props} />);
+    expect(tasks).toContain('Agent tasks');
+    expect(tasks).toContain('Describe a task');
     // Every agent screen carries the overview control.
-    expect(development).toContain('aria-label="Show all tasks"');
-    // Home becomes the design's hero in a development build, and stays the product's home otherwise.
-    expect(renderToStaticMarkup(<WorkspaceShell {...props} tab="home" developmentBuild />))
+    expect(tasks).toContain('aria-label="Show all tasks"');
+    expect(renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />))
       .toContain('What should the agent do in');
-    expect(renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />)).toContain('What should we do?');
-    // A packaged build must not ship a fixture-backed preview.
-    expect(renderToStaticMarkup(<WorkspaceShell {...props} />)).not.toContain('Agent tasks');
 
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
-      <WorkspaceShell {...props} developmentBuild initialAgentTaskId="task-1" />);
+      <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
     expect(open).toContain('Message the agent');
   });
 

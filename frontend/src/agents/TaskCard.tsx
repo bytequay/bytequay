@@ -14,13 +14,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import { displayModelName } from '../settings/model';
+import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
 import type { AgentBridgePort } from './model';
 import { projectTranscript, settleFinalTurn } from './transcript';
-import type { AgentTaskDto, ModelOptionDto } from '../types';
+import type { AgentTaskDto, ModelProviderDto } from '../types';
 
 /** How many of a task's first events a window shows; enough for its opening exchange. */
 export const WINDOW_EVENT_LIMIT = 24;
@@ -29,10 +29,10 @@ export const WINDOW_EVENT_LIMIT = 24;
  * One task as the design's "task window": its own screen, scaled to fit, with a caption below.
  * Nothing inside the thumbnail is interactive — the whole card opens the task.
  */
-export function TaskCard({ task, events, models, width, active = false, now, onOpen, onClose }: {
+export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose }: {
   task: AgentTaskDto;
   events: AgentEventEnvelope[];
-  models: ModelOptionDto[];
+  providers: ModelProviderDto[];
   width: number;
   active?: boolean;
   now: number;
@@ -47,8 +47,11 @@ export function TaskCard({ task, events, models, width, active = false, now, onO
       ? settleFinalTurn(turn, task.terminalAt, task.state === 'COMPLETED')
       : turn
   ));
+  const provider = providers.find((candidate) => candidate.id === task.laneId);
+  const models = provider?.models ?? [];
   const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
-  const meta = `${model}${model === '' ? '' : ' · '}${relativeTime(task.updatedAt, { suffix: false, now })}`;
+  const providerName = provider?.label ?? laneLabel(task.laneId);
+  const meta = `${providerName}${model === '' ? '' : ` · ${model}`} · ${relativeTime(task.updatedAt, { suffix: false, now })}`;
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
       {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
@@ -113,9 +116,9 @@ export function TaskCard({ task, events, models, width, active = false, now, onO
  * The windows for a set of tasks. Each shows its task's first events, read once and bounded, so
  * a Home or overview full of tasks costs one small read per task rather than a subscription.
  */
-export function TaskWindows({ tasks, models, width, bridge, activeTaskId = null, onOpen, onClose }: {
+export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose }: {
   tasks: AgentTaskDto[];
-  models: ModelOptionDto[];
+  providers: ModelProviderDto[];
   width: number;
   bridge: () => AgentBridgePort;
   activeTaskId?: string | null;
@@ -144,7 +147,7 @@ export function TaskWindows({ tasks, models, width, bridge, activeTaskId = null,
           key={task.id}
           task={task}
           events={events[task.id] ?? []}
-          models={models}
+          providers={providers}
           width={width}
           active={task.id === activeTaskId}
           now={now}

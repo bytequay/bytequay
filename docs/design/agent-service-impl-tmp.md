@@ -136,7 +136,7 @@ These are scope rules, not claims that current code already enforces them:
 
 | Role | Owns |
 | --- | --- |
-| Runtime owner | App Server protocol and reference fixtures, Codex/Claude adapters, process supervision, task executor/environment, routing, and quiescence |
+| Runtime owner | App Server protocol and reference fixtures, Codex/Claude adapters, task-owned provider-process supervision, routing, and quiescence |
 | Service/storage owner | Task/turn/event/approval contracts, managed-worktree boundary, SQLite task lifecycle, outbox, provider recovery, and HTTP/SSE DTOs |
 | Desktop owner | Electron REST/SSE client, preload API, React reducer, routes, task UI, accessibility, and plain CSS |
 | Product/release owner | Experimental dependency decision, same-host trust decision, capability policy, and release gate |
@@ -1507,9 +1507,9 @@ Implementation:
   approval action, and announce only bounded state changes rather than every
   streamed token.
 - [x] Complete only while idle/quiescent and the generated branch is clean;
-  close the provider session, stop the task executor, retain history, remove
-  the worktree, and preserve the generated result branch. The closed screen
-  shows the retained branch and HEAD.
+  close the provider session, stop the task-owned provider process, retain
+  history, remove the worktree, and preserve the generated result branch. The
+  closed screen shows the retained branch and HEAD.
 - [x] Adapt the shell reference client to the workspace-safe contract through a
   temporary test workspace; do not preserve a raw-path public API for it.
   Done in CP3: the shell seeds a workspace row and submits only `workspaceId`.
@@ -2007,7 +2007,7 @@ Exit gate:
 - [x] Composite task creation and its first turn replay as one immutable
   client-identified request, including after an ambiguous response.
 
-## [ ] CP11 — Finish Claude parity and pass the release gate
+## [x] CP11 — Finish Claude parity and pass the release gate
 
 **Owners:** all roles
 
@@ -2015,63 +2015,137 @@ Exit gate:
 
 **Visible UI:** yes; release candidate
 
+**Design audit, 2026-09-04:** CP11 starts only after correcting five release
+gaps in the canonical documents: Codex is one task-owned App Server process
+rather than a shared router; attended Claude tasks use CLI `manual` mode so
+unsandboxed work cannot bypass ByteQuay's durable approval through Claude's
+auto-mode classifier, while unattended policies retain CLI `auto`; Claude
+readiness pins the exact typed
+`auth status --json` contract and never parses diagnostics; a durable optional
+turn `failureKind` drives authentication recovery and the existing same-attempt
+CI follow-up without spending another attempt; and the UI gate uses a
+two-stage release-candidate order so packaged journeys can exercise the
+ungated surface. The UI receives normalized provider capabilities, presents
+Auto as a fact rather than a fake menu, and retries an auth-expired message
+only after typed readiness, quiescence, explicit confirmation, and a fresh
+delivery identity.
+
 Implementation:
 
-- [ ] Implement Claude's exact typed authentication/readiness probe, then
+- [x] Implement Claude's exact typed authentication/readiness probe, then
   enable Claude in New task only when a fresh probe is ready. Missing,
   unsupported, or authentication-required states stay disabled with their
   actionable Workspace Settings control.
-- [ ] Map Claude's supported partial/final messages, tools, hooks, approvals,
-  usage, errors, and parent-linked activity into the canonical contract.
-- [ ] Apply exact per-turn model/effort snapshots on new and resumed Claude
+- [x] Map Claude's supported partial/final messages, tools, hooks, approvals,
+  usage, errors, and root task activity into the canonical contract. Partial
+  deltas and their authoritative completion share one provider item identity;
+  `parent_tool_use_id` never manufactures a direct thread edge, so the current
+  lane advertises nested-agent activity as unsupported.
+- [x] Apply exact per-turn model/effort snapshots on new and resumed Claude
   invocations.
-- [ ] Preserve strict MCP configuration, empty inherited setting sources, and
+- [x] Preserve strict MCP configuration, empty inherited setting sources, and
   generated task sandbox settings.
-- [ ] Make authentication-required a typed preflight result that blocks before
+- [x] Run attended `AUTO` tasks with CLI `manual` mode while retaining sandbox
+  auto-allow for ordinary commands; keep unattended policies on CLI `auto`,
+  and reject readiness when the running CLI does not advertise `manual`.
+- [x] Canonicalize equivalent decimal cost representations at the turn/task
+  metric boundary and prove a terminal summary reload from SQLite cannot fail
+  its summary-versus-task metrics invariant.
+- [x] Make authentication-required a typed preflight result that blocks before
   task/turn/resource allocation.
-- [ ] Preserve task resources and retry budget when authentication expires
+- [x] Preserve task resources and retry budget when authentication expires
   during a turn; enable explicit retry after login refresh.
-- [ ] Wire **Refresh login status** to the shared typed
+- [x] Wire **Refresh login status** to the shared typed
   `refreshAgentProviderReadiness` bridge operation. After readiness succeeds,
   **Retry** calls the existing typed `startAgentTurn` operation with a fresh
   idempotency key only after quiescence and explicit resend confirmation; it is
   disabled for `UNKNOWN` delivery and never silently reuses a delivery row.
-- [ ] Hide or explain unsupported Claude controls through capabilities; do not
+- [x] Hide or explain unsupported Claude controls through capabilities; do not
   invent steering, checklist, image, or event fidelity.
-- [ ] Render Codex and Claude through the same reducer without provider-name
+- [x] Render Codex and Claude through the same reducer without provider-name
   branches except capability-specific labels.
-- [ ] Re-run keyboard, focus, labeling, contrast, and restrained live-region
+- [x] Re-run keyboard, focus, labeling, contrast, and restrained live-region
   checks across both provider capability shapes.
-- [ ] Run full security/redaction, replay/reconnect, approval, isolation,
-  recovery, completion, retention, image, subagent, steering, and queue
-  acceptance matrices.
-- [ ] Reconfirm the exact v0.151.0 reference suite, run the latest installed
-  Codex integration journey, and reconfirm the product's recorded
-  experimental/same-host decisions for the release candidate.
-- [ ] Remove this checkpoint's `data-fake` markers and delete the now-unused
+- [x] Run the named automated suites covering security/redaction,
+  replay/reconnect, approval, task/process isolation, recovery, completion,
+  retention, image, subagent, steering, and queue behavior; record any
+  credentialed or visual-only row separately instead of treating a broad
+  checkbox as automated evidence.
+- [x] Reconfirm the auth-free exact-v0.151.0 schema/config compatibility
+  fixture. The legacy environment/exec-server fixture is not evidence for the
+  current per-task production topology.
+- [x] Run the credentialed latest-installed-Codex ByteQuay UI journey.
+- [x] Reconfirmed 2026-09-04: ship the first release as a local desktop app for
+  daily work. Agent processes run under the signed-in macOS account and rely on
+  sandboxing plus explicit approvals. ByteQuay exposes no network listener;
+  Codex App Server communication stays on private stdio. Separate OS-account or
+  VM isolation and remote clients are outside this release's intended scope.
+- [x] Remove this checkpoint's `data-fake` markers and delete the now-unused
   `.agt-fake` rule from `agents.css`.
-- [ ] Remove the development-only UI gate only after every release box passes.
+
+**Release-order constraint:** Keep the development-only UI gate until the
+automated/security checks and both explicit development-build UI journeys below
+pass. Gate removal is then its own checked release step, followed by a fresh
+ungated package and both packaged journeys. A failure keeps CP11 and the
+distributable blocked; it never justifies checking a later row speculatively.
 
 Release checks:
 
-- [ ] `cd backend && mvn verify`
-- [ ] `cd frontend && npm run lint`
-- [ ] `cd frontend && npx tsc --noEmit`
-- [ ] `cd frontend && npm test`
-- [ ] `cd frontend && npm run package`
-- [ ] Packaged Codex create -> two turns -> approval -> reload -> cancel ->
-  complete journey passes.
-- [ ] Packaged Claude create -> two turns -> approval -> reload -> cancel ->
-  complete journey passes for advertised capabilities.
-- [ ] Interactive Codex and Claude `agent-e2e.sh` runs remain useful backend
-  diagnostics.
-- [ ] Logged-out/unsupported providers allocate no task resources.
-- [ ] `grep -rn 'data-fake\|agt-fake' frontend/src` returns nothing, so no
+- [x] `cd backend && mvn verify`
+- [x] `cd frontend && npm run lint`
+- [x] `cd frontend && npx tsc --noEmit`
+- [x] `cd frontend && npm test`
+- [x] Logged-out/unsupported providers allocate no task resources.
+- [x] `grep -rn 'data-fake\|agt-fake' frontend/src` returns nothing, so no
   shipped pixel is a placeholder.
-- [ ] No event/blob/IPC payload contains provider credentials, backend session
-  secrets, raw hidden reasoning, arbitrary paths, or unbounded output.
-- [ ] No custom ByteQuay model tool, commit workflow, generic task framework,
+- [x] Named serialization, redaction, attachment-path, hidden-reasoning, and
+  bounded-output tests prove no event/blob/IPC payload contains provider
+  credentials, backend session secrets, raw hidden reasoning, renderer-supplied
+  attachment paths, or internal attachment/runtime storage paths as authority,
+  and no output is unbounded. Canonical command activity may still display the
+  provider-reported argv/cwd facts needed for inspection.
+- [x] No custom ByteQuay model tool, commit workflow, generic task framework,
   raw log viewer, UI framework, or copied Codex Desktop asset entered scope.
+- [x] Development-build Codex UI create -> two turns -> approval -> reload ->
+  cancel -> complete journey passes.
+- [x] Development-build Claude UI create -> two turns -> approval -> reload ->
+  cancel -> complete journey passes for advertised capabilities.
+- [x] Remove the development-only UI gate only after every preceding automated,
+  security, and development-build live row passes.
+- [x] `cd frontend && npm run package` builds the ungated release candidate.
+- [x] Packaged Codex create -> two turns -> approval -> reload -> cancel ->
+  complete journey passes.
+- [x] Packaged Claude create -> two turns -> approval -> reload -> cancel ->
+  complete journey passes for advertised capabilities.
+- [x] `./scripts/agent-e2e.sh --interactive --provider codex` completes its
+  credentialed two-turn backend diagnostic with the Codex executable,
+  readiness, and model catalog selected in isolation.
+- [x] `./scripts/agent-e2e.sh --interactive --provider claude` completes its
+  credentialed two-turn backend diagnostic with the Claude executable,
+  readiness, and model catalog selected in isolation.
+- [x] The packaged journeys spot-check the same credential, hidden-reasoning,
+  attachment/storage-path authority, and bounded-output boundary proven by the
+  named automated tests.
+
+**Engineering and release evidence, 2026-09-04:** the final clean backend
+reactor verification passed 1,130 tests with no failures, errors, or skips. The
+post-gate frontend lint, TypeScript, and 418-test Vitest suite passed, as did the
+auth-free exact-v0.151.0 fixture and both exact no-extra-flag credentialed shell
+diagnostics. Development journeys passed as Codex task
+`8eeffda7-21e6-4e9c-9b60-d0179345b4cb` and Claude task
+`e489f4bf-a407-4a6a-ab31-8afe4c64a050`; the ungated package journeys passed as
+Codex task `cce93f26-398f-4b1c-abd2-c311ebdba43a` and Claude task
+`f73958d8-2b63-486e-9adc-dbcb31fb6e20`. The Claude package journey proved a
+reload-persistent approval, two turns, cancellation, provider quiescence,
+scratch cleanup, and successful clean-checkout removal. It also exposed and
+then regression-tested a scale-only SQLite cost reload mismatch; the rebuilt
+package read the affected row and drained its pending event without migration.
+The final packaged backend SHA-256 is
+`ba6871f56e4ad3a861c2d6c20fd845f8e1b46ec0280a4bd5619011f941b9fbf3`,
+matching the clean reactor artifact. The package contains no development-gate
+or fake-marker strings, keeps the hardened Electron fuses, and its live event
+spot-check found no session token, credential marker, raw hidden reasoning, or
+unbounded payload.
 
 ## 7. Review gates
 
@@ -2097,19 +2171,18 @@ checkpoint rather than reasons to reopen the compatibility spike.
 - [x] Is the unauthenticated loopback task-executor boundary acceptable on the
   same host? Moot: the executor and its listener were removed on 2026-09-02, so
   ByteQuay opens no local listener of its own.
-- [ ] Is CP7 the right first usable real-runtime milestone, with images, rich
-  folding, subagents, queueing, and Claude parity deliberately following it?
+- [x] CP7 was the first usable real-runtime milestone; images, rich folding,
+  subagents, queueing, and Claude parity followed in their recorded checkpoints.
 - [x] Has CP0 selected and canonically designed one separate managed worktree
   per task, shared across interactive, cherry-pick, and CI Autofix workflows?
 - [ ] Is seven-day detailed runtime retention still the desired product policy?
 
-## 8. Next implementation action
+## 8. Current implementation action
 
-CP0 through CP10 are implemented and verified in this working tree. Next is
-CP11: the typed Claude readiness probe,
-Claude's event and approval mapping, the provider and permission chips that
-replace the last two `data-fake` placeholders, and the release gate.
+CP0 through CP11 are implemented, verified, and product-approved in this
+working tree. The development gate has been removed in the required order and
+the ungated release candidate passes both provider journeys. The separate
+seven-day retention-policy question remains open in the review-gate ledger.
 
-`grep -rn data-fake frontend/src` lists exactly those placeholders — the
-provider chip and the permission chip for CP11; the `.agt-fake` rule in
-`agents.css` goes when the last of them does.
+`grep -rn 'data-fake\|agt-fake' frontend/src` must remain empty; CP11 removed
+both placeholders and the unused `.agt-fake` rule.

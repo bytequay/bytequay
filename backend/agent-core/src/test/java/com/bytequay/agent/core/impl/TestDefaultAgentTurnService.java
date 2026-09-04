@@ -38,6 +38,7 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -65,8 +66,11 @@ import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CostProvenance;
@@ -229,6 +233,49 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void trustsCreationReadinessOnlyForTheFreshInteractiveFirstTurn()
+    {
+        AgentTask interactive = interactiveTask("First request");
+        int probesAfterCreation = driver.probeCount();
+        driver.readiness(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+
+        AgentTurn first = service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
+                interactive.id(),
+                "First request",
+                ImmutableList.of(),
+                "create-key"));
+
+        assertThat(first.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(driver.probeCount()).isEqualTo(probesAfterCreation);
+        driver.complete("done");
+
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
+                interactive.id(),
+                "Later request",
+                ImmutableList.of(),
+                "later-key")))
+                .isInstanceOf(AgentProviderUnavailableException.class);
+        assertThat(driver.probeCount()).isEqualTo(probesAfterCreation + 1);
+    }
+
+    @Test
+    void rejectsTaskCreationReadinessForANonInteractiveTask()
+    {
+        int probesBeforeStart = driver.probeCount();
+
+        assertThatThrownBy(() -> service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
+                task.id(),
+                "First request",
+                ImmutableList.of(),
+                "create-key")))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("fresh interactive task");
+
+        assertThat(driver.probeCount()).isEqualTo(probesBeforeStart);
+        assertThat(stores.list(task.id())).isEmpty();
+    }
+
+    @Test
     void runsMultipleTurnsInOneSessionAndRoutesSynchronousUsage()
     {
         driver.emitUsageOnOpen(usage("usage-1", 4, 1, 2));
@@ -269,6 +316,19 @@ class TestDefaultAgentTurnService
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.ASSISTANT_MESSAGE)
                 .extracting(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text())
                 .containsExactly("first response", "second response");
+    }
+
+    @Test
+    void persistsTypedProviderFailureOnTheTerminalTurn()
+    {
+        AgentTurn turn = service.start(command("first", "key-1"));
+
+        driver.fail("Claude sign-in required", AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
+
+        AgentTurn failed = service.get(turn.id());
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.failureKind()).contains(AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
     }
 
     @Test

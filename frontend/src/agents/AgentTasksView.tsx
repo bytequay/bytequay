@@ -17,9 +17,11 @@ import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import { ModelPicker } from './ModelPicker';
+import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskDto, ModelOptionDto, ModelSettingsDto } from '../types';
+import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 import { createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
+import { agentProviderUnavailableFrom } from './contracts';
 
 export interface AgentTasksViewProps {
   workspaceId: string;
@@ -33,7 +35,7 @@ export interface AgentTasksViewProps {
   onOpenTask: (taskId: string) => void;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
-  /** Fixed Codex lane; Claude arrives with its parity checkpoint. */
+  /** Initial provider selection; the person may change it until the first message creates a task. */
   laneId?: string;
 }
 
@@ -84,7 +86,7 @@ export function creationBlocker(
     return `${laneLabel(laneId)} has not been checked yet. Check it in Workspace settings → Agent providers.`;
   }
   if (!providerAvailable(provider.readiness)) {
-    const remedy = providerRemedy(provider.readiness);
+    const remedy = providerRemedy(provider.readiness, provider.id);
     const command = remedyCommand(provider, remedy);
     // The probe's own diagnostic names the actual obstacle; the remedy alone can be generic.
     return `${laneLabel(laneId)} is not ready — ${remedy.title}. ${remedy.detail}`
@@ -101,9 +103,9 @@ export function creationBlocker(
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpenTask }: {
   workspaceId: string;
-  laneId: string;
+  initialLaneId: string;
   bridge: () => AgentBridgePort;
   onOpenTask: (taskId: string) => void;
 }) {
@@ -111,11 +113,26 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
+  const [laneId, setLaneId] = useState(initialLaneId);
   const [selection, setSelection] = useState<{ model: string; effort: string | null } | null>(null);
   const [draft, setDraft] = useState('');
   const submissionRef = useRef<TaskCreationTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
   const submissions = submissionRef.current;
+
+  const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaneId) => {
+    setCatalog(settings);
+    const provider = settings.providers.find((candidate) => candidate.id === preferredLaneId)
+      ?? settings.providers.find((candidate) => candidate.id === settings.mainId)
+      ?? settings.providers[0];
+    if (provider !== undefined && provider.selectedModel !== '') {
+      setLaneId(provider.id);
+      setSelection({
+        model: provider.selectedModel,
+        effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
+      });
+    }
+  }, [initialLaneId]);
 
   useEffect(() => {
     let active = true;
@@ -141,23 +158,25 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
     bridge().getModelSettings()
       .then((settings) => {
         if (!active) return;
-        setCatalog(settings);
-        const provider = settings.providers.find((candidate) => candidate.id === laneId);
         // The user's own default selection, not a guess this screen invents.
-        if (provider !== undefined && provider.selectedModel !== '') {
-          setSelection({
-            model: provider.selectedModel,
-            effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
-          });
-        }
+        applyCatalog(settings);
       })
       .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
     return () => { active = false; };
-  }, [bridge, laneId]);
+  }, [applyCatalog, bridge]);
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
   const blocker = creationBlocker(catalog, laneId, selection);
+
+  const selectProvider = useCallback((nextLaneId: string) => {
+    const next = catalog?.providers.find((candidate) => candidate.id === nextLaneId);
+    if (next === undefined || !providerAvailable(next.readiness)) return;
+    setLaneId(next.id);
+    setSelection(next.selectedModel === ''
+      ? null
+      : { model: next.selectedModel, effort: next.selectedEffort === '' ? null : next.selectedEffort });
+  }, [catalog]);
 
   const create = useCallback(async () => {
     const message = draft.trim();
@@ -179,6 +198,19 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
       acceptCreatedTask(await bridge().createAgentTask(request));
     }
     catch (failure) {
+      const unavailable = agentProviderUnavailableFrom(failure);
+      if (unavailable !== null) {
+        const remedy = providerRemedy(unavailable.readiness, unavailable.laneId);
+        const command = remedyCommand(unavailable, remedy);
+        setError(`${laneLabel(unavailable.laneId)} is not ready — ${remedy.title}. ${unavailable.diagnostic}`
+          + (command === null ? '' : ` Run: ${command}`));
+        // The preflight contract says no mutation happened, so do not replay it as an ambiguous
+        // delivery. Refresh the typed catalog and wait for another deliberate click.
+        void bridge().getModelSettings()
+          .then((settings) => applyCatalog(settings, unavailable.laneId))
+          .catch(() => {});
+        return;
+      }
       // The retained request makes the same click safe when the backend answer was lost.
       setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
       try {
@@ -191,9 +223,23 @@ export function useAgentTaskCreation({ workspaceId, laneId, bridge, onOpenTask }
         // Still unresolved: keep the exact request for a safe retry.
       }
     }
-  }, [blocker, bridge, draft, laneId, onOpenTask, selection, submissions, workspaceId]);
+  }, [applyCatalog, blocker, bridge, draft, laneId, onOpenTask, selection, submissions, workspaceId]);
 
-  return { tasks, loading, error, models, selection, setSelection, draft, setDraft, blocker, create };
+  return {
+    tasks,
+    loading,
+    error,
+    catalog,
+    laneId,
+    selectProvider,
+    models,
+    selection,
+    setSelection,
+    draft,
+    setDraft,
+    blocker,
+    create,
+  };
 }
 
 export default function AgentTasksView({
@@ -207,19 +253,21 @@ export default function AgentTasksView({
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, laneId, bridge: live, onOpenTask });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
   return (
     <AgentTaskList
       tasks={creation.tasks}
       loading={creation.loading}
       error={creation.error}
-      laneId={laneId}
+      laneId={creation.laneId}
+      providers={creation.catalog?.providers ?? []}
       models={creation.models}
       selection={creation.selection}
       draft={creation.draft}
       blocker={creation.blocker}
       branch={branch}
       onDraftChange={creation.setDraft}
+      onSelectProvider={creation.selectProvider}
       onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
       onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
@@ -232,15 +280,17 @@ export default function AgentTasksView({
 
 /** The card that creates a task: the first message above the branch, provider, permission and model facts. */
 export function TaskComposer({
-  draft, blocker, branch, laneId, models, selection, onDraftChange, onSelectModel, onCreate, onOpenSettings,
+  draft, blocker, branch, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
 }: {
   draft: string;
   blocker: string | null;
   branch?: string;
   laneId: string;
+  providers: ModelProviderDto[];
   models: ModelOptionDto[];
   selection: { model: string; effort: string | null } | null;
   onDraftChange: (draft: string) => void;
+  onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
   onCreate: () => void;
   onOpenSettings?: () => void;
@@ -278,19 +328,13 @@ export function TaskComposer({
         />
         <div className="agt-compose__row">
           <button type="button" className="agt-attach" aria-label="Attach an image" title="Create the task first, then attach images" disabled>+</button>
-          {/* Codex is the only lane until Claude parity lands, so this cannot open a menu yet. */}
-          <button
-            type="button"
-            className="agt-compose__chip agt-fake"
-            data-fake="CP11 · provider choice"
-            title={`${laneLabel(laneId)} is the only provider until Claude parity lands`}
-            disabled
-          >
-            {laneLabel(laneId)} <Chevron open size={11} />
-          </button>
-          <button type="button" className="agt-compose__chip agt-fake" data-fake="CP11 · permission choice" title="Auto asks before anything risky" disabled>
-            Auto <Chevron open size={11} />
-          </button>
+          <ProviderPicker
+            providers={providers}
+            selectedId={laneId}
+            onSelect={onSelectProvider}
+            onOpenSettings={onOpenSettings}
+          />
+          <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the new task"
@@ -317,13 +361,14 @@ export function TaskComposer({
 }
 
 export function AgentTaskList({
-  tasks, loading, error, laneId, models, selection, draft, blocker, branch, children,
-  onDraftChange, onSelectModel, onCreate, onOpenTask, onOpenSettings,
+  tasks, loading, error, laneId, providers, models, selection, draft, blocker, branch, children,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings,
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
   error: string | null;
   laneId: string;
+  providers: ModelProviderDto[];
   models: ModelOptionDto[];
   selection: { model: string; effort: string | null } | null;
   /** The first message; sending it creates the task and names it until the agent answers. */
@@ -333,6 +378,7 @@ export function AgentTaskList({
   branch?: string;
   children?: React.ReactNode;
   onDraftChange: (draft: string) => void;
+  onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
@@ -362,6 +408,9 @@ export function AgentTaskList({
             )}
             {tasks.map((task) => {
               const pill = taskStatePill(task);
+              const taskProvider = providers.find((provider) => provider.id === task.laneId);
+              const taskModels = taskProvider?.models ?? [];
+              const taskModel = displayModelName(taskModels.find((model) => model.id === task.defaults.model)?.name ?? task.defaults.model ?? 'No model');
               return (
                 <button
                   key={task.id}
@@ -372,7 +421,7 @@ export function AgentTaskList({
                   <span className="agt-row__mark" aria-hidden="true">❋</span>
                   <span className="agt-row-title agt-ellipsis">{task.title}</span>
                   <span className="agt-mono agt-row-meta">
-                    {displayModelName(models.find((model) => model.id === task.defaults.model)?.name ?? task.defaults.model ?? laneLabel(task.laneId))}
+                    {taskProvider?.label ?? laneLabel(task.laneId)} · {taskModel}
                     {' · '}
                     {relativeTime(task.updatedAt, { suffix: false, now })}
                   </span>
@@ -394,9 +443,11 @@ export function AgentTaskList({
         blocker={blocker}
         branch={branch}
         laneId={laneId}
+        providers={providers}
         models={models}
         selection={selection}
         onDraftChange={onDraftChange}
+        onSelectProvider={onSelectProvider}
         onSelectModel={onSelectModel}
         onCreate={onCreate}
         onOpenSettings={onOpenSettings}

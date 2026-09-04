@@ -482,6 +482,8 @@ public sealed interface ProviderAgentEvent
     enum MessageKind
     {
         ANSWER,
+        /** An assistant observation that is not the turn's terminal answer. */
+        COMMENTARY,
         REASONING_SUMMARY,
         PLAN_TEXT,
         /** The message an agent was given; on a subagent, the prompt its parent spawned it with. */

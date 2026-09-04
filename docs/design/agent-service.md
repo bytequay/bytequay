@@ -9,11 +9,11 @@ The exact service and method sequence is defined in
 The shared provisioning and cleanup boundary is defined in
 [Managed Worktree Service](worktree-service.md).
 
-## Current implementation and follow-up (2026-09-01)
+## Current implementation (2026-09-04)
 
-This status note records the boundary discovered while testing cherry-pick
-conflict resolution. It supersedes older wording that described the entire
-agent subsystem as future work.
+This status note records the implemented, ungated release-candidate boundary.
+It supersedes older wording that described the agent subsystem or its rich task
+surface as future work.
 
 ### Current situation
 
@@ -23,10 +23,10 @@ agent subsystem as future work.
   references, and maps App Server JSON-RPC notifications into
   `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
-  reference fixture. It does not constrain production. ByteQuay keeps Codex's
-  startup self-update enabled and uses the user-managed installed CLI without
-  treating any reported version text, including unparseable output, as a readiness
-  gate. The detected version text is retained for status and
+  reference fixture. It does not constrain production. ByteQuay updates a
+  user-managed Codex CLI only when its parsed version is below the supported
+  minimum; newer or unparseable version text is left alone and never becomes a
+  readiness gate. The detected version text is retained for status and
   incompatibility diagnostics. The product accepted the experimental
   dependency for the planned first task release on 2026-08-31; compatibility
   and release acceptance still must pass.
@@ -50,22 +50,18 @@ agent subsystem as future work.
   Interactive tasks, cherry-pick, and CI Autofix own fresh managed worktrees;
   Branch Rebase borrows its caller's `TaskWorktree`, and public start routes no
   longer accept repository or worktree paths.
-- Those logs currently stop at the backend boundary: the cherry-pick execution
-  response omits both IDs, the Electron bridge has no task-event operation,
-  and `ProgressView` renders a static resolving placeholder. Completed items
-  retain an agent-turn count but not their turn IDs, so the renderer also lacks
-  a durable item-to-turn mapping for replay after completion.
+- The ungated React task surface uses typed Electron operations for create,
+  replay/SSE, later turns, approvals, recovery, cancellation, and completion.
+  It projects the same durable events for Codex and Claude through normalized
+  capabilities rather than a second frontend logging path.
+- Cherry-pick remains a separate workflow projection. Its progress presentation
+  does not change the interactive task contract or create another agent service.
 
-The target/fixup retention, direct pull-request projection, and automatic CI
-watch changes are independent of this gap. The conflict-resolution log display
-remains open; this change deliberately does not add an interim bridge or a
-second logging path.
+### Implemented rich-task boundary
 
-### Proposed follow-up boundary
-
-The rich task surface is a new design for review; this document does not claim
-that the UI or the added contracts are already shipped. It extends the current
-service instead of introducing a second agent framework.
+The rich task surface is implemented and ungated. It extends the existing
+service instead of introducing a second agent framework; the remaining CP11
+release rows govern distribution, not whether this architecture exists.
 
 The Codex driver's wire DTOs and compact generated reference projection remain
 private to `agent-cli`. The projection is authoritative for the consumed Codex
@@ -75,7 +71,7 @@ attachment, thread-correlation, and event contracts required by the product.
 Claude continues to adapt its native stream to those contracts; it does not
 pass through Codex App Server.
 
-The follow-up therefore has these fixed boundaries:
+The implementation therefore has these fixed boundaries:
 
 1. one App Server process serves exactly one task, so its root and child
    thread IDs need no routing between tasks;
@@ -98,14 +94,14 @@ workflow/task ID but is not silently inserted into an interactive workspace
 list. A legacy event without source-thread/item metadata renders in a
 root-level legacy stream; ByteQuay does not invent child relationships.
 
-CP2 froze the provider-neutral part of that target: interactive task rows
+CP2 froze the provider-neutral part of that boundary: interactive task rows
 carry a workspace discriminator and defaults, accepted turns retain immutable
 requested settings and opaque attachment references, schema-v2 events carry
 stable event/source identity, accepted user messages and approval lifecycle are
 replay events, and legacy rows/logs remain readable. CP3 then activated the
 workspace-safe public request and narrowed response records, the managed
-worktree, and the crash-safe outbox. CP4 must still apply each accepted
-settings snapshot to the App Server runtime. Pending
+worktree, and the crash-safe outbox. CP4 applied each accepted settings
+snapshot to the task-owned App Server runtime. Pending
 approval records and their lifecycle events are durable; only the live
 provider callback remains process-local. Startup closes all durable pending
 approvals, including rows owned by an already-terminal turn. Every state-coupled
@@ -119,9 +115,10 @@ unsent; a failure after it without a provider reference is uncertain and
 retains the blocking turn and mutation claim, so neither Send nor Complete can
 silently race or resend it. Startup derives the same facts from the turn; the
 task remains `OPEN`. Codex image inputs, steering, and the durable queue ship
-behind the authenticated Electron bridge: a steer is its own delivery row and
+through the authenticated Electron bridge: a steer is its own delivery row and
 is never resent, and a queued input is claimed with its turn and the worktree
-in one unit of work.
+in one unit of work. CP11 adds the typed Claude readiness, event, approval,
+capability, and authentication-recovery behavior described below.
 
 Cherry-pick sequencing, Git verification, CI attempt limits, exact-lease
 pushes, and user-confirmation gates remain application-owned invariants. The
@@ -133,7 +130,7 @@ not decide those workflow outcomes.
 ByteQuay has a new local agent subsystem rather than the deleted task-agent
 implementation. Every task is bound to one ByteQuay workspace, one separately
 provisioned ByteQuay-owned Git worktree, and one immutable provider lane. The
-proposed frontend sends multiple turns to the same task; the selected driver
+ungated frontend sends multiple turns to the same task; the selected driver
 resumes the provider session.
 
 The backend exposes user inputs plus provider-supported messages, readable
@@ -167,8 +164,8 @@ also fails closed. Supporting a broader shape later requires new exact
 executable evidence.
 
 Phase one observes App Server's native command, file, web, and other built-in
-tool execution through the selected task environment. The Codex lane registers
-no ByteQuay business MCP or dynamic tools and does not use
+tool execution through the task-owned process and worktree. The Codex lane
+registers no ByteQuay business MCP or dynamic tools and does not use
 `--code-mode-host`; product tools and workflows, including commit integration,
 require a separate later design. Claude's task-scoped permission callback is
 only an approval transport adapter, not a product tool.
@@ -217,7 +214,7 @@ amount.
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
 | `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
-| `AgentTurnResult` | Provider/process terminal lifecycle and operational diagnostics; no assistant text |
+| `AgentTurnResult` | Provider/process terminal lifecycle, operational diagnostics, and a bounded optional final response for direct text-only consumers |
 | `AgentTask` | Durable workspace, lifecycle state, lane, worktree, defaults, timestamps, totals, summary, and optional successful worktree-removal time |
 | `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
 | `TaskResources` | Validated runtime paths owned by one task |
@@ -600,8 +597,8 @@ public interface AgentTurnService
      *
      * <p>Cancellation is idempotent. The method signals the provider run and
      * every known active descendant, then cleans the matching App Server
-     * background terminals. Stopping the supervised shared provider process is
-     * a last resort because it interrupts unrelated Codex tasks. An already
+     * background terminals. Stopping the supervised provider process is a
+     * last resort because it interrupts every thread in this task. An already
      * {@code INTERRUPTED} turn may retain its claim until item/history and
      * background-terminal reconciliation succeeds.
      *
@@ -1010,6 +1007,11 @@ Cost values require provenance:
 - `UNAVAILABLE`: subscription/account use cannot be translated into an API
   invoice.
 
+Cost equality is numeric rather than scale-sensitive. `TurnMetrics` and
+`TaskMetrics` remove insignificant trailing decimal zeros at construction, so
+equivalent values survive SQLite and summary-JSON round trips without breaking
+the terminal task invariant that summary metrics equal task metrics.
+
 ByteQuay does not estimate subscription-backed Codex cost from a local price
 table. If the provider does not report an amount, the UI displays
 `unavailable`; a CLI estimate is visibly labeled as approximate.
@@ -1199,7 +1201,7 @@ public interface AgentSession
      * {@link AgentDriver#open}.
      *
      * @param command provider-neutral prompt, task-owned attachments, selected
-     * model, reasoning effort, and turn policy
+     * model, reasoning effort, and maximum runtime
      * @return a handle for completion and cancellation
      * @throws AgentUnavailableException when the provider refuses or cannot start
      */
@@ -1211,8 +1213,8 @@ public interface AgentSession
      * <p>Closing does not delete provider-owned history and must be idempotent.
      * Normal task completion calls it only after the execution tree is
      * quiescent; the driver unsubscribes the root and every known subscribed
-     * child thread. Recovery may instead terminate the shared owned provider
-     * process tree and observe exit, which interrupts every task using it.
+     * child thread. Recovery may instead terminate this task's owned provider
+     * process tree and observe exit; another task has a separate process tree.
      */
     @Override
     void close();
@@ -1252,7 +1254,7 @@ public interface RunningTurn
      * The stage completes normally; provider or transport failure is an
      * interrupted or failed terminal result, never exceptional completion.
      * After transport loss, interruption is not reported as quiescent until
-     * the shared provider process is stopped or the replacement server can
+     * this task's provider process is stopped or the replacement server can
      * reconcile the same thread to the contract above.
      *
      * @return lifecycle completion for success, failure, cancellation, or interruption
@@ -1279,19 +1281,28 @@ public interface RunningTurn
 }
 ```
 
-`AgentTurnResult` is consumed inside `AgentTurnService`; application
-services do not receive it. It contains lifecycle and operational diagnostics,
-not assistant response text. The service maps only provider-protocol and
-process facts to the durable turn lifecycle: an official terminal success or
-failure, an explicit cancellation, or a lost/uncertain execution. Assistant
-messages are separate events and are never inspected to decide whether a turn
-completed or failed.
+`AgentTurnResult` is consumed by `AgentTurnService` and by direct text-only
+application consumers such as the writing assistant. It contains lifecycle
+facts, operational diagnostics, and a bounded optional `finalResponse` for
+those direct consumers. Durable `AgentTurnService` ignores `finalResponse` as
+task output and maps only provider-protocol and process facts to the durable
+turn lifecycle: an official terminal success or failure, an explicit
+cancellation, or a lost/uncertain execution. Canonical assistant messages are
+separate events and remain authoritative for durable tasks; neither their text
+nor `finalResponse` is inspected to decide whether a turn completed or failed.
 
-`AgentTurnCommand` contains the accepted input and one immutable
-`AgentTurnSettings` snapshot: model, optional reasoning effort, permission
-policy, and maximum runtime. `AgentTurnInput` contains only steerable text and
-attachment references. `AgentCapabilities` adds native steering support, while
-each `ProviderModel` reports its own input modalities and effort choices.
+`AgentTurnCommand` contains the accepted text and attachments plus the immutable
+per-invocation fields the driver consumes: model, optional reasoning effort,
+and maximum runtime. Durable `AgentTurnSettings` also records the effective
+permission and sandbox policies. Those policies are enforced through the
+task-scoped `AgentSessionContext`: public interactive tasks are fixed to `AUTO`
+and each workflow policy is fixed for the lifetime of its task, so a reused
+session cannot observe policy drift under the current surface. Any future
+per-turn permission change must move that policy into `AgentTurnCommand` or
+recreate the provider session before it is accepted. `AgentTurnInput` contains
+only steerable text and attachment references. `AgentCapabilities` adds native
+steering support, while each `ProviderModel` reports its own input modalities
+and effort choices.
 
 ### 4.5 AgentEventSink
 
@@ -1406,13 +1417,13 @@ public interface PreparedProcess
 
 `ProcessSpec` carries an agent-cli-local opaque owner string; it never imports a
 `TaskId` or `TurnId` type from `agent-core`. The owning driver maps that value
-back to durable domain state. It also carries one closed `ExecutionProfile`
-value rather than arbitrary sandbox text:
+back to durable domain state. `ProcessOwner.Kind` also carries one closed
+`ExecutionProfile` value rather than arbitrary sandbox text:
 
-- `PROVIDER_CONTROL` owns the long-lived App Server or one Claude control
-  process and does not claim an endpoint-level network allowlist;
-- `TASK_EXEC_SERVER` owns one loopback Codex executor and its built-in sandbox
-  helpers.
+- `PROVIDER_CONTROL` owns one task's App Server or one Claude turn process and
+  does not claim an endpoint-level network allowlist;
+- `TASK_EXEC_SERVER` is retained only to recover markers written by the
+  superseded loopback-executor design; no current launch selects it.
 
 Adding another profile requires a design change and compatibility fixture. A
 caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
@@ -2358,7 +2369,7 @@ provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 The Codex lane uses the documented
 [Codex App Server protocol](https://learn.chatgpt.com/docs/app-server),
 not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
-long-lived process and multiplexes tasks by Codex thread ID:
+process per active Codex task, rooted at that task's managed worktree:
 
 ```text
 codex app-server --listen stdio://
@@ -2487,7 +2498,7 @@ The driver normalizes these App Server events:
 | `fileChange` items and `turn/diff/updated` | File change and aggregated diff |
 | `mcpToolCall` and experimental `dynamicToolCall` items | Disabled by the base agent release; the separately gated CodeGraph design may enable and normalize only its two fixed optional tools |
 | `webSearch` and `imageView` items | Search/view activity and terminal result |
-| synchronous `hook/started` and `hook/completed` notifications | Hook name, lifecycle, and bounded result; asynchronous hooks emit no lifecycle notification |
+| synchronous `hook/started` and `hook/completed` notifications | Reserved for a future approved profile; the first-release strict profile requires `hooks/list` to be empty and advertises no Codex hook lifecycle |
 | V1 `collabAgentToolCall` with `tool: "spawnAgent"`, `senderThreadId`, `receiverThreadIds[]`, and `agentsStates` | Child discovery and direct parent relation; other collaboration tools update activity but never manufacture a parent/child edge; child content comes from child history |
 | Multi-Agent V2 `subAgentActivity` with `agentThreadId`/`agentPath` | V2 child discovery, canonical absolute logical agent path (not a filesystem path), lifecycle, and routing when the selected model advertises V2 |
 | command, file-change, and permission approval server requests | Typed approval request; the later ByteQuay resolution is a separate event |
@@ -2537,8 +2548,8 @@ any applicable or uninspectable managed requirements fail readiness. A
 read/list error, active descendant/item/process/background terminal, or
 unstable closure keeps the `OPEN` task blocked with the recovery-required
 projection. If transport is lost before that proof, it retains the turn claim
-and stops the shared App Server process only as a last-resort recovery action,
-because doing so interrupts the task that owns that process.
+and stops that task's App Server process only as a last-resort recovery action;
+no other task shares that process.
 
 The task uses the running App Server's selected sandbox and approval policy.
 Readiness verifies that ordinary built-in tool execution works and stays inside
@@ -2552,13 +2563,13 @@ custom tool router, semantic Git-command policy, or post-turn Git workflow in
 this phase. The separately gated CodeGraph bridge remains limited to its two
 fixed structural tools.
 
-The shared connection router maintains root-thread-to-task, active-turn-to-
-task, and known-child-to-root maps. A task event that arrives for an unknown
-child is held in a small bounded buffer until collaboration or thread session
-metadata binds it; expiry becomes a provider diagnostic rather than a guessed
-task event. A server request is answered only after the same registry resolves
-its owning task and source. Unmatched, late, or unsupported requests receive a
-fail-closed cancel/deny response and never appear as another task's approval.
+Each task connection maintains its own root-thread, active-turn, and
+known-child registry. A task event that arrives for an unknown child is held in
+a small bounded buffer until collaboration or thread session metadata binds
+it; expiry becomes a provider diagnostic rather than a guessed source. A
+server request is answered only after that task-local registry resolves its
+source. Unmatched, late, or unsupported requests receive a fail-closed
+cancel/deny response and never appear as another task's approval.
 
 Readable reasoning summaries may be exposed as progress when the provider emits
 them. Raw reasoning text is not persisted or shown, even if a model or protocol
@@ -2599,11 +2610,12 @@ uses an `UNKNOWN` default for future wire values. The compact manifest is the
 authoritative reference projection; it is not a second public domain model or
 a generated production client.
 
-The current [v0.151.0 compatibility fixture](codex-app-server-compat.md)
+The [v0.151.0 compatibility fixture](codex-app-server-compat.md)
 regenerates stable and experimental schemas, verifies their bundle hashes,
-required surface, and compact Java projection. An earlier recorded live slice
-proves two turns routed through two distinct executors without ambient fallback.
-The current repeatable live fixture extends that check to two independent root
+required surface, and compact Java projection. Its recorded live slice proves
+the superseded environment/exec-server boundary rather than the current
+production task-process topology, so CP11 uses it only as protocol and
+configuration evidence. That historical fixture covered two independent root
 tasks and three turns. Both subscription-backed paths passed locally on
 2026-08-31 with `gpt-5.6-sol`; the recursive run used its advertised V2 graph
 while validating a supplementary V1 collaboration record. The default fixture
@@ -2650,16 +2662,17 @@ profile; the separate CP1 child-capable proof passed, while production adoption
 belongs to CP4. The fixture's opt-in `--live-children` path selects the
 model-advertised V1/V2 profile, validates recursive history, and passed its
 subscription-backed local smoke run with the explicitly selected ChatGPT
-profile. CP0 through CP3 are complete: the approved static UI remains behind its
-development-only gate, the current HTTP/SSE journey has a sanitized golden
-baseline, and the provider-neutral contract, managed worktree, and crash-safe
-replay have shipped. CP4 now owns Codex task isolation and quiescent recovery.
+profile. That paragraph records a historical CP0-through-CP3 milestone: the
+static UI was then behind a development-only gate while CP4 still owned Codex
+task isolation and quiescent recovery. CP4 and the later rich-task checkpoints
+are now implemented, and the current release-candidate surface is ungated.
 
 That exact fixture and its projection are reference-only and never form a
 production version allowlist. The driver probe runs `codex --version` for
 display and diagnostics, not acceptance: no reported version text, whether
-older, newer, prerelease, or unparseable, disables the lane. Startup self-update
-remains enabled. Production decoding keeps the same additive-field and
+older, newer, prerelease, or unparseable, disables the lane. The startup update
+is only a minimum-version floor; newer or unparseable versions are left alone.
+Production decoding keeps the same additive-field and
 future-enum tolerance checked by the conformance test. If a real request,
 response, or required event is incompatible, ByteQuay fails that operation
 without silently dropping data and includes the detected version text in the
@@ -2673,9 +2686,9 @@ fixtures. It subtracts the baseline captured by
 the counters as cumulative; otherwise it normalizes snapshots or deltas
 defensively without double counting.
 
-If App Server disconnects, all live turns become `INTERRUPTED`. ByteQuay may
-restart and initialize the shared process, but it resumes a thread and starts a
-new turn only after an explicit user retry.
+If a task's App Server disconnects, that task's live turn becomes
+`INTERRUPTED`. ByteQuay may restart and initialize the task-owned process, but
+it resumes the thread and starts a new turn only after an explicit user retry.
 
 ### 8.2 ClaudeCliDriver
 
@@ -2697,7 +2710,7 @@ claude
   --strict-mcp-config
   --setting-sources=
   --settings <task-provider-directory>/claude-sandbox-settings.json
-  --permission-mode auto
+  --permission-mode manual
   --mcp-config <task-provider-directory>/bytequay-mcp.json
   --permission-prompt-tool mcp__bytequay__permission_prompt
   --session-id <generated-claude-session-id>
@@ -2743,16 +2756,29 @@ The output flags have distinct purposes:
 | `--verbose` | Emits the complete turn-by-turn structured stream rather than only the compact result |
 | `--include-partial-messages` | Adds raw streaming events for partial assistant text and tool-input deltas |
 | `--include-hook-events` | Adds hook start, progress, output, and response events when hooks run |
-| `--forward-subagent-text` | Adds subagent text with `parent_tool_use_id` so the frontend can reconstruct nested activity |
+| `--forward-subagent-text` | Adds forwarded text with `parent_tool_use_id`; this is retained as provider activity context, but is not a direct thread edge and therefore does not by itself enable the nested-agent capability |
 | `--strict-mcp-config` | Loads only the task-scoped MCP servers named by ByteQuay |
 | `--setting-sources=` | Disables inherited user/project setting sources for the agent process |
 | `--settings <file>` | Applies the generated task sandbox and deny-write boundary |
 
 `--include-partial-messages` produces both deltas and later completed assistant
-messages. The driver accumulates deltas for live display, uses the completed
-message as authoritative, and does not append duplicate final text. It keeps
-reading stdout through EOF even after a `result` object because trailing system
-events can follow the result.
+messages. For each active content block, the driver assigns one provider item
+identity, emits deltas without a terminal provider-event identity, and emits the
+completed block as `COMMENTARY` with that same item identity. Completing one
+block removes only that block's `(parent_tool_use_id, content index)`
+correlation. The exact key wins even when a provider completion rewrites the
+text. When Claude omits or reindexes a hidden content block in the completed
+message, the driver instead reuses a stream identity only when exactly one
+accumulated stream under the same `parent_tool_use_id` has the completed block's
+exact full text. It never guesses between matches or across a forwarded child,
+so an interleaved child completion cannot discard the root stream's identity.
+The frontend therefore replaces that block's live text instead of appending the
+completion. On success, the authoritative `result` response becomes the turn's
+`ANSWER`/`FINAL` event under the latest root text item identity. It replaces
+only that latest root commentary while preserving earlier and tool-adjacent
+commentary. The terminal result clears all remaining per-turn text and tool
+correlations. The driver keeps reading stdout through EOF even after a `result`
+object because trailing system events can follow the result.
 
 For Claude, the `result` object is the root terminal fact; the driver completes
 `RunningTurn.completion()` only after forwarded child/background-task terminal
@@ -2760,24 +2786,39 @@ events and supervised process-tree exit. Forced cancellation also waits for
 that exit, so a background child cannot outlive the task's
 worktree-mutation claim.
 
+Claude Code 2.1.260 may leave an ignored empty `.claude/.cc-writes/` staging
+directory in the worktree, the provider behavior documented in
+[anthropics/claude-code#79945](https://github.com/anthropics/claude-code/issues/79945).
+After the supervised process tree is `VERIFIED_STOPPED` and before completing
+the running turn, the Claude driver removes only that exact directory when it
+is a non-symlink and empty, then removes `.claude` only when it too is a
+non-symlink and empty. Files, symlinks, and nonempty directories are never
+removed. Failure to remove an eligible empty scratch directory fails the turn
+with an actionable diagnostic and retains the worktree; the shared worktree
+service remains fail-closed over ignored entries.
+
 The driver normalizes at least these message classes:
 
 | Claude stream message | ByteQuay event |
 | --- | --- |
 | `system/init` | Session reference, CLI/model/tool capability facts |
-| `stream_event` text deltas | Partial assistant message |
-| `assistant` content blocks | Completed message plus `tool_use` starts |
+| `stream_event` text deltas | Partial assistant `COMMENTARY` |
+| `assistant` content blocks | Completed `COMMENTARY` plus `tool_use` starts |
 | `user` content containing `tool_result` | Tool result and bounded command output |
-| `tool_progress` | Running-tool elapsed-time update |
+| `tool_progress` | Running-tool elapsed-time update; a tracked Bash call remains a typed `Command` with the same item identity |
 | `system/hook_started`, `hook_progress`, and `hook_response` | Hook lifecycle and bounded output |
 | `system/task_started`, `task_progress`, and `task_notification` | Subagent/background-task progress |
 | `system/api_retry` and rate-limit messages | Retry/rate-limit progress |
-| `result` | Terminal status, response, duration, usage, session ID, and cost estimate |
+| `result` | Terminal `ANSWER`/status, response, duration, usage, session ID, and cost estimate |
 
-Subagent messages retain `parent_tool_use_id` for nesting. Raw thinking blocks
-are discarded; only provider-supported user-facing messages, tool activity, and
-progress summaries enter the ByteQuay log. Hook and tool output is bounded and
-redacted before persistence.
+Forwarded messages and task/tool activity may retain `parent_tool_use_id` inside
+the adapter while they are correlated, but that value names a tool invocation,
+not a direct provider thread and parent thread. The current Claude lane must not
+manufacture a `ProviderThreadRef` or a nested-agent panel from it; it advertises
+`nestedAgentActivity: false` and renders the supported activity in the root
+transcript. Raw thinking blocks are discarded; only provider-supported
+user-facing messages, tool activity, and progress summaries enter the ByteQuay
+log. Hook and tool output is bounded and redacted before persistence.
 
 Headless manual approval needs a callback path; a terminal dialog is not a
 frontend integration. ByteQuay writes an owner-only MCP configuration under the
@@ -2788,11 +2829,20 @@ returns allow or deny to Claude. The task-scoped MCP endpoint uses an ephemeral
 capability token stored in the owner-only config file. ByteQuay does not pass
 the token on the command line.
 
-Every policy runs `--permission-mode auto`: Claude approves its own work inside
-the generated task worktree and escalates anything past the sandbox to the
-permission-prompt tool. `AUTO` sends that escalation to the user. `CI_AUTOFIX`
-and `CHERRY_PICK` are unattended, so the broker answers instead, allowing an
-edit only when its path resolves inside the worktree.
+The attended `AUTO` policy runs `--permission-mode manual`. Its generated
+sandbox keeps `autoAllowBashIfSandboxed: true`, so ordinary sandboxed commands
+run without a card, while an unsandboxed command or another tool permission is
+routed through the ByteQuay permission-prompt tool for a direct user decision.
+The driver readiness check requires the running CLI's `--help` output to
+advertise the `manual` mode before the lane is usable. This fail-closed split is
+required because Claude 2.1.260 `auto` mode may classify an explicitly requested
+unsandboxed command as allowed without invoking the configured host prompt.
+
+`CI_AUTOFIX` and `CHERRY_PICK` remain unattended and run
+`--permission-mode auto`; the ByteQuay broker answers any escalation from their
+fixed policy and never waits for a frontend decision. The interactive path
+must not use Claude's auto-mode classifier as a substitute for ByteQuay's
+durable approval card.
 
 Containment does not depend on that answer. The generated settings apply the
 selected task sandbox and workspace roots, and keep the task event log and
@@ -2809,10 +2859,12 @@ credentials and therefore would break the supported no-API-key deployment.
 sources, and remain off by default.
 
 The driver probe runs `claude --version` and checks each optional observability
-flag. `--forward-subagent-text` requires a sufficiently recent Claude Code
-version; when unavailable, the driver omits it and reports subagent transcript
-streaming as unsupported rather than failing the entire lane. Required
-streaming or permission flags failing the probe make the lane unavailable.
+flag. It also requires `--permission-mode` to list the `manual` token used by
+attended tasks; a CLI that exposes the flag without that mode is unsupported.
+`--forward-subagent-text` requires a sufficiently recent Claude Code version;
+when unavailable, the driver omits it and reports subagent transcript streaming
+as unsupported rather than failing the entire lane. Required streaming or
+permission flags failing the probe make the lane unavailable.
 
 The terminal `result` contains usage for that invocation and, when present,
 `total_cost_usd`. Claude documents that monetary field as a client-side
@@ -2835,8 +2887,8 @@ grace period, and records the observed terminal result or process exit.
 | Free-form Plan-mode text | `item/plan/delta` plus authoritative completed `plan` | Provider messages when available, not synthesized as a checklist |
 | Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
-| Hook lifecycle | Synchronous `hook/started` and `hook/completed`; none for asynchronous hooks | Available with `--include-hook-events` |
-| Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | Parent-linked subagent messages with `--forward-subagent-text` |
+| Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
+| Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | Not advertised: `parent_tool_use_id` is a tool edge, not the direct thread lineage required by the canonical subagent graph; forwarded text remains root transcript activity |
 | Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
 | Text attachments | Provider input item when supported | Exact read-only paths inside the task runtime directory |
@@ -2962,11 +3014,13 @@ Success records `FAILED`, releases the claim, and requests safe worktree
 cleanup. Dirty work remains untouched until the user or agent makes the
 generated branch clean; the shared service has no force-removal operation.
 
-The public task-creation DTO contains `workspaceId`, title, lane, and defaults,
-not a filesystem path. `app` resolves the managed repository and exact starting
-commit, verifies the task belongs to that workspace, and only then builds the
-core command. Trusted internal workflow callers such as cherry-pick and CI
-Autofix supply their own already-frozen commit, but they use the same
+The public task-creation DTO contains the client-generated `taskId`,
+`workspaceId`, first `message`, immutable `laneId`, defaults, and an
+`idempotencyKey`, not a title or filesystem path. The first message provides
+the initial task label for now. `app` resolves the managed repository and exact
+starting commit, verifies the task belongs to that workspace, and only then
+builds the core command. Trusted internal workflow callers such as cherry-pick
+and CI Autofix supply their own already-frozen commit, but they use the same
 `WorktreeService` and cannot submit an arbitrary path.
 
 Task and completion responses may expose the safe generated branch name and
@@ -3010,7 +3064,8 @@ directly to App Server or localhost.
   permission/sandbox policy, and attachment references submitted for that
   turn;
 - start/end timestamps and elapsed time;
-- token usage, cost, provenance, and terminal reason.
+- token usage, cost, provenance, terminal reason, and the optional typed
+  `failureKind` for a failed turn.
 
 `agent_queued_input` stores the queue ID, task ID, FIFO insertion sequence,
 state, idempotency key, effective settings, attachment references, payload blob
@@ -3150,8 +3205,8 @@ requires a separate explicit user action and design decision.
 - Accepted/running roots without a usable transport become `INTERRUPTED`, but
   their turn claim is released only after the root, every known descendant,
   every observed execution-capable item, and every listed background terminal
-  are terminal/stopped. If that cannot be reconciled, ByteQuay may stop the
-  shared supervised provider process; root completion alone is not the
+  are terminal/stopped. If that cannot be reconciled, ByteQuay may stop that
+  task's supervised provider process; root completion alone is not the
   quiescence barrier. Queue auto-start and all worktree-mutating actions remain
   disabled until it passes. Startup therefore never releases a `TURN` claim
   merely because the matching durable turn row is terminal.
@@ -3169,10 +3224,10 @@ requires a separate explicit user action and design decision.
   `UNCERTAIN`; it is not eligible for automatic or ordinary queue resume. An
   independent steer delivery uses its steer-only ledger. Only after quiescence
   may the user abandon uncertain input; neither action retries it.
-- Loss of the shared App Server interrupts every running Codex root/child turn
-  routed through that process. ByteQuay terminates/verifies the old owned
-  process before starting a replacement. Stored thread references and queued
-  inputs stay intact, but no turn or queue head is implicitly restarted.
+- Loss of a task-owned App Server interrupts only the running Codex root/child
+  work for that task. ByteQuay terminates and verifies that owned process before
+  starting a replacement. Stored thread references and queued inputs stay
+  intact, but no turn or queue head is implicitly restarted.
 - A repeated start request uses an idempotency key. Another concurrent request
   receives HTTP 409.
 - Queue claiming, turn insertion, the task-local worktree-mutation claim,
@@ -3187,7 +3242,8 @@ requires a separate explicit user action and design decision.
   generated branch. The shared service has no force-removal or branch-deletion
   operation.
 - Provider readiness verifies the selected sandbox, workspace roots, approval
-  flow, and ordinary built-in tool execution through the task environment.
+  flow, and ordinary built-in tool execution through the task-owned process and
+  worktree.
 - A dropped SSE connection does not affect the provider run. Reconnect uses the
   last received sequence.
 - CLI commands are argv lists passed directly to `ProcessBuilder`; no shell
@@ -3230,21 +3286,48 @@ machine-readable status rather than by parsing diagnostic text:
 - degraded but usable; and
 - temporarily unavailable.
 
-For Claude CLI, the authentication portion runs the equivalent of
-`claude auth status` in the driver's allowlisted environment. Opening the
-interactive `claude` screen is not an authentication check. Other drivers own
+For Claude CLI, the authentication portion runs `claude auth status --json`
+with the same executable and allowlisted environment used for turns. Opening
+the interactive `claude` screen is not an authentication check. The CP11
+reference executable (2.1.259) returns one JSON object whose required
+`loggedIn` member is boolean; fields such as `authMethod`, `apiProvider`, and
+`projectsDirectory` are additive diagnostics and are ignored. `loggedIn:
+false` maps to `AUTHENTICATION_REQUIRED` even when the command exits non-zero,
+because that is the reference logged-out behavior. `loggedIn: true` is usable
+only with a zero exit and after the version/capability checks pass. Missing,
+malformed, multiple, or wrongly typed JSON, a non-zero logged-in result, or a
+timeout maps to `TEMPORARILY_UNAVAILABLE`; it never becomes ready by parsing
+stderr text. Stdout and stderr remain separate, and ByteQuay persists neither
+the response's other fields nor any credential/path value. Other drivers own
 their provider-specific readiness checks behind the same SPI.
 
 Task creation and every later turn start perform a fresh readiness check before
 accepting a turn, acquiring a new task resource, or consuming a CI Autofix
-attempt. An authentication-required result returns an actionable typed error;
-it does not create a failed turn or provision a worktree.
+attempt. A rejected probe throws the provider-status-bearing unavailable error;
+the authenticated HTTP boundary returns `503` with code
+`AGENT_PROVIDER_UNAVAILABLE`, `laneId`, typed `readiness`, redacted
+`diagnostic`, and optional `signInCommand`. It does not create a failed turn or
+provision a worktree. Other transport or runtime-unavailable failures retain
+the generic error contract instead of manufacturing a readiness state.
 
-If authentication expires during a running turn, ByteQuay records the turn's
-operational failure and pauses the owning workflow as authentication required.
-It preserves the task, worktree, session reference, logs, and remaining attempt
-budget. After a successful readiness recheck, the user can retry in the same
-task. Authentication failure must never be reported as a GitHub login problem.
+If authentication expires during a running turn, the driver confirms it with
+that same typed status command after the failed provider result or process
+exit; it never classifies expiry by matching human-readable diagnostics. The
+turn persists optional `failureKind: AUTHENTICATION_REQUIRED` alongside its
+ordinary failed terminal state and delivery facts, and emits exactly one
+redacted `AUTHENTICATION_REQUIRED` error event. A temporarily unavailable or
+malformed follow-up probe leaves the turn as an ordinary provider failure.
+
+The owning workflow pauses with the typed
+`AUTHENTICATION_REQUIRED` reason. It preserves the task, worktree, session
+reference, logs, and remaining attempt budget. A CI Autofix retry remains part
+of the same already-counted fix attempt and is linked as a later user turn, so
+authentication loss does not consume another authorized attempt. Nothing
+automatically resends. After a successful readiness recheck and quiescence,
+the user may explicitly confirm a retry in the same task using the original
+durable user text and attachment references with a fresh idempotency key.
+`UNKNOWN` delivery is never retryable. Authentication failure must never be
+reported as a GitHub login problem.
 
 ByteQuay does not read, persist, or send provider OAuth credentials. The CLI
 continues to own its credentials; ByteQuay stores only readiness state,
@@ -3267,11 +3350,12 @@ selected provider can work in this workspace.
 | Degraded | Available with named capability limitations | Check again |
 | Unavailable | Redacted actionable diagnostic | Check again |
 
-The sign-in action is a direct user action. It starts or clearly presents the
-provider-owned login flow, such as `claude auth login`, in a visible context;
-ByteQuay must not attempt a hidden interactive login. When that flow ends, the
-UI automatically checks readiness again and also provides a manual **Check
-again** action.
+The sign-in action is a direct user action. In the first release ByteQuay shows
+the provider-owned command (for Claude, `claude auth login`) for the user to run
+in a visible terminal; it does not launch, script, or infer completion of an
+interactive login. The row provides **Check again**, which invokes the shared
+typed readiness-refresh bridge operation and replaces the displayed status and
+last-checked time from that one result.
 
 Attempting to start a task while sign-in is required navigates or links to this
 settings section and explains that the task has not started. Raw messages such
@@ -3298,8 +3382,9 @@ Before the release blocker can be closed, automated tests must demonstrate:
 The task UI in [Agent Task UI Design](agent-task-ui.md) is not ready to ship
 until automated contract and integration tests prove:
 
-1. two concurrent Codex tasks and their child threads share one App Server
-   without event, approval, turn, or item cross-talk;
+1. two concurrent Codex tasks and their child threads use separate task-owned
+   App Server processes without event, approval, turn, item, process, or
+   worktree cross-talk;
 2. replay fixtures contain the original user input and attachments, streamed
    and authoritative completed items, readable reasoning summaries, plans,
    resolved/expired approvals, and direct child relationships without duplicate
@@ -3332,7 +3417,7 @@ until automated contract and integration tests prove:
    observed execution-capable item is terminal;
 10. unknown delivery and transport loss disable queue start, Send, and Complete
    until thread/item/background-terminal reconciliation succeeds or
-   the shared owned provider process tree is `VERIFIED_STOPPED`; compatibility
+   that task's owned provider process tree is `VERIFIED_STOPPED`; compatibility
    fixtures must show that yielded and background commands are listed and
    cleanable, and a detached writer that escapes those registries makes the
    Codex lane ineligible for release rather than creating a fictional receipt;
@@ -3346,19 +3431,21 @@ until automated contract and integration tests prove:
    `RELEASE_PENDING` is never misclassified as unsent;
 12. concurrent turn, queue, and Complete requests produce exactly one
    worktree-mutation claim; native App Server command, file, web, and other
-   built-in tool calls run through the selected task environment and produce
+   built-in tool calls run through the task-owned process and worktree and produce
    typed progress and terminal events; no ByteQuay business MCP/dynamic tool,
    lifecycle hook, or Code Mode host is registered for Codex, except that the
    CodeGraph compatibility gate may enable exactly its two
    fixed optional structural tools;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
-   sandbox settings, and its readiness probe verifies the configured task
-   workspace and permission adapter; and
+   sandbox settings; attended `AUTO` uses CLI `manual` mode so sandbox escapes
+   reach the ByteQuay approval adapter, unattended policies remain CLI `auto`,
+   and the allocation-free readiness probe rejects a CLI without the `manual`
+   token while verifying the exact executable and authentication contract; and
 14. the release explicitly accepts App Server's documented experimental
    maturity, maintains
    the exact v0.151.0 reference fixture, compact projection, and experimental
-   surface, and passes per-task environment handshake/resume, multi-task routing,
+   surface, and passes per-task process launch/resume, cross-task process isolation,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,
    steering, and reconnect tests against the latest user-managed Codex CLI.
    No reported version text, including unparseable output, may fail readiness by

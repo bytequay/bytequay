@@ -166,18 +166,18 @@ public final class CodexCliDriver
 
     private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
             true,
-            false,
             true,
             true,
             true,
+            true,
             false,
-            false,
+            true,
             true,
             true,
             true,
             CostProvenance.UNAVAILABLE,
             ImmutableSet.of(AgentPermissionPolicy.AUTO),
-            ImmutableSet.of());
+            ImmutableSet.of("image/png", "image/jpeg", "image/gif"));
 
     private final String executable;
     private final ProcessSupervisor supervisor;

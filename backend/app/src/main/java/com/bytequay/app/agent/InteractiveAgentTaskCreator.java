@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -26,6 +27,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
@@ -50,6 +52,7 @@ import static java.util.Objects.requireNonNull;
 public final class InteractiveAgentTaskCreator
 {
     private final AgentTaskService tasks;
+    private final AgentTurnService turns;
     private final AgentDriverRegistry drivers;
     private final ModelSettingsService models;
     private final WorkspaceRepositoryService workspaces;
@@ -58,12 +61,14 @@ public final class InteractiveAgentTaskCreator
 
     public InteractiveAgentTaskCreator(
             AgentTaskService tasks,
+            AgentTurnService turns,
             AgentDriverRegistry drivers,
             ModelSettingsService models,
             WorkspaceRepositoryService workspaces,
             GitCommandRunner git)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.turns = requireNonNull(turns, "turns is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.models = requireNonNull(models, "models is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -105,7 +110,11 @@ public final class InteractiveAgentTaskCreator
         String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey);
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
-            return requireReplay(replay.orElseThrow(), fingerprint);
+            AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
+            if (turns.findTurnByIdempotencyKey(taskId, idempotencyKey).isEmpty()) {
+                requireReady(laneId, defaults);
+            }
+            return task;
         }
         requireReady(laneId, defaults);
         models.validateSelection(laneId.value(), defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")), defaults.effort());
@@ -195,7 +204,7 @@ public final class InteractiveAgentTaskCreator
         }
         AgentProviderStatus status = driver.probe();
         if (!status.available()) {
-            throw new AgentUnavailableException(status.diagnostic());
+            throw new AgentProviderUnavailableException(status);
         }
     }
 }

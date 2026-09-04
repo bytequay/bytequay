@@ -56,6 +56,15 @@ describe('agent event contract', () => {
     expect(approval?.payload.availableDecisions).toEqual(['ALLOW_ONCE', 'DENY']);
   });
 
+  it('accepts completed commentary as distinct from the terminal answer', () => {
+    const commentary = structuredClone(fixture.events[2]);
+    commentary.sequence = 1;
+    commentary.payload.messageKind = 'COMMENTARY';
+
+    const [parsed] = parseAgentEventSequence([commentary]);
+    expect(parsed.type === 'assistant_message' && parsed.payload.messageKind).toBe('COMMENTARY');
+  });
+
   it.each(['QUEUE_CHANGED', 'QUEUED_INPUT_STARTED', 'QUEUED_INPUT_PAUSED'])('accepts the queued-input lifecycle signal %s', (phase) => {
     const acknowledged = structuredClone(fixture.events[1]);
     acknowledged.sequence = 1;

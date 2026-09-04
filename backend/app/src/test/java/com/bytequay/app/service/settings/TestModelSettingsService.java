@@ -17,8 +17,10 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
+import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelOption;
@@ -27,6 +29,7 @@ import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -104,6 +107,41 @@ class TestModelSettingsService
                 .containsExactly("gpt-5.6-sol", "gpt-5.6-luna");
         assertThat(codex.selectedModel()).isEqualTo("gpt-5.6-sol");
         assertThat(codex.selectedEffort()).isEqualTo("low");
+    }
+
+    @Test
+    void projectsNormalizedLaneCapabilitiesWithoutProviderBranches()
+    {
+        AgentCapabilities capabilities = new AgentCapabilities(
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                CostProvenance.CLI_ESTIMATE,
+                ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
+                ImmutableSet.of("image/png", "image/jpeg"));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(new AgentProviderStatus(
+                new AgentLaneId("claude"),
+                Readiness.READY,
+                Optional.of("2.1.259"),
+                "ready",
+                capabilities)));
+
+        var provider = service.get().providers().getFirst();
+
+        assertThat(provider.capabilities()).isEqualTo(capabilities);
+        assertThat(provider.steering()).isTrue();
+        var json = new ObjectMapper().findAndRegisterModules().valueToTree(provider);
+        assertThat(json.at("/capabilities/structuredPlans").asBoolean()).isTrue();
+        assertThat(json.at("/capabilities/nestedAgentActivity").asBoolean()).isTrue();
+        assertThat(json.at("/capabilities/permissionPolicies")).hasSize(2);
+        assertThat(json.at("/capabilities/attachmentMediaTypes")).hasSize(2);
     }
 
     @Test

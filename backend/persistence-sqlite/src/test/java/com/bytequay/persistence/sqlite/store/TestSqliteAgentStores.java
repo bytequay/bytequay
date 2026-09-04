@@ -62,6 +62,7 @@ import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -153,7 +154,7 @@ class TestSqliteAgentStores
                 10,
                 2,
                 5,
-                Optional.of(new BigDecimal("1.25")),
+                Optional.of(new BigDecimal("0.1873740")),
                 CostProvenance.PROVIDER_REPORTED,
                 Duration.ofSeconds(3));
         TaskId taskId = TaskId.random();
@@ -189,6 +190,7 @@ class TestSqliteAgentStores
                 .complete(summary, now.plusSeconds(5), now.plus(Duration.ofDays(7)));
 
         taskStore.insert(task);
+        entityManager.clear();
 
         assertThat(taskStore.find(task.id())).contains(task);
         Instant cleanupNow = now.plus(Duration.ofDays(8));
@@ -505,6 +507,28 @@ class TestSqliteAgentStores
     }
 
     @Test
+    void roundTripsTypedTurnFailure()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"))
+                .finish(
+                        TurnState.FAILED,
+                        TurnMetrics.empty(),
+                        Optional.of("Claude sign-in required"),
+                        Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED),
+                        now.plusSeconds(2));
+        turnStore.insert(turn);
+        entityManager.clear();
+
+        assertThat(turnStore.find(turn.id()).orElseThrow().failureKind())
+                .contains(AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
+    }
+
+    @Test
     void enforcesSingleActiveTurnAndIdempotencyInSqlite()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
@@ -538,13 +562,15 @@ class TestSqliteAgentStores
 
         AgentTurn terminal = turnStore.update(first.finish(
                 TurnState.COMPLETED,
-                new TurnMetrics(1, 0, 1, Optional.empty(), CostProvenance.UNAVAILABLE, Duration.ofSeconds(2)),
+                new TurnMetrics(1, 0, 1, Optional.of(new BigDecimal("0.1873740")), CostProvenance.CLI_ESTIMATE, Duration.ofSeconds(2)),
                 Optional.empty(),
                 now.plusSeconds(2)));
         AgentTurn second = AgentTurn.accepted(TurnId.random(), task.id(), "request-2", turnSettings(), now.plusSeconds(3));
         turnStore.insert(second);
+        entityManager.clear();
 
         assertThat(terminal.version()).isEqualTo(1);
+        assertThat(turnStore.find(terminal.id())).contains(terminal);
         assertThat(turnStore.findActive(task.id())).contains(second);
         assertThat(turnStore.list(task.id())).containsExactly(terminal, second);
         assertThatThrownBy(() -> turnStore.update(first.withMetrics(TurnMetrics.empty())))

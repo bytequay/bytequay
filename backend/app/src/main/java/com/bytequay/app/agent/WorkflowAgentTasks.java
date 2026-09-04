@@ -24,6 +24,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.core.domain.RepoRef;
 
@@ -90,7 +91,7 @@ public final class WorkflowAgentTasks
         }
         AgentProviderStatus status = driver.probe();
         if (!status.available()) {
-            throw new AgentUnavailableException(status.diagnostic());
+            throw new AgentProviderUnavailableException(status);
         }
     }
 }

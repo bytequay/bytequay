@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -307,6 +308,7 @@ public class ModelSettingsService
                 status.version(),
                 status.diagnostic(),
                 status.signInCommand(),
+                status.capabilities(),
                 status.capabilities().steering(),
                 catalog.models(),
                 selection.model(),
@@ -469,6 +471,7 @@ public class ModelSettingsService
             Optional<String> version,
             String diagnostic,
             Optional<String> signInCommand,
+            AgentCapabilities capabilities,
             /** Whether a running turn on this lane accepts more input. */
             boolean steering,
             List<ModelOption> models,

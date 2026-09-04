@@ -52,6 +52,23 @@ public final class SecretRedactor
                 .collect(toImmutableList()));
     }
 
+    /** Returns a redactor that also replaces one runtime-generated credential. */
+    public SecretRedactor withSecret(String secret)
+    {
+        requireNonNull(secret, "secret is null");
+        if (secret.length() < 4 || secrets.contains(secret)) {
+            return this;
+        }
+        return new SecretRedactor(ImmutableList.<String>builder()
+                .addAll(secrets)
+                .add(secret)
+                .build()
+                .stream()
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .collect(toImmutableList()));
+    }
+
     /**
      * Replaces every known credential value with a stable marker.
      *

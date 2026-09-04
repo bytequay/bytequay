@@ -58,7 +58,9 @@ import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspacePaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -145,10 +147,16 @@ public class AgentConfiguration
     }
 
     @Bean
-    public CodeGraphService codeGraphService(CodeGraphProperties properties, AgentProperties agentProperties, GitCommandRunner git, AppSettingsService settings)
+    public CodeGraphService codeGraphService(
+            CodeGraphProperties properties,
+            AgentProperties agentProperties,
+            WorkspacePaths workspacePaths,
+            GitCommandRunner git,
+            AppSettingsService settings)
     {
-        return new PinnedCodeGraphService(
-                new CodeGraphCli(properties.bundleHome(), git), git, agentProperties.runtimeRoot().resolve("codegraph-baselines"), settings::codeGraphEnabled);
+        // The helper may read only its task's source and index below these roots: no other worktree, runtime, log, or provider file.
+        CodeGraphCli cli = new CodeGraphCli(properties.bundleHome(), git, ImmutableList.of(agentProperties.runtimeRoot(), workspacePaths.root()));
+        return new PinnedCodeGraphService(cli, git, agentProperties.runtimeRoot().resolve("codegraph-baselines"), settings::codeGraphEnabled);
     }
 
     @Bean

@@ -546,11 +546,17 @@ Checkpoint gate (2026-09-05, broker, Claude driver, Codex driver, and turn-servi
 - [ ] Fold `toolCalls`, `exploreActions`, `codegraphCalls`, `codegraphMillis`,
   and `codegraphFailures` into `TurnMetrics` at terminal state and into task
   totals; show them in the task footer and finished-turn summaries.
-- [ ] Prove two tasks for the same repository use different indexes and see
+- [x] Prove two tasks for the same repository use different indexes and see
   only their own symbols.
-- [ ] Prove graph files never appear in `git status` and cannot block cleanup.
-- [ ] Prove source writes, other task runtimes, other worktrees, credentials,
-  and network are denied to the helper.
+- [x] Prove graph files never appear in `git status` and cannot block cleanup.
+- [x] Prove source writes, other task runtimes, other worktrees, credentials,
+  and network are denied to the helper. The helper now runs under a macOS
+  `sandbox-exec` profile built per run: network denied, every write denied
+  except the index directory and the task's scratch home, every read below
+  the agent runtime root and the workspace root denied except the source,
+  its git common directory, and that index, with only the metadata of the
+  ancestors a path lookup traverses re-allowed. A fake-bundle test proves
+  the denials; the real-helper tests run under the same profile.
 - [ ] Inject refresh, prepare, explore, bridge, and deletion failures and
   prove every optional boundary fails open.
 - [ ] Re-run the opt-in Trino benchmark and record it beside the results.

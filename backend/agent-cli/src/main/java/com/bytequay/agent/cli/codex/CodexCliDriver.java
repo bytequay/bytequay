@@ -1298,11 +1298,13 @@ public final class CodexCliDriver
                 }
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
-                detail = redactor.redact(command.orElseThrow());
+                String rawCommand = command.orElseThrow();
+                detail = redactor.redact(rawCommand);
                 itemId = approval.params().itemId();
                 taskScope = Optional.of(TaskAllowScope.of(detail));
                 availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
-                if (availableDecisions.contains(ALLOW_ONCE) && ReadOnlyGitHubCommand.isReadOnly(detail)) {
+                // Redaction can erase shell syntax, so classify the command Codex will execute.
+                if (availableDecisions.contains(ALLOW_ONCE) && ReadOnlyGitHubCommand.isReadOnly(rawCommand)) {
                     // Reading GitHub changes nothing, so the command needs no card: it is answered as the
                     // sandbox would have, and appears in the log as any other command.
                     try {

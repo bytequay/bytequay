@@ -191,10 +191,16 @@ as a provider rule, and it does not outlive a restart of the app. The renderer
 sends a tagged response, not a generic boolean.
 
 A command that only reads GitHub needs no card at all: a `gh` list, view,
-status, diff, checks or search (and `gh status`, `gh auth status`) is answered
-as the sandbox would have been and appears in the log as any other command.
-Anything that could write stays a card: every other `gh` subcommand, `gh api`,
-a `--web` flag that opens the browser, and a compound script. When a command request omits its
+status, diff, checks or search (and `gh status`, or `gh auth status` without
+token-display flags) is answered as the sandbox would have been and appears in
+the log as any other command.
+The same applies to a REST `gh api` request only when its method is provably GET
+and it has no request fields, body, custom header or host, cache write, shell
+expansion, or compound command. GraphQL and anything else that could write or
+transmit local input or reveal credentials stays a card, as do every other
+`gh` subcommand, explicit custom-host routing, `gh api --verbose`, and a
+`--web` flag that opens the browser.
+When a command request omits its
 optional `availableDecisions`, the driver supplies the legal command defaults
 defined by its protocol mapping and then intersects them with ByteQuay's
 immutable safety ceiling; file and permission requests use the same ceiling.

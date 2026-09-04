@@ -13,8 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.google.common.base.CharMatcher;
-import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,9 +25,9 @@ import static java.util.Objects.requireNonNull;
 /** The words of a command line when it is one simple command, looking through a {@code sh -lc} wrapper. */
 final class CommandLine
 {
-    private static final Pattern SHELL_WRAPPER = Pattern.compile("^(?:/bin/)?(?:z|ba)?sh\\s+-l?c\\s+(.+)$", Pattern.DOTALL);
-    // ponytail: an operator makes the script compound and nothing here summarizes it; a shell parser if quoting ever matters
-    private static final Pattern SHELL_OPERATOR = Pattern.compile("[|&;<>`]|\\$\\(");
+    private static final Pattern SHELL_WRAPPER = Pattern.compile("^(?:/bin/)?(?:z|ba)?sh[ \\t]+-l?c[ \\t]+(.+)$", Pattern.DOTALL);
+    private static final String SHELL_OPERATORS = "|&;<>`(){}";
+    private static final String UNQUOTED_EXPANSIONS = "$*?[~^#!";
 
     private CommandLine() {}
 
@@ -36,27 +35,113 @@ final class CommandLine
     static Optional<List<String>> simpleWords(String command)
     {
         requireNonNull(command, "command is null");
-        String script = unwrap(command.strip());
-        if (SHELL_OPERATOR.matcher(script).find()) {
+        Optional<String> unwrapped = unwrap(command.strip());
+        if (unwrapped.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(Splitter.on(CharMatcher.whitespace()).omitEmptyStrings().splitToList(script));
+        String script = unwrapped.orElseThrow();
+        ImmutableList.Builder<String> words = ImmutableList.builder();
+        StringBuilder word = new StringBuilder();
+        char quote = 0;
+        boolean escaped = false;
+        boolean wordStarted = false;
+
+        for (int index = 0; index < script.length(); index++) {
+            char value = script.charAt(index);
+            if (value == '\n' || value == '\r') {
+                return Optional.empty();
+            }
+            if (escaped) {
+                word.append(value);
+                wordStarted = true;
+                escaped = false;
+                continue;
+            }
+            if (quote == '\'') {
+                if (value == '\'') {
+                    quote = 0;
+                }
+                else {
+                    word.append(value);
+                }
+                wordStarted = true;
+                continue;
+            }
+            if (value == '\\') {
+                escaped = true;
+                wordStarted = true;
+                continue;
+            }
+            if (quote == '"') {
+                if (value == '"') {
+                    quote = 0;
+                }
+                else if (value == '$' || value == '`') {
+                    return Optional.empty();
+                }
+                else {
+                    word.append(value);
+                }
+                wordStarted = true;
+                continue;
+            }
+            if (value == '\'' || value == '"') {
+                quote = value;
+                wordStarted = true;
+                continue;
+            }
+            if ((value == '=' && !wordStarted)
+                    || SHELL_OPERATORS.indexOf(value) >= 0
+                    || UNQUOTED_EXPANSIONS.indexOf(value) >= 0) {
+                return Optional.empty();
+            }
+            if (value == ' ' || value == '\t') {
+                if (wordStarted) {
+                    words.add(word.toString());
+                    word.setLength(0);
+                    wordStarted = false;
+                }
+                continue;
+            }
+            if (Character.isWhitespace(value) || Character.isISOControl(value)) {
+                return Optional.empty();
+            }
+            word.append(value);
+            wordStarted = true;
+        }
+        if (escaped || quote != 0) {
+            return Optional.empty();
+        }
+        if (wordStarted) {
+            words.add(word.toString());
+        }
+        return Optional.of(words.build());
     }
 
-    private static String unwrap(String command)
+    private static Optional<String> unwrap(String command)
     {
         Matcher wrapper = SHELL_WRAPPER.matcher(command);
         if (!wrapper.matches()) {
-            return command;
+            return Optional.of(command);
         }
         String script = wrapper.group(1).strip();
         if (script.length() < 2) {
-            return script;
+            return Optional.empty();
         }
         char quote = script.charAt(0);
-        if ((quote == '"' || quote == '\'') && script.charAt(script.length() - 1) == quote) {
-            return script.substring(1, script.length() - 1);
+        if ((quote != '"' && quote != '\'') || script.charAt(script.length() - 1) != quote) {
+            return Optional.empty();
         }
-        return script;
+        String inner = script.substring(1, script.length() - 1);
+        if (quote == '"' && (inner.indexOf('\\') >= 0
+                || inner.indexOf('$') >= 0
+                || inner.indexOf('`') >= 0
+                || inner.indexOf('"') >= 0)) {
+            return Optional.empty();
+        }
+        if (quote == '\'' && inner.indexOf('\'') >= 0) {
+            return Optional.empty();
+        }
+        return Optional.of(inner);
     }
 }

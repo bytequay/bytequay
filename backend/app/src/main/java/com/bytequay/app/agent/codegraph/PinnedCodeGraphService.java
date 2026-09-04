@@ -23,6 +23,8 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +55,7 @@ import static java.util.Objects.requireNonNull;
 public final class PinnedCodeGraphService
         implements CodeGraphService
 {
+    private static final Logger LOG = LoggerFactory.getLogger(PinnedCodeGraphService.class);
     static final String TRUNCATION_MARKER = "\n[truncated by ByteQuay: the graph result exceeded the tool limit]";
     static final String STILL_PREPARING = "CodeGraph index is still being prepared; retry shortly";
     static final int DEFAULT_RESULT_LIMIT_BYTES = 16 * 1024;
@@ -99,6 +102,12 @@ public final class PinnedCodeGraphService
         this.buildTimeout = requireNonNull(buildTimeout, "buildTimeout is null");
         this.queryTimeout = requireNonNull(queryTimeout, "queryTimeout is null");
         this.prepareWait = requireNonNull(prepareWait, "prepareWait is null");
+    }
+
+    @Override
+    public boolean available()
+    {
+        return cli.available();
     }
 
     @Override
@@ -153,6 +162,9 @@ public final class PinnedCodeGraphService
     {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(resources, "resources is null");
+        if (!cli.available()) {
+            return;
+        }
         Path source = worktree.canonicalWorktree();
         ReentrantLock taskLock = lockFor(resources);
         taskLock.lock();
@@ -161,6 +173,9 @@ public final class PinnedCodeGraphService
                 cloneBaseline(worktree.physicalRepository(), resources);
             }
             synchronize(source, resources);
+        }
+        catch (CodeGraphException e) {
+            LOG.warn("CodeGraph index for task {} was not prepared; the first graph call builds it: {}", worktree.taskId(), e.getMessage());
         }
         finally {
             taskLock.unlock();
@@ -205,7 +220,7 @@ public final class PinnedCodeGraphService
             Files.deleteIfExists(headFile(resources));
         }
         catch (IOException e) {
-            throw new CodeGraphException("Cannot delete the CodeGraph index: " + e.getMessage(), e);
+            LOG.warn("CodeGraph index under {} was not deleted; task-runtime retention removes it: {}", resources.runtimeDirectory(), e.getMessage());
         }
         finally {
             lock.unlock();
@@ -222,7 +237,7 @@ public final class PinnedCodeGraphService
             deleteRecursively(baselineDirectory(repository));
         }
         catch (IOException e) {
-            throw new CodeGraphException("Cannot delete the CodeGraph baseline: " + e.getMessage(), e);
+            LOG.warn("CodeGraph baseline for {} was not deleted: {}", repository, e.getMessage());
         }
         finally {
             lock.unlock();

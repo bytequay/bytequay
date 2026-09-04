@@ -68,6 +68,7 @@ class TestDefaultAgentTaskService
     private InMemoryAgentStores stores;
     private RecordingWorktreeService managedWorktrees;
     private RecordingResourceService resources;
+    private RecordingCodeGraphService codeGraph;
     private DeterministicAgentDriver driver;
     private DefaultAgentTaskService service;
 
@@ -78,12 +79,15 @@ class TestDefaultAgentTaskService
         managedWorktrees = new RecordingWorktreeService(
                 temporaryDirectory.resolve("managed").toAbsolutePath());
         resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
+        codeGraph = new RecordingCodeGraphService();
         driver = new DeterministicAgentDriver();
         service = new DefaultAgentTaskService(
                 stores,
                 managedWorktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                codeGraph,
+                Runnable::run,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -355,6 +359,17 @@ class TestDefaultAgentTaskService
                 "Interactive task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 "creation-fingerprint");
+    }
+
+    @Test
+    void preparesTheCodeGraphIndexOnceTheTaskIsPersisted()
+    {
+        TaskId taskId = TaskId.random();
+
+        AgentTask task = service.createInteractive(interactiveCommand(taskId));
+
+        assertThat(codeGraph.prepared).containsExactly(task.taskWorktree().orElseThrow());
+        assertThat(codeGraph.preparedResources).containsExactly(resources.require(taskId));
     }
 
     private static final class RecordingWorktreeService

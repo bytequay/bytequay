@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -301,7 +302,8 @@ class TestDefaultWorkspaceRepositoryService
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
-                Runnable::run);
+                Runnable::run,
+                new FakeCodeGraphService());
         Instant staleCode = NOW.minusSeconds(301);
         Instant staleMetadata = NOW.minusSeconds(8 * 24 * 60 * 60);
         Workspace ready = store.save(watch(service, 100)
@@ -343,7 +345,8 @@ class TestDefaultWorkspaceRepositoryService
                 provisioning,
                 metadata,
                 mock(PullRequestRefreshService.class),
-                Runnable::run);
+                Runnable::run,
+                new FakeCodeGraphService());
         Workspace pending = watch(service, 100);
         Workspace syncing = store.save(watch(service, 200)
                 .withCodeSyncAt(Optional.of(NOW.minusSeconds(301)), NOW));
@@ -395,7 +398,8 @@ class TestDefaultWorkspaceRepositoryService
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 pullRequestRefresh,
-                Runnable::run);
+                Runnable::run,
+                new FakeCodeGraphService());
 
         watch(service, 100);
 
@@ -456,7 +460,8 @@ class TestDefaultWorkspaceRepositoryService
                 provisioning,
                 mock(WorkspaceMetadataService.class),
                 mock(PullRequestRefreshService.class),
-                Runnable::run);
+                Runnable::run,
+                new FakeCodeGraphService());
     }
 
     private static RepositoryEnrichmentService enrichment()

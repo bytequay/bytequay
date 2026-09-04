@@ -24,6 +24,9 @@ import java.nio.file.Path;
  */
 public interface CodeGraphService
 {
+    /** Whether the helper is installed; when false every other operation is a no-op or an unavailable failure. */
+    boolean available();
+
     /**
      * Brings the repository baseline to the fetched default-branch commit.
      *
@@ -41,7 +44,8 @@ public interface CodeGraphService
      * baseline into the task runtime, and synchronizes the clone against the worktree. Without a
      * usable baseline the task index is built directly.
      *
-     * @throws CodeGraphException when the helper is unavailable or the index cannot be prepared
+     * <p>Best-effort: an expected failure is logged and leaves nothing behind, and the first tool
+     * call then builds lazily. It never throws for an unavailable helper.
      */
     void prepare(TaskWorktree worktree, TaskResources resources);
 
@@ -55,9 +59,9 @@ public interface CodeGraphService
      */
     String explore(TaskWorktree worktree, TaskResources resources, String query);
 
-    /** Deletes the task's derived index; a missing index is not an error. */
+    /** Deletes the task's derived index. Best-effort: a missing index is not an error and a failure is logged, since retention removes leftovers. */
     void deleteIndex(TaskResources resources);
 
-    /** Deletes the repository baseline; a missing baseline is not an error. */
+    /** Deletes the repository baseline. Best-effort: a missing baseline is not an error and a failure is logged. */
     void deleteBaseline(RepositoryIdentity repository);
 }

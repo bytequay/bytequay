@@ -454,7 +454,7 @@ Checkpoint gate (2026-09-05, eight baseline tests plus the nine adapter tests):
 - [x] A real-git fixture proves a second task's `prepare` is a clone plus a
   same-commit sync and never a build.
 
-## [ ] CG3 — Wire the lifecycle
+## [x] CG3 — Wire the lifecycle
 
 **Owner:** agent-core/application owner
 
@@ -462,21 +462,29 @@ Checkpoint gate (2026-09-05, eight baseline tests plus the nine adapter tests):
 
 **Visible UI:** no
 
-- [ ] Task creation starts `prepare` on a virtual thread after the task is
+- [x] Task creation starts `prepare` on a virtual thread after the task is
   persisted, for interactive, CI Autofix, and cherry-pick tasks.
-- [ ] After each existing fetch that resolves the default branch, compare the
-  commit with the baseline `HEAD` and schedule `refreshBaseline`.
-- [ ] Scheduled job: at start and hourly by property, fetch the default
-  branch for workspaces with the graph on, compare, refresh; never on a turn
-  path; absent when the setting is off.
-- [ ] Completion deletes the task index after successful worktree cleanup and
+- [x] After each existing fetch that resolves the default branch, compare the
+  commit with the baseline `HEAD` and schedule `refreshBaseline`. The hook
+  sits on the workspace code synchronization, which every interactive task
+  creation and the app-start refresh run through; the service itself makes
+  an unchanged commit a no-op.
+- [x] Scheduled job: hourly by property, drive the existing workspace code
+  synchronization for every workspace; never on a turn path; silent without
+  the helper, without a GitHub account, or in quiet hours. The app-start
+  refresh already comes from the workspace service. The per-workspace
+  setting gate arrives with the setting in CG4.
+- [x] Completion deletes the task index after successful worktree cleanup and
   skips it on refusal; retention covers leftovers.
-- [ ] Workspace removal deletes the baseline.
-- [ ] Only `CodeGraphException` is caught at each boundary.
+- [x] Workspace removal deletes the baseline.
+- [x] Only `CodeGraphException` is caught at each boundary. `prepare`,
+  `deleteIndex`, and `deleteBaseline` are best-effort inside the adapter,
+  which logs and swallows their expected failures, because `agent-core` has
+  no logging facility by design; `refreshBaseline` and `explore` still throw.
 
-Checkpoint gate:
+Checkpoint gate (2026-09-05, lifecycle tests in agent-core, refresher and job tests in app):
 
-- [ ] No graph outcome can reject, fail, interrupt, recover-block, or retain a
+- [x] No graph outcome can reject, fail, interrupt, recover-block, or retain a
   claim for an otherwise valid task or turn.
 
 ## [ ] CG4 — Expose the tool and the setting

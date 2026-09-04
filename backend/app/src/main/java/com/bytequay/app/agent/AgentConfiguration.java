@@ -212,6 +212,7 @@ public class AgentConfiguration
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
+            CodeGraphService codeGraph,
             Clock agentClock)
     {
         return new DefaultAgentTaskService(
@@ -219,6 +220,8 @@ public class AgentConfiguration
                 worktreeService,
                 resourceService,
                 driverRegistry,
+                codeGraph,
+                command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command),
                 agentClock);
     }
 
@@ -274,6 +277,7 @@ public class AgentConfiguration
             AgentResourceService resourceService,
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
+            CodeGraphService codeGraph,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -288,6 +292,7 @@ public class AgentConfiguration
                 resourceService,
                 runtimeRegistry,
                 metricsService,
+                codeGraph,
                 agentClock);
     }
 

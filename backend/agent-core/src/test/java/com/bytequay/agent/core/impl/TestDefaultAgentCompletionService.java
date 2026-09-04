@@ -94,6 +94,7 @@ class TestDefaultAgentCompletionService
     private InMemoryAgentStores stores;
     private RecordingResources resources;
     private RecordingWorktreeService worktrees;
+    private RecordingCodeGraphService codeGraph;
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
 
@@ -103,6 +104,7 @@ class TestDefaultAgentCompletionService
         stores = new InMemoryAgentStores();
         resources = new RecordingResources();
         worktrees = new RecordingWorktreeService();
+        codeGraph = new RecordingCodeGraphService();
         runtimeRegistry = new AgentRuntimeRegistry();
         taskId = TaskId.random();
         stores.insert(managedTask(taskId, "Completion test"));
@@ -154,10 +156,12 @@ class TestDefaultAgentCompletionService
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
         assertThat(stores.find(taskId).orElseThrow().updatedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(codeGraph.deletedIndexes).isEmpty();
 
         worktrees.failCleanup = false;
         service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(2);
+        assertThat(codeGraph.deletedIndexes).hasSize(1);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
 
@@ -461,6 +465,7 @@ class TestDefaultAgentCompletionService
                 resources,
                 runtimeRegistry,
                 new FixedMetrics(),
+                codeGraph,
                 clock);
     }
 
@@ -636,7 +641,9 @@ class TestDefaultAgentCompletionService
         @Override
         public TaskResources require(TaskId taskId)
         {
-            throw new UnsupportedOperationException();
+            // Completion hands these paths to the code graph for index deletion; nothing here touches the disk.
+            Path runtime = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-completion-test", taskId.toString()).toAbsolutePath().normalize();
+            return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider").resolve("scratch"));
         }
 
         @Override

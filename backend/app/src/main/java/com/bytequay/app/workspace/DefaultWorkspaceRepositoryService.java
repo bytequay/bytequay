@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
@@ -82,6 +84,7 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceMetadataService metadata;
     private final PullRequestRefreshService pullRequestRefresh;
     private final Executor executor;
+    private final CodeGraphService codeGraph;
     private final Set<String> codeRefreshes = ConcurrentHashMap.newKeySet();
     private final Set<String> metadataRefreshes = ConcurrentHashMap.newKeySet();
 
@@ -99,7 +102,8 @@ public class DefaultWorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestRefreshService pullRequestRefresh,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
+            CodeGraphService codeGraph)
     {
         this.store = requireNonNull(store, "store is null");
         this.agentTasks = requireNonNull(agentTasks, "agentTasks is null");
@@ -115,6 +119,7 @@ public class DefaultWorkspaceRepositoryService
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
     }
 
     @Override
@@ -325,6 +330,7 @@ public class DefaultWorkspaceRepositoryService
             store.delete(workspace.id());
             remoteSources.deleteByWorkspace(workspace.id());
             workspaceCredentials.delete(workspace.id());
+            codeGraph.deleteBaseline(new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo()));
         }
         finally {
             lock.unlock();

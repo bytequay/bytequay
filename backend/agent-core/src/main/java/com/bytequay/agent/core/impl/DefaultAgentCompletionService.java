@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -72,6 +73,7 @@ public final class DefaultAgentCompletionService
     private final AgentResourceService resourceService;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final AgentMetricsService metricsService;
+    private final CodeGraphService codeGraph;
     private final Clock clock;
 
     public DefaultAgentCompletionService(
@@ -86,6 +88,7 @@ public final class DefaultAgentCompletionService
             AgentResourceService resourceService,
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
+            CodeGraphService codeGraph,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -99,6 +102,7 @@ public final class DefaultAgentCompletionService
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -378,6 +382,8 @@ public final class DefaultAgentCompletionService
             return task;
         }
         task.taskWorktree().ifPresent(worktreeService::cleanup);
+        // Only after the worktree is gone: a refused cleanup keeps the index for the retry, and retention covers the rest.
+        task.taskWorktree().ifPresent(ignored -> codeGraph.deleteIndex(resourceService.require(task.id())));
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
     }
 

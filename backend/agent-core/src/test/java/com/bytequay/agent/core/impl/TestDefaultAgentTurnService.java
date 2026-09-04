@@ -131,6 +131,7 @@ class TestDefaultAgentTurnService
     private DefaultAgentTurnService service;
     private AgentRuntimeRegistry runtimeRegistry;
     private FixedWorktreeService worktrees;
+    private final RecordingCodeGraphService codeGraph = new RecordingCodeGraphService();
 
     @BeforeEach
     void setUp()
@@ -145,6 +146,8 @@ class TestDefaultAgentTurnService
                 worktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                codeGraph,
+                Runnable::run,
                 CLOCK);
         task = taskService.create(new CreateAgentTaskCommand(
                 TaskId.random(),
@@ -1956,6 +1959,7 @@ class TestDefaultAgentTurnService
                 resources,
                 runtimeRegistry,
                 metrics,
+                codeGraph,
                 CLOCK);
     }
 

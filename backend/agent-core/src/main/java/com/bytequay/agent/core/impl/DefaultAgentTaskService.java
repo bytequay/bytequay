@@ -19,12 +19,14 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -43,6 +45,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static java.util.Objects.requireNonNull;
@@ -54,6 +57,8 @@ public final class DefaultAgentTaskService
     private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
+    private final CodeGraphService codeGraph;
+    private final Executor codeGraphExecutor;
     private final Clock clock;
 
     public DefaultAgentTaskService(
@@ -61,12 +66,16 @@ public final class DefaultAgentTaskService
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
+            CodeGraphService codeGraph,
+            Executor codeGraphExecutor,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
+        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.codeGraphExecutor = requireNonNull(codeGraphExecutor, "codeGraphExecutor is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -228,9 +237,11 @@ public final class DefaultAgentTaskService
             Optional<String> creationFingerprint,
             TaskWorktree worktree)
     {
+        TaskResources resources;
+        AgentTask task;
         try {
-            resourceService.allocate(taskId);
-            AgentTask task = AgentTask.created(
+            resources = resourceService.allocate(taskId);
+            task = AgentTask.created(
                     taskId,
                     interactive,
                     creationFingerprint,
@@ -241,11 +252,13 @@ public final class DefaultAgentTaskService
                     defaults,
                     Instant.now(clock));
             taskStore.insert(task);
-            return task;
         }
         catch (RuntimeException failure) {
             rollbackManagedCreation(taskId, worktree, failure);
             throw failure;
         }
+        // The task exists from here on; preparing its graph index is best-effort and off the request path.
+        codeGraphExecutor.execute(() -> codeGraph.prepare(worktree, resources));
+        return task;
     }
 }

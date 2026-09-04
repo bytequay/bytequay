@@ -134,11 +134,13 @@ With no baseline it builds one from scratch. The application calls it after
 every fetch that moves the remote default branch and from the scheduled
 fetch job; it never runs on a request or turn path.
 
-`prepare` waits for any refresh in progress on the task's repository, runs
-one when no baseline exists, clones the baseline into the task runtime with
-an APFS clone or a plain copy, and synchronizes the clone against the task
-worktree. The application calls it on a virtual thread after the task is
-persisted.
+`prepare` waits for any refresh in progress on the task's repository, clones
+the baseline into the task runtime with an APFS clone or a plain copy, and
+synchronizes the clone against the task worktree. Without a usable baseline
+it builds the task index directly and never writes a baseline: only a fetch
+that moved the remote default branch does that, and the fetch that precedes
+provisioning normally has. The application calls `prepare` on a virtual
+thread after the task is persisted.
 
 `explore` waits for a running `prepare` on the same task, bounded, then
 synchronizes or rebuilds the task index by the size rule, runs the bounded
@@ -655,9 +657,10 @@ After `provision` returns and the task is persisted, ByteQuay starts
 auto-start uses. The request returns immediately. `prepare` holds the task's
 graph lock and:
 
-1. Waits for any refresh in progress on the repository, and when no baseline
-   exists at all, runs the refresh first, so one 38 s build serves this task
-   and every later one.
+1. Waits for any refresh in progress on the repository. When no usable
+   baseline exists it builds the task index directly instead; the baseline is
+   written only by the fetch-triggered refresh, which the fetch before
+   provisioning normally schedules first.
 2. Clones the baseline into `<task-runtime>/codegraph/` with an APFS clone
    (0.03 s and 8 MB measured), falling back to a plain copy when the volume
    refuses clones (0.65 s, full size).

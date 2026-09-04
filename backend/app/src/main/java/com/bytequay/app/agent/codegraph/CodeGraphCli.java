@@ -40,7 +40,7 @@ import static java.util.Objects.requireNonNull;
  * {@code HOME} points at task-owned scratch, and the index lives wherever the caller points
  * {@code CODEGRAPH_DATA_DIR}, which the vendored patch makes upstream honor.
  */
-public final class CodeGraphCli
+public class CodeGraphCli
 {
     private static final Logger LOG = LoggerFactory.getLogger(CodeGraphCli.class);
     private static final String MARKER = "BYTEQUAY_BUNDLE";

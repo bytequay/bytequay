@@ -423,7 +423,7 @@ Primary files:
 - `backend/app/src/main/java/com/bytequay/app/agent/codegraph/`
 - `backend/app/src/main/java/com/bytequay/app/agent/AgentConfiguration.java`
 
-## [ ] CG2 — Baseline refresh and task preparation
+## [x] CG2 — Baseline refresh and task preparation
 
 **Owner:** backend owner
 
@@ -431,25 +431,27 @@ Primary files:
 
 **Visible UI:** no
 
-- [ ] Baseline layout `<agent-runtime>/codegraph-baselines/<owner>/<name>/`
+- [x] Baseline layout `<agent-runtime>/codegraph-baselines/<owner>/<name>/`
   with `codegraph/` and `HEAD`.
-- [ ] `refreshBaseline`: no-op when `HEAD` matches; otherwise per-repository
+- [x] `refreshBaseline`: no-op when `HEAD` matches; otherwise per-repository
   lock, temporary detached checkout under the baseline directory, clone to
   `codegraph.next`, size rule, atomic rename, `HEAD` write, checkout removal;
   a failure keeps the previous baseline.
-- [ ] `prepare`: wait for a running refresh, run one when no baseline exists,
-  APFS clone with plain-copy fallback, size-rule sync against the task
-  worktree.
-- [ ] `explore` waits up to 60 s for a running `prepare`, then returns "index
+- [x] `prepare`: wait for a running refresh, APFS clone with plain-copy
+  fallback, size-rule sync against the task worktree; without a usable
+  baseline it builds the task index directly and never writes a baseline.
+- [x] `explore` waits up to 60 s for a running `prepare`, then returns "index
   still building, retry".
-- [ ] `deleteBaseline`.
-- [ ] Tests: refresh from none, same commit no-op, ten-commit delta, over five
+- [x] `deleteBaseline`.
+- [x] Tests: refresh from none, same commit no-op, ten-commit delta, over five
   percent rebuild, failed refresh keeps the baseline, concurrent refresh and
-  prepare, clone fallback, restart during prepare then lazy rebuild.
+  prepare, restart during prepare then lazy rebuild. The plain-copy fallback
+  is not exercised: forcing a non-APFS volume in a test is not worth a
+  fixture.
 
-Checkpoint gate:
+Checkpoint gate (2026-09-05, eight baseline tests plus the nine adapter tests):
 
-- [ ] A real-git fixture proves a second task's `prepare` is a clone plus a
+- [x] A real-git fixture proves a second task's `prepare` is a clone plus a
   same-commit sync and never a build.
 
 ## [ ] CG3 — Wire the lifecycle

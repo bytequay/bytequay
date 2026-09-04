@@ -141,9 +141,9 @@ public class AgentConfiguration
     }
 
     @Bean
-    public CodeGraphService codeGraphService(CodeGraphProperties properties, GitCommandRunner git)
+    public CodeGraphService codeGraphService(CodeGraphProperties properties, AgentProperties agentProperties, GitCommandRunner git)
     {
-        return new PinnedCodeGraphService(new CodeGraphCli(properties.bundleHome(), git), git);
+        return new PinnedCodeGraphService(new CodeGraphCli(properties.bundleHome(), git), git, agentProperties.runtimeRoot().resolve("codegraph-baselines"));
     }
 
     @Bean

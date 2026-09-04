@@ -41,6 +41,8 @@ class TestPinnedCodeGraphService
     private static final Duration LONG = Duration.ofMinutes(5);
 
     private final GitCommandRunner git = new GitCommandRunner();
+    @TempDir
+    private Path baselines;
 
     @Test
     void exploreBuildsTheIndexAndFollowsEveryKindOfChange(@TempDir Path temp)
@@ -120,7 +122,7 @@ class TestPinnedCodeGraphService
         assumeBundle();
         Fixture fixture = Fixture.create(temp, git);
         PinnedCodeGraphService service = new PinnedCodeGraphService(
-                new CodeGraphCli(BUNDLE, git), git, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, Duration.ofMillis(1));
+                new CodeGraphCli(BUNDLE, git), git, baselines, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, Duration.ofMillis(1), LONG);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, "alphaOne"))
                 .isInstanceOf(CodeGraphException.class)
                 .hasMessageContaining("timed out");
@@ -148,7 +150,7 @@ class TestPinnedCodeGraphService
         Fixture fixture = Fixture.create(temp, git);
         CodeGraphCli cli = new CodeGraphCli(Optional.of(temp.resolve("no-bundle")), git);
         assertThat(cli.available()).isFalse();
-        PinnedCodeGraphService service = new PinnedCodeGraphService(cli, git);
+        PinnedCodeGraphService service = new PinnedCodeGraphService(cli, git, baselines);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, "alphaOne"))
                 .isInstanceOf(CodeGraphException.class)
                 .hasMessage("CodeGraph is not installed");
@@ -160,7 +162,7 @@ class TestPinnedCodeGraphService
             throws IOException
     {
         Fixture fixture = Fixture.create(temp, git);
-        PinnedCodeGraphService service = new PinnedCodeGraphService(new CodeGraphCli(Optional.empty(), git), git);
+        PinnedCodeGraphService service = new PinnedCodeGraphService(new CodeGraphCli(Optional.empty(), git), git, baselines);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, " ")).isInstanceOf(IllegalArgumentException.class);
         String oversized = "x".repeat(PinnedCodeGraphService.MAXIMUM_QUERY_LENGTH + 1);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, oversized)).isInstanceOf(IllegalArgumentException.class);
@@ -178,7 +180,7 @@ class TestPinnedCodeGraphService
 
     private PinnedCodeGraphService service(int resultLimitBytes, Duration timeout)
     {
-        return new PinnedCodeGraphService(new CodeGraphCli(BUNDLE, git), git, resultLimitBytes, timeout, timeout);
+        return new PinnedCodeGraphService(new CodeGraphCli(BUNDLE, git), git, baselines, resultLimitBytes, timeout, timeout, timeout);
     }
 
     private static void assumeBundle()
@@ -186,7 +188,7 @@ class TestPinnedCodeGraphService
         assumeTrue(BUNDLE.isPresent(), "vendored CodeGraph bundle missing; run scripts/codegraph-bundle.mjs");
     }
 
-    private static Optional<Path> locateBundle()
+    static Optional<Path> locateBundle()
     {
         String configured = System.getenv("BYTEQUAY_CODEGRAPH_HOME");
         Path home = configured == null || configured.isBlank()

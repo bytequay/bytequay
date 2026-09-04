@@ -36,9 +36,11 @@ import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import type {
+  Bridge,
   PullReactionDto,
   RepoLabelDto,
   RepoUserDto,
+  WorkspaceIssueDetailDto,
   RepositoryIssueSnapshotDto,
   RepositoryMetadataDto,
   WorkspaceIssueTimelineEventDto,
@@ -53,6 +55,22 @@ const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
+
+type IssueDetailBridge = Pick<Bridge, 'fetchWorkspaceIssueDetail' | 'refreshWorkspaceIssueDetail'>;
+
+export async function loadWorkspaceIssueDetail(
+  bridge: IssueDetailBridge,
+  workspaceId: string,
+  issueNumber: number,
+  refresh = false,
+): Promise<WorkspaceIssueDetailDto> {
+  const detail = refresh
+    ? await bridge.refreshWorkspaceIssueDetail(workspaceId, issueNumber)
+    : await bridge.fetchWorkspaceIssueDetail(workspaceId, issueNumber);
+  return !refresh && detail.refreshedAt === null
+    ? bridge.refreshWorkspaceIssueDetail(workspaceId, issueNumber)
+    : detail;
+}
 
 export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue }: {
   workspaceId: string;
@@ -90,9 +108,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setDetailLoading(true);
     setDetailError(null);
     try {
-      const detail = refresh
-        ? await window.bridge.refreshWorkspaceIssueDetail(workspaceId, issueNumber)
-        : await window.bridge.fetchWorkspaceIssueDetail(workspaceId, issueNumber);
+      const detail = await loadWorkspaceIssueDetail(window.bridge, workspaceId, issueNumber, refresh);
       if (request === detailRequest.current) {
         setTimeline(detail.timeline);
         setIssueType({ current: detail.currentType, available: detail.availableTypes });
@@ -590,7 +606,6 @@ export function IssueOverview({
           {open === 'participants' && <MetadataPicker ariaLabel="participants" placeholder="Search participants..."
             query={query} setQuery={setQuery} options={participantOptions} loading={false} updating={updating}
             loadingText="" emptyText="No participants found"
-            note="GitHub builds participants from issue activity. Assign or mention someone to add them."
             onToggle={() => {}} />}
         </div>
         <div className="pr-meta__picker">

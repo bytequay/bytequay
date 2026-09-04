@@ -152,6 +152,19 @@ describe('MarkdownBody', () => {
     expect(fenced).toContain('Optional&lt;ConnectorOutputMetadata&gt;');
   });
 
+  it.each(['sql', 'unknown', ''])('highlights fenced code with language %j', language => {
+    const html = renderToStaticMarkup(<MarkdownBody body={`\`\`\`${language}\nSELECT * FROM users WHERE id = 1;\n\`\`\``} />);
+
+    expect(html).toContain('<span class="hljs-keyword">SELECT</span>');
+  });
+
+  it('escapes HTML-looking source while highlighting it', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={"```sql\nSELECT '<script>' AS value;\n```"} />);
+
+    expect(html).toContain('&lt;script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+
   it('links bare URLs in comments', () => {
     const url = 'https://github.com/apache/avro/blob/release-1.12.2/lang/java/avro/src/main/java/org/apache/avro/util/ClassSecurityValidator.java';
 

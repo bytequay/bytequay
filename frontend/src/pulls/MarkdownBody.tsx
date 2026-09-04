@@ -13,6 +13,7 @@
  */
 import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import hljs from 'highlight.js/lib/common';
 import {
   openGitHubReference,
   parseGitHubReference,
@@ -829,6 +830,13 @@ function markdownCode(text: string, keyPrefix: string) {
   });
 }
 
+function highlightedCode(text: string, language: string) {
+  const normalizedLanguage = language.toLowerCase();
+  return normalizedLanguage && hljs.getLanguage(normalizedLanguage)
+    ? hljs.highlight(text, { language: normalizedLanguage, ignoreIllegals: true }).value
+    : hljs.highlightAuto(text).value;
+}
+
 export default function MarkdownBody({ body, className = '', repository, onTaskToggle, tasksDisabled = false }: {
   body: string;
   className?: string;
@@ -898,7 +906,10 @@ function MarkdownBlocks({ markdown, definitions, repository, tasksInteractive, t
           return (
             <div className="md-code-block" key={key}>
               {!isMarkdown && <span>{block.language || 'Plain text'}</span>}
-              <pre><code data-language={block.language}>{isMarkdown ? markdownCode(block.text, key) : block.text}</code></pre>
+              <pre>{isMarkdown
+                ? <code data-language={block.language}>{markdownCode(block.text, key)}</code>
+                : <code className="hljs" data-language={block.language}
+                    dangerouslySetInnerHTML={{ __html: highlightedCode(block.text, block.language) }} />}</pre>
             </div>
           );
         }

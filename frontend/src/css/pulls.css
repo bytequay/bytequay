@@ -5,6 +5,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
+@import 'highlight.js/styles/github.css';
+
 .pulls-page {
   display: flex;
   height: 100%;
@@ -614,7 +616,6 @@
 .pr-people-picker { position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: 310px; overflow: hidden; border: 1px solid #d8dee4; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(31, 35, 40, 0.18); }
 .pr-people-picker input { width: 100%; height: 42px; border: 0; border-bottom: 1px solid #e1e7eb; outline: 0; background: transparent; padding: 0 16px; color: #24292f; font: inherit; font-size: var(--ui-font-size); }
 .pr-people-picker input::placeholder { color: #8c959f; }
-.pr-people-picker__note { border-bottom: 1px solid #e1e7eb; background: #f6f8fa; color: #59636e; padding: 9px 16px; font-size: var(--ui-font-size); line-height: 1.4; }
 .pr-people-picker__list { max-height: 390px; overflow-y: auto; padding: 7px 8px; }
 .pr-people-picker__row { position: relative; display: grid; width: 100%; min-height: 36px; align-items: center; grid-template-columns: 24px 20px minmax(0, auto) 1fr; gap: 8px; border: 0; border-radius: 8px; background: transparent; color: #24292f; padding: 5px 10px; font: inherit; font-size: var(--ui-font-size); text-align: left; }
 .pr-people-picker__row:hover, .pr-people-picker__row:focus-visible { outline: 0; background: #f3f4f6; }
@@ -673,7 +674,8 @@
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
 .markdown-body h1,
-.markdown-body h2 { margin: 20px 0 18px; border-bottom: 1px solid #e1e7eb; padding-bottom: 10px; font-size: 22px; font-weight: 600; line-height: 1.25; }
+.markdown-body h2,
+.issue-overview .pr-description > .markdown-body h3 { margin: 20px 0 18px; border-bottom: 1px solid #e1e7eb; padding-bottom: 10px; font-size: 22px; font-weight: 600; line-height: 1.25; }
 .pull-request-overview .pr-description > .markdown-body h1 { font-size: 26px; }
 .markdown-body h3 { margin: 18px 0 10px; font-size: 16px; }
 .markdown-body h4,
@@ -695,6 +697,7 @@
 .md-code-block > span { display: block; padding: 13px 15px 0; color: #59636e; font-size: 0.9em; }
 .markdown-body .md-code-block pre { overflow-x: auto; margin: 0; border: 0; border-radius: 0; background: transparent; padding: 13px 15px; }
 .markdown-body pre code { background: transparent; padding: 0; font-size: 14px; }
+.markdown-body .md-code-block pre code.hljs { overflow: visible; background: transparent; padding: 0; }
 .md-code-reference { overflow: hidden; margin: 14px 0; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; }
 .md-code-reference__header { display: grid; background: #f6f8fa; padding: 7px 10px 6px; }
 .md-code-reference__header > a { min-width: 0; color: #0969da; font-size: 12px; font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 2px; }

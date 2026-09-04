@@ -458,7 +458,6 @@ export function MetadataPicker({
   updating,
   loadingText,
   emptyText,
-  note,
   onToggle,
 }: {
   ariaLabel: string;
@@ -470,7 +469,6 @@ export function MetadataPicker({
   updating: boolean;
   loadingText: string;
   emptyText: string;
-  note?: string;
   onToggle: (option: MetadataPickerOption) => void;
 }) {
   const displayedOptions = displayedMetadataPickerOptions(options);
@@ -478,7 +476,6 @@ export function MetadataPicker({
     <div className="pr-people-picker">
       <input autoFocus aria-label={`Search ${ariaLabel}`} placeholder={placeholder} value={query}
         onChange={event => setQuery(event.target.value)} />
-      {note && <div className="pr-people-picker__note">{note}</div>}
       <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel}>
         {displayedOptions.map(option => (
           <button className={`pr-people-picker__row${option.color ? ' is-label' : ''}`} type="button"

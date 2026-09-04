@@ -11,10 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import type { PullTimelinePayloadDto, RepositoryMetadataDto, WorkspaceIssueTimelineEventDto } from '../types';
-import { appendIssuePage, IssueOverview, issueAssigneeOptions, issueParticipants } from './WorkspaceIssuesScreen';
+import { describe, expect, it, vi } from 'vitest';
+import type { PullTimelinePayloadDto, RepositoryMetadataDto, WorkspaceIssueDetailDto, WorkspaceIssueTimelineEventDto } from '../types';
+import { appendIssuePage, IssueOverview, issueAssigneeOptions, issueParticipants, loadWorkspaceIssueDetail } from './WorkspaceIssuesScreen';
 
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -49,7 +51,7 @@ const issue = {
   id: 7,
   number: 7,
   title: 'Example issue',
-  body: '## Description\n\nIssue details.',
+  body: '### Description\n\nIssue details.',
   author: 'alice',
   authorAvatarUrl: 'https://avatars.example/alice',
   htmlUrl: 'https://github.com/owner/repo/issues/7',
@@ -83,6 +85,31 @@ const metadata: RepositoryMetadataDto = {
 };
 
 describe('WorkspaceIssuesScreen', () => {
+  it('refreshes a missing local detail snapshot before displaying its type', async () => {
+    const local: WorkspaceIssueDetailDto = {
+      repositoryId: 1,
+      issueNumber: 7,
+      timeline: [],
+      currentType: null,
+      availableTypes: [],
+      refreshedAt: null,
+    };
+    const remote = {
+      ...local,
+      currentType: 'Bug',
+      availableTypes: ['Task', 'Bug'],
+      refreshedAt: '2026-09-05T10:00:00Z',
+    };
+    const bridge = {
+      fetchWorkspaceIssueDetail: vi.fn().mockResolvedValue(local),
+      refreshWorkspaceIssueDetail: vi.fn().mockResolvedValue(remote),
+    };
+
+    await expect(loadWorkspaceIssueDetail(bridge, 'workspace-1', 7)).resolves.toEqual(remote);
+    expect(bridge.fetchWorkspaceIssueDetail).toHaveBeenCalledWith('workspace-1', 7);
+    expect(bridge.refreshWorkspaceIssueDetail).toHaveBeenCalledWith('workspace-1', 7);
+  });
+
   it('renders the PR discussion style with GitHub issue metadata and activity', () => {
     const html = renderToStaticMarkup(<IssueOverview issue={issue} metadata={metadata} timeline={timeline}
       issueType={{ current: 'Task', available: ['Task', 'Bug'] }}
@@ -93,6 +120,7 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).toContain('class="pr-overview issue-overview"');
     expect(html).toContain('Example issue <span>#7</span>');
     expect(html).toContain('class="pr-card pr-description"');
+    expect(html).toContain('<h3>Description</h3>');
     expect(html).toContain('I can reproduce this.');
     expect(html).toContain('assigned this issue');
     expect(html).toContain('Assignees');
@@ -107,6 +135,15 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).toContain('class="pr-composer"');
     expect(html).toContain('>Close issue</button>');
     expect(html).not.toContain('>Better words</button>');
+  });
+
+  it('uses the pull-request heading treatment for issue-form sections', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/css/pulls.css'), 'utf8');
+    const headingRule = css.match(/\.markdown-body h1,[^{]*\{[^}]*\}/)?.[0] ?? '';
+
+    expect(headingRule).toContain('.issue-overview .pr-description > .markdown-body h3');
+    expect(headingRule).toContain('border-bottom: 1px solid #e1e7eb');
+    expect(headingRule).toContain('font-size: 22px');
   });
 
   it('deduplicates participants and keeps the best avatar', () => {

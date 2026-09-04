@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Optional;
 import java.util.Set;
@@ -80,12 +79,9 @@ public class SqlitePrDiffStore
         PrDiffEntity entity = new PrDiffEntity();
         entity.setId(snapshotId(prId, baseSha, headSha));
         entity.setPrId(prId);
-        entity.setBaseSha(baseSha);
-        entity.setHeadSha(headSha);
         entity.setFiles(diff.files());
         entity.setCommits(diff.commits());
         entity.setFileContents(diff.fileContents());
-        entity.setSyncedAt(Instant.now());
         entity.setFilesEtag(etags.files().orElse(null));
         entity.setCommitsEtag(etags.commits().orElse(null));
         repository.save(entity);
@@ -107,7 +103,6 @@ public class SqlitePrDiffStore
         HashMap<String, DiffFileContent> contents = new HashMap<>(entity.getFileContents());
         contents.put(path, content);
         entity.setFileContents(ImmutableMap.copyOf(contents));
-        entity.setSyncedAt(Instant.now());
     }
 
     @Override

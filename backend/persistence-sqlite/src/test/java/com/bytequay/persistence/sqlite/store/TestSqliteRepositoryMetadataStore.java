@@ -133,9 +133,9 @@ class TestSqliteRepositoryMetadataStore
                 ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
 
         issueStore.saveSyncPage(100, ImmutableList.of(issue), "first");
-        issueStore.completeSync(100, REPOSITORY, "first", NOW.minusSeconds(1));
+        issueStore.completeSync(100, "first", NOW.minusSeconds(1));
         issueStore.saveSyncPage(100, ImmutableList.of(issue), "second");
-        issueStore.completeSync(100, REPOSITORY, "second", NOW);
+        issueStore.completeSync(100, "second", NOW);
 
         var page = issueStore.findPage(100, REPOSITORY, 0, 50);
         assertThat(page.issues()).containsExactly(issue);
@@ -180,7 +180,7 @@ class TestSqliteRepositoryMetadataStore
                 .toList();
         issueStore.saveSyncPage(100, issues.subList(0, 30), "sync");
         issueStore.saveSyncPage(100, issues.subList(30, 55), "sync");
-        issueStore.completeSync(100, REPOSITORY, "sync", NOW);
+        issueStore.completeSync(100, "sync", NOW);
 
         var first = issueStore.findPage(100, REPOSITORY, 0, 50);
         var second = issueStore.findPage(100, REPOSITORY, 1, 50);

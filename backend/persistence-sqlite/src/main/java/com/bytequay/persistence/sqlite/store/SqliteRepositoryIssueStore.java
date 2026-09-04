@@ -106,18 +106,14 @@ public class SqliteRepositoryIssueStore
     @Transactional
     public void completeSync(
             long repositoryId,
-            RepoRef repositoryRef,
             String syncMarker,
             Instant syncedAt)
     {
-        requireNonNull(repositoryRef, "repositoryRef is null");
         requireNonNull(syncMarker, "syncMarker is null");
         issueRows.deleteStale(repositoryId, syncMarker);
         RepositoryIssueSyncEntity entity = repository.findById(repositoryId)
                 .orElseGet(RepositoryIssueSyncEntity::new);
         entity.setRepositoryId(repositoryId);
-        entity.setOwner(repositoryRef.owner());
-        entity.setRepo(repositoryRef.repo());
         entity.setSyncedAt(requireNonNull(syncedAt, "syncedAt is null"));
         repository.save(entity);
     }

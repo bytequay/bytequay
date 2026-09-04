@@ -97,7 +97,6 @@ class TestWorkspaceIssueRefreshService
                 anyString());
         verify(issueStore).completeSync(
                 org.mockito.ArgumentMatchers.eq(300L),
-                org.mockito.ArgumentMatchers.eq(UPSTREAM),
                 anyString(),
                 org.mockito.ArgumentMatchers.eq(NOW));
     }
@@ -138,7 +137,6 @@ class TestWorkspaceIssueRefreshService
                         failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
         verify(issueStore, never()).completeSync(
                 org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
                 anyString(),
                 org.mockito.ArgumentMatchers.any());
     }

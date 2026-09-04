@@ -93,9 +93,6 @@ public class PrDetailEntity
     @Column(nullable = false)
     private int changedFiles;
 
-    @Column(nullable = false)
-    private int requestedReviewerCount;
-
     @Column(name = "requested_reviewers")
     @Convert(converter = StringListConverter.class)
     private List<String> requestedReviewers;
@@ -127,6 +124,7 @@ public class PrDetailEntity
 
     public PrRawDetail toRawDetail()
     {
+        List<String> requestedReviewers = getRequestedReviewers() != null ? getRequestedReviewers() : ImmutableList.of();
         return new PrRawDetail(
                 getTitle(),
                 getHtmlUrl(),
@@ -147,8 +145,8 @@ public class PrDetailEntity
                 getAdditions(),
                 getDeletions(),
                 getChangedFiles(),
-                getRequestedReviewerCount(),
-                getRequestedReviewers() != null ? getRequestedReviewers() : ImmutableList.of(),
+                requestedReviewers.size(),
+                requestedReviewers,
                 getHeadSha(),
                 getHeadRef(),
                 getBaseRef());

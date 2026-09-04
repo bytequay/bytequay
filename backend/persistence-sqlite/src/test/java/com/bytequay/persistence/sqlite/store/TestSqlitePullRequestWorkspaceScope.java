@@ -198,8 +198,8 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(second).isEqualTo(first);
         assertThat(store.findIdByRepoAndNumber("EXTERNAL/PROJECT", 12)).contains(first);
         assertThat(store.findPage(0, 50).pullRequests())
-                .extracting(PullRequest::id, PullRequest::githubId)
-                .containsExactly(tuple(first, 92L));
+                .extracting(PullRequest::id)
+                .containsExactly(first);
     }
 
     @Test

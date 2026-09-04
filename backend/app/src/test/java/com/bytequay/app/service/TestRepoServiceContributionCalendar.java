@@ -101,7 +101,7 @@ class TestRepoServiceContributionCalendar
         return new PullRequest(
                 7L, "trinodb/trino", 30835, "title", "alice", "url", NOW, NOW,
                 PullRequest.Origin.OTHER, ImmutableList.of(), null, false, null, null, null,
-                ImmutableList.of(), null, 0, 0, 0, null, "open", null, null, null, null, null, null, "feature", 1L);
+                ImmutableList.of(), null, 0, 0, 0, null, "open", null, null, null, null, null, "feature");
     }
 
     private static RepoService service(GitHubAccountClient gitHub, CredentialService credentialService)

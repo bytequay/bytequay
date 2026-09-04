@@ -34,7 +34,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -57,9 +56,6 @@ public class PullRequestEntity
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(name = "github_id")
-    private Long githubId;
 
     @Column(nullable = false)
     private String repo;
@@ -160,28 +156,9 @@ public class PullRequestEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant headPushedAt;
 
-    /** Per-reviewer verdict at the moment of the last detail sync, persisted
-     *  as a JSON map {login -> state} via StringMapConverter. Empty when no
-     *  reviewer has weighed in yet. */
-    @Column(name = "reviewer_verdicts")
-    @Convert(converter = StringMapConverter.class)
-    private Map<String, String> reviewerVerdicts;
-
     /** PR head branch name (GitHub's head.ref on the list response). */
     @Column(name = "head_ref")
     private String headRef;
-
-    @Column(nullable = false, updatable = false)
-    @Convert(converter = InstantToTextConverter.class)
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private Instant internalCreatedAt;
-
-    @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private Instant internalUpdatedAt;
 
     public PullRequestEntity() {}
 
@@ -189,23 +166,18 @@ public class PullRequestEntity
     public void prePersist()
     {
         this.repo = repo.toLowerCase(Locale.ROOT);
-        Instant now = Instant.now();
-        this.internalCreatedAt = now;
-        this.internalUpdatedAt = now;
     }
 
     @PreUpdate
     public void preUpdate()
     {
         this.repo = repo.toLowerCase(Locale.ROOT);
-        this.internalUpdatedAt = Instant.now();
     }
 
     /** The row for a pull request GitHub reported. */
     public static PullRequestEntity from(FetchedPullRequest pr, Instant syncedAt)
     {
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setGithubId(pr.githubId());
         entity.setRepo(pr.repo());
         entity.setNumber(pr.number());
         entity.setTitle(pr.title());
@@ -268,9 +240,7 @@ public class PullRequestEntity
                 getMergeable(),
                 getMergeableState(),
                 getHeadPushedAt(),
-                getReviewerVerdicts(),
-                getHeadRef(),
-                getGithubId());
+                getHeadRef());
     }
 
     /**
@@ -286,7 +256,6 @@ public class PullRequestEntity
         setCommentCount(previous.getCommentCount());
         setAttentionReason(previous.getAttentionReason());
         setHeadPushedAt(previous.getHeadPushedAt());
-        setReviewerVerdicts(previous.getReviewerVerdicts());
         // Reported by the pulls endpoint but not by search.
         if (getMergeable() == null) {
             setMergeable(previous.getMergeable());

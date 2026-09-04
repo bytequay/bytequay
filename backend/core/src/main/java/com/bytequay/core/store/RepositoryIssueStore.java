@@ -29,7 +29,7 @@ public interface RepositoryIssueStore
 
     void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker);
 
-    void completeSync(long repositoryId, RepoRef repository, String syncMarker, Instant syncedAt);
+    void completeSync(long repositoryId, String syncMarker, Instant syncedAt);
 
     void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt);
 

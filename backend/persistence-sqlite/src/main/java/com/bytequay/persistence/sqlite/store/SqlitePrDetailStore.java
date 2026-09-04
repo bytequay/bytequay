@@ -223,7 +223,6 @@ public class SqlitePrDetailStore
         entity.setAdditions(raw.additions());
         entity.setDeletions(raw.deletions());
         entity.setChangedFiles(raw.changedFiles());
-        entity.setRequestedReviewerCount(raw.requestedReviewerCount());
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());

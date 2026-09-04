@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -76,6 +77,9 @@ class TestSqlitePrDetailStore
 
     @Autowired
     private PrCheckRunJpaRepository checkRuns;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -189,6 +193,23 @@ class TestSqlitePrDetailStore
 
         assertThat(store.findCheckRunsEtag(prId)).contains("\"checks-1\"");
         assertThat(store.findCommitStatusesEtag(prId)).contains("\"statuses-1\"");
+    }
+
+    @Test
+    void derivesRequestedReviewerCountFromStoredReviewers()
+    {
+        StoredPrDetail detail = new StoredPrDetail(
+                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 99, ImmutableList.of("alice", "bob"),
+                        "a".repeat(40), "feature"),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of());
+
+        store.save(prId, detail);
+
+        assertThat(store.find(prId).orElseThrow().raw().requestedReviewerCount()).isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT name FROM pragma_table_info('pr_detail')", String.class))
+                .doesNotContain("requested_reviewer_count");
     }
 
     @Test

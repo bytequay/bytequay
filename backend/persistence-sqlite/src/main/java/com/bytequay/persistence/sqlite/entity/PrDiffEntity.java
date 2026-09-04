@@ -19,7 +19,6 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.persistence.sqlite.converter.DiffCommitListConverter;
 import com.bytequay.persistence.sqlite.converter.DiffFileContentMapConverter;
 import com.bytequay.persistence.sqlite.converter.DiffFileListConverter;
-import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -28,7 +27,6 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -44,10 +42,6 @@ public class PrDiffEntity
     @Column(nullable = false)
     private Long prId;
 
-    private String baseSha;
-
-    private String headSha;
-
     @Column(nullable = false, columnDefinition = "TEXT")
     @Convert(converter = DiffFileListConverter.class)
     private List<DiffFile> files;
@@ -59,10 +53,6 @@ public class PrDiffEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     @Convert(converter = DiffFileContentMapConverter.class)
     private Map<String, DiffFileContent> fileContents;
-
-    @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
-    private Instant syncedAt;
 
     private String filesEtag;
 

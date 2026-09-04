@@ -34,12 +34,6 @@ public class RepositoryIssueSyncEntity
     @Column(name = "repository_id")
     private Long repositoryId;
 
-    @Column(nullable = false)
-    private String owner;
-
-    @Column(nullable = false)
-    private String repo;
-
     @Column(name = "synced_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;

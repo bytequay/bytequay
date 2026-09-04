@@ -38,7 +38,6 @@ import static java.util.Objects.requireNonNull;
  * @param mergeableState GitHub's mergeable_state value.
  * @param headPushedAt timestamp of the most recent commit on the PR's head
  * branch.
- * @param reviewerVerdicts per-reviewer verdict map keyed by login.
  * @param headRef PR head branch name from GitHub's list response.
  */
 public record PullRequest(
@@ -70,16 +69,13 @@ public record PullRequest(
         Boolean mergeable,
         String mergeableState,
         Instant headPushedAt,
-        Map<String, String> reviewerVerdicts,
-        String headRef,
-        Long githubId)
+        String headRef)
 {
     public PullRequest
     {
         checkArgument(id > 0, "id is not a stored row id: %s", id);
         requireNonNull(repo, "repo is null");
         requireNonNull(author, "author is null");
-        requireNonNull(githubId, "githubId is null");
         requireNonNull(title, "title is null");
         requireNonNull(htmlUrl, "htmlUrl is null");
         requireNonNull(createdAt, "createdAt is null");
@@ -89,9 +85,6 @@ public record PullRequest(
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
         requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
-        reviewerVerdicts = reviewerVerdicts == null
-                ? ImmutableMap.of()
-                : ImmutableMap.copyOf(reviewerVerdicts);
     }
 
     public enum Origin
@@ -112,6 +105,6 @@ public record PullRequest(
                 labelColors, draft, viewState.viewedAt(), viewState.reviewedAt(),
                 viewState.handledAction(), requestedReviewers, ciStatus, additions, deletions,
                 commentCount, attentionReason, state, closedAt, mergedAt, mergeable, mergeableState,
-                headPushedAt, reviewerVerdicts, headRef, githubId);
+                headPushedAt, headRef);
     }
 }

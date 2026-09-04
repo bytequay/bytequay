@@ -136,7 +136,6 @@ public class WorkspaceIssueRefreshService
         }
         issues.completeSync(
                 workspace.monitoredRepositoryId(),
-                workspace.monitoredRepository(),
                 syncMarker,
                 clock.instant());
     }

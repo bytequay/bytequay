@@ -324,7 +324,7 @@ class TestPullRequestService
         verify(store).completeDashboardSync(anyString(), eq("me"));
         verify(store, never()).findUpdatedAtByIds(any());
         verify(store, never()).updateEnrichment(
-                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), any());
+                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any());
         verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());
@@ -1088,8 +1088,7 @@ class TestPullRequestService
                 fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(),
                 fetched.labelColors(), fetched.draft(), null, null, null, fetched.requestedReviewers(),
                 null, 0, 0, 0, null, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
-                fetched.mergeable(), fetched.mergeableState(), null, null, fetched.headRef(),
-                fetched.githubId());
+                fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef());
     }
 
     private static FetchedPullRequest pullRequest()

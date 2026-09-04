@@ -94,6 +94,6 @@ class TestPrAttention
         return new PullRequest(
                 1L, "owner/repo", 7, "title", "alice", "url", NOW, NOW, origin,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "open", null, null, null, null, null, null, null, 1L);
+                0, 0, 0, null, "open", null, null, null, null, null, null);
     }
 }

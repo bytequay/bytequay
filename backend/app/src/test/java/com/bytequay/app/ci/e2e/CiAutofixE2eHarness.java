@@ -450,7 +450,6 @@ final class CiAutofixE2eHarness
     private long seedPullRequest(E2eGitRepository repository)
     {
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setGithubId((long) repository.pullRequest().number());
         entity.setRepo(repository.pullRequest().repoFullName());
         entity.setNumber(repository.pullRequest().number());
         entity.setTitle("CI Autofix E2E");

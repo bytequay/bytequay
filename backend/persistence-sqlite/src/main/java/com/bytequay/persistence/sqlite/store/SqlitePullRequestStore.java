@@ -331,7 +331,6 @@ public class SqlitePullRequestStore
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
-            Map<String, String> reviewerVerdicts,
             String headRef)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
@@ -343,7 +342,6 @@ public class SqlitePullRequestStore
             entity.setMergeable(mergeable);
             entity.setMergeableState(mergeableState);
             entity.setHeadPushedAt(headPushedAt);
-            entity.setReviewerVerdicts(reviewerVerdicts);
             // Only overwrite head_ref when the detail sync actually
             // produced one. Detail can briefly miss it on first fetch
             // (GitHub still computing); keeping the previous value

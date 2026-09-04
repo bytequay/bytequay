@@ -21,7 +21,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
@@ -156,23 +155,6 @@ final class PullRequestDetailMapper
                 .orElse(null);
     }
 
-    static Map<String, String> rolledUpReviewerVerdicts(List<PrReviewState> reviews)
-    {
-        if (reviews == null || reviews.isEmpty()) {
-            return ImmutableMap.of();
-        }
-        Map<String, String> out = new LinkedHashMap<>();
-        for (PrReviewState review : reviews) {
-            if (review.login() == null || review.state() == null) {
-                continue;
-            }
-            if (!out.containsKey(review.login()) || isStickyVerdict(review.state())) {
-                out.put(review.login(), review.state());
-            }
-        }
-        return ImmutableMap.copyOf(out);
-    }
-
     private static List<PullRequestDetail.Reviewer> reviewers(
             PrRawDetail raw,
             List<PrReviewState> reviews)
@@ -217,12 +199,5 @@ final class PullRequestDetailMapper
     private static Instant time(PrTimelineEvent event)
     {
         return event.timestamp() != null ? event.timestamp() : Instant.EPOCH;
-    }
-
-    private static boolean isStickyVerdict(String state)
-    {
-        return GithubReviewState.APPROVED.equals(state)
-                || GithubReviewState.CHANGES_REQUESTED.equals(state)
-                || GithubReviewState.DISMISSED.equals(state);
     }
 }

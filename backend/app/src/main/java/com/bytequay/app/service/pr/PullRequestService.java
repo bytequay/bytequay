@@ -1141,7 +1141,6 @@ public class PullRequestService
                 detail.raw().mergeable(),
                 detail.raw().mergeableState(),
                 PullRequestDetailMapper.latestPushAt(detail.timeline()),
-                PullRequestDetailMapper.rolledUpReviewerVerdicts(detail.reviews()),
                 detail.raw().headRef());
     }
 

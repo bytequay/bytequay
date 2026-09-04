@@ -20,8 +20,6 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -52,33 +50,7 @@ public class PrViewStateEntity
     @Column(name = "reviewed_head_sha")
     private String reviewedHeadSha;
 
-    @Column(nullable = false, updatable = false)
-    @Convert(converter = InstantToTextConverter.class)
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private Instant internalCreatedAt;
-
-    @Column(nullable = false)
-    @Convert(converter = InstantToTextConverter.class)
-    @Getter(AccessLevel.NONE)
-    @Setter(AccessLevel.NONE)
-    private Instant internalUpdatedAt;
-
     public PrViewStateEntity() {}
-
-    @PrePersist
-    public void prePersist()
-    {
-        Instant now = Instant.now();
-        this.internalCreatedAt = now;
-        this.internalUpdatedAt = now;
-    }
-
-    @PreUpdate
-    public void preUpdate()
-    {
-        this.internalUpdatedAt = Instant.now();
-    }
 
     public HandledAction getHandledAction() { return handledAction == null ? null : HandledAction.valueOf(handledAction); }
     public void setHandledAction(HandledAction handledAction) { this.handledAction = handledAction == null ? null : handledAction.name(); }

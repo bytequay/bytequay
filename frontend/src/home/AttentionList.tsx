@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ArrowUpRight, Check, Clock3 } from 'lucide-react';
 import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import RepoAvatar from '../RepoAvatar';
@@ -196,31 +197,31 @@ export default function AttentionList({
                 <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={18} />
               </span>
               <span className="atn-row__age">{relativeTime(item.updatedAt, { suffix: false })}</span>
-              <div className="atn-row__actions">
+              <div className="atn-row__actions" role="group" aria-label={`Actions for #${item.number}`}>
                 <button
-                  className="atn-row__action is-ack"
+                  className="bq-button bq-button--ghost"
                   type="button"
                   title="Acknowledge — clears it from this list"
                   aria-label={`Acknowledge #${item.number}`}
                   onClick={event => { event.stopPropagation(); acknowledge(item); }}
                 >
-                  ✓ Ack
+                  <Check aria-hidden="true" /> Ack
                 </button>
                 <button
-                  className="atn-row__action is-snooze"
+                  className="bq-button"
                   type="button"
                   title="Snooze"
                   aria-label={`Snooze #${item.number}`}
                   onClick={event => { event.stopPropagation(); openSnoozeMenu(item, event.currentTarget); }}
                 >
-                  ◷ Snooze
+                  <Clock3 aria-hidden="true" /> Snooze
                 </button>
                 <button
-                  className="atn-row__action is-open"
+                  className="bq-button"
                   type="button"
                   onClick={event => { event.stopPropagation(); onOpen(item); }}
                 >
-                  Open ›
+                  Open <ArrowUpRight aria-hidden="true" />
                 </button>
               </div>
             </div>

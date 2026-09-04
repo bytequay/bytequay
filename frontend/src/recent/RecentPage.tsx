@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, CircleDot, GitPullRequest, Sparkles } from 'lucide-react';
 import Avatar from '../Avatar';
 import RepoAvatar from '../RepoAvatar';
 import type {
@@ -105,8 +106,8 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
   const load = useCallback(async (from: string | null, reset: boolean) => {
     // Only paging is allowed to be dropped when a request is already out —
     // stacking scroll loads would page past the day the user is reading. A
-    // filter change must always re-run, or a second chip toggled while the
-    // first is still in flight leaves the chip lit and the stream stale.
+    // filter change must always re-run, or a second filter toggled while the
+    // first is still in flight leaves its control selected and the stream stale.
     if (!mayLoad(reset, inFlight.current)) return;
     const current = ++request.current;
     inFlight.current = true;
@@ -178,14 +179,14 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
       return;
     }
     if (done || !cursor) {
-      // The day fell outside what the current chips keep; stop hunting for it.
+      // The day fell outside what the current filters keep; stop hunting for it.
       setScrollTo(null);
       return;
     }
     void load(cursor, false);
   }, [cursor, days, done, load, scrollTo]);
 
-  // Picking the type that is already showing goes back to All, so the chips
+  // Picking the type that is already showing goes back to All, so the filters
   // never dead-end on a selection you cannot leave.
   const pickType = (next: RecentItemType) =>
     setType(current => (current === next ? null : next));
@@ -203,11 +204,11 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
       <header className="rc-head" onClick={event => event.stopPropagation()}>
         <div className="rc-head__row">
           <h1>Recent</h1>
-          <div className="rc-head__spacer" />
           <span className="rc-menu-anchor">
-            <button type="button" className="rc-control is-strong"
+            <button type="button" className="bq-button rc-range"
+              aria-haspopup="menu" aria-expanded={menu === 'range' || menu === 'calendar'}
               onClick={() => setMenu(menu === null ? 'range' : null)}>
-              {rangeLabel(window_.from, window_.to)} ▾
+              {rangeLabel(window_.from, window_.to)} <ChevronDown aria-hidden="true" />
             </button>
             {menu === 'range' && (
               <div className="rc-menu" role="menu">
@@ -237,9 +238,10 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
             )}
           </span>
           <span className="rc-menu-anchor">
-            <button type="button" className="rc-control"
+            <button type="button" className="bq-button"
+              aria-haspopup="menu" aria-expanded={menu === 'workspace'}
               onClick={() => setMenu(menu === null ? 'workspace' : null)}>
-              {workspaces.find(item => item.id === workspace)?.name ?? 'All workspaces'} ▾
+              {workspaces.find(item => item.id === workspace)?.name ?? 'All workspaces'} <ChevronDown aria-hidden="true" />
             </button>
             {menu === 'workspace' && (
               <div className="rc-menu" role="menu">
@@ -257,23 +259,23 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
               </div>
             )}
           </span>
-          <input className="rc-narrow" placeholder="⌕ Narrow this list…" aria-label="Narrow this list"
+          <input className="bq-input rc-narrow" type="search" placeholder="Narrow this list…" aria-label="Narrow this list"
             value={narrow} onChange={event => setNarrow(event.target.value)} />
         </div>
-        <div className="rc-chips">
-          <button type="button" className={`rc-chip${type === null ? ' is-active' : ''}`}
-            aria-pressed={type === null} onClick={() => setType(null)}>All</button>
-          <button type="button" className={`rc-chip${type === 'PULL_REQUEST' ? ' is-active' : ''}`}
-            aria-pressed={type === 'PULL_REQUEST'}
-            onClick={() => pickType('PULL_REQUEST')}>⑃ PRs</button>
-          <button type="button" className={`rc-chip${type === 'ISSUE' ? ' is-active' : ''}`}
-            aria-pressed={type === 'ISSUE'}
-            onClick={() => pickType('ISSUE')}>◉ Issues</button>
-          <span className="rc-chip__rule" aria-hidden="true" />
+        <div className="rc-filters">
+          <div className="bq-button-group" role="group" aria-label="Item type">
+            <button type="button" className="bq-button"
+              aria-pressed={type === null} onClick={() => setType(null)}>All</button>
+            <button type="button" className="bq-button" aria-pressed={type === 'PULL_REQUEST'}
+              onClick={() => pickType('PULL_REQUEST')}><GitPullRequest aria-hidden="true" /> PRs</button>
+            <button type="button" className="bq-button" aria-pressed={type === 'ISSUE'}
+              onClick={() => pickType('ISSUE')}><CircleDot aria-hidden="true" /> Issues</button>
+          </div>
           <span className="rc-menu-anchor">
-            <button type="button" className={`rc-chip${action ? ' is-active' : ''}`}
+            <button type="button" className="bq-button" aria-pressed={action !== ''}
+              aria-haspopup="menu" aria-expanded={menu === 'action'}
               onClick={() => setMenu(menu === null ? 'action' : null)}>
-              {ACTION_OPTIONS.find(option => option.value === action)?.label ?? 'Any action'} ▾
+              {ACTION_OPTIONS.find(option => option.value === action)?.label ?? 'Any action'} <ChevronDown aria-hidden="true" />
             </button>
             {menu === 'action' && (
               <div className="rc-menu" role="menu">
@@ -288,9 +290,9 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
               </div>
             )}
           </span>
-          <button type="button" className={`rc-chip${changedOnly ? ' is-flagged' : ''}`}
+          <button type="button" className="bq-button"
             aria-pressed={changedOnly} onClick={() => setChangedOnly(value => !value)}>
-            ◆ Changed since I looked
+            <Sparkles aria-hidden="true" /> Changed since I looked
           </button>
         </div>
       </header>

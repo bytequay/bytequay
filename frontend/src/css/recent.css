@@ -64,47 +64,24 @@
 
 .rc-head__row {
   display: flex;
-  align-items: baseline;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 
 .rc-head h1 {
-  margin: 0;
+  margin: 0 auto 0 0;
   font-size: 21px;
   font-weight: 700;
   letter-spacing: -0.35px;
 }
 
-.rc-head__spacer { flex: 1; }
-
-.rc-control {
-  padding: 4.5px 11px;
-  border: 1px solid rgba(15, 20, 25, 0.14);
-  border-radius: 7px;
-  background: linear-gradient(#ffffff, #f7f8fa);
-  font-size: 12px;
-  color: var(--text-2);
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: 0 1px 1px rgba(15, 20, 25, 0.05);
-}
-.rc-control.is-strong {
-  border-color: rgba(15, 20, 25, 0.18);
-  background: linear-gradient(#f3f5f8, #e9ecf1);
-  font-weight: 500;
-  color: var(--text-1);
-  font-variant-numeric: tabular-nums;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-}
+.rc-range { font-variant-numeric: tabular-nums; }
 
 .rc-narrow {
+  flex: 0 1 196px;
+  min-width: 160px;
   width: 196px;
-  padding: 5.5px 11px;
-  border: 1px solid rgba(15, 20, 25, 0.14);
-  border-radius: 7px;
-  font-size: 12.5px;
-  background: #fbfbfc;
-  box-shadow: inset 0 1px 2px rgba(15, 20, 25, 0.05);
 }
 
 .rc-menu-anchor { position: relative; display: inline-flex; }
@@ -195,7 +172,7 @@
 .rc-cal__day.has-activity .rc-cal__mark { background: #0969da; }
 .rc-cal__day.is-picked .rc-cal__mark { background: #ffffff; }
 
-.rc-chips {
+.rc-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -203,32 +180,6 @@
   margin-top: 16px;
   padding-bottom: 4px;
 }
-
-.rc-chip {
-  padding: 3.5px 11px;
-  border: 1px solid rgba(15, 20, 25, 0.13);
-  border-radius: 14px;
-  background: linear-gradient(#ffffff, #f8f9fb);
-  color: var(--text-2);
-  font-size: 11.5px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-/* Same border and weight in both states: a chip that resizes as it toggles
-   shifts the ones beside it out from under the pointer. */
-.rc-chip.is-active {
-  border-color: transparent;
-  background: linear-gradient(#3a4048, #24292f);
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 20, 25, 0.2);
-}
-.rc-chip.is-flagged {
-  border-color: rgba(9, 105, 218, 0.28);
-  background: #e8f1fd;
-  color: #0969da;
-}
-.rc-chip__rule { width: 1px; height: 16px; background: rgba(15, 20, 25, 0.1); margin: 0 5px; }
 
 .rc-stream {
   flex: 1;

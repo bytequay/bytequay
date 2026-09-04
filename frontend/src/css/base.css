@@ -111,6 +111,15 @@
   --border-input: #e0e0e0;
   --border-strong: #dadadb;
 
+  /* Compact monochrome controls shared by workbench surfaces. */
+  --control-bg: #ffffff;
+  --control-border: #e4e4e7;
+  --control-hover: #f4f4f5;
+  --control-pressed: #e4e4e7;
+  --control-strong: #18181b;
+  --control-strong-hover: #27272a;
+  --control-on-strong: #fafafa;
+
   /* CTA palette — GitHub-flavored green that matches the rest of the
      light-theme palette without competing with the blue accent. */
   --cta-from: #2da44e;
@@ -299,6 +308,140 @@ textarea {
   color: inherit;
   font-family: inherit;
   font-size: inherit;
+}
+
+/* One compact button/input family for Home and Recent. */
+.bq-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--control-bg);
+  color: var(--text-1);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.bq-button svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 2;
+}
+
+.bq-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--control-hover);
+}
+
+.bq-button:active:not(:disabled) {
+  background: var(--control-pressed);
+  box-shadow: none;
+}
+
+.bq-button:focus-visible,
+.bq-input:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.bq-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.bq-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.bq-button--ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--control-hover);
+}
+
+.bq-button--ghost:active:not(:disabled) {
+  background: var(--control-pressed);
+}
+
+.bq-button--primary,
+.bq-button[aria-pressed="true"] {
+  border-color: var(--control-strong);
+  background: var(--control-strong);
+  color: var(--control-on-strong);
+  box-shadow: none;
+}
+
+.bq-button--primary:hover:not(:disabled),
+.bq-button[aria-pressed="true"]:hover:not(:disabled),
+.bq-button--primary:active:not(:disabled),
+.bq-button[aria-pressed="true"]:active:not(:disabled) {
+  border-color: var(--control-strong-hover);
+  background: var(--control-strong-hover);
+}
+
+.bq-button--large {
+  height: 36px;
+  padding-inline: 14px;
+}
+
+.bq-button-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--control-hover);
+}
+
+.bq-button-group > .bq-button {
+  height: 26px;
+  padding-inline: 9px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.bq-button-group > .bq-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--control-bg);
+}
+
+.bq-button-group > .bq-button[aria-pressed="true"],
+.bq-button-group > .bq-button[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--control-strong);
+  background: var(--control-strong);
+  color: var(--control-on-strong);
+}
+
+.bq-input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  background: var(--control-bg);
+  color: var(--text-1);
+  box-shadow: var(--shadow-sm);
+  font-size: 12.5px;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+.bq-input:hover {
+  border-color: var(--border-strong);
+}
+
+.bq-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 code,

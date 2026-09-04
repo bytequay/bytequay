@@ -141,23 +141,6 @@
   white-space: nowrap;
 }
 
-.home-start__go {
-  height: 30px;
-  padding: 0 14px;
-  border: 1px solid rgba(31, 35, 40, 0.12);
-  border-radius: 7px;
-  background: #0969da;
-  color: #ffffff;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.home-start__go:hover {
-  background: #0860c4;
-}
-
 .repo-avatar {
   position: relative;
   flex: none;
@@ -285,47 +268,6 @@
   gap: 6px;
   flex: none;
   margin-left: 2px;
-}
-
-.atn-row__action {
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #f6f8fa;
-  color: #24292f;
-  padding: 0 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.atn-row__action.is-ack:hover {
-  background: #dafbe1;
-  border-color: #a8e0b6;
-}
-
-.atn-row__action.is-snooze:hover {
-  background: #fff8c5;
-  border-color: #e6d47a;
-}
-
-.atn-row__action.is-open {
-  border-color: rgba(31, 35, 40, 0.12);
-  background: #0969da;
-  color: #ffffff;
-}
-
-.atn-row__action.is-open:hover {
-  background: #0860c4;
-}
-
-.atn-row__action:focus-visible {
-  outline: 2px solid #0969da;
-  outline-offset: 1px;
 }
 
 .atn-clear {
@@ -588,30 +530,6 @@
   padding: 1px 8px;
   white-space: nowrap;
 }
-
-.atn-preview__btn {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #f6f8fa;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #24292f;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.atn-preview__btn.is-ack:hover { background: #dafbe1; border-color: #a8e0b6; }
-.atn-preview__btn.is-snooze:hover { background: #fff8c5; border-color: #e6d47a; }
-
-.atn-preview__btn.is-open {
-  border-color: rgba(31, 35, 40, 0.12);
-  background: #0969da;
-  color: #ffffff;
-}
-
-.atn-preview__btn.is-open:hover { background: #0860c4; }
 
 /* ── Toast ───────────────────────────────────────────────────────
    Shared by Home's attention list and the Workspaces grid. */

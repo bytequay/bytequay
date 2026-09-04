@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ArrowUpRight, Check, Clock3 } from 'lucide-react';
 import Avatar from '../Avatar';
 import { getCached, setCached } from '../dataCache';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -161,20 +162,24 @@ export default function AttentionPreview({
         <div className={`atn-preview__body${body === '' && !loading ? ' is-empty' : ''}`}>
           {loading ? null : body === '' ? 'No description.' : <MarkdownBody body={body} repository={item.repo} />}
         </div>
-        <div className="atn-preview__actions">
+        <div className="atn-preview__actions" role="group" aria-label={`Actions for #${item.number}`}>
           {labels.map(label => (
             <span className="atn-preview__tag" key={label}>{label}</span>
           ))}
           <div className="atn-preview__spacer" />
-          <button className="atn-preview__btn is-ack" type="button" onClick={onAck}>✓ Ack</button>
+          <button className="bq-button bq-button--ghost" type="button" onClick={onAck}>
+            <Check aria-hidden="true" /> Ack
+          </button>
           <button
-            className="atn-preview__btn is-snooze"
+            className="bq-button"
             type="button"
             onClick={event => onSnooze(event.currentTarget)}
           >
-            ◷ Snooze
+            <Clock3 aria-hidden="true" /> Snooze
           </button>
-          <button className="atn-preview__btn is-open" type="button" onClick={onOpen}>Open ›</button>
+          <button className="bq-button" type="button" onClick={onOpen}>
+            Open <ArrowUpRight aria-hidden="true" />
+          </button>
         </div>
       </div>
     </div>,

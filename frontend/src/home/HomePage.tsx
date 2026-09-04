@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
@@ -279,8 +280,8 @@ function HomePage({
         </div>
         <div className="home-start__spacer" />
         {snoozedCount > 0 && <span className="home-start__snoozed">{snoozedCount} snoozed</span>}
-        <button className="home-start__go" type="button" onClick={onGoToMyPrs}>
-          Start review <span aria-hidden="true">→</span>
+        <button className="bq-button bq-button--primary bq-button--large" type="button" onClick={onGoToMyPrs}>
+          Start review <ArrowRight aria-hidden="true" />
         </button>
       </div>
 

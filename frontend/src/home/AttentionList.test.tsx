@@ -17,7 +17,7 @@ import AttentionList from './AttentionList';
 import type { AttentionItem } from './attention';
 
 describe('AttentionList', () => {
-  it('keeps the pull request identity together and renders full action buttons', () => {
+  it('keeps the pull request identity together and renders shared action buttons', () => {
     const item: AttentionItem = {
       key: 'trinodb/trino#30920',
       type: 'pr',
@@ -53,11 +53,10 @@ describe('AttentionList', () => {
     expect(number).toBeGreaterThan(title);
     expect(repositoryAvatar).toBeGreaterThan(number);
     expect(authorAvatar).toBeGreaterThan(repositoryAvatar);
-    expect(html).toContain('class="atn-row__action is-ack"');
-    expect(html).toContain('>✓ Ack</button>');
-    expect(html).toContain('class="atn-row__action is-snooze"');
-    expect(html).toContain('>◷ Snooze</button>');
-    expect(html).toContain('class="atn-row__action is-open"');
-    expect(html).toContain('>Open ›</button>');
+    expect(html).toContain('class="bq-button bq-button--ghost"');
+    expect(html.match(/class="bq-button/g)).toHaveLength(3);
+    expect(html).toContain('Ack</button>');
+    expect(html).toContain('Snooze</button>');
+    expect(html).toContain('Open');
   });
 });

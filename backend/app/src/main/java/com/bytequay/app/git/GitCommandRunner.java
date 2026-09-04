@@ -150,17 +150,23 @@ public class GitCommandRunner
     public Result runCommand(Path workingDirectory, List<String> command, Duration timeout, int maximumOutputBytes)
             throws InterruptedException
     {
+        return runCommand(workingDirectory, ImmutableMap.of(), command, timeout, maximumOutputBytes);
+    }
+
+    /** Runs an arbitrary argv-based command with extra environment variables on top of the inherited ones. */
+    public Result runCommand(Path workingDirectory, Map<String, String> environment, List<String> command, Duration timeout, int maximumOutputBytes)
+            throws InterruptedException
+    {
         requireNonNull(workingDirectory, "workingDirectory is null");
+        requireNonNull(environment, "environment is null");
         requireNonNull(command, "command is null");
         checkArgument(!command.isEmpty(), "command is empty");
         requireNonNull(timeout, "timeout is null");
         checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
         checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
-        return execute(
-                new ProcessBuilder(command).directory(workingDirectory.toFile()),
-                timeout,
-                maximumOutputBytes,
-                "Command");
+        ProcessBuilder builder = new ProcessBuilder(command).directory(workingDirectory.toFile());
+        builder.environment().putAll(environment);
+        return execute(builder, timeout, maximumOutputBytes, "Command");
     }
 
     private static Result execute(ProcessBuilder builder, Duration timeout, int maximumOutputBytes, String name)

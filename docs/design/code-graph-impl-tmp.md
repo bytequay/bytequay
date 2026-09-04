@@ -366,7 +366,7 @@ real only when the seed sits at the task's start commit: 0.84 s instead of
    gains nothing from it, so it belongs after CG4 as its own gated checkpoint,
    not in V1.
 
-## [ ] CG1 — Vendor the helper and build the adapter
+## [x] CG1 — Vendor the helper and build the adapter
 
 **Owner:** backend owner
 
@@ -377,36 +377,39 @@ real only when the seed sits at the task's start commit: 0.84 s instead of
 Purpose: a working `CodeGraphService` for one worktree with no baseline yet,
 with the helper packaged deterministically and never downloaded at runtime.
 
-- [ ] Vendor the pinned bundle: one script fetches
+- [x] Vendor the pinned bundle: one script fetches
   `@colbymchenry/codegraph-<platform>@1.6.0` by recorded sha512 integrity into
   a gitignored `frontend/vendor/codegraph/`, refuses on mismatch, applies the
   five-line external-index patch with an assertion that the original text is
   present, and writes a marker so reruns are no-ops. `dev.sh` and
   `forge.config.ts` run it; `extraResource` ships the bundle beside the
   backend jar. Record the x64 bundle's integrity alongside arm64.
-- [ ] The backend locates the bundle from `bytequay.codegraph.home`, set by
+- [x] The backend locates the bundle from `bytequay.codegraph.home`, set by
   `dev.sh` and `backendProcess.ts`; an absent or invalid home means the
   service is unavailable, never an error.
-- [ ] Add `CodeGraphService` and `CodeGraphException` to `agent-core` with
-  the Section 4 operations.
-- [ ] Add the adapter under `com.bytequay.app.agent.codegraph`: argv execution
+- [x] Add `CodeGraphService` and `CodeGraphException` to `agent-core` with
+  Section 4 operations `explore` and `deleteIndex`; the baseline operations
+  join the port in CG2.
+- [x] Add the adapter under `com.bytequay.app.agent.codegraph`: argv execution
   without a shell through the bundled `node` and `lib/dist/bin/codegraph.js`,
   the fixed environment (`HOME` under the runtime, `DO_NOT_TRACK`,
   `CODEGRAPH_NO_UPDATE_CHECK`, `CODEGRAPH_NO_DOWNLOAD`, `CODEGRAPH_NO_WATCH`,
   `CODEGRAPH_NO_DAEMON`, `NO_COLOR`, `CODEGRAPH_DATA_DIR`), bounded stdout,
-  stderr, and duration, terminate-and-drain, redaction. Do not stretch
-  `GitCommandRunner`.
-- [ ] Explore: size rule from the `HEAD` sidecar plus `git diff --name-only`
+  stderr, and duration, terminate-and-drain. Redaction happens where a result
+  enters an agent event (CG4). The generic `runCommand` on
+  `GitCommandRunner` gained an environment overload; its git-specific paths
+  are untouched.
+- [x] Explore: size rule from the `HEAD` sidecar plus `git diff --name-only`
   and `git status --porcelain`, then `sync` or `index`, then `explore`, then
   a 16 KB cap with a truncation marker.
-- [ ] The usable-index check rejects partial, corrupt, incompatible, escaped,
+- [x] The usable-index check rejects partial, corrupt, incompatible, escaped,
   or wrong-path indexes and rebuilds without persisting a state.
-- [ ] Serialize operations per task; unrelated tasks stay concurrent.
-- [ ] Map only expected operational failures to `CodeGraphException`.
+- [x] Serialize operations per task; unrelated tasks stay concurrent.
+- [x] Map only expected operational failures to `CodeGraphException`.
 
-Checkpoint gate:
+Checkpoint gate (2026-09-05, nine adapter tests, `mvn verify` green):
 
-- [ ] Adapter tests on a real git fixture pass for build, unchanged sync,
+- [x] Adapter tests on a real git fixture pass for build, unchanged sync,
   uncommitted, committed, deleted, and checkout changes, the size-rule
   rebuild, cap and truncation, missing bundle, nonzero exit, timeout, drain,
   and two concurrent tasks; `mvn verify` is green.

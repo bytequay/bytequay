@@ -110,3 +110,6 @@ ByteQuay.md
 
 .agents
 AGENTS.md
+
+# Vendored CodeGraph bundle, fetched by scripts/codegraph-bundle.mjs
+frontend/vendor/

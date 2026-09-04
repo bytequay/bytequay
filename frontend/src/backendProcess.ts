@@ -122,7 +122,11 @@ export function spawnBackend(): void {
   child = spawn(java, [...jvmArgs, '-jar', jar], {
     stdio: ['ignore', 'inherit', 'pipe'],
     detached: false,
-    env: { ...process.env, BYTEQUAY_DESKTOP_SESSION_TOKEN: desktopSessionToken },
+    env: {
+      ...process.env,
+      BYTEQUAY_DESKTOP_SESSION_TOKEN: desktopSessionToken,
+      BYTEQUAY_CODEGRAPH_HOME: path.join(process.resourcesPath, 'codegraph'),
+    },
   });
   // The backend logs to ~/Library/Logs/ByteQuay/backend.log once Spring is up;
   // this tail only exists to explain crashes that happen before that.

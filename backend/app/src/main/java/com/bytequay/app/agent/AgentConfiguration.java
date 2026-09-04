@@ -27,6 +27,7 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.impl.AgentMaintenance;
@@ -50,8 +51,12 @@ import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.app.agent.codegraph.CodeGraphCli;
+import com.bytequay.app.agent.codegraph.CodeGraphProperties;
+import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.git.GitCommandRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -67,7 +72,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(AgentProperties.class)
+@EnableConfigurationProperties({AgentProperties.class, CodeGraphProperties.class})
 public class AgentConfiguration
 {
     @Bean
@@ -133,6 +138,12 @@ public class AgentConfiguration
     public AgentResourceService agentResourceService(AgentProperties properties)
     {
         return new FileAgentResourceService(properties.runtimeRoot());
+    }
+
+    @Bean
+    public CodeGraphService codeGraphService(CodeGraphProperties properties, GitCommandRunner git)
+    {
+        return new PinnedCodeGraphService(new CodeGraphCli(properties.bundleHome(), git), git);
     }
 
     @Bean

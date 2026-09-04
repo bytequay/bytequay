@@ -26,6 +26,9 @@ import { join } from 'node:path';
 // at runtime by frontend/src/backendProcess.ts. Repo root is one level
 // up from this config (frontend/forge.config.ts).
 const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-backend.jar');
+// Vendored CodeGraph bundle, fetched by scripts/codegraph-bundle.mjs and
+// shipped whole into Contents/Resources/codegraph.
+const CODEGRAPH_BUNDLE = join(__dirname, 'vendor', 'codegraph');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -39,7 +42,7 @@ const config: ForgeConfig = {
     // Ship the backend JAR alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR],
+    extraResource: [BACKEND_JAR, CODEGRAPH_BUNDLE],
   },
   hooks: {
     // Build the Spring Boot JAR before Forge tries to copy it via
@@ -48,6 +51,10 @@ const config: ForgeConfig = {
     // the artifact for packaging. Idempotent: if the JAR already
     // exists, do nothing.
     generateAssets: async () => {
+      execSync('node scripts/codegraph-bundle.mjs', {
+        cwd: join(__dirname, '..'),
+        stdio: 'inherit',
+      });
       if (existsSync(BACKEND_JAR)) {
         return;
       }

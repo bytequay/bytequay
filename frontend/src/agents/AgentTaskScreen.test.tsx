@@ -627,11 +627,14 @@ describe('agent task detail', () => {
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
   });
 
-  it('folds a finished turn to one sentence over its answer, and keeps the totals under the composer', () => {
+  it('folds a finished turn without repeating its activity summary, and keeps the totals under the composer', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
 
-    // The log folds when the turn ends; its sentence and the answer stay, and the token figures leave the footer.
-    expect(markup).toMatch(/<button type="button" class="agt-turn__sum"[^>]*><svg class="chev"[^]*?<\/svg><span>[A-Z][^<]*<\/span>/);
+    // The turn header already opens the folded log, so a second activity/duration row would repeat it.
+    expect(markup).not.toContain('agt-turn__sum');
+    expect(markup).not.toContain('Ran 1 command, edited 1 file, and used 1 tool');
+    expect(markup).toMatch(/class="agt-turn__head" aria-expanded="false"/);
+    expect(markup).toContain('Turn 1 · Worked for 11s');
     expect(markup).toContain('class="agt-answer"');
     expect(markup).not.toContain('agt-usage__tokens');
     expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ steps?<\/span><span class="agt-compose__sep"/);

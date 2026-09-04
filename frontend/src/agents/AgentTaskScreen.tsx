@@ -478,8 +478,6 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
-  const activity = turn.blocks.flatMap((block) => (block.kind === 'activity' ? block.members : []));
-  const elapsed = turnElapsedMs(turn, now);
   return (
     <section className="agt-turn" aria-label={`Turn ${turn.ordinal}`}>
       {turn.user !== null && (
@@ -505,14 +503,6 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           {live && <Spinner />}
           <span className="agt-turn__label">{turnLabel(turn, now, waiting)}</span>
           <Chevron open={open} />
-        </button>
-      )}
-      {/* Folded, the log is one sentence, as the design draws a finished turn; the answer stays below it. */}
-      {hasLog && !open && activity.length > 0 && (
-        <button type="button" className="agt-turn__sum" onClick={onToggle} title="Show this turn's log">
-          <Chevron size={12} />
-          <span>{activitySummary(activity)}</span>
-          {elapsed !== null && <span className="agt-mono agt-muted">{formatDuration(elapsed)}</span>}
         </button>
       )}
       {open && turn.blocks.map((block) => (

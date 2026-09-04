@@ -25,6 +25,7 @@ type Props = {
   login: string;
   avatarUrl?: string | null;
   size?: number;
+  showLogin?: boolean;
 };
 
 function loadProfile(login: string): Promise<UserProfileDto | null> {
@@ -46,7 +47,7 @@ export function userCardPosition(rect: Pick<DOMRect, 'left' | 'top' | 'bottom'>)
     : { left, bottom: window.innerHeight - rect.top + 8 };
 }
 
-export default function UserAvatar({ login, avatarUrl, size = 20 }: Props) {
+export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = false }: Props) {
   const cardId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const showTimer = useRef<number | null>(null);
@@ -94,7 +95,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20 }: Props) {
     <button
       ref={trigger}
       type="button"
-      className="user-avatar-trigger"
+      className={`user-avatar-trigger${showLogin ? ' user-avatar-trigger--with-login' : ''}`}
       aria-label={`Open ${login}'s GitHub profile`}
       aria-describedby={open ? cardId : undefined}
       onMouseEnter={() => show(HOVER_DELAY_MS)}
@@ -107,6 +108,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20 }: Props) {
       }}
     >
       <Avatar login={login} avatarUrl={avatarUrl} size={size} />
+      {showLogin && <strong>{login}</strong>}
     </button>
     {open && createPortal(
       <aside

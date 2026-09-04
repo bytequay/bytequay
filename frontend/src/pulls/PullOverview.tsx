@@ -840,8 +840,7 @@ function ReviewGroup({ activities, pr, workspaceId, onRefresh, onDetailUpdate }:
     <section className="pr-review-group">
       <div className="pr-review-group__summary">
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
-        <UserAvatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} />
-        <strong>{actor}</strong>
+        <UserAvatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} showLogin />
         {review.payload.actorBot && <span className="pr-bot-badge">Bot</span>}
         <span>reviewed</span>
         <time>{relativeTime(review.timestamp)}</time>
@@ -1043,8 +1042,7 @@ function ThreadComment({ comment, fallbackUrl, pr, onDetailUpdate, onQuote }: {
   return (
     <div className="pr-thread-comment">
       <div className="pr-thread-comment__author">
-        <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} />
-        <strong>{comment.actor ?? 'github'}</strong>
+        <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} showLogin />
         {comment.actorBot && <span className="pr-bot">Bot</span>}
         <time>{relativeTime(comment.timestamp)}</time>
         <div className="pr-thread-comment__menu">{reaction && <ReactionPicker action={reaction} />}{comment.body && <CardActionsMenu actions={{
@@ -1104,8 +1102,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
     return (
       <div className="pr-review-group__summary">
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
-        <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={28} />
-        <strong>{actor}</strong>
+        <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={28} showLogin />
         {payload.actorBot && <span className="pr-bot">Bot</span>}
         <span>{eventText(activity, activities)}</span>
         <time dateTime={activity.timestamp ?? undefined}>{formatRelativeTime(activity.timestamp, { style: 'long' })}</time>
@@ -1118,8 +1115,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
         <span className="pr-label-event__marker" aria-hidden="true"><TagIcon /></span>
         <div className="pr-label-event__content">
           <span className="pr-label-event__actor">
-            <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
-            <strong>{actor}</strong>
+            <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
             {payload.actorBot && <span className="pr-bot">Bot</span>}
           </span>
           <span>{activity.eventType === 'labeled' ? 'added' : 'removed'}</span>
@@ -1136,10 +1132,10 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
     );
   }
   return (
-    <div className="pr-event">
-      <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} />
+    <div className="pr-event pr-actor-event">
+      <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
       <div>
-        <strong>{actor}</strong>{payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
+        {payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
         <span>{eventText(activity, activities)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
       </div>
@@ -1198,8 +1194,7 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, re
 }) {
   return (
     <header className="pr-card__header">
-      <UserAvatar login={actor} avatarUrl={avatarUrl} size={22} />
-      <strong>{actor}</strong>
+      <UserAvatar login={actor} avatarUrl={avatarUrl} size={22} showLogin />
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}

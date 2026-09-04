@@ -170,6 +170,12 @@
   cursor: pointer;
 }
 
+.user-avatar-trigger--with-login {
+  align-items: center;
+  gap: 7px;
+  border-radius: 4px;
+}
+
 .user-avatar-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

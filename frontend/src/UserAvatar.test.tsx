@@ -16,13 +16,14 @@ import { describe, expect, it, vi } from 'vitest';
 import UserAvatar, { userCardPosition } from './UserAvatar';
 
 describe('UserAvatar', () => {
-  it('renders an accessible profile trigger around the avatar', () => {
+  it('renders the avatar and optional login in the same accessible profile trigger', () => {
     const html = renderToStaticMarkup(
-      <UserAvatar login="octocat" avatarUrl="https://avatars.test/octocat" size={24} />,
+      <UserAvatar login="octocat" avatarUrl="https://avatars.test/octocat" size={24} showLogin />,
     );
 
     expect(html).toContain('aria-label="Open octocat&#x27;s GitHub profile"');
     expect(html).toContain('src="https://avatars.test/octocat"');
+    expect(html).toContain('<strong>octocat</strong></button>');
   });
 
   it('keeps the hover card inside the window and moves it above low avatars', () => {

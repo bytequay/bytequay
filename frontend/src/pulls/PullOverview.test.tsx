@@ -665,7 +665,7 @@ describe('PullOverview', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].map(activity => activity.eventType)).toEqual(['reviewed', 'review_thread']);
     expect(html).toContain('class="pr-review-group"');
-    expect(html).toContain('chenjian2664</strong><span>reviewed</span>');
+    expect(html).toContain('chenjian2664</strong></button><span>reviewed</span>');
     expect(html).toContain('src="https://example.com/chenjian2664.png"');
     expect(html).toContain('RewriteCast.java:L67');
     expect(html).toContain('Can you add a test?');

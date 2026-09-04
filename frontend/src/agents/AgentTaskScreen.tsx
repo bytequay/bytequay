@@ -14,6 +14,7 @@
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { INTERACTIVE_LANE_ID, displayModelName } from '../settings/model';
+import { useResizablePane } from '../useResizablePane';
 import { AgentMark } from './AgentMark';
 import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
@@ -47,6 +48,7 @@ import {
   planSummary,
   projectAgents,
   projectTranscript,
+  settleFinalTurn,
   turnElapsedMs,
   turnLabel,
   type ActivityBlock,
@@ -832,6 +834,21 @@ function PanelTabs({ tab, onSelect, onHide }: {
   );
 }
 
+/** The design keeps the panel tabs pinned while only the selected panel body scrolls. */
+function PanelFrame({ label, tabs, width, children }: {
+  label: string;
+  tabs: React.JSX.Element;
+  width: number;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <aside className="agt-panel" aria-label={label} style={{ width }}>
+      {tabs}
+      <div className="agt-panel__scroll">{children}</div>
+    </aside>
+  );
+}
+
 /**
  * The pull requests on this task's branch. The branch is derived from the task, so this lists
  * whatever the user pushed and opened on it; selecting one goes to the existing pull-request page.
@@ -880,7 +897,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
-  logChoice = null, onToggleLog = () => {},
+  width, logChoice = null, onToggleLog = () => {},
 }: {
   agents: AgentNode[];
   openAgent: string | null;
@@ -898,6 +915,7 @@ function SidePanel({
   onSelectTab: (tab: PanelTab) => void;
   onHide: () => void;
   onOpenPullRequest?: (number: number) => void;
+  width: number;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
@@ -908,10 +926,9 @@ function SidePanel({
   const tabs = <PanelTabs tab={tab} onSelect={onSelectTab} onHide={onHide} />;
   if (tab === 'prs') {
     return (
-      <aside className="agt-panel" aria-label="Pull requests">
-        {tabs}
+      <PanelFrame label="Pull requests" tabs={tabs} width={width}>
         <PullRequestRows pullRequests={pullRequests} onOpen={onOpenPullRequest} />
-      </aside>
+      </PanelFrame>
     );
   }
   if (openAgent !== null) {
@@ -930,8 +947,7 @@ function SidePanel({
     // A live agent's log is what the user came to watch; a finished one folds to its result.
     const logOpen = logChoice === openAgent ? true : logChoice === `!${openAgent}` ? false : running;
     return (
-      <aside className="agt-panel" aria-label={`Agent: ${label}`}>
-        {tabs}
+      <PanelFrame label={`Agent: ${label}`} tabs={tabs} width={width}>
         <div className="agt-panel__head">
           <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
           <AgentMark name={label} muted={agent === undefined} />
@@ -1001,12 +1017,11 @@ function SidePanel({
             {blocks.length === 0 && endedAt !== null ? `Finished ${shortDate(endedAt)} · ${worked}` : worked}
           </div>
         )}
-      </aside>
+      </PanelFrame>
     );
   }
   return (
-    <aside className="agt-panel" aria-label="Subagents">
-      {tabs}
+    <PanelFrame label="Subagents" tabs={tabs} width={width}>
       <div className="agt-label agt-panel__section">Active · {active.length}</div>
       {active.length === 0
         ? <div className="agt-muted agt-panel__empty">No active subagents</div>
@@ -1031,10 +1046,11 @@ function SidePanel({
           <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
           <span className="agt-chip">expired</span>
           <span className="agt-spacer" />
+          {child.endedAt !== null && <span className="agt-mono">{shortDate(child.endedAt)}</span>}
           <Chevron />
         </button>
       ))}
-    </aside>
+    </PanelFrame>
   );
 }
 
@@ -1114,6 +1130,7 @@ export function AgentTaskBody({
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const sidePanel = useResizablePane(300, 240, 420, 'start');
   // Stuck to the bottom like a terminal until the user scrolls up, and stuck again once they return;
   // a task with no events yet is a fresh one, so it starts stuck.
   const follow = useRef(true);
@@ -1122,7 +1139,13 @@ export function AgentTaskBody({
     const transcript = transcriptRef.current;
     if (transcript !== null && follow.current) transcript.scrollTop = transcript.scrollHeight;
   });
-  const turns = projectTranscript(state.events);
+  const projectedTurns = projectTranscript(state.events);
+  const terminalTask = state.task !== null && state.task.state !== 'OPEN';
+  const turns = projectedTurns.map((turn, index) => (
+    terminalTask && index === projectedTurns.length - 1
+      ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
+      : turn
+  ));
   const agents = projectAgents(state.events);
   const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const working = activeAgents(agents);
@@ -1179,7 +1202,7 @@ export function AgentTaskBody({
             Complete
           </button>
         )}
-        {state.task !== null && (
+        {state.task !== null && status !== 'loading' && (
           <button
             type="button"
             className="agt-headbtn"
@@ -1254,31 +1277,42 @@ export function AgentTaskBody({
         {working.length > 0 && (
           <div className="agt-barrier">
             {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
-            {' — Send and Complete unlock when every agent and command finishes.'}
+            {' — Send, queued messages, and Complete unlock when every agent and command finishes.'}
           </div>
         )}
       </div>
       {panelOpen && state.task !== null && (
-        <SidePanel
-          agents={agents}
-          openAgent={openAgent}
-          expiredChildren={expiredChildren}
-          deleteAfter={state.task.deleteAfter}
-          transcript={openAgent === null ? [] : projectTranscript(state.events, openAgent)}
-          now={now}
-          tab={panelTab}
-          pullRequests={pullRequests}
-          activityChoice={activityChoice}
-          onOpenAgent={onOpenAgent}
-          onCloseAgent={onCloseAgent}
-          onToggleActivity={onToggleActivity}
-          onDecide={onDecide}
-          onSelectTab={onSelectPanelTab}
-          onHide={onTogglePanel}
-          onOpenPullRequest={onOpenPullRequest}
-          logChoice={logChoice}
-          onToggleLog={onToggleLog}
-        />
+        <>
+          <div
+            className={`agt-panel-resize${sidePanel.resizing ? ' is-resizing' : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize side panel"
+            title="Drag to resize the panel"
+            onMouseDown={sidePanel.startResize}
+          />
+          <SidePanel
+            agents={agents}
+            openAgent={openAgent}
+            expiredChildren={expiredChildren}
+            deleteAfter={state.task.deleteAfter}
+            transcript={openAgent === null ? [] : projectTranscript(state.events, openAgent)}
+            now={now}
+            tab={panelTab}
+            pullRequests={pullRequests}
+            activityChoice={activityChoice}
+            onOpenAgent={onOpenAgent}
+            onCloseAgent={onCloseAgent}
+            onToggleActivity={onToggleActivity}
+            onDecide={onDecide}
+            onSelectTab={onSelectPanelTab}
+            onHide={onTogglePanel}
+            onOpenPullRequest={onOpenPullRequest}
+            width={sidePanel.width}
+            logChoice={logChoice}
+            onToggleLog={onToggleLog}
+          />
+        </>
       )}
       </div>
 

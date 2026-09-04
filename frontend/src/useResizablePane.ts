@@ -13,7 +13,12 @@
  */
 import { useCallback, useState, type MouseEvent as ReactMouseEvent } from 'react';
 
-export function useResizablePane(initialWidth: number, minimumWidth: number, maximumWidth: number) {
+export function useResizablePane(
+  initialWidth: number,
+  minimumWidth: number,
+  maximumWidth: number,
+  resizeEdge: 'start' | 'end' = 'end',
+) {
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
 
@@ -22,7 +27,8 @@ export function useResizablePane(initialWidth: number, minimumWidth: number, max
     const startX = event.clientX;
     const startWidth = width;
     const move = (next: globalThis.MouseEvent) => {
-      setWidth(Math.max(minimumWidth, Math.min(maximumWidth, startWidth + next.clientX - startX)));
+      const distance = resizeEdge === 'start' ? startX - next.clientX : next.clientX - startX;
+      setWidth(Math.max(minimumWidth, Math.min(maximumWidth, startWidth + distance)));
     };
     const stop = () => {
       window.removeEventListener('mousemove', move);
@@ -36,7 +42,7 @@ export function useResizablePane(initialWidth: number, minimumWidth: number, max
     setResizing(true);
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', stop);
-  }, [maximumWidth, minimumWidth, width]);
+  }, [maximumWidth, minimumWidth, resizeEdge, width]);
 
   return { width, resizing, startResize };
 }

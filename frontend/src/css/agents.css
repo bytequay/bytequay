@@ -1592,13 +1592,36 @@
 }
 
 .agt-panel {
-  width: 300px;
   flex: none;
   border-left: 1px solid #e3e3e6;
   background: #ffffff;
-  padding: 10px 12px 14px;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   font-size: 12px;
+}
+
+.agt-panel-resize {
+  position: relative;
+  z-index: 5;
+  width: 5px;
+  flex: none;
+  margin-right: -3px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.agt-panel-resize:hover,
+.agt-panel-resize.is-resizing {
+  background: #0969da;
+  opacity: 0.4;
+}
+
+.agt-panel__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px 14px;
 }
 
 /* One 26px control for the header's actions, as the design draws Complete, the panel toggle and the overview. */
@@ -1637,10 +1660,10 @@
 }
 
 .agt-panel__tabs {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: -10px -12px 0;
   padding: 8px 10px;
   border-bottom: 1px solid #f0f0f2;
 }
@@ -1756,6 +1779,10 @@
 .agt-panel__section {
   margin-top: 12px;
   display: block;
+}
+
+.agt-panel__scroll > .agt-panel__section:first-child {
+  margin-top: 0;
 }
 
 .agt-panel__empty {

@@ -19,7 +19,7 @@ import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
 import type { AgentBridgePort } from './model';
-import { projectTranscript } from './transcript';
+import { projectTranscript, settleFinalTurn } from './transcript';
 import type { AgentTaskDto, ModelOptionDto } from '../types';
 
 /** How many of a task's first events a window shows; enough for its opening exchange. */
@@ -41,7 +41,12 @@ export function TaskCard({ task, events, models, width, active = false, now, onO
   onClose?: () => void;
 }): React.JSX.Element {
   const pill = taskStatePill(task);
-  const turns = projectTranscript(events);
+  const projectedTurns = projectTranscript(events);
+  const turns = projectedTurns.map((turn, index) => (
+    task.state !== 'OPEN' && index === projectedTurns.length - 1
+      ? settleFinalTurn(turn, task.terminalAt, task.state === 'COMPLETED')
+      : turn
+  ));
   const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
   const meta = `${model}${model === '' ? '' : ' · '}${relativeTime(task.updatedAt, { suffix: false, now })}`;
   const pillNode = (

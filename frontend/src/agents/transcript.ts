@@ -637,6 +637,16 @@ export function turnElapsedMs(turn: TranscriptTurn, now: number): number | null 
   return Math.max(0, end - Date.parse(turn.startedAt));
 }
 
+/**
+ * A terminal task is durable even when retention or an older event stream omitted its last
+ * TURN_COMPLETED row. Use that task timestamp only for the final projected turn, so the screen
+ * cannot keep calling completed work "Working" or run its elapsed clock forever.
+ */
+export function settleFinalTurn(turn: TranscriptTurn, terminalAt: string | null, completed: boolean): TranscriptTurn {
+  if (turn.endedAt !== null || terminalAt === null) return turn;
+  return { ...turn, endedAt: terminalAt, outcome: completed ? 'completed' : 'interrupted' };
+}
+
 export function activityElapsedMs(block: ActivityBlock, now: number): number {
   const end = block.endedAt === null ? now : Date.parse(block.endedAt);
   return Math.max(0, end - Date.parse(block.startedAt));

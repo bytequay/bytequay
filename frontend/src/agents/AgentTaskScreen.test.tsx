@@ -143,6 +143,19 @@ describe('agent task layout', () => {
     expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
   });
 
+  it('settles the final displayed turn when a terminal task lacks its old turn-end event', () => {
+    const completed = {
+      ...task('t-1', 'COMPLETED', 'Finished work'),
+      terminalAt: '2026-08-20T10:00:12Z',
+    };
+    const withoutTurnEnd = events.filter((event) => event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED');
+    const markup = body({ task: completed, events: withoutTurnEnd, connection: 'open' }, {}, {});
+
+    expect(markup).toContain('Turn 1 · Worked for 11s');
+    expect(markup).not.toContain('Working for');
+    expect(markup).toMatch(/<span class="agt-mono agt-meta">1 turn · [^<]+<\/span>/);
+  });
+
   it('opens the composer picker upward as a floating card, and names models the short way', () => {
     expect(declarations('.agt-picker__card')).toContain('bottom: calc(100% + 8px)');
     expect(declarations('.agt-picker__card')).toContain('border-radius: 14px');
@@ -384,6 +397,13 @@ describe('agent task side panel', () => {
     expect(agents).toContain('aria-label="Subagents"');
     expect(agents).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^<]*<span[^>]*>❋<\/span>Subagents/);
     expect(agents).toContain('No active subagents');
+    expect(agents).toContain('title="Drag to resize the panel"');
+    expect(agents).toContain('style="width:300px"');
+    expect(agents).toContain('class="agt-panel__scroll"');
+    // The tabs stay pinned while only the panel body scrolls, as in the approved design.
+    expect(declarations('.agt-panel')).toContain('display: flex');
+    expect(declarations('.agt-panel')).toContain('flex-direction: column');
+    expect(declarations('.agt-panel__scroll')).toContain('overflow-y: auto');
 
     const prs = renderToStaticMarkup(
       <AgentTaskBody state={state} panelOpen panelTab="prs" pullRequests={[]} {...props} />);
@@ -728,7 +748,7 @@ describe('agent task detail', () => {
     expect(closed).not.toContain('3 tests failed');
     expect(closed).toContain('Subagents (2) and pull requests');
     // Two agents are still working, so the barrier says what Send and Complete are waiting for.
-    expect(closed).toContain('2 subagents are still working');
+    expect(closed).toContain('2 subagents are still working — Send, queued messages, and Complete unlock when every agent and command finishes.');
 
     const panel = renderToStaticMarkup(
       <AgentTaskBody
@@ -811,6 +831,7 @@ describe('agent task detail', () => {
       <AgentTaskBody state={{ ...initialAgentTaskState(), task: completed, connection: 'open' }} panelOpen {...props} />);
     expect(listed).toContain('Range probe');
     expect(listed).toContain('expired');
+    expect(listed).toContain('Aug 20');
 
     const opened = renderToStaticMarkup(
       <AgentTaskBody
@@ -826,7 +847,9 @@ describe('agent task detail', () => {
   });
 
   it('says Connecting in the composer until the stream is open', () => {
-    expect(body({ connection: 'connecting' })).toContain('placeholder="Connecting\u2026"');
+    const connecting = body({ task: task('t-1', 'OPEN', 'x'), connection: 'connecting' });
+    expect(connecting).toContain('placeholder="Connecting\u2026"');
+    expect(connecting).not.toContain('aria-label="Show or hide the side panel"');
     expect(body({ connection: 'open' })).toContain('placeholder="Message the agent"');
   });
 

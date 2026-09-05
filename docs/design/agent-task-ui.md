@@ -370,6 +370,11 @@ and permission controls, and sending its first message is what creates the
 task. The composer uses the concise `Let's ship...` prompt without repeating
 the starting branch or a creation hint; the surrounding screen supplies that
 context while the input keeps its accessible name.
+Sending immediately replaces Home or the task list with a starting conversation
+showing the submitted message, image previews, and a visible **Starting task…**
+indicator. This is local request progress: it does not invent a persisted task
+or start replay/SSE before creation is acknowledged. Success opens the durable
+task route; failure restores the composer with its text, images, and retry error.
 The workspace is already fixed by the route, so the HTTP request carries
 `workspaceId` and the message, never a title or a worktree path. `app`
 resolves and validates that workspace's managed repository and exact starting

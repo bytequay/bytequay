@@ -24,7 +24,7 @@ import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type Ta
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
-import { X } from 'lucide-react';
+import { LoaderCircle, X } from 'lucide-react';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
@@ -246,6 +246,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     if (busyRef.current || selection === null || blocker !== null || message === '') return;
     busyRef.current = true;
     setOperation('sending');
+    setError(null);
     const request = submissions.requestFor(workspaceId, message, laneId, {
       model: selection.model,
       effort: selection.effort,
@@ -280,7 +281,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
         return;
       }
       // The retained request makes the same click safe when the backend answer was lost.
-      setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
       try {
         // A failed IPC answer is ambiguous. Replaying the whole composite request is what finishes
         // a task that persisted just before a crash; task existence alone does not prove its first
@@ -289,6 +289,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       }
       catch {
         // Still unresolved: keep the exact request for a safe retry.
+        setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
       }
     }
     finally {
@@ -317,6 +318,56 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     removeImage,
     create,
   };
+}
+
+/** The first message is visible while the existing create-and-start request is in flight. */
+export function StartingAgentTask({ draft, images, laneId, providers, models, selection }: {
+  draft: string;
+  images: DraftImage[];
+  laneId: string;
+  providers: ModelProviderDto[];
+  models: ModelOptionDto[];
+  selection: TaskModelSelection | null;
+}): React.JSX.Element {
+  const provider = providers.find((candidate) => candidate.id === laneId)?.label ?? laneLabel(laneId);
+  const model = models.find((candidate) => candidate.id === selection?.model);
+  return (
+    <div className="agt-screen">
+      <div className="agt-screen-head">
+        <span className="agt-title">New task</span>
+        <span className="agt-state is-running">Starting</span>
+        <span className="agt-mono agt-meta">
+          {provider} · {displayModelName(model?.name ?? selection?.model ?? '')}{selection?.effort ? ` · ${selection.effort}` : ''}
+        </span>
+      </div>
+      <div className="agt-transcript" aria-label="Starting task conversation">
+        <div>
+          <div className="agt-user">
+            <div className="agt-user__bubble">
+              {images.length > 0 && (
+                <div className="agt-user__files">
+                  {images.map((image) => <ImageAttachment key={image.id} url={image.url} name={image.name} />)}
+                </div>
+              )}
+              <div>{draft.trim()}</div>
+            </div>
+          </div>
+          <div className="agt-starting-status" role="status">
+            <LoaderCircle className="agt-spin" aria-hidden="true" />
+            <span>Starting task…</span>
+          </div>
+          <p className="agt-muted agt-small">Preparing your workspace and starting {provider}.</p>
+        </div>
+      </div>
+      <div className="agt-bottom">
+        <div className="agt-compose-dock is-task">
+          <div className="agt-compose" aria-busy="true">
+            <textarea className="agt-compose__input" aria-label="Message agent" placeholder="Waiting for task to start…" rows={2} disabled />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function AgentTasksView({
@@ -492,6 +543,7 @@ export function AgentTaskList({
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
   const now = Date.now();
   return (
     <div className="agt-tasks-page">

@@ -14,7 +14,7 @@
 
 import React, { useCallback } from 'react';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
-import { TaskComposer, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
+import { StartingAgentTask, TaskComposer, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelOptionDto, ModelProviderDto } from '../types';
@@ -101,6 +101,7 @@ export function AgentHomeView({
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
   return (
     <div className="agt-tasks-page">
       <div className="agt-tasks-scroll">

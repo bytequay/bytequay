@@ -23,6 +23,8 @@ import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto }
 import { createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 
+export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
+
 export interface AgentTasksViewProps {
   workspaceId: string;
   /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
@@ -77,7 +79,7 @@ export function taskStatePill(task: AgentTaskDto): { label: string; className: s
 export function creationBlocker(
   catalog: ModelSettingsDto | null,
   laneId: string,
-  selection: { model: string; effort: string | null } | null,
+  selection: TaskModelSelection | null,
 ): string | null {
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   if (provider === null) {
@@ -112,7 +114,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [laneId, setLaneId] = useState(initialLaneId);
-  const [selection, setSelection] = useState<{ model: string; effort: string | null } | null>(null);
+  const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState('');
   const submissionRef = useRef<TaskCreationTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
@@ -183,6 +185,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       model: selection.model,
       effort: selection.effort,
       permissionPolicy: 'AUTO',
+      serviceTier: selection.serviceTier ?? null,
     });
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
@@ -264,7 +267,7 @@ export default function AgentTasksView({
       blocker={creation.blocker}
       onDraftChange={creation.setDraft}
       onSelectProvider={creation.selectProvider}
-      onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
+      onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
       onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
@@ -283,10 +286,10 @@ export function TaskComposer({
   laneId: string;
   providers: ModelProviderDto[];
   models: ModelOptionDto[];
-  selection: { model: string; effort: string | null } | null;
+  selection: TaskModelSelection | null;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
-  onSelectModel: (model: string, effort: string | null) => void;
+  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenSettings?: () => void;
 }): React.JSX.Element {
@@ -331,6 +334,7 @@ export function TaskComposer({
             models={models}
             selectedModel={selection?.model ?? ''}
             selectedEffort={selection?.effort ?? undefined}
+            selectedServiceTier={selection?.serviceTier ?? null}
             onSelect={onSelectModel}
           />
           <button
@@ -359,7 +363,7 @@ export function AgentTaskList({
   laneId: string;
   providers: ModelProviderDto[];
   models: ModelOptionDto[];
-  selection: { model: string; effort: string | null } | null;
+  selection: TaskModelSelection | null;
   /** The first message; sending it creates the task and names it until the agent answers. */
   draft: string;
   /** Why creation is unavailable; null when the task can be created. */
@@ -367,7 +371,7 @@ export function AgentTaskList({
   children?: React.ReactNode;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
-  onSelectModel: (model: string, effort: string | null) => void;
+  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;

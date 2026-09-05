@@ -1502,6 +1502,7 @@ final class CodexProtocol
             Optional<String> model,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
             Optional<String> effort,
+            String serviceTierForTurn,
             String approvalPolicy,
             String approvalsReviewer,
             String cwd,
@@ -1514,6 +1515,7 @@ final class CodexProtocol
             checkArgument(!input.isEmpty(), "input is empty");
             requireNonNull(model, "model is null");
             requireNonNull(effort, "effort is null");
+            checkIdentifier(serviceTierForTurn, "serviceTierForTurn");
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
             checkIdentifier(cwd, "cwd");
@@ -1598,11 +1600,13 @@ final class CodexProtocol
             String defaultReasoningEffort,
             List<ReasoningEffortOption> supportedReasoningEfforts,
             Optional<MultiAgentVersion> multiAgentVersion,
-            Optional<List<String>> inputModalities)
+            Optional<List<String>> inputModalities,
+            Optional<List<ModelServiceTier>> serviceTiers)
     {
         ModelEntry
         {
             inputModalities = requireNonNull(inputModalities, "inputModalities is null").map(ImmutableList::copyOf);
+            serviceTiers = requireNonNull(serviceTiers, "serviceTiers is null").map(ImmutableList::copyOf);
             checkIdentifier(id, "id");
             checkIdentifier(displayName, "displayName");
             requireNonNull(description, "description is null");
@@ -1612,6 +1616,16 @@ final class CodexProtocol
             supportedReasoningEfforts = ImmutableList.copyOf(
                     requireNonNull(supportedReasoningEfforts, "supportedReasoningEfforts is null"));
             requireNonNull(multiAgentVersion, "multiAgentVersion is null");
+        }
+    }
+
+    record ModelServiceTier(String id, String name, String description)
+    {
+        ModelServiceTier
+        {
+            checkIdentifier(id, "id");
+            checkIdentifier(name, "name");
+            requireNonNull(description, "description is null");
         }
     }
 

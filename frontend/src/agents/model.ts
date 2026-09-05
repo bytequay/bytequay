@@ -429,6 +429,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         defaults.model,
         defaults.effort,
         defaults.permissionPolicy,
+        defaults.serviceTier ?? null,
       ]);
       if (retained?.signature !== signature) {
         retained = {
@@ -464,7 +465,7 @@ export function createDraftSubmissionTracker(createKey: () => string = () => glo
     taskId,
     message.trim(),
     attachmentIds,
-    ...(kind === 'steer' ? [] : [defaults?.model ?? null, defaults?.effort ?? null, defaults?.permissionPolicy ?? null]),
+    ...(kind === 'steer' ? [] : [defaults?.model ?? null, defaults?.effort ?? null, defaults?.permissionPolicy ?? null, defaults?.serviceTier ?? null]),
   ]);
   return {
     keyFor(kind, targetId, taskId, message, attachmentIds, defaults) {

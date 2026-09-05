@@ -30,8 +30,15 @@ public record AgentTurnCommand(
         List<AgentAttachment> attachments,
         Duration maximumRuntime,
         Optional<String> model,
-        Optional<String> effort)
+        Optional<String> effort,
+        Optional<String> serviceTier)
 {
+    public AgentTurnCommand(
+            String turnId, String message, List<AgentAttachment> attachments, Duration maximumRuntime, Optional<String> model, Optional<String> effort)
+    {
+        this(turnId, message, attachments, maximumRuntime, model, effort, Optional.empty());
+    }
+
     /** Uses the session defaults, for callers that keep no per-turn settings of their own. */
     public AgentTurnCommand(String turnId, String message, List<AgentAttachment> attachments, Duration maximumRuntime)
     {
@@ -47,6 +54,7 @@ public record AgentTurnCommand(
         requireNonNull(maximumRuntime, "maximumRuntime is null");
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
+        checkOptionalText(serviceTier, "serviceTier");
         checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime must be positive");
     }
 }

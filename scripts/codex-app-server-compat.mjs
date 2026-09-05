@@ -395,6 +395,10 @@ const referenceRecordBindings = [
     component("supportedReasoningEfforts"),
     component("multiAgentVersion"),
     component("inputModalities"),
+    component("serviceTiers"),
+  ]),
+  recordBinding("ModelServiceTier", "decode", [schemaSource("v2", "ModelServiceTier")], [
+    component("id"), component("name"), component("description"),
   ]),
   recordBinding("ReasoningEffortOption", "decode", [
     schemaSource("v2", "ReasoningEffortOption"),
@@ -506,6 +510,7 @@ const referenceRecordBindings = [
     component("input", "input", [{ type: "text", text: "value" }]),
     component("model"),
     component("effort", "effort", "minimal"),
+    component("serviceTierForTurn", "serviceTierForTurn", "default"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
     component("approvalsReviewer", "approvalsReviewer", "user"),
     component("cwd"),

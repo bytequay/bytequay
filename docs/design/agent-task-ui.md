@@ -131,6 +131,8 @@ The composer provides:
   image input;
 - provider selection when creating the task, then model and reasoning-effort
   selection for each turn;
+- a Fast toggle beside the model when its catalog advertises a service tier
+  named Fast, with an explicit pressed state and the catalog's description;
 - a truthful **Auto** permission fact for the first release; it is not styled
   or labeled as a menu until more than one interactive policy is supported;
 - **Send** while the task is idle;
@@ -138,9 +140,16 @@ The composer provides:
 - cancellation of the active turn.
 
 The provider lane is immutable after task creation. The task stores default
-model, effort, and permission choices; every accepted turn snapshots the
+model, effort, service tier, and permission choices; every accepted turn snapshots the
 settings actually used. Changing a supported model or effort in the composer
 changes the next turn default without creating a different task.
+
+Fast is independent of reasoning effort. It starts off for a new task, persists
+as the selected catalog tier ID in `serviceTier`, and is cleared when the user
+switches to a model that does not advertise that tier. Null means standard
+speed. Active and queued turns keep their accepted settings when composer
+defaults change; steering cannot change those settings. A missing tier catalog
+hides the Fast control.
 
 An accepted **Send** or **Steer** input becomes a user-message event, including
 its attachment references, before ByteQuay delivers it to the provider. A

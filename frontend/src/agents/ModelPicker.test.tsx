@@ -13,7 +13,7 @@
  */
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ModelPicker, ModelPickerCard } from './ModelPicker';
 import type { ModelOptionDto } from '../types';
 
@@ -23,6 +23,32 @@ const MODELS: ModelOptionDto[] = [
 ];
 
 describe('model picker', () => {
+  it('offers a truthful Fast toggle only when the model advertises that tier', () => {
+    const models = [{ ...MODELS[0], serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Faster responses with higher usage.' }] }];
+    const render = (serviceTier: string | null, disabled = false) => renderToStaticMarkup(
+      <ModelPicker ariaLabel="Model" models={models} selectedModel={models[0].id} selectedEffort="high"
+        selectedServiceTier={serviceTier} disabled={disabled} onSelect={() => {}} />);
+    expect(render(null)).toMatch(/aria-label="Fast mode" aria-pressed="false"/);
+    expect(render('priority')).toMatch(/aria-label="Fast mode" aria-pressed="true"/);
+    expect(render('priority')).toContain('Faster responses with higher usage.');
+    expect(render('priority', true)).toMatch(/aria-label="Fast mode"[^>]*disabled=""/);
+    expect(renderToStaticMarkup(
+      <ModelPicker ariaLabel="Model" models={MODELS} selectedModel={MODELS[0].id} onSelect={() => {}} />))
+      .not.toContain('Fast mode');
+  });
+
+  it('preserves Fast when changing effort and clears it for a model without that tier', () => {
+    const onSelect = vi.fn();
+    const models = [{ ...MODELS[0], serviceTiers: [{ id: 'priority', name: 'Fast', description: '' }] }, MODELS[1]];
+    const props = { models, selectedModel: models[0].id, selectedEffort: 'high', selectedServiceTier: 'priority', onSelect, onView: () => {} };
+    const effortMenu = ModelPickerCard({ ...props, view: 'effort' });
+    effortMenu.props.children[1][0].props.onClick();
+    expect(onSelect).toHaveBeenLastCalledWith(models[0].id, 'low', 'priority');
+    const modelMenu = ModelPickerCard({ ...props, view: 'models' });
+    modelMenu.props.children[1][1].props.onClick();
+    expect(onSelect).toHaveBeenLastCalledWith(models[1].id, 'high', null);
+  });
+
   it('names the model and effort on the chip the way Codex does', () => {
     const chip = renderToStaticMarkup(
       <ModelPicker ariaLabel="Model" models={MODELS} selectedModel="gpt-5.6-sol" selectedEffort="xhigh" onSelect={() => {}} />);

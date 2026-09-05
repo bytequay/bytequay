@@ -13,6 +13,7 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { Zap } from 'lucide-react';
 import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
@@ -24,18 +25,21 @@ export type PickerView = 'menu' | 'models' | 'effort';
  * each opening the list it names under a heading, with the current choice checked. Choosing
  * returns to the rows; the chip opens straight onto the model list while nothing is chosen.
  */
-export function ModelPicker({ models, selectedModel, selectedEffort, provider = '', disabled = false, ariaLabel, onSelect }: {
+export function ModelPicker({ models, selectedModel, selectedEffort, selectedServiceTier = null, provider = '', disabled = false, ariaLabel, onSelect }: {
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort?: string;
+  selectedServiceTier?: string | null;
   provider?: string;
   disabled?: boolean;
   ariaLabel: string;
-  onSelect: (model: string, effort: string | null) => void;
+  onSelect: (model: string, effort: string | null, serviceTier: string | null) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<PickerView>('menu');
   const current = models.find((model) => model.id === selectedModel);
+  const fastTier = current?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast');
+  const fast = fastTier !== undefined && selectedServiceTier === fastTier.id;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const cardId = useId();
@@ -62,6 +66,19 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
 
   return (
     <div ref={pickerRef} className="agt-picker" onMouseDown={(event) => event.stopPropagation()}>
+      {fastTier !== undefined && (
+        <button
+          type="button"
+          className="agt-fast-mode"
+          aria-label="Fast mode"
+          aria-pressed={fast}
+          title={`Fast mode ${fast ? 'on' : 'off'}${fastTier.description === '' ? '' : ` — ${fastTier.description}`}`}
+          disabled={disabled}
+          onClick={() => onSelect(selectedModel, selectedEffort ?? null, fast ? null : fastTier.id)}
+        >
+          <Zap size={16} aria-hidden="true" />
+        </button>
+      )}
       <button
         ref={triggerRef}
         type="button"
@@ -82,7 +99,6 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
           setOpen((value) => !value);
         }}
       >
-        <span className="agt-bolt" aria-hidden="true">⚡</span>
         {current === undefined ? 'Select model' : displayModelName(current.name)}
         {current !== undefined && selectedEffort !== undefined && (
           <span className="agt-picker__effort">{effortLabel(selectedEffort)}</span>
@@ -96,6 +112,7 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
           provider={provider}
           selectedModel={selectedModel}
           selectedEffort={selectedEffort}
+          selectedServiceTier={selectedServiceTier}
           cardId={cardId}
           onSelect={onSelect}
           onView={setView}
@@ -106,14 +123,15 @@ export function ModelPicker({ models, selectedModel, selectedEffort, provider = 
 }
 
 /** The floating card itself, one of three views; split out so each view can be rendered on its own. */
-export function ModelPickerCard({ view, models, provider = '', selectedModel, selectedEffort, cardId, onSelect, onView }: {
+export function ModelPickerCard({ view, models, provider = '', selectedModel, selectedEffort, selectedServiceTier = null, cardId, onSelect, onView }: {
   view: PickerView;
   models: ModelOptionDto[];
   provider?: string;
   selectedModel: string;
   selectedEffort?: string;
+  selectedServiceTier?: string | null;
   cardId?: string;
-  onSelect: (model: string, effort: string | null) => void;
+  onSelect: (model: string, effort: string | null, serviceTier: string | null) => void;
   onView: (view: PickerView) => void;
 }): React.JSX.Element {
   const current = models.find((model) => model.id === selectedModel);
@@ -133,6 +151,7 @@ export function ModelPickerCard({ view, models, provider = '', selectedModel, se
               onSelect(
                 model.id,
                 selectedEffort !== undefined && model.efforts.includes(selectedEffort) ? selectedEffort : model.defaultEffort ?? null,
+                selectedServiceTier !== null && model.serviceTiers?.some((tier) => tier.id === selectedServiceTier) ? selectedServiceTier : null,
               );
               onView('menu');
             }}
@@ -156,7 +175,7 @@ export function ModelPickerCard({ view, models, provider = '', selectedModel, se
             className={`agt-picker__row${effort === selectedEffort ? ' is-current' : ''}`}
             aria-selected={effort === selectedEffort}
             onClick={() => {
-              onSelect(current.id, effort);
+              onSelect(current.id, effort, selectedServiceTier);
               onView('menu');
             }}
           >

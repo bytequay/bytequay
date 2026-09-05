@@ -109,6 +109,8 @@ public class AgentTurnEntity
 
     private String effort;
 
+    private String serviceTier;
+
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
 
@@ -173,6 +175,7 @@ public class AgentTurnEntity
         model = turn.model().orElse(null);
         requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
+        serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
         permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
         sandboxPolicy = turn.settings().map(AgentTurnSettings::sandboxPolicy).orElse(null);
         maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
@@ -199,7 +202,8 @@ public class AgentTurnEntity
                         permissionPolicy,
                         sandboxPolicy,
                         Duration.ofMillis(runtime),
-                        AgentAttachmentReferenceJson.decode(attachmentsJson)));
+                        AgentAttachmentReferenceJson.decode(attachmentsJson),
+                        Optional.ofNullable(serviceTier)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),

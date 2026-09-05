@@ -514,6 +514,8 @@ export type AgentMetricsDto = {
 export type AgentTaskDefaultsDto = {
   model: string | null;
   effort: string | null;
+  /** Null or absent uses standard speed; Fast uses the model catalog's opaque tier id. */
+  serviceTier?: string | null;
   permissionPolicy: string;
 };
 
@@ -585,6 +587,7 @@ export type AgentAttachmentReferenceDto = {
 export type AgentTurnSettingsDto = {
   model: string | null;
   effort: string | null;
+  serviceTier?: string | null;
   permissionPolicy: string;
   sandboxPolicy: string;
   maximumRuntimeMillis: number;
@@ -928,6 +931,7 @@ export type ModelOptionDto = {
   defaultEffort?: string | null;
   /** What the model accepts as input; absent on catalogs recorded before this was carried. */
   inputModalities?: string[];
+  serviceTiers?: Array<{ id: string; name: string; description: string }>;
 };
 
 export type ModelProviderDto = {

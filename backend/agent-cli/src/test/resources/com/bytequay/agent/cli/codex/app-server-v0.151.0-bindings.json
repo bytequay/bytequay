@@ -2410,6 +2410,43 @@
             "text",
             "image"
           ]
+        },
+        {
+          "javaName": "serviceTiers",
+          "wireName": "serviceTiers",
+          "required": false,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
+      "javaType": "ModelServiceTier",
+      "mode": "decode",
+      "sources": [
+        "v2#ModelServiceTier"
+      ],
+      "components": [
+        {
+          "javaName": "id",
+          "wireName": "id",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "name",
+          "wireName": "name",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "description",
+          "wireName": "description",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
         }
       ]
     },
@@ -2944,6 +2981,13 @@
           "required": false,
           "nullable": true,
           "sample": "minimal"
+        },
+        {
+          "javaName": "serviceTierForTurn",
+          "wireName": "serviceTierForTurn",
+          "required": false,
+          "nullable": true,
+          "sample": "default"
         },
         {
           "javaName": "approvalPolicy",

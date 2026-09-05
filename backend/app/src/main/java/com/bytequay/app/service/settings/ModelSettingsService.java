@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderModel;
+import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.app.service.credentials.SecretMasker;
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.AppSettingsStore;
@@ -173,7 +174,8 @@ public class ModelSettingsService
                             model.description(),
                             model.efforts(),
                             model.defaultEffort().orElse(null),
-                            model.inputModalities()))
+                            model.inputModalities(),
+                            model.serviceTiers()))
                     .collect(toImmutableList());
             String defaultModelId = models.stream()
                     .filter(ProviderModel::isDefault)
@@ -208,9 +210,14 @@ public class ModelSettingsService
     }
 
     /** Validates a provider model selection without changing saved settings. */
-    public void validateSelection(String configId, String model, Optional<String> effort)
+    public void validateSelection(String configId, String model, Optional<String> effort, Optional<String> serviceTier)
     {
-        requireSelection(configId, model, effort);
+        ModelOption option = requireSelection(configId, model, effort);
+        requireNonNull(serviceTier, "serviceTier is null").ifPresent(value -> {
+            if (option.serviceTiers().stream().noneMatch(tier -> tier.id().equals(value))) {
+                throw new IllegalArgumentException("unknown service tier for " + configId + ": " + value);
+            }
+        });
     }
 
     public void setMain(String configId)
@@ -497,8 +504,19 @@ public class ModelSettingsService
             String description,
             List<String> efforts,
             String defaultEffort,
-            List<String> inputModalities)
+            List<String> inputModalities,
+            List<ProviderServiceTier> serviceTiers)
     {
+        public ModelOption
+        {
+            serviceTiers = serviceTiers == null ? ImmutableList.of() : ImmutableList.copyOf(serviceTiers);
+        }
+
+        public ModelOption(String id, String name, String description, List<String> efforts, String defaultEffort, List<String> inputModalities)
+        {
+            this(id, name, description, efforts, defaultEffort, inputModalities, ImmutableList.of());
+        }
+
         /** A text-only model. */
         public ModelOption(String id, String name, String description, List<String> efforts, String defaultEffort)
         {

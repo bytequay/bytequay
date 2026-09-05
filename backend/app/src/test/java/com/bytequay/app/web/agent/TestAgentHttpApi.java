@@ -327,6 +327,32 @@ class TestAgentHttpApi
     }
 
     @Test
+    void rejectsUnsupportedTaskDefaultSelections()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String taskId = created.required("id").asText();
+        List<Map<String, String>> unsupported = ImmutableList.of(
+                ImmutableMap.of("model", "unknown-model", "effort", "high", "permissionPolicy", "AUTO"),
+                ImmutableMap.of("model", "test-model", "effort", "low", "permissionPolicy", "AUTO"),
+                ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO", "serviceTier", "fast"));
+        HttpHeaders updateHeaders = headers();
+        updateHeaders.setContentType(MediaType.APPLICATION_JSON);
+        for (Map<String, String> defaults : unsupported) {
+            ResponseEntity<JsonNode> refused = rest.exchange(
+                    url("/agent/tasks/" + taskId + "/defaults?workspaceId=" + workspaceId),
+                    HttpMethod.PUT,
+                    new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of(
+                            "expectedVersion", taskVersion(taskId),
+                            "defaults", defaults)), updateHeaders),
+                    JsonNode.class);
+            assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().required("defaults"))
+                    .isEqualTo(created.required("defaults"));
+        }
+    }
+
+    @Test
     void rejectsRendererSuppliedAttachmentPaths()
             throws Exception
     {

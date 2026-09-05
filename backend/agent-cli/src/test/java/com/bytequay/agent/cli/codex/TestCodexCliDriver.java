@@ -978,7 +978,8 @@ class TestCodexCliDriver
                 ImmutableList.<AgentAttachment>of(),
                 Duration.ofMinutes(5),
                 Optional.of("gpt-5"),
-                Optional.of("high")));
+                Optional.of("high"),
+                Optional.of("priority")));
         supervisor.server().completeTurn();
         first.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -989,7 +990,7 @@ class TestCodexCliDriver
                 ImmutableList.<AgentAttachment>of(),
                 Duration.ofMinutes(5),
                 Optional.of("gpt-5"),
-                Optional.of("minimal")));
+                Optional.of("low")));
         supervisor.servers().getLast().completeTurn();
         second.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -997,7 +998,10 @@ class TestCodexCliDriver
         // rewrite an earlier turn.
         assertThat(supervisor.servers())
                 .extracting(AppServerProcess::turnSettings)
-                .containsExactly(ImmutableList.of("gpt-5/high"), ImmutableList.of("gpt-5/minimal"));
+                .containsExactly(ImmutableList.of("gpt-5/high"), ImmutableList.of("gpt-5/low"));
+        assertThat(supervisor.servers())
+                .extracting(server -> server.turnRequests().getFirst().path("serviceTierForTurn").asText())
+                .containsExactly("priority", "default");
     }
 
     @Test
@@ -2161,7 +2165,8 @@ class TestCodexCliDriver
                     .orElse("");
             return "{\"data\":[{\"id\":\"gpt-5\",\"displayName\":\"GPT-5\","
                     + "\"description\":\"d\",\"supportedReasoningEfforts\":[{\"reasoningEffort\":\"low\"}],"
-                    + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false"
+                    + "\"defaultReasoningEffort\":\"low\",\"isDefault\":true,\"hidden\":false,"
+                    + "\"serviceTiers\":[{\"id\":\"priority\",\"name\":\"Fast\",\"description\":\"Faster processing\"}]"
                     + version + "}]}";
         }
 

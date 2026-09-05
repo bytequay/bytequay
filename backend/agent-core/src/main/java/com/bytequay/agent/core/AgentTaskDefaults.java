@@ -25,12 +25,20 @@ import static java.util.Objects.requireNonNull;
 public record AgentTaskDefaults(
         Optional<String> model,
         Optional<String> effort,
-        AgentPermissionPolicy permissionPolicy)
+        AgentPermissionPolicy permissionPolicy,
+        Optional<String> serviceTier)
 {
+    public AgentTaskDefaults(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy)
+    {
+        this(model, effort, permissionPolicy, Optional.empty());
+    }
+
     public AgentTaskDefaults
     {
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
+        checkOptionalText(serviceTier, "serviceTier");
+        checkArgument(serviceTier.isEmpty() || model.isPresent(), "service tier requires a model");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");
     }

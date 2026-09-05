@@ -544,7 +544,35 @@
  */
 .agt-picker {
   position: relative;
+  display: inline-flex;
+  align-items: center;
   flex: none;
+}
+
+.agt-fast-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  padding: 5px;
+  color: #8c959f;
+  cursor: pointer;
+}
+
+.agt-fast-mode:hover {
+  background: #f3f4f6;
+}
+
+.agt-fast-mode[aria-pressed="true"] {
+  color: #9a6700;
+  background: #fff8c5;
+}
+
+.agt-fast-mode:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .agt-picker__chip {
@@ -700,11 +728,6 @@
   padding: 9px 12px;
   font-size: 12.5px;
   color: #57606a;
-}
-
-.agt-bolt {
-  color: #d4a72c;
-  font-size: 12px;
 }
 
 .agt-send {

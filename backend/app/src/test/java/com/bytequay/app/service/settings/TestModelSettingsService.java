@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderModel;
+import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelOption;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
@@ -75,7 +76,8 @@ class TestModelSettingsService
                 new ProviderModel(
                         "gpt-5.6-sol", "GPT-5.6-Sol", "Latest frontier agentic coding model.",
                         ImmutableList.of("low", "medium", "high", "xhigh", "max", "ultra"),
-                        Optional.of("low"), true),
+                        Optional.of("low"), true, ImmutableList.of("text", "image"),
+                        ImmutableList.of(new ProviderServiceTier("priority", "Fast", "Faster processing"))),
                 new ProviderModel(
                         "gpt-5.6-luna", "GPT-5.6-Luna", "Fast and affordable agentic coding model.",
                         ImmutableList.of("low", "medium", "high", "xhigh", "max"),
@@ -107,6 +109,19 @@ class TestModelSettingsService
                 .containsExactly("gpt-5.6-sol", "gpt-5.6-luna");
         assertThat(codex.selectedModel()).isEqualTo("gpt-5.6-sol");
         assertThat(codex.selectedEffort()).isEqualTo("low");
+    }
+
+    @Test
+    void validatesOnlyTheServiceTiersAdvertisedForTheSelectedModel()
+    {
+        assertThat(service.get().providers().get(1).models().getFirst().serviceTiers())
+                .containsExactly(new ProviderServiceTier("priority", "Fast", "Faster processing"));
+        service.validateSelection("codex", "gpt-5.6-sol", Optional.of("high"), Optional.of("priority"));
+        service.validateSelection("codex", "gpt-5.6-sol", Optional.of("low"), Optional.empty());
+        assertThatThrownBy(() -> service.validateSelection("codex", "gpt-5.6-luna", Optional.of("high"), Optional.of("priority")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unknown service tier");
+        assertThatThrownBy(() -> service.validateSelection("codex", "gpt-5.6-sol", Optional.of("invalid"), Optional.of("priority")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unknown effort");
     }
 
     @Test

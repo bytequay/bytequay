@@ -117,7 +117,11 @@ public final class InteractiveAgentTaskCreator
             return task;
         }
         requireReady(laneId, defaults);
-        models.validateSelection(laneId.value(), defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")), defaults.effort());
+        models.validateSelection(
+                laneId.value(),
+                defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
+                defaults.effort(),
+                defaults.serviceTier());
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
         String startRef = "refs/remotes/origin/" + workspace.defaultBranch() + "^{commit}";
         Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);
@@ -181,6 +185,7 @@ public final class InteractiveAgentTaskCreator
         add(digest, laneId.value());
         add(digest, defaults.model().orElse(""));
         add(digest, defaults.effort().orElse(""));
+        defaults.serviceTier().ifPresent(value -> add(digest, "serviceTier=" + value));
         add(digest, defaults.permissionPolicy().name());
         add(digest, idempotencyKey);
         return HexFormat.of().formatHex(digest.digest());

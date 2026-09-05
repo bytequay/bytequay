@@ -79,6 +79,8 @@ public class AgentQueuedInputEntity
 
     private String effort;
 
+    private String serviceTier;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
@@ -137,6 +139,7 @@ public class AgentQueuedInputEntity
         textBlobSize = input.textBlob().size();
         requestedModel = input.settings().model().orElse(null);
         effort = input.settings().effort().orElse(null);
+        serviceTier = input.settings().serviceTier().orElse(null);
         permissionPolicy = input.settings().permissionPolicy();
         sandboxPolicy = input.settings().sandboxPolicy();
         maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
@@ -164,7 +167,8 @@ public class AgentQueuedInputEntity
                         permissionPolicy,
                         sandboxPolicy,
                         Duration.ofMillis(maximumRuntimeMillis),
-                        AgentAttachmentReferenceJson.decode(attachmentsJson)),
+                        AgentAttachmentReferenceJson.decode(attachmentsJson),
+                        Optional.ofNullable(serviceTier)),
                 Optional.ofNullable(messageEventId).map(EventId::valueOf),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 Optional.ofNullable(pauseReason),

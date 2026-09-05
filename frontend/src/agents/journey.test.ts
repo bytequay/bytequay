@@ -189,12 +189,13 @@ describe('preview journey', () => {
     const bridge = createPreviewBridge('workspace-1');
     const task = await bridge.getAgentTask('task-1', 'workspace-1');
     await bridge.updateAgentTaskDefaults('task-1', 'workspace-1', task.version, {
-      model: 'gpt-5.6-codex-mini', effort: 'medium', permissionPolicy: 'AUTO',
+      model: 'gpt-5.6-codex-mini', effort: 'medium', serviceTier: 'priority', permissionPolicy: 'AUTO',
     });
 
     const effective = await bridge.getEffectiveTurnSettings('task-1', 'workspace-1');
     expect(effective.model).toBe('gpt-5.6-codex-mini');
     expect(effective.effort).toBe('medium');
+    expect(effective.serviceTier).toBe('priority');
     expect(effective.permissionPolicy).toBe('AUTO');
   });
 

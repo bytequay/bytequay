@@ -220,7 +220,7 @@ amount.
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
 | `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
 | `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
-| `AgentTurnSettings` | Immutable requested model, effort, permission, sandbox, runtime, and attachment snapshot; CP4 makes it effective at provider start |
+| `AgentTurnSettings` | Immutable requested model, effort, service tier, permission, sandbox, runtime, and attachment snapshot; CP4 makes it effective at provider start |
 | `AgentInputDelivery` | Durable steer send attempt and known or uncertain outcome; direct start uses `AgentTurn` |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
@@ -2411,7 +2411,7 @@ The connection and task sequence is:
    method remain outside the product contract. No other request is legal before
    this handshake finishes.
 2. Populate the existing ByteQuay model settings catalog from `model/list`,
-   including supported reasoning efforts, input modalities, and
+   including supported reasoning efforts, input modalities, service tiers, and
    `multiAgentVersion`. Production accepts the running catalog without a
    version allowlist. A required incompatible shape fails the affected operation
    and includes the detected Codex version in its diagnostic.
@@ -2477,7 +2477,7 @@ The connection and task sequence is:
    already-persisted user event: text plus model-gated
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
    input is URL-based and is outside the first local-upload release. Apply the
-   turn's snapshotted model, reasoning effort, `approvalPolicy`,
+   turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
    `approvalsReviewer: "user"`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and
    `writableRoots: [canonicalWorktree]`, with tool network disabled. The
@@ -2518,6 +2518,17 @@ The connection and task sequence is:
 No documented stable App Server API provides ByteQuay's durable next-turn
 queue. Queue records stay in SQLite and become ordinary `turn/start` calls only
 after `AgentTurnService` claims them.
+
+Task defaults and each accepted or queued turn retain `serviceTier` separately
+from effort. The existing model catalog exposes each tier's ID, name, and
+description. Creation and defaults updates validate model, effort, and tier
+against that catalog; a provider without tiers cannot enable Fast. The Codex
+adapter sends `serviceTierForTurn` with the selected opaque tier ID, or
+`"default"` for standard speed, on every `turn/start`. Explicit standard speed
+prevents a resumed thread from retaining Fast from an earlier turn. This field
+is verified against both the v0.151.0 reference and installed v0.152.1 App Server
+schemas. No ambient Codex
+configuration is edited to toggle speed, and reasoning effort is unchanged.
 
 The driver normalizes these App Server events:
 

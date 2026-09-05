@@ -136,7 +136,8 @@ class TestInteractiveAgentHttpContract
                         "permissionPolicy",
                         "sandboxPolicy",
                         "maximumRuntimeMillis",
-                        "attachments");
+                        "attachments",
+                        "serviceTier");
         assertThat(InteractiveAgentHttpContract.AttachmentReference.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("id", "name", "mediaType");

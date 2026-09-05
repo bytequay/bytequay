@@ -165,6 +165,11 @@ function modelName(models: ModelOptionDto[], id: string | null): string {
   return displayModelName(models.find((model) => model.id === id)?.name ?? id);
 }
 
+function serviceTierName(models: ModelOptionDto[], model: string | null, tier: string | null | undefined): string {
+  if (tier == null) return '';
+  return models.find((option) => option.id === model)?.serviceTiers?.find((option) => option.id === tier)?.name ?? 'Custom speed';
+}
+
 /** Backend policy names are enum values, not prose, and not provider wire strings. */
 function permissionLabel(policy: string): string {
   return policy === 'AUTO' ? 'Auto' : policy;
@@ -528,6 +533,8 @@ function TurnFooter({ turn, durable, models }: {
   if (elapsed !== null) parts.push(formatDuration(elapsed));
   if (durable?.settings) {
     parts.push(`${modelName(models, durable.settings.model)}${durable.settings.effort === null ? '' : ` ${durable.settings.effort}`}`);
+    const tier = serviceTierName(models, durable.settings.model, durable.settings.serviceTier);
+    if (tier !== '') parts.push(tier);
     parts.push(permissionLabel(durable.settings.permissionPolicy));
   }
   if (turn.endedAt !== null) parts.push(clock(turn.endedAt));
@@ -791,6 +798,7 @@ function QueueStrip({ queue, running, idle, resumeBlocked, models, onRemove, onR
             )}
             <span className="agt-mono agt-queue__meta">
               {modelName(models, input.settings.model)}{input.settings.effort === null ? '' : ` ${input.settings.effort}`}
+              {input.settings.serviceTier != null && ` · ${serviceTierName(models, input.settings.model, input.settings.serviceTier)}`}
             </span>
             {state === 'PAUSED' && input.id === head.id && idle && (
               <button
@@ -1378,7 +1386,7 @@ export function AgentTaskBody({
   onComplete: () => void;
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
   onCompose: (text: string) => void;
-  onSelectModel: (model: string, effort: string | null) => void;
+  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onStopServer: () => void;
   onMarkFailed: () => void;
   /** A person's name for the task; absent while the task is still loading or in a static render. */
@@ -1718,6 +1726,7 @@ export function AgentTaskBody({
                 provider={provider}
                 selectedModel={state.task?.defaults.model ?? ''}
                 selectedEffort={state.task?.defaults.effort ?? undefined}
+                selectedServiceTier={state.task?.defaults.serviceTier}
                 onSelect={onSelectModel}
               />
               {status === 'running' && state.composer.trim() !== '' && (
@@ -2076,13 +2085,14 @@ export default function AgentTaskScreen({
     return true;
   }, []);
 
-  const selectModel = useCallback((model: string, effort: string | null) => run(async () => {
+  const selectModel = useCallback((model: string, effort: string | null, serviceTier: string | null) => run(async () => {
     const task = state.task;
     if (task === null) return;
     // The response carries the bumped version; keeping the old one conflicts on the next change.
     const updated = await live().updateAgentTaskDefaults(taskId, workspaceId, task.version, {
       model,
       effort,
+      serviceTier,
       permissionPolicy: task.defaults.permissionPolicy,
     });
     const draft = stateRef.current;
@@ -2381,7 +2391,7 @@ export default function AgentTaskScreen({
         submissions.draftChanged(taskId, text, draft.attachments.map((attachment) => attachment.id), draft.task?.defaults ?? null);
         dispatch({ type: 'composer/changed', text });
       }}
-      onSelectModel={(model, effort) => { void selectModel(model, effort); }}
+      onSelectModel={(model, effort, serviceTier) => { void selectModel(model, effort, serviceTier); }}
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}

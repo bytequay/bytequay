@@ -31,12 +31,25 @@ public record AgentTurnSettings(
         AgentPermissionPolicy permissionPolicy,
         AgentSandboxPolicy sandboxPolicy,
         Duration maximumRuntime,
-        List<AgentAttachmentReference> attachments)
+        List<AgentAttachmentReference> attachments,
+        Optional<String> serviceTier)
 {
+    public AgentTurnSettings(
+            Optional<String> model,
+            Optional<String> effort,
+            AgentPermissionPolicy permissionPolicy,
+            AgentSandboxPolicy sandboxPolicy,
+            Duration maximumRuntime,
+            List<AgentAttachmentReference> attachments)
+    {
+        this(model, effort, permissionPolicy, sandboxPolicy, maximumRuntime, attachments, Optional.empty());
+    }
+
     public AgentTurnSettings
     {
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
+        checkOptionalText(serviceTier, "serviceTier");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(sandboxPolicy, "sandboxPolicy is null");
         requireNonNull(maximumRuntime, "maximumRuntime is null");

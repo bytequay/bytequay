@@ -93,6 +93,15 @@ describe('agent contract parsing', () => {
       .toThrow(/attachments\[0\]/);
   });
 
+  it('retains the requested service tier on defaults and turn snapshots', () => {
+    expect(parseAgentTask(fixture.task).defaults.serviceTier).toBeNull();
+    expect(parseAgentTask({ ...fixture.task, defaults: { ...fixture.task.defaults, serviceTier: 'priority' } }).defaults.serviceTier)
+      .toBe('priority');
+    expect(parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, serviceTier: 'priority' } }).settings?.serviceTier)
+      .toBe('priority');
+    expect(() => parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, serviceTier: true } })).toThrow(/serviceTier/);
+  });
+
   it('keeps the typed authentication cause and rejects an invented failure kind', () => {
     expect(parseAgentTurn({ ...fixture.turn, failureKind: 'AUTHENTICATION_REQUIRED' }).failureKind)
       .toBe('AUTHENTICATION_REQUIRED');
@@ -172,7 +181,8 @@ describe('provider contracts', () => {
         signInCommand: null,
         capabilities,
         models: [
-          { id: 'm', name: 'Model', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: ['text', 'image'] },
+          { id: 'm', name: 'Model', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: ['text', 'image'],
+            serviceTiers: [{ id: 'priority', name: 'Fast', description: 'Faster responses' }] },
           { id: 'legacy', name: 'Legacy', description: '', efforts: ['high'], defaultEffort: 'high', inputModalities: null },
         ],
         selectedModel: 'm',
@@ -185,6 +195,8 @@ describe('provider contracts', () => {
     expect(settings.providers[0].capabilities).toEqual(capabilities);
     expect(settings.providers[0].models[0].inputModalities).toEqual(['text', 'image']);
     expect(settings.providers[0].models[1].inputModalities).toBeUndefined();
+    expect(settings.providers[0].models[0].serviceTiers).toEqual([{ id: 'priority', name: 'Fast', description: 'Faster responses' }]);
+    expect(settings.providers[0].models[1].serviceTiers).toEqual([]);
   });
 
   it('validates and recovers the typed known-unsent preflight error from Electron error text', () => {

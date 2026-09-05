@@ -1573,7 +1573,13 @@ class TestDefaultAgentTurnService
     void pausesTheQueueAfterANonSuccessAndResumesOnlyOnRequest()
     {
         service.start(command("first", "key-1"));
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                task.id(),
+                taskService.get(task.id()).version(),
+                new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("fast"))));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        assertThat(queued.settings().effort()).contains("high");
+        assertThat(queued.settings().serviceTier()).contains("fast");
 
         driver.failCompletion(new IllegalStateException("provider crashed"));
 
@@ -1584,10 +1590,18 @@ class TestDefaultAgentTurnService
         });
         assertThatThrownBy(() -> service.resumeQueued(task.id())).isInstanceOf(AgentConflictException.class);
         service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                task.id(),
+                taskService.get(task.id()).version(),
+                new AgentTaskDefaults(Optional.of("model-a"), Optional.of("low"), AgentPermissionPolicy.AUTO)));
 
         AgentTurn resumed = service.resumeQueued(task.id());
 
         assertThat(resumed.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(resumed.settings()).contains(queued.settings());
+        assertThat(driver.commands().getLast().effort()).contains("high");
+        assertThat(driver.commands().getLast().serviceTier()).contains("fast");
+        assertThat(driver.openedContexts().getLast().effort()).contains("high");
         assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("first", "second");
         assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
         assertThatThrownBy(() -> service.resumeQueued(task.id())).isInstanceOf(AgentConflictException.class);

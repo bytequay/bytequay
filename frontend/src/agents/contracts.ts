@@ -177,6 +177,7 @@ function defaults(value: unknown, path: string): AgentTaskDefaultsDto {
   return {
     model: optionalText(source.model, `${path}.model`),
     effort: optionalText(source.effort, `${path}.effort`),
+    serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
     permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
   };
 }
@@ -259,6 +260,7 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
   return {
     model: optionalText(source.model, `${path}.model`),
     effort: optionalText(source.effort, `${path}.effort`),
+    serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
     permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
     sandboxPolicy: text(source.sandboxPolicy, `${path}.sandboxPolicy`),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
@@ -359,6 +361,15 @@ function modelOption(value: unknown, path: string): ModelOptionDto {
     efforts: textList(source.efforts, `${path}.efforts`),
     defaultEffort: optionalText(source.defaultEffort, `${path}.defaultEffort`),
     ...(inputModalities === undefined ? {} : { inputModalities }),
+    serviceTiers: list(source.serviceTiers ?? [], `${path}.serviceTiers`).map((entry, index) => {
+      const tierPath = `${path}.serviceTiers[${index}]`;
+      const tier = object(entry, tierPath);
+      return {
+        id: text(tier.id, `${tierPath}.id`),
+        name: text(tier.name, `${tierPath}.name`),
+        description: text(tier.description, `${tierPath}.description`),
+      };
+    }),
   };
 }
 

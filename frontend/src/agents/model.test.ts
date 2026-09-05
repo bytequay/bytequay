@@ -546,6 +546,17 @@ describe('steering and queueing', () => {
       .toMatchObject({ taskId: 'intent-5', idempotencyKey: 'intent-6' });
   });
 
+  it('changes send and queue identities for Fast while steering keeps the active turn settings', () => {
+    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
+    for (const kind of ['send', 'queue', 'steer'] as const) {
+      let next = 0;
+      const submissions = createDraftSubmissionTracker(() => `intent-${++next}`);
+      const first = submissions.keyFor(kind, 'target', 'task', 'look', [], defaults);
+      const changed = submissions.keyFor(kind, 'target', 'task', 'look', [], { ...defaults, serviceTier: 'priority' });
+      expect(changed === first).toBe(kind === 'steer');
+    }
+  });
+
   it('keeps the queue and normalized lane capabilities the server reported', () => {
     const capabilities = { ...NO_AGENT_CAPABILITIES, steering: true, structuredPlans: true };
     let state = agentTaskReducer(initialAgentTaskState(), { type: 'capabilities/loaded', capabilities });

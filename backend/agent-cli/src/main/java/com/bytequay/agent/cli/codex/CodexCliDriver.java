@@ -41,6 +41,7 @@ import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
+import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -418,7 +419,10 @@ public final class CodexCliDriver
                             Optional.of(entry.defaultReasoningEffort()),
                             entry.isDefault(),
                             // The schema's default when the field is absent: text and image.
-                            entry.inputModalities().orElse(ImmutableList.of("text", "image"))))
+                            entry.inputModalities().orElse(ImmutableList.of("text", "image")),
+                            entry.serviceTiers().orElse(ImmutableList.of()).stream()
+                                    .map(tier -> new ProviderServiceTier(tier.id(), tier.name(), tier.description()))
+                                    .collect(toImmutableList())))
                     .collect(toImmutableList());
     }
 
@@ -691,16 +695,17 @@ public final class CodexCliDriver
                 case UNKNOWN -> throw new AgentUnavailableException(
                         "Codex model " + selected.id() + " advertises an unknown multi-agent version");
             };
-            return new ModelProfile(selected.id(), childProfile);
+            return new ModelProfile(selected.id(), childProfile, selected.serviceTiers().orElse(ImmutableList.of()));
         }
     }
 
-    private record ModelProfile(String id, CodexLaunchProfile.ChildProfile childProfile)
+    private record ModelProfile(String id, CodexLaunchProfile.ChildProfile childProfile, List<CodexProtocol.ModelServiceTier> serviceTiers)
     {
         private ModelProfile
         {
             requireNonNull(id, "id is null");
             requireNonNull(childProfile, "childProfile is null");
+            serviceTiers = ImmutableList.copyOf(serviceTiers);
         }
     }
 
@@ -875,6 +880,11 @@ public final class CodexCliDriver
             if (requestedModel.isPresent() && !requestedModel.orElseThrow().equals(modelProfile.id())) {
                 throw new AgentUnavailableException("Turn model does not match the Codex process launch profile");
             }
+            command.serviceTier().ifPresent(tier -> {
+                if (modelProfile.serviceTiers().stream().noneMatch(option -> option.id().equals(tier))) {
+                    throw new AgentUnavailableException("Codex model does not support service tier: " + tier);
+                }
+            });
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(),
                     input,
@@ -882,6 +892,7 @@ public final class CodexCliDriver
                     // a default changed after acceptance cannot rewrite the turn that is starting.
                     Optional.of(modelProfile.id()),
                     command.effort().or(context::effort),
+                    command.serviceTier().orElse("default"),
                     approvalPolicy(),
                     "user",
                     worktree.toString(),

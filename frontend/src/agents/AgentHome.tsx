@@ -14,7 +14,7 @@
 
 import React, { useCallback } from 'react';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
-import { TaskComposer, useAgentTaskCreation } from './AgentTasksView';
+import { TaskComposer, useAgentTaskCreation, type TaskModelSelection } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelOptionDto, ModelProviderDto } from '../types';
@@ -55,7 +55,7 @@ export default function AgentHome({
       blocker={creation.blocker}
       onDraftChange={creation.setDraft}
       onSelectProvider={creation.selectProvider}
-      onSelectModel={(model, effort) => creation.setSelection({ model, effort })}
+      onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
       onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
@@ -75,12 +75,12 @@ export function AgentHomeView({
   /** The open tasks, drawn as windows under the hero. */
   tasks: AgentTaskDto[];
   models: ModelOptionDto[];
-  selection: { model: string; effort: string | null } | null;
+  selection: TaskModelSelection | null;
   draft: string;
   blocker: string | null;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
-  onSelectModel: (model: string, effort: string | null) => void;
+  onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;

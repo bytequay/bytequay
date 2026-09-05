@@ -240,7 +240,8 @@ public final class DefaultAgentTurnService
                     attachments,
                     acceptance.settings().maximumRuntime(),
                     acceptance.settings().model(),
-                    acceptance.settings().effort()));
+                    acceptance.settings().effort(),
+                    acceptance.settings().serviceTier()));
             failedRunningTurn = runningTurn;
             return new Launch(accepted, registerRunningTurn(accepted, runningTurn, session.reference()), null, null);
         }
@@ -1526,7 +1527,8 @@ public final class DefaultAgentTurnService
                 task.permissionPolicy(),
                 AgentSandboxPolicy.WORKSPACE_WRITE,
                 maximumTurnRuntime,
-                attachments);
+                attachments,
+                task.defaults().serviceTier());
     }
 
     private AgentTask requireTask(TaskId taskId)

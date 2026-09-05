@@ -192,6 +192,7 @@ export function createPreviewBridge(
       return {
         model: previewDefaults.model,
         effort: previewDefaults.effort,
+        serviceTier: previewDefaults.serviceTier ?? null,
         permissionPolicy: previewDefaults.permissionPolicy,
         sandboxPolicy: 'WORKSPACE_WRITE',
         maximumRuntimeMillis: 3600000,
@@ -236,6 +237,7 @@ export function createPreviewBridge(
         settings: {
           model: previewDefaults.model,
           effort: previewDefaults.effort,
+          serviceTier: previewDefaults.serviceTier ?? null,
           permissionPolicy: previewDefaults.permissionPolicy,
           sandboxPolicy: 'WORKSPACE_WRITE',
           maximumRuntimeMillis: 3600000,

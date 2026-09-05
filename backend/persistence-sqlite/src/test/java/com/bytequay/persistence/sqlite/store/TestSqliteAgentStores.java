@@ -480,13 +480,15 @@ class TestSqliteAgentStores
     void roundTripsRequestedTurnSettings()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask task = newTask(now);
+        AgentTask task = newTask(now).withDefaults(
+                new AgentTaskDefaults(Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("priority")), now);
         taskStore.insert(task);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
         turnStore.insert(turn);
         entityManager.clear();
 
         assertThat(turnStore.find(turn.id())).contains(turn);
+        assertThat(taskStore.find(task.id()).orElseThrow().defaults().serviceTier()).contains("priority");
     }
 
     @Test
@@ -850,7 +852,8 @@ class TestSqliteAgentStores
                 AgentPermissionPolicy.AUTO,
                 AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
-                ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")));
+                ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")),
+                Optional.of("priority"));
     }
 
     /** These store tests never touch the graph; the turn service only needs a service that reports itself unavailable. */

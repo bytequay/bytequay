@@ -140,7 +140,8 @@ public class AgentController
         AgentTaskDefaults defaults = new AgentTaskDefaults(
                 request.defaults().model(),
                 request.defaults().effort(),
-                AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()));
+                AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
+                request.defaults().serviceTier());
         TaskId taskId = TaskId.valueOf(request.taskId());
         AgentTask task = taskCreator.create(
                 taskId,
@@ -181,14 +182,20 @@ public class AgentController
     {
         TaskId id = TaskId.valueOf(taskId);
         // Resolve through the workspace first so one workspace cannot retune another's task.
-        taskService.getInteractive(workspaceId, id);
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        modelSettings.validateSelection(
+                task.laneId().value(),
+                request.defaults().model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
+                request.defaults().effort(),
+                request.defaults().serviceTier());
         return InteractiveAgentHttpContract.task(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 id,
                 request.expectedVersion(),
                 new AgentTaskDefaults(
                         request.defaults().model(),
                         request.defaults().effort(),
-                        AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy())))));
+                        AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
+                        request.defaults().serviceTier()))));
     }
 
     @PatchMapping("/tasks/{taskId}")

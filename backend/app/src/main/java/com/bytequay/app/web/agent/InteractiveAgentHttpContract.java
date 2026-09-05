@@ -172,7 +172,8 @@ final class InteractiveAgentHttpContract
         return new TaskDefaults(
                 defaults.model(),
                 defaults.effort(),
-                defaults.permissionPolicy().name());
+                defaults.permissionPolicy().name(),
+                defaults.serviceTier());
     }
 
     static TurnSettings settings(AgentTurnSettings settings)
@@ -185,7 +186,8 @@ final class InteractiveAgentHttpContract
                 settings.maximumRuntime().toMillis(),
                 settings.attachments().stream()
                         .map(InteractiveAgentHttpContract::attachment)
-                        .collect(toImmutableList()));
+                        .collect(toImmutableList()),
+                settings.serviceTier());
     }
 
     private static AttachmentReference attachment(AgentAttachmentReference attachment)
@@ -251,12 +253,19 @@ final class InteractiveAgentHttpContract
     record TaskDefaults(
             Optional<String> model,
             Optional<String> effort,
-            String permissionPolicy)
+            String permissionPolicy,
+            Optional<String> serviceTier)
     {
+        TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy)
+        {
+            this(model, effort, permissionPolicy, Optional.empty());
+        }
+
         TaskDefaults
         {
             checkOptionalText(model, "model");
             checkOptionalText(effort, "effort");
+            checkOptionalText(serviceTier, "serviceTier");
             checkNotBlank(permissionPolicy, "permissionPolicy");
         }
     }
@@ -363,7 +372,8 @@ final class InteractiveAgentHttpContract
             String permissionPolicy,
             String sandboxPolicy,
             long maximumRuntimeMillis,
-            List<AttachmentReference> attachments) {}
+            List<AttachmentReference> attachments,
+            Optional<String> serviceTier) {}
 
     record AttachmentReference(
             String id,

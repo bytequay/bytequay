@@ -20,7 +20,8 @@
     "defaults": {
       "model": "test-model",
       "effort": "high",
-      "permissionPolicy": "AUTO"
+      "permissionPolicy": "AUTO",
+      "serviceTier": null
     },
     "state": "OPEN",
     "mutationClaim": null,
@@ -66,7 +67,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -96,7 +98,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -132,7 +135,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -162,7 +166,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -198,7 +203,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -228,7 +234,8 @@
           "permissionPolicy": "AUTO",
           "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
-          "attachments": []
+          "attachments": [],
+          "serviceTier": null
         },
         "terminalReason": null,
         "failureKind": null,
@@ -618,7 +625,8 @@
     "defaults": {
       "model": "test-model",
       "effort": "high",
-      "permissionPolicy": "AUTO"
+      "permissionPolicy": "AUTO",
+      "serviceTier": null
     },
     "state": "COMPLETED",
     "mutationClaim": null,

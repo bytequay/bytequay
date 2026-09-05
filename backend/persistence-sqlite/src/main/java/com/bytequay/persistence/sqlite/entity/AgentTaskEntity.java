@@ -92,6 +92,8 @@ public class AgentTaskEntity
 
     private String defaultEffort;
 
+    private String defaultServiceTier;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
@@ -193,6 +195,7 @@ public class AgentTaskEntity
         startCommit = task.taskWorktree().map(TaskWorktree::startCommit).orElse(null);
         defaultModel = task.defaults().model().orElse(null);
         defaultEffort = task.defaults().effort().orElse(null);
+        defaultServiceTier = task.defaults().serviceTier().orElse(null);
         permissionPolicy = task.permissionPolicy();
         state = task.state();
         mutationClaimKind = task.worktreeMutationClaim().map(WorktreeMutationClaim::kind).orElse(null);
@@ -240,7 +243,8 @@ public class AgentTaskEntity
                 new AgentTaskDefaults(
                         Optional.ofNullable(defaultModel),
                         Optional.ofNullable(defaultEffort),
-                        permissionPolicy),
+                        permissionPolicy,
+                        Optional.ofNullable(defaultServiceTier)),
                 state,
                 worktreeMutationClaim(),
                 version,

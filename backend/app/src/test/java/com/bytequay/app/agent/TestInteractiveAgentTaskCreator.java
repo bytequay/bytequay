@@ -166,7 +166,7 @@ class TestInteractiveAgentTaskCreator
                 AgentPermissionPolicy.AUTO);
         doThrow(new IllegalArgumentException("unknown model"))
                 .when(models)
-                .validateSelection("codex", "unknown-model", Optional.of("high"));
+                .validateSelection("codex", "unknown-model", Optional.of("high"), Optional.empty());
 
         assertThatThrownBy(() -> create(defaults))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -185,7 +185,7 @@ class TestInteractiveAgentTaskCreator
                 AgentPermissionPolicy.AUTO);
         doThrow(new IllegalArgumentException("unknown effort"))
                 .when(models)
-                .validateSelection("codex", "model-a", Optional.of("unsupported"));
+                .validateSelection("codex", "model-a", Optional.of("unsupported"), Optional.empty());
 
         assertThatThrownBy(() -> create(defaults))
                 .isInstanceOf(IllegalArgumentException.class)

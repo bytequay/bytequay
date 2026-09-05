@@ -139,6 +139,14 @@ The composer provides:
 - **Steer** and **Run next** while a turn is active; and
 - cancellation of the active turn.
 
+Image drafts are square, rounded thumbnails with an overlaid corner remove
+button. Filenames remain in accessible labels instead of a visible name/size
+row. Clicking a ready image in either composer or the transcript opens a
+modal image viewer, initially fitted to the window, with zoom, actual-size,
+and fit controls. Close, Escape, or clicking the backdrop dismisses the viewer
+and restores focus to the thumbnail. The viewer reuses the existing image
+object URL and does not upload or fetch it again.
+
 The provider lane is immutable after task creation. The task stores default
 model, effort, service tier, and permission choices; every accepted turn snapshots the
 settings actually used. Changing a supported model or effort in the composer
@@ -599,6 +607,26 @@ POST   /agent/tasks/{taskId}/mark-failed
 
 Task creation accepts a workspace ID, lane, defaults, and the first message;
 it accepts neither a title nor a renderer-selected worktree path.
+The new-task image picker retains up to eight native-selected images in
+Electron main memory, returning opaque draft IDs and bounded preview bytes.
+Both new and existing task inputs also accept a pasted clipboard image with
+the same model/provider gates. The renderer handles an image-bearing paste
+gesture; Electron reads the native clipboard only for that gesture, converts
+the image to PNG, checks pixel and byte limits, and reuses the draft/upload
+path. Text-only paste keeps the normal input behavior without reading the
+native image clipboard. While an image is being attached, sending is disabled
+and the input remains editable so text from a mixed clipboard is preserved.
+Removing an image or leaving the composer releases its draft. Selecting an
+image alone does not allocate a task or worktree. On Send, Electron posts
+multipart `POST /agent/tasks` with a JSON `request` part and `images` parts;
+the text-only request remains JSON. Each image is limited to 10 MiB, verified
+against its claimed media type, and bounded to 30 million pixels before any
+task allocation. The selected model and provider must both accept images.
+The backend stores validated uploads as task-owned attachments before starting
+the first turn. The creation fingerprint includes the ordered image names,
+types, and bytes, so replaying a lost response cannot silently replace the
+first message's images or start another turn. Once that turn is accepted,
+replaying the request reuses its stored attachments.
 `PATCH /agent/tasks/{taskId}` carries only a user-chosen name and the observed
 task version, so a rename cannot race an agent-proposed name. Turn/queue
 requests accept explicit supported model, effort, and permission settings plus

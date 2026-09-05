@@ -13,6 +13,7 @@
  */
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   parseAgentApproval,
@@ -32,9 +33,11 @@ import {
 } from './agents/contracts';
 import { parseAgentEventSequence } from './agents/events';
 import { AgentSubscriptions } from './agents/subscriptions';
+import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
   AgentApprovalDecision,
   AgentAttachmentDto,
+  AgentDraftAttachmentDto,
   AgentProviderUnavailableDto,
   CherryPickExecutionRequest,
   CherryPickPreviewRequest,
@@ -69,8 +72,30 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 
 let mainWindow: BrowserWindow | null = null;
 
-// The backend enforces the same bound; checking here spares reading a file that cannot be sent.
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_DRAFT_ATTACHMENTS = 8;
+const draftAttachments = new Map<string, AgentDraftAttachmentDto>();
+
+function retainDraftImages(images: Omit<AgentDraftAttachmentDto, 'id'>[]): AgentDraftAttachmentDto[] {
+  if (draftAttachments.size + images.length > MAX_DRAFT_ATTACHMENTS) throw new Error('Attach up to 8 images');
+  const drafts = images.map((image) => ({ ...image, id: randomUUID() }));
+  for (const draft of drafts) draftAttachments.set(draft.id, draft);
+  return drafts;
+}
+
+async function uploadAgentImage(taskId: string, workspaceId: string, name: string, mediaType: string, bytes: Buffer): Promise<AgentAttachmentDto> {
+  if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${name} is larger than 10 MiB`);
+  const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
+  url.searchParams.set('workspaceId', workspaceId);
+  return parseAgentAttachment(await backendJson(url, {
+    method: 'POST',
+    headers: {
+      ...agentHeaders(),
+      'Content-Type': mediaType,
+      'X-Attachment-Name': encodeURIComponent(name),
+    },
+    body: new Uint8Array(bytes),
+  }));
+}
 
 function imageMediaType(filePath: string): string {
   const extension = path.extname(filePath).toLowerCase();
@@ -200,7 +225,9 @@ async function createWindow(): Promise<void> {
     },
   });
   if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
+  mainWindow.webContents.on('dom-ready', () => draftAttachments.clear());
   mainWindow.on('closed', () => {
+    draftAttachments.clear();
     destroyBrowserView();
     mainWindow = null;
   });
@@ -379,12 +406,25 @@ function registerIpc(): void {
     return backendJson(`${BACKEND_BASE}/agent/tasks?${query}`, { headers: agentHeaders() })
       .then(parseAgentTasks);
   });
-  ipcMain.handle('agent:tasks:create', (_event, request: CreateAgentTaskRequest) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks`, {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify(request),
-    }).then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:tasks:create', async (_event, request: CreateAgentTaskRequest) => {
+    const { draftAttachmentIds = [], ...metadata } = request;
+    if (draftAttachmentIds.length === 0) {
+      return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`, {
+        method: 'POST', headers: agentHeaders(true), body: JSON.stringify(metadata),
+      }));
+    }
+    if (draftAttachmentIds.length > MAX_DRAFT_ATTACHMENTS) throw new Error('Attach up to 8 images');
+    const body = new FormData();
+    body.append('request', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    for (const id of draftAttachmentIds) {
+      const draft = draftAttachments.get(id);
+      if (draft === undefined) throw new Error('An image draft is no longer available. Add the image again.');
+      body.append('images', new Blob([new Uint8Array(draft.bytes)], { type: draft.mediaType }), draft.name);
+    }
+    return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`, {
+      method: 'POST', headers: agentHeaders(), body,
+    }));
+  });
   ipcMain.handle('agent:tasks:get', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
@@ -472,6 +512,35 @@ function registerIpc(): void {
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
       + `?${new URLSearchParams({ workspaceId })}`, { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
+  ipcMain.handle('agent:attachments:pick-drafts', async () => {
+    if (mainWindow === null) return [];
+    const picked = await dialog.showOpenDialog(mainWindow, {
+      title: 'Attach images',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif'] }],
+    });
+    if (draftAttachments.size + picked.filePaths.length > MAX_DRAFT_ATTACHMENTS) throw new Error('Attach up to 8 images');
+    const drafts: Omit<AgentDraftAttachmentDto, 'id'>[] = [];
+    for (const filePath of picked.filePaths) {
+      const stat = await fs.promises.stat(filePath);
+      if (!stat.isFile() || stat.size > MAX_ATTACHMENT_BYTES) throw new Error(`${path.basename(filePath)} must be an image under 10 MiB`);
+      const bytes = await fs.promises.readFile(filePath);
+      if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${path.basename(filePath)} is larger than 10 MiB`);
+      drafts.push({ name: path.basename(filePath), mediaType: imageMediaType(filePath), bytes });
+    }
+    return retainDraftImages(drafts);
+  });
+  ipcMain.handle('agent:attachments:paste-drafts', () => {
+    const bytes = clipboardImagePng(clipboard.readImage());
+    return bytes === null ? [] : retainDraftImages([{ name: 'pasted-image.png', mediaType: 'image/png', bytes }]);
+  });
+  ipcMain.handle('agent:attachments:paste', async (_event, taskId: string, workspaceId: string) => {
+    const bytes = clipboardImagePng(clipboard.readImage());
+    return bytes === null ? [] : [await uploadAgentImage(taskId, workspaceId, 'pasted-image.png', 'image/png', bytes)];
+  });
+  ipcMain.handle('agent:attachments:discard-drafts', (_event, attachmentIds: string[]) => {
+    for (const id of attachmentIds) draftAttachments.delete(id);
+  });
   // Main owns the file paths: it picks, reads and uploads; the renderer receives facts and references.
   ipcMain.handle('agent:attachments:pick', async (_event, taskId: string, workspaceId: string) => {
     if (mainWindow === null) return [];
@@ -487,17 +556,7 @@ function registerIpc(): void {
         throw new Error(`${path.basename(filePath)} is larger than 10 MiB`);
       }
       const bytes = await fs.promises.readFile(filePath);
-      const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
-      url.searchParams.set('workspaceId', workspaceId);
-      stored.push(parseAgentAttachment(await backendJson(url, {
-        method: 'POST',
-        headers: {
-          ...agentHeaders(),
-          'Content-Type': imageMediaType(filePath),
-          'X-Attachment-Name': encodeURIComponent(path.basename(filePath)),
-        },
-        body: bytes,
-      })));
+      stored.push(await uploadAgentImage(taskId, workspaceId, path.basename(filePath), imageMediaType(filePath), bytes));
     }
     return stored;
   });

@@ -57,6 +57,9 @@ public interface AgentResourceService
      */
     StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command);
 
+    /** Validates image bytes, type, and limits without allocating a task or writing files. */
+    void validateAttachment(StoreAgentAttachmentCommand command);
+
     /**
      * Reads a previously stored attachment owned by the same task.
      *

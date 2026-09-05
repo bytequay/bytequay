@@ -20,9 +20,13 @@ import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
 import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
-import { createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
+import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
+import { pasteImage } from './clipboard';
+import { ImageAttachment } from './ImageAttachment';
+import { X } from 'lucide-react';
 
+export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
 
 export interface AgentTasksViewProps {
@@ -116,6 +120,23 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [laneId, setLaneId] = useState(initialLaneId);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState('');
+  const [images, setImages] = useState<DraftImage[]>([]);
+  const [operation, setOperation] = useState<'attachment' | 'sending' | null>(null);
+  const busy = operation !== null;
+  const busyRef = useRef(false);
+  const imagesRef = useRef<DraftImage[]>([]);
+  const mountedRef = useRef(true);
+  const clearImages = useCallback(() => {
+    const current = imagesRef.current;
+    imagesRef.current = [];
+    current.forEach((image) => URL.revokeObjectURL(image.url));
+    if (current.length > 0) void bridge().discardAgentDraftAttachments(current.map((image) => image.id)).catch(() => {});
+  }, [bridge]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; clearImages(); };
+  }, [clearImages]);
+
   const submissionRef = useRef<TaskCreationTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
   const submissions = submissionRef.current;
@@ -167,7 +188,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
-  const blocker = creationBlocker(catalog, laneId, selection);
+  const imagesAccepted = acceptsImages(models, selection?.model, provider?.capabilities ?? null);
+  const blocker = creationBlocker(catalog, laneId, selection)
+    ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
 
   const selectProvider = useCallback((nextLaneId: string) => {
     const next = catalog?.providers.find((candidate) => candidate.id === nextLaneId);
@@ -178,19 +201,60 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       : { model: next.selectedModel, effort: next.selectedEffort === '' ? null : next.selectedEffort });
   }, [catalog]);
 
+  const attach = useCallback(async (source: 'picker' | 'clipboard' = 'picker') => {
+    if (busyRef.current || !imagesAccepted) return;
+    busyRef.current = true;
+    setOperation('attachment');
+    try {
+      const selected = await (source === 'clipboard' ? bridge().pasteAgentDraftAttachments() : bridge().pickAgentDraftAttachments());
+      if (!mountedRef.current) {
+        void bridge().discardAgentDraftAttachments(selected.map((image) => image.id)).catch(() => {});
+        return;
+      }
+      const added = selected.map((image) => ({
+        id: image.id, name: image.name,
+        url: URL.createObjectURL(new Blob([new Uint8Array(image.bytes)], { type: image.mediaType })),
+      }));
+      imagesRef.current = [...imagesRef.current, ...added];
+      setImages(imagesRef.current);
+      setError(null);
+    }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Unable to attach images');
+    }
+    finally {
+      busyRef.current = false;
+      setOperation(null);
+    }
+  }, [bridge, imagesAccepted]);
+
+  const removeImage = useCallback((id: string) => {
+    if (busyRef.current) return;
+    const removed = imagesRef.current.find((image) => image.id === id);
+    if (removed === undefined) return;
+    URL.revokeObjectURL(removed.url);
+    imagesRef.current = imagesRef.current.filter((image) => image.id !== id);
+    setImages(imagesRef.current);
+    void bridge().discardAgentDraftAttachments([id]).catch(() => {});
+  }, [bridge]);
+
   const create = useCallback(async () => {
     const message = draft.trim();
-    if (selection === null || blocker !== null || message === '') return;
+    if (busyRef.current || selection === null || blocker !== null || message === '') return;
+    busyRef.current = true;
+    setOperation('sending');
     const request = submissions.requestFor(workspaceId, message, laneId, {
       model: selection.model,
       effort: selection.effort,
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
-    });
+    }, images.map((image) => image.id));
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       setDraft('');
+      clearImages();
+      setImages([]);
       setError(null);
       onOpenTask(task.id);
     };
@@ -224,7 +288,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
         // Still unresolved: keep the exact request for a safe retry.
       }
     }
-  }, [applyCatalog, blocker, bridge, draft, laneId, onOpenTask, selection, submissions, workspaceId]);
+    finally {
+      busyRef.current = false;
+      setOperation(null);
+    }
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, laneId, onOpenTask, selection, submissions, workspaceId]);
 
   return {
     tasks,
@@ -239,6 +307,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     draft,
     setDraft,
     blocker,
+    busy,
+    attaching: operation === 'attachment',
+    images,
+    attach,
+    removeImage,
     create,
   };
 }
@@ -265,6 +338,12 @@ export default function AgentTasksView({
       selection={creation.selection}
       draft={creation.draft}
       blocker={creation.blocker}
+      busy={creation.busy}
+      attaching={creation.attaching}
+      images={creation.images}
+      onAttach={() => { void creation.attach(); }}
+      onPasteImages={() => { void creation.attach('clipboard'); }}
+      onRemoveImage={creation.removeImage}
       onDraftChange={creation.setDraft}
       onSelectProvider={creation.selectProvider}
       onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
@@ -280,6 +359,7 @@ export default function AgentTasksView({
 /** The card that creates a task: the first message above its provider, permission and model facts. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
 }: {
   draft: string;
   blocker: string | null;
@@ -292,7 +372,14 @@ export function TaskComposer({
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenSettings?: () => void;
+  images?: DraftImage[];
+  busy?: boolean;
+  attaching?: boolean;
+  onAttach?: () => void;
+  onPasteImages?: () => void;
+  onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
+  const imagesAccepted = acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
   return (
     <div className="agt-compose-dock">
       {blocker !== null && (
@@ -308,18 +395,37 @@ export function TaskComposer({
       )}
       <div className="agt-compose is-new-task">
         <span className="agt-compose__streamer" aria-hidden="true" />
+        {images.length > 0 && (
+          <div className="agt-drafts" aria-label="Images to send">
+            {images.map((image) => (
+              <span className="agt-draft" key={image.id}>
+                <ImageAttachment url={image.url} name={image.name} compact />
+                <button type="button" className="agt-draft__remove" aria-label={`Remove image ${image.name}`} disabled={busy} onClick={() => onRemoveImage?.(image.id)}><X aria-hidden="true" /></button>
+              </span>
+            ))}
+          </div>
+        )}
         <input
           className="agt-compose__input"
           type="text"
           aria-label="Describe a task"
           placeholder="Let's ship..."
           value={draft}
-          disabled={blocker !== null}
+          disabled={blocker !== null || (busy && !attaching)}
           onChange={(event) => onDraftChange(event.target.value)}
+          onPaste={(event) => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
           onKeyDown={(event) => { if (event.key === 'Enter') onCreate(); }}
         />
         <div className="agt-compose__row">
-          <button type="button" className="agt-attach" aria-label="Attach an image" title="Create the task first, then attach images" disabled>+</button>
+          <button
+            type="button"
+            className="agt-attach"
+            aria-label="Attach an image"
+            title={imagesAccepted
+              ? 'Attach images or paste with ⌘V' : 'This model does not accept images'}
+            disabled={busy || onAttach === undefined || !imagesAccepted}
+            onClick={onAttach}
+          >+</button>
           <ProviderPicker
             providers={providers}
             selectedId={laneId}
@@ -330,7 +436,7 @@ export function TaskComposer({
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the new task"
-            disabled={models.length === 0}
+            disabled={busy || models.length === 0}
             models={models}
             selectedModel={selection?.model ?? ''}
             selectedEffort={selection?.effort ?? undefined}
@@ -343,7 +449,7 @@ export function TaskComposer({
             aria-label="Send — creates the task"
             title="Sends the first message, which creates the task"
             onClick={onCreate}
-            disabled={blocker !== null || draft.trim() === ''}
+            disabled={busy || blocker !== null || draft.trim() === ''}
           >
             ↑
           </button>
@@ -356,6 +462,7 @@ export function TaskComposer({
 export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -375,6 +482,12 @@ export function AgentTaskList({
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
+  images?: DraftImage[];
+  busy?: boolean;
+  attaching?: boolean;
+  onAttach?: () => void;
+  onPasteImages?: () => void;
+  onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
   const now = Date.now();
   return (
@@ -433,6 +546,12 @@ export function AgentTaskList({
       <TaskComposer
         draft={draft}
         blocker={blocker}
+        busy={busy}
+        attaching={attaching}
+        images={images}
+        onAttach={onAttach}
+        onPasteImages={onPasteImages}
+        onRemoveImage={onRemoveImage}
         laneId={laneId}
         providers={providers}
         models={models}

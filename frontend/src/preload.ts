@@ -248,7 +248,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
   cleanupAgentTaskWorktree: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:cleanup', taskId, workspaceId),
+  pickAgentDraftAttachments: () => ipcRenderer.invoke('agent:attachments:pick-drafts'),
+  pasteAgentDraftAttachments: () => ipcRenderer.invoke('agent:attachments:paste-drafts'),
+  discardAgentDraftAttachments: (attachmentIds) => ipcRenderer.invoke('agent:attachments:discard-drafts', attachmentIds),
   pickAgentAttachments: (taskId, workspaceId) => ipcRenderer.invoke('agent:attachments:pick', taskId, workspaceId),
+  pasteAgentAttachments: (taskId, workspaceId) => ipcRenderer.invoke('agent:attachments:paste', taskId, workspaceId),
   readAgentAttachment: (taskId, workspaceId, attachmentId) =>
     ipcRenderer.invoke('agent:attachments:read', taskId, workspaceId, attachmentId),
   removeAgentAttachment: (taskId, workspaceId, attachmentId) =>

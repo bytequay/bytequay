@@ -14,7 +14,7 @@
 
 import React, { useCallback } from 'react';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
-import { TaskComposer, useAgentTaskCreation, type TaskModelSelection } from './AgentTasksView';
+import { TaskComposer, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelOptionDto, ModelProviderDto } from '../types';
@@ -53,6 +53,13 @@ export default function AgentHome({
       selection={creation.selection}
       draft={creation.draft}
       blocker={creation.blocker}
+      error={creation.error}
+      busy={creation.busy}
+      attaching={creation.attaching}
+      images={creation.images}
+      onAttach={() => { void creation.attach(); }}
+      onPasteImages={() => { void creation.attach('clipboard'); }}
+      onRemoveImage={creation.removeImage}
       onDraftChange={creation.setDraft}
       onSelectProvider={creation.selectProvider}
       onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
@@ -67,6 +74,7 @@ export default function AgentHome({
 export function AgentHomeView({
   repository, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null,
 }: {
   repository: string;
   laneId: string;
@@ -85,6 +93,13 @@ export function AgentHomeView({
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
   onShowAll: () => void;
+  error?: string | null;
+  images?: DraftImage[];
+  busy?: boolean;
+  attaching?: boolean;
+  onAttach?: () => void;
+  onPasteImages?: () => void;
+  onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
   return (
     <div className="agt-tasks-page">
@@ -114,9 +129,16 @@ export function AgentHomeView({
           </div>
         </div>
       </div>
+      {error !== null && <div className="cmt-error" role="alert">{error}</div>}
       <TaskComposer
         draft={draft}
         blocker={blocker}
+        busy={busy}
+        attaching={attaching}
+        images={images}
+        onAttach={onAttach}
+        onPasteImages={onPasteImages}
+        onRemoveImage={onRemoveImage}
         laneId={laneId}
         providers={providers}
         models={models}

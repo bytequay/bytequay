@@ -59,6 +59,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import javax.imageio.ImageIO;
 
@@ -84,6 +86,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1217,6 +1220,62 @@ class TestAgentHttpApi
 
         deleteQueued(taskId, replayQueue.getBody().required("id").asText());
         driver.completeHeldTurn();
+    }
+
+    @Test
+    void createsATaskWithItsFirstImageAndReplaysWithoutUploadingAgain()
+            throws Exception
+    {
+        Map<String, Object> request = createTaskBody("codex");
+        byte[] image = png(9, 4);
+        ResponseEntity<JsonNode> created = createTaskWithImage(request, "failure.png", MediaType.IMAGE_PNG, image);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String taskId = created.getBody().required("id").asText();
+        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
+        JsonNode message = StreamSupport.stream(events.spliterator(), false)
+                .filter(event -> event.path("type").asText().equals("user_message"))
+                .findFirst().orElseThrow();
+        String attachmentId = message.required("payload").required("attachments").get(0).required("id").asText();
+        assertThat(message.required("payload").required("attachments").get(0).required("name").asText()).isEqualTo("failure.png");
+        assertThat(Files.readAllBytes(resources.readAttachment(TaskId.valueOf(taskId), attachmentId).path())).isEqualTo(image);
+        assertThat(turns.findTurnByIdempotencyKey(TaskId.valueOf(taskId), request.get("idempotencyKey").toString()).orElseThrow()
+                .settings().orElseThrow().attachments()).singleElement().satisfies(attachment -> assertThat(attachment.id()).isEqualTo(attachmentId));
+        deleteAttachment(taskId, attachmentId);
+        assertThat(createTaskWithImage(request, "failure.png", MediaType.IMAGE_PNG, image).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(createTaskWithImage(request, "failure.png", MediaType.IMAGE_PNG, png(10, 4)).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
+                .filteredOn(event -> event.path("type").asText().equals("user_message"))
+                .hasSize(1);
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).hasSize(1);
+    }
+
+    @Test
+    void rejectsInvalidInitialImagesBeforeAllocatingTasksOrWorktrees()
+            throws Exception
+    {
+        assertThat(createTaskWithImage(createTaskBody("codex"), "bad.png", MediaType.IMAGE_PNG, new byte[] {1, 2, 3}).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(createTaskWithImage(createTaskBody("codex", "text-only-model", "Look"), "image.png", MediaType.IMAGE_PNG, png(3, 3)).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(createTaskWithImage(createTaskBody("codex"), "wrong.jpg", MediaType.IMAGE_JPEG, png(3, 3)).getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
+        assertThat(workspacePaths.worktrees(workspaceId)).doesNotExist();
+    }
+
+    private ResponseEntity<JsonNode> createTaskWithImage(Map<String, Object> request, String name, MediaType mediaType, byte[] bytes)
+    {
+        HttpHeaders metadataHeaders = new HttpHeaders();
+        metadataHeaders.setContentType(MediaType.APPLICATION_JSON);
+        HttpHeaders imageHeaders = new HttpHeaders();
+        imageHeaders.setContentType(mediaType);
+        imageHeaders.setContentDispositionFormData("images", name);
+        MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+        parts.add("request", new HttpEntity<>(request, metadataHeaders));
+        parts.add("images", new HttpEntity<>(bytes, imageHeaders));
+        HttpHeaders requestHeaders = headers();
+        requestHeaders.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return rest.exchange(url("/agent/tasks"), HttpMethod.POST, new HttpEntity<>(parts, requestHeaders), JsonNode.class);
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
@@ -53,6 +54,8 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -68,10 +71,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
@@ -133,9 +139,35 @@ public class AgentController
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
-    @PostMapping("/tasks")
+    @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(
             @RequestBody InteractiveAgentHttpContract.CreateTaskRequest request)
+    {
+        return createTask(request, ImmutableList.of());
+    }
+
+    @PostMapping(value = "/tasks", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTaskWithImages(
+            @RequestPart("request") InteractiveAgentHttpContract.CreateTaskRequest request,
+            @RequestPart("images") List<MultipartFile> images)
+            throws IOException
+    {
+        checkArgument(!images.isEmpty() && images.size() <= 8, "Attach between 1 and 8 images");
+        ImmutableList.Builder<StoreAgentAttachmentCommand> attachments = ImmutableList.builder();
+        for (MultipartFile image : images) {
+            checkArgument(image.getSize() <= 10L * 1024 * 1024, "Image must be under 10 MiB");
+            attachments.add(new StoreAgentAttachmentCommand(
+                    TaskId.valueOf(request.taskId()),
+                    Optional.ofNullable(image.getOriginalFilename()).filter(name -> !name.isBlank()).orElse("image"),
+                    Optional.ofNullable(image.getContentType()).orElse("application/octet-stream"),
+                    image.getBytes()));
+        }
+        return createTask(request, attachments.build());
+    }
+
+    private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(
+            InteractiveAgentHttpContract.CreateTaskRequest request,
+            List<StoreAgentAttachmentCommand> uploads)
     {
         AgentTaskDefaults defaults = new AgentTaskDefaults(
                 request.defaults().model(),
@@ -143,18 +175,27 @@ public class AgentController
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
                 request.defaults().serviceTier());
         TaskId taskId = TaskId.valueOf(request.taskId());
+        boolean replay = initialTurnExists(taskId, request.idempotencyKey());
+        if (!replay && !uploads.isEmpty()) {
+            uploads.forEach(resourceService::validateAttachment);
+            requireImageInput(new AgentLaneId(request.laneId()), defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
+        }
         AgentTask task = taskCreator.create(
                 taskId,
                 request.workspaceId(),
                 request.message(),
                 new AgentLaneId(request.laneId()),
                 defaults,
-                request.idempotencyKey());
-        boolean replay = turnService.findTurnByIdempotencyKey(taskId, request.idempotencyKey()).isPresent();
+                request.idempotencyKey(),
+                uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)));
+        List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
+                .map(resourceService::storeAttachment)
+                .map(StoredAgentAttachment::input)
+                .collect(toImmutableList());
         AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                 taskId,
                 request.message(),
-                ImmutableList.of(),
+                attachments,
                 request.idempotencyKey()));
         InteractiveAgentHttpContract.TaskResponse response = InteractiveAgentHttpContract.task(
                 taskService.get(taskId));
@@ -163,6 +204,29 @@ public class AgentController
             recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
         }
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    private boolean initialTurnExists(TaskId taskId, String idempotencyKey)
+    {
+        try {
+            return turnService.findTurnByIdempotencyKey(taskId, idempotencyKey).isPresent();
+        }
+        catch (AgentTaskNotFoundException ignored) {
+            return false;
+        }
+    }
+
+    private static String attachmentDigest(List<StoreAgentAttachmentCommand> uploads)
+    {
+        Hasher digest = Hashing.sha256().newHasher();
+        for (StoreAgentAttachmentCommand upload : uploads) {
+            byte[] name = upload.name().getBytes(StandardCharsets.UTF_8);
+            byte[] mediaType = upload.mediaType().getBytes(StandardCharsets.UTF_8);
+            digest.putInt(name.length).putBytes(name);
+            digest.putInt(mediaType.length).putBytes(mediaType);
+            digest.putInt(upload.bytes().length).putBytes(upload.bytes());
+        }
+        return digest.hash().toString();
     }
 
     @GetMapping("/tasks/{taskId}")
@@ -238,22 +302,26 @@ public class AgentController
             Optional<String> selectedModel,
             List<AgentAttachment> attachments)
     {
+        requireImageInput(task.laneId(), selectedModel, attachments.stream().map(AgentAttachment::mediaType).collect(toImmutableList()));
+    }
+
+    private void requireImageInput(AgentLaneId laneId, Optional<String> selectedModel, List<String> mediaTypes)
+    {
         String model = selectedModel.orElse("");
         boolean modelAccepted = modelSettings.get().providers().stream()
-                .filter(provider -> provider.id().equals(task.laneId().value()))
+                .filter(provider -> provider.id().equals(laneId.value()))
                 .flatMap(provider -> provider.models().stream())
                 .anyMatch(option -> option.id().equals(model) && option.acceptsImages());
         if (!modelAccepted) {
             throw new InvalidAgentRequestException("Model " + model + " does not accept images");
         }
-        var supported = driverRegistry.require(task.laneId()).capabilities().attachmentMediaTypes();
-        attachments.stream()
-                .map(AgentAttachment::mediaType)
+        var supported = driverRegistry.require(laneId).capabilities().attachmentMediaTypes();
+        mediaTypes.stream()
                 .filter(mediaType -> !supported.contains(mediaType))
                 .findFirst()
                 .ifPresent(mediaType -> {
                     throw new InvalidAgentRequestException(
-                            "Provider " + task.laneId() + " does not accept " + mediaType + " attachments");
+                            "Provider " + laneId + " does not accept " + mediaType + " attachments");
                 });
     }
 

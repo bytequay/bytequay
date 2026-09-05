@@ -53,6 +53,8 @@ import { AgentMark } from './AgentMark';
 import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
 import { agentProviderUnavailableFrom } from './contracts';
+import { pasteImage } from './clipboard';
+import { ImageAttachment } from './ImageAttachment';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
@@ -122,10 +124,6 @@ export type PanelTab = 'agents' | 'prs';
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
 
-function sizeText(bytes: number): string {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 /** A stored image as a tile: the picture when its bytes arrived, otherwise its name and state. */
 function AttachmentTile({ attachment, preview, compact = false }: {
   attachment: { id: string; name: string; mediaType: string };
@@ -134,10 +132,16 @@ function AttachmentTile({ attachment, preview, compact = false }: {
 }): React.JSX.Element {
   const state = preview?.status ?? 'loading';
   if (state === 'ready' && preview?.status === 'ready') {
-    return <img className={compact ? 'agt-thumb' : 'agt-image'} src={preview.url} alt={attachment.name} title={attachment.name} />;
+    return <ImageAttachment url={preview.url} name={attachment.name} compact={compact} />;
+  }
+  if (compact) {
+    return <span className={`agt-image-placeholder is-${state}`} role="img" aria-label={`${attachment.name}: ${state}`}>
+      <Image aria-hidden="true" />
+      <span>{state === 'unavailable' ? 'Unavailable' : 'Loading…'}</span>
+    </span>;
   }
   return (
-    <span className={`agt-file${compact ? ' is-compact' : ''} is-${state}`} title={attachment.mediaType}>
+    <span className={`agt-file is-${state}`} title={attachment.mediaType}>
       {attachment.name}{state === 'unavailable' ? ' · unavailable' : ''}
     </span>
   );
@@ -1356,6 +1360,8 @@ export function AgentTaskBody({
   onToggleTurn = () => {},
   onTogglePlan = () => {},
   onAttach = () => {},
+  onPasteImages,
+  attaching = false,
   onRemoveAttachment = () => {},
   onTogglePanel = () => {},
   onOpenAgent = () => {},
@@ -1407,6 +1413,8 @@ export function AgentTaskBody({
   onToggleTurn?: (id: string, open: boolean) => void;
   onTogglePlan?: () => void;
   onAttach?: () => void;
+  onPasteImages?: () => void;
+  attaching?: boolean;
   onRemoveAttachment?: (attachmentId: string) => void;
   onTogglePanel?: () => void;
   onOpenAgent?: (threadId: string) => void;
@@ -1505,7 +1513,7 @@ export function AgentTaskBody({
             className="agt-headbtn is-labelled"
             title={completeTitle(status, state)}
             onClick={onComplete}
-            disabled={!canComplete(state)}
+            disabled={state.sending || !canComplete(state)}
           >
             <CircleCheck aria-hidden="true" />
             Complete
@@ -1667,27 +1675,26 @@ export function AgentTaskBody({
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <div className="agt-compose-dock is-task">
-          {state.attachments.length > 0 && (
-            <div className="agt-drafts" aria-label="Images to send">
-              {state.attachments.map((attachment) => (
-                <span className="agt-draft" key={attachment.id}>
-                  <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
-                  <span className="agt-mono agt-draft__name">{attachment.name} · {sizeText(attachment.byteSize)}</span>
-                  <button
-                    type="button"
-                    className="agt-draft__remove"
-                    aria-label={`Remove image ${attachment.name}`}
-                    disabled={state.sending}
-                    onClick={() => onRemoveAttachment(attachment.id)}
-                  >
-                    <X aria-hidden="true" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
           <div className="agt-compose" aria-busy={state.sending}>
             <span className="agt-compose__streamer" aria-hidden="true" />
+            {state.attachments.length > 0 && (
+              <div className="agt-drafts" aria-label="Images to send">
+                {state.attachments.map((attachment) => (
+                  <span className="agt-draft" key={attachment.id}>
+                    <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
+                    <button
+                      type="button"
+                      className="agt-draft__remove"
+                      aria-label={`Remove image ${attachment.name}`}
+                      disabled={state.sending}
+                      onClick={() => onRemoveAttachment(attachment.id)}
+                    >
+                      <X aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               ref={composerRef}
               className="agt-compose__input"
@@ -1695,8 +1702,9 @@ export function AgentTaskBody({
               value={state.composer}
               aria-label="Message the agent"
               placeholder={state.connection === 'connecting' ? 'Connecting…' : status === 'closing' ? 'Closing…' : 'Message the agent'}
-              disabled={status === 'closing' || state.connection === 'connecting' || state.sending}
+              disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
               onChange={(event) => onCompose(event.target.value)}
+              onPaste={(event) => pasteImage(event, imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
@@ -1861,6 +1869,8 @@ export default function AgentTaskScreen({
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [providerChecking, setProviderChecking] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const [attaching, setAttaching] = useState(false);
+  const attachmentPendingRef = useRef(false);
   // Fold choices are the user's, kept here so a live update can never override them.
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
@@ -2141,6 +2151,7 @@ export default function AgentTaskScreen({
   }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
+    if (attachmentPendingRef.current) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
@@ -2153,6 +2164,7 @@ export default function AgentTaskScreen({
   }), [run, startTurn, state.attachments, state.composer, state.task, submissions, taskId]);
 
   const steer = useCallback(() => run(async () => {
+    if (attachmentPendingRef.current) return;
     const message = state.composer.trim();
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
@@ -2184,6 +2196,7 @@ export default function AgentTaskScreen({
   }), [live, run, state.attachments, state.composer, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
+    if (attachmentPendingRef.current) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
@@ -2229,18 +2242,35 @@ export default function AgentTaskScreen({
     }
   }), [applyTurn, live, recordProviderUnavailable, refreshProjection, run, taskId, workspaceId]);
 
-  const attach = useCallback(() => run(async () => {
-    const stored = await live().pickAgentAttachments(taskId, workspaceId);
-    if (stored.length === 0) return;
-    const draft = stateRef.current;
-    submissions.draftChanged(
-      taskId,
-      draft.composer,
-      [...draft.attachments, ...stored].map((attachment) => attachment.id),
-      draft.task?.defaults ?? null,
-    );
-    dispatch({ type: 'attachments/added', attachments: stored });
-  }), [live, run, submissions, taskId, workspaceId]);
+  const attach = useCallback((source: 'picker' | 'clipboard' = 'picker') => run(async () => {
+    const current = stateRef.current;
+    const status = runtimeStatus(current);
+    const imagesAccepted = acceptsImages(models, current.task?.defaults.model, current.capabilities)
+      || (status === 'running' && current.capabilities?.steering === true && acceptsImages(models, current.turn?.settings?.model, current.capabilities));
+    if (attachmentPendingRef.current || current.sending || !imagesAccepted || (status !== 'idle' && status !== 'running')) return;
+    attachmentPendingRef.current = true;
+    setAttaching(true);
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      const stored = await (source === 'clipboard' ? live().pasteAgentAttachments(taskId, workspaceId) : live().pickAgentAttachments(taskId, workspaceId));
+      if (!mountedRef.current || stateRef.current.task?.id !== taskId || stored.length === 0) return;
+      const draft = stateRef.current;
+      submissions.draftChanged(
+        taskId,
+        draft.composer,
+        [...draft.attachments, ...stored].map((attachment) => attachment.id),
+        draft.task?.defaults ?? null,
+      );
+      dispatch({ type: 'attachments/added', attachments: stored });
+    }
+    finally {
+      attachmentPendingRef.current = false;
+      if (mountedRef.current) {
+        setAttaching(false);
+        dispatch({ type: 'composer/sending', sending: false });
+      }
+    }
+  }), [live, models, run, submissions, taskId, workspaceId]);
 
   const removeAttachment = useCallback((attachmentId: string) => run(async () => {
     const draft = stateRef.current;
@@ -2308,7 +2338,7 @@ export default function AgentTaskScreen({
   }), [applyTurn, live, refreshProjection, run, state.turn]);
 
   const complete = useCallback(() => run(async () => {
-    if (!canComplete(state) || !confirmCompletion(state.queue, (message) => window.confirm(message))) return;
+    if (attachmentPendingRef.current || !canComplete(state) || !confirmCompletion(state.queue, (message) => window.confirm(message))) return;
     await live().completeAgentTask(taskId, workspaceId);
     await refreshProjection(state.latestTurnId);
   }), [live, refreshProjection, run, state, taskId, workspaceId]);
@@ -2407,6 +2437,8 @@ export default function AgentTaskScreen({
       onToggleTurn={(id, open) => setTurnChoice((choices) => ({ ...choices, [id]: open }))}
       onTogglePlan={() => setPlanOpen((open) => !open)}
       onAttach={() => { void attach(); }}
+      onPasteImages={() => { void attach('clipboard'); }}
+      attaching={attaching}
       onRemoveAttachment={(attachmentId) => { void removeAttachment(attachmentId); }}
       panelOpen={panelOpen}
       openAgent={openAgent}

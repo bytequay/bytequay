@@ -18,6 +18,7 @@ import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { AgentHomeView } from './AgentHome';
 import { createPreviewBridge, previewTask } from './preview';
+import { TaskComposer } from './AgentTasksView';
 import { TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -135,5 +136,45 @@ describe('agent home and overview', () => {
     expect(markup).toContain('aria-label="New task"');
     expect(markup).toContain('toggle overview');
     expect(markup).toContain('back to the current task');
+  });
+});
+
+
+describe('new task image composer', () => {
+  const models = [{ ...MODELS[0], inputModalities: ['text', 'image'] }];
+  const providers = [{ ...PROVIDERS[0], models, capabilities: { ...NO_AGENT_CAPABILITIES, attachmentMediaTypes: ['image/png'] } }];
+  const props = {
+    laneId: 'codex', providers, models, selection: { model: models[0].id, effort: 'high' }, draft: 'Review this screenshot', blocker: null as string | null,
+    onDraftChange: () => {}, onSelectModel: () => {}, onSelectProvider: () => {}, onCreate: () => {}, onAttach: () => {},
+  };
+
+  it('shows clickable image thumbnails with an accessible remove control and no filename row', () => {
+    const markup = renderToStaticMarkup(<TaskComposer {...props} images={[{ id: 'draft-1', name: 'failure.png', url: 'blob:preview' }]} onRemoveImage={() => {}} />);
+    expect(markup).toMatch(/aria-label="Attach an image"[^>]*title="Attach images or paste with ⌘V"[^>]*>/);
+    expect(markup).not.toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    expect(markup).toContain('src="blob:preview" alt="failure.png"');
+    expect(markup).toMatch(/<button[^>]*aria-label="Preview image failure.png"/);
+    expect(markup).toContain('aria-label="Remove image failure.png"');
+    expect(markup).not.toContain('agt-draft__name');
+    expect(markup.replace(/<[^>]*>/g, '')).not.toContain('failure.png');
+  });
+
+  it('requires model and provider image support, and disables attachment mutation during submission', () => {
+    expect(renderToStaticMarkup(<TaskComposer {...props} models={MODELS} />))
+      .toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    expect(renderToStaticMarkup(<TaskComposer {...props} providers={PROVIDERS} />))
+      .toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    const busy = renderToStaticMarkup(<TaskComposer {...props} busy images={[{ id: 'draft-1', name: 'failure.png', url: 'blob:preview' }]} />);
+    expect(busy).toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    expect(busy).toMatch(/aria-label="Remove image failure.png"[^>]*disabled/);
+    expect(busy).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
+    expect(busy).toMatch(/<input[^>]*aria-label="Describe a task"[^>]*disabled/);
+  });
+
+  it('keeps pasted text editable while its image loads and prevents sending before attachment finishes', () => {
+    const markup = renderToStaticMarkup(<TaskComposer {...props} busy attaching />);
+    expect(markup).not.toMatch(/<input[^>]*aria-label="Describe a task"[^>]*disabled/);
+    expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
   });
 });

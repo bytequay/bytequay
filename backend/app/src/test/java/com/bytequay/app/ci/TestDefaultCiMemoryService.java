@@ -291,6 +291,12 @@ class TestDefaultCiMemoryService
             implements AgentResourceService
     {
         @Override
+        public void validateAttachment(StoreAgentAttachmentCommand command)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
         {
             throw new UnsupportedOperationException("attachments are not part of this test");

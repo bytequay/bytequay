@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList, creationBlocker } from './AgentTasksView';
-import { AgentTaskBody, providerStatusFromUnavailable } from './AgentTaskScreen';
+import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
@@ -134,12 +134,14 @@ function body(
   state: Partial<AgentTaskState>,
   activityChoice: Record<string, boolean> = {},
   turnChoice: Record<string, boolean> = allTurnsOpen(state),
+  previews: Record<string, AttachmentPreview> = {},
 ): string {
   return renderToStaticMarkup(
     <AgentTaskBody
       state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, ...state }}
       activityChoice={activityChoice}
       turnChoice={turnChoice}
+      previews={previews}
       models={MODELS}
       onSelectModel={() => {}}
       onBack={() => {}}
@@ -953,14 +955,45 @@ describe('agent task detail', () => {
     expect(markup).toContain('Approved for this task —');
   });
 
+  it('allows text paste while an image loads and keeps submission disabled until it finishes', () => {
+    const state: AgentTaskState = {
+      ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open', capabilities: CAPABILITIES, composer: 'Screenshot details', sending: true,
+    };
+    const render = (attaching: boolean) => renderToStaticMarkup(
+      <AgentTaskBody
+        state={state}
+        attaching={attaching}
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+      />);
+    const loadingImage = render(true);
+    expect(loadingImage).not.toMatch(/<textarea[^>]*disabled/);
+    expect(loadingImage).toMatch(/aria-label="Send message"[^>]*disabled/);
+    expect(loadingImage).toMatch(/aria-label="Attach an image"[^>]*disabled/);
+    expect(loadingImage).toMatch(/class="agt-headbtn is-labelled"[^>]*disabled/);
+    expect(render(false)).toMatch(/<textarea[^>]*disabled/);
+  });
+
   it('offers the image control only for a model that accepts images, and shows drafts and previews', () => {
     const vision = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO' } };
     const withImages = body({ task: vision, connection: 'open', attachments: [
       { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 },
-    ] });
+    ] }, {}, {}, { 'att-1': { status: 'ready', url: 'blob:draft' } });
     expect(withImages).toMatch(/<button[^>]*class="agt-attach"[^>]*title="5.6 Terra accepts images"[^>]*>/);
     expect(withImages).not.toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
-    expect(withImages).toContain('stack-trace.png · 212 KB');
+    expect(withImages).toMatch(/<button[^>]*aria-label="Preview image stack-trace.png"/);
+    expect(withImages).toContain('<img class="agt-thumb" src="blob:draft" alt="stack-trace.png"');
+    expect(withImages).not.toContain('agt-draft__name');
+    expect(withImages).not.toContain('212 KB');
+    expect(withImages.replace(/<[^>]*>/g, '')).not.toContain('stack-trace.png');
     expect(withImages).toContain('aria-label="Remove image stack-trace.png"');
 
     const textOnly = { ...vision, defaults: { ...vision.defaults, model: 'text-only' } };
@@ -975,6 +1008,14 @@ describe('agent task detail', () => {
     expect(providerWithoutImages).toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
 
     const attachment = { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 };
+    const loading = body({ task: vision, connection: 'open', attachments: [attachment] });
+    expect(loading).toContain('aria-label="stack-trace.png: loading"');
+    expect(loading).toContain('Loading…');
+    expect(loading.replace(/<[^>]*>/g, '')).not.toContain('stack-trace.png');
+    expect(loading).not.toContain('agt-draft__name');
+    const sending = body({ task: vision, connection: 'open', attachments: [attachment], sending: true }, {}, {}, { 'att-1': { status: 'ready', url: 'blob:draft' } });
+    expect(sending).toMatch(/aria-label="Remove image stack-trace.png"[^>]*disabled/);
+
     const currentVision = body({
       task: textOnly,
       turn: turn('RUNNING', { settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 3600000, attachments: [] } }),
@@ -1015,6 +1056,8 @@ describe('agent task detail', () => {
         onMarkFailed={() => {}}
       />);
     expect(ready).toContain('<img class="agt-image" src="blob:preview" alt="flow.png"');
+    expect(ready).toMatch(/<button[^>]*aria-label="Preview image flow.png"/);
+
     const gone = renderToStaticMarkup(
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}

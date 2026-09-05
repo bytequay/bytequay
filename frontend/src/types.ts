@@ -622,6 +622,8 @@ export type CreateAgentTaskRequest = {
   message: string;
   laneId: string;
   defaults: AgentTaskDefaultsDto;
+  /** Opaque native-picker drafts; Electron resolves their bytes only when sending. */
+  draftAttachmentIds?: string[];
   /** The composite request also starts the first turn exactly once. */
   idempotencyKey: string;
 };
@@ -688,6 +690,13 @@ export type AgentAttachmentDto = {
   byteSize: number;
   width: number;
   height: number;
+};
+
+export type AgentDraftAttachmentDto = {
+  id: string;
+  name: string;
+  mediaType: string;
+  bytes: Uint8Array;
 };
 
 export type AgentAttachmentBytesDto = {
@@ -1374,7 +1383,12 @@ export type Bridge = {
   /** Stops only this task's provider runtime; the generation is the one the user confirmed. */
   stopAgentRuntime: (taskId: string, workspaceId: string, generation: string) => Promise<AgentTaskDto>;
   /** Opens the native image picker; Electron main reads the files and uploads them, the renderer sees facts only. */
+  pickAgentDraftAttachments: () => Promise<AgentDraftAttachmentDto[]>;
+  /** Reads a native clipboard image only when the user pastes into the composer. */
+  pasteAgentDraftAttachments: () => Promise<AgentDraftAttachmentDto[]>;
+  discardAgentDraftAttachments: (attachmentIds: string[]) => Promise<void>;
   pickAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
+  pasteAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
   readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
   removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
   /** Streams one task's events; the returned function stops the subscription. */

@@ -50,7 +50,11 @@ export type AgentBridgePort = Pick<Bridge,
   | 'markAgentTaskFailed'
   | 'getAgentRuntimeStopImpact'
   | 'stopAgentRuntime'
+  | 'pickAgentDraftAttachments'
+  | 'pasteAgentDraftAttachments'
+  | 'discardAgentDraftAttachments'
   | 'pickAgentAttachments'
+  | 'pasteAgentAttachments'
   | 'readAgentAttachment'
   | 'removeAgentAttachment'
   | 'subscribeAgentTask'
@@ -413,6 +417,7 @@ export type TaskCreationTracker = {
     message: string,
     laneId: string,
     defaults: AgentTaskDefaultsDto,
+    draftAttachmentIds?: string[],
   ) => CreateAgentTaskRequest;
   settled: (taskId: string) => void;
 };
@@ -421,7 +426,7 @@ export type TaskCreationTracker = {
 export function createTaskCreationTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): TaskCreationTracker {
   let retained: { signature: string; request: CreateAgentTaskRequest } | null = null;
   return {
-    requestFor(workspaceId, message, laneId, defaults) {
+    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = []) {
       const signature = JSON.stringify([
         workspaceId,
         message.trim(),
@@ -430,6 +435,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         defaults.effort,
         defaults.permissionPolicy,
         defaults.serviceTier ?? null,
+        draftAttachmentIds,
       ]);
       if (retained?.signature !== signature) {
         retained = {
@@ -440,6 +446,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
             message: message.trim(),
             laneId,
             defaults,
+            ...(draftAttachmentIds.length === 0 ? {} : { draftAttachmentIds: [...draftAttachmentIds] }),
             idempotencyKey: createKey(),
           },
         };

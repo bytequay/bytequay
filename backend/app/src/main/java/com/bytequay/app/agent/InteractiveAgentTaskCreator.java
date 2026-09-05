@@ -83,11 +83,24 @@ public final class InteractiveAgentTaskCreator
             AgentTaskDefaults defaults,
             String idempotencyKey)
     {
+        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty());
+    }
+
+    public AgentTask create(
+            TaskId taskId,
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey,
+            Optional<String> attachmentDigest)
+    {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest);
         }
         finally {
             lock.unlock();
@@ -100,14 +113,15 @@ public final class InteractiveAgentTaskCreator
             String message,
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
-            String idempotencyKey)
+            String idempotencyKey,
+            Optional<String> attachmentDigest)
     {
         checkNotBlank(workspaceId, "workspaceId");
         checkNotBlank(message, "message");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey);
+        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest);
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -171,7 +185,8 @@ public final class InteractiveAgentTaskCreator
             String message,
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
-            String idempotencyKey)
+            String idempotencyKey,
+            Optional<String> attachmentDigest)
     {
         MessageDigest digest;
         try {
@@ -188,6 +203,7 @@ public final class InteractiveAgentTaskCreator
         defaults.serviceTier().ifPresent(value -> add(digest, "serviceTier=" + value));
         add(digest, defaults.permissionPolicy().name());
         add(digest, idempotencyKey);
+        attachmentDigest.ifPresent(value -> add(digest, value));
         return HexFormat.of().formatHex(digest.digest());
     }
 

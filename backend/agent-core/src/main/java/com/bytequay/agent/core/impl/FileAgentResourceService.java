@@ -82,6 +82,34 @@ public final class FileAgentResourceService
     @Override
     public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
     {
+        ImageFacts image = validatedImage(command);
+        byte[] bytes = command.bytes();
+        String name = displayName(command.name());
+        String id = UUID.randomUUID().toString();
+        try {
+            Path directory = createDirectory(attachmentsDirectory(require(command.taskId())));
+            Path blob = directory.resolve(id);
+            Files.write(blob, bytes);
+            setPermissions(blob, FILE_PERMISSIONS);
+            Path facts = directory.resolve(id + ".json");
+            Files.writeString(facts, MAPPER.writeValueAsString(new AttachmentFacts(
+                    name, image.mediaType(), bytes.length, image.width(), image.height())));
+            setPermissions(facts, FILE_PERMISSIONS);
+            return new StoredAgentAttachment(id, name, image.mediaType(), bytes.length, image.width(), image.height(), blob);
+        }
+        catch (IOException e) {
+            throw new AgentStorageException("Cannot store attachment for task " + command.taskId(), e);
+        }
+    }
+
+    @Override
+    public void validateAttachment(StoreAgentAttachmentCommand command)
+    {
+        validatedImage(command);
+    }
+
+    private ImageFacts validatedImage(StoreAgentAttachmentCommand command)
+    {
         requireNonNull(command, "command is null");
         byte[] bytes = command.bytes();
         if (bytes.length == 0) {
@@ -99,22 +127,7 @@ public final class FileAgentResourceService
         if ((long) image.width() * image.height() > maxAttachmentPixels) {
             throw new InvalidAgentRequestException("Attachment exceeds " + maxAttachmentPixels + " pixels");
         }
-        String name = displayName(command.name());
-        String id = UUID.randomUUID().toString();
-        try {
-            Path directory = createDirectory(attachmentsDirectory(require(command.taskId())));
-            Path blob = directory.resolve(id);
-            Files.write(blob, bytes);
-            setPermissions(blob, FILE_PERMISSIONS);
-            Path facts = directory.resolve(id + ".json");
-            Files.writeString(facts, MAPPER.writeValueAsString(new AttachmentFacts(
-                    name, image.mediaType(), bytes.length, image.width(), image.height())));
-            setPermissions(facts, FILE_PERMISSIONS);
-            return new StoredAgentAttachment(id, name, image.mediaType(), bytes.length, image.width(), image.height(), blob);
-        }
-        catch (IOException e) {
-            throw new AgentStorageException("Cannot store attachment for task " + command.taskId(), e);
-        }
+        return image;
     }
 
     @Override

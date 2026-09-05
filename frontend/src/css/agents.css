@@ -757,17 +757,13 @@
   background: #ffffff;
 }
 
-/* Inside the task screen the dock inherits the screen's padding; the drafts sit above the card. */
+/* Inside the task screen the dock inherits the screen's padding. */
 .agt-compose-dock.is-task {
   padding: 0;
 }
 
 .agt-compose-dock.is-task .agt-compose {
   border-radius: 14px;
-}
-
-.agt-compose-dock.is-task .agt-drafts {
-  margin-bottom: 8px;
 }
 
 .agt-steer {
@@ -1777,7 +1773,16 @@
   color: #1f2328;
 }
 
-/* Images: previews in the user's bubble, drafts above the composer, and the attach control. */
+/* Images share the same preview control in the composer and transcript. */
+.agt-image-button {
+  display: block;
+  border: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: zoom-in;
+}
+
 .agt-image {
   max-width: 220px;
   max-height: 160px;
@@ -1787,12 +1792,13 @@
 }
 
 .agt-thumb {
-  width: 34px;
-  height: 26px;
+  display: block;
+  box-sizing: border-box;
+  width: 80px;
+  height: 80px;
   object-fit: cover;
-  border: 1px solid #d0d7de;
-  border-radius: 4px;
-  flex: none;
+  border: 1px solid #e3e3e6;
+  border-radius: 12px;
 }
 
 .agt-file.is-unavailable {
@@ -1800,8 +1806,29 @@
   background: #ffebe9;
 }
 
-.agt-file.is-compact {
-  padding: 2px 6px;
+.agt-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 80px;
+  height: 80px;
+  border: 1px solid #e3e3e6;
+  border-radius: 12px;
+  background: #f6f8fa;
+  color: #57606a;
+  font-size: 10px;
+}
+
+.agt-image-placeholder svg {
+  width: 20px;
+  height: 20px;
+}
+
+.agt-image-placeholder.is-unavailable {
+  color: #cf222e;
 }
 
 .agt-drafts {
@@ -1813,29 +1840,35 @@
   margin: 0 auto;
 }
 
-.agt-draft {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #e3e3e6;
-  border-radius: 8px;
-  padding: 5px 8px;
-  background: #ffffff;
-  font-size: 11px;
+.agt-compose > .agt-drafts {
+  box-sizing: border-box;
+  padding: 10px 10px 0;
 }
 
-.agt-draft__name {
-  font-size: 11px;
-  color: #57606a;
+.agt-draft {
+  position: relative;
+  flex: none;
 }
 
 .agt-draft__remove {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
   border: 0;
-  background: none;
-  color: #8c959f;
-  font-size: 12px;
+  border-radius: 50%;
+  background: #24292f;
+  color: #ffffff;
   cursor: pointer;
-  padding: 1px 3px;
+}
+
+.agt-draft__remove:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .agt-draft__remove > svg {
@@ -1843,6 +1876,104 @@
   width: 13px;
   height: 13px;
   stroke-width: 1.75;
+}
+
+.agt-image-button:focus-visible,
+.agt-draft__remove:focus-visible,
+.agt-image-viewer button:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 3px;
+}
+
+.agt-image-viewer {
+  box-sizing: border-box;
+  width: calc(100vw - 48px);
+  height: calc(100vh - 48px);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #42474e;
+  border-radius: 16px;
+  background: #181b1f;
+  color: #ffffff;
+  box-shadow: 0 20px 80px #00000066;
+}
+
+.agt-image-viewer[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.agt-image-viewer::backdrop {
+  background: #000000b3;
+}
+
+.agt-image-viewer__toolbar {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  height: 48px;
+  padding: 0 48px;
+}
+
+.agt-image-viewer__toolbar button {
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agt-image-viewer__toolbar button:hover {
+  background: #ffffff1a;
+}
+
+.agt-image-viewer__toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agt-image-viewer__toolbar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.agt-image-viewer__close {
+  position: absolute;
+  right: 10px;
+}
+
+.agt-image-viewer__canvas {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.agt-image-viewer__canvas img {
+  display: block;
+  flex: none;
+  align-self: flex-start;
+  margin: auto;
+  height: auto;
+}
+
+.agt-image-viewer__canvas img.is-fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 .agt-attach {

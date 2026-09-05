@@ -157,6 +157,12 @@ export function createPreviewBridge(
       record('listAgentTasks', id, limit);
       return [previewTask(id, FIXTURE_EVENTS[0].taskId)];
     },
+    pickAgentDraftAttachments: async () => [],
+    pasteAgentDraftAttachments: async () => {
+      record('pasteAgentDraftAttachments');
+      return [];
+    },
+    discardAgentDraftAttachments: async () => {},
     createAgentTask: async (request) => {
       record('createAgentTask', request);
       return previewTask(request.workspaceId, request.taskId);
@@ -308,6 +314,10 @@ export function createPreviewBridge(
     pickAgentAttachments: async (taskId, id) => {
       record('pickAgentAttachments', taskId, id);
       return [{ id: 'attachment-preview', name: 'preview.png', mediaType: 'image/png', byteSize: 1024, width: 16, height: 16 }];
+    },
+    pasteAgentAttachments: async (taskId, id) => {
+      record('pasteAgentAttachments', taskId, id);
+      return [{ id: 'attachment-pasted-preview', name: 'pasted-image.png', mediaType: 'image/png', byteSize: 1024, width: 16, height: 16 }];
     },
     readAgentAttachment: async (taskId, id, attachmentId) => {
       record('readAgentAttachment', taskId, id, attachmentId);

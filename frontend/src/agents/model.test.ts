@@ -546,6 +546,19 @@ describe('steering and queueing', () => {
       .toMatchObject({ taskId: 'intent-5', idempotencyKey: 'intent-6' });
   });
 
+  it('retains initial image drafts on replay and changes creation identity when images or Fast change', () => {
+    let next = 0;
+    const submissions = createTaskCreationTracker(() => `intent-${++next}`);
+    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
+    const first = submissions.requestFor('w', 'look', 'codex', defaults, ['image-1']);
+    expect(first.draftAttachmentIds).toEqual(['image-1']);
+    expect(submissions.requestFor('w', 'look', 'codex', defaults, ['image-1'])).toBe(first);
+    const changed = submissions.requestFor('w', 'look', 'codex', defaults, ['image-2']);
+    expect(changed.taskId).not.toBe(first.taskId);
+    expect(submissions.requestFor('w', 'look', 'codex', { ...defaults, serviceTier: 'priority' }, ['image-2']).taskId)
+      .not.toBe(changed.taskId);
+  });
+
   it('changes send and queue identities for Fast while steering keeps the active turn settings', () => {
     const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
     for (const kind of ['send', 'queue', 'steer'] as const) {

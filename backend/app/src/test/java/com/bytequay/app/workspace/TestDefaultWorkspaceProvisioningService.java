@@ -37,8 +37,6 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -438,54 +436,4 @@ class TestDefaultWorkspaceProvisioningService
     }
 
     private record Remote(Path source, Path bare) {}
-
-    private static final class InMemoryWorkspaceStore
-            implements WorkspaceStore
-    {
-        private final Map<String, Workspace> byId = new LinkedHashMap<>();
-
-        @Override
-        public synchronized List<Workspace> findAll()
-        {
-            return ImmutableList.copyOf(byId.values());
-        }
-
-        @Override
-        public synchronized Optional<Workspace> findById(String workspaceId)
-        {
-            return Optional.ofNullable(byId.get(workspaceId));
-        }
-
-        @Override
-        public synchronized Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
-        {
-            return byId.values().stream()
-                    .filter(workspace -> workspace.selectedRepositoryId() == selectedRepositoryId)
-                    .findFirst();
-        }
-
-        @Override
-        public synchronized Workspace createOrGet(Workspace workspace)
-        {
-            Optional<Workspace> existing = findBySelectedRepositoryId(workspace.selectedRepositoryId());
-            if (existing.isPresent()) {
-                return existing.orElseThrow();
-            }
-            byId.put(workspace.id(), workspace);
-            return workspace;
-        }
-
-        @Override
-        public synchronized Workspace save(Workspace workspace)
-        {
-            byId.put(workspace.id(), workspace);
-            return workspace;
-        }
-
-        @Override
-        public synchronized void delete(String workspaceId)
-        {
-            byId.remove(workspaceId);
-        }
-    }
 }

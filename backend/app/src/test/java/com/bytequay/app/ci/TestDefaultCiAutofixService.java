@@ -72,7 +72,6 @@ import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
@@ -132,7 +131,7 @@ class TestDefaultCiAutofixService
     @TempDir
     private Path temporaryDirectory;
 
-    private MemoryStore store;
+    private InMemoryCiAutofixStore store;
     private GitHubActionsClient gitHub;
     private AgentTaskService taskService;
     private AgentTurnService turnService;
@@ -163,7 +162,7 @@ class TestDefaultCiAutofixService
     void setUp()
             throws Exception
     {
-        store = new MemoryStore();
+        store = new InMemoryCiAutofixStore();
         gitHub = mock(GitHubActionsClient.class);
         taskService = mock(AgentTaskService.class);
         turnService = mock(AgentTurnService.class);
@@ -844,7 +843,7 @@ class TestDefaultCiAutofixService
         verify(gitHub, never()).inspect(any());
         verify(taskService, never()).create(any());
 
-        MemoryStore racingStore = new MemoryStore();
+        InMemoryCiAutofixStore racingStore = new InMemoryCiAutofixStore();
         racingStore.conflict = first;
         DefaultCiAutofixService racing = service(racingStore);
         when(gitHub.inspect(any())).thenReturn(snapshot);
@@ -941,7 +940,7 @@ class TestDefaultCiAutofixService
         when(turnService.get(turnId)).thenReturn(AgentTurn.accepted(turnId, taskId, "ignored", turnSettings(), NOW));
         assertThat(service.advance(acceptedRun.id())).isEqualTo(acceptedRun);
 
-        MemoryStore secondStore = new MemoryStore();
+        InMemoryCiAutofixStore secondStore = new InMemoryCiAutofixStore();
         DefaultCiAutofixService second = service(secondStore);
         when(turnService.start(any())).thenReturn(runningTurn);
         CiAutofixRun runningRun = second.start(startCommand("running"));
@@ -1205,7 +1204,7 @@ class TestDefaultCiAutofixService
         verify(gitHub, times(1)).inspect(any());
 
         reset(turnService);
-        MemoryStore staleStore = new MemoryStore();
+        InMemoryCiAutofixStore staleStore = new InMemoryCiAutofixStore();
         DefaultCiAutofixService staleService = service(staleStore);
         when(turnService.start(any())).thenReturn(runningTurn);
         when(turnService.get(turnId)).thenReturn(runningTurn);
@@ -1487,7 +1486,7 @@ class TestDefaultCiAutofixService
         assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
         verify(turnService, times(1)).start(any());
 
-        MemoryStore closedStore = new MemoryStore();
+        InMemoryCiAutofixStore closedStore = new InMemoryCiAutofixStore();
         DefaultCiAutofixService closedService = service(closedStore);
         when(turnService.start(any())).thenReturn(runningTurn);
         CiAutofixRun openRun = closedService.start(startCommand("closed"));
@@ -1505,7 +1504,7 @@ class TestDefaultCiAutofixService
 
     private void assertPausedAfterTerminal(TurnState state, PauseReason reason)
     {
-        MemoryStore stateStore = new MemoryStore();
+        InMemoryCiAutofixStore stateStore = new InMemoryCiAutofixStore();
         DefaultCiAutofixService stateService = service(stateStore);
         when(turnService.start(any())).thenReturn(runningTurn);
         CiAutofixRun run = stateService.start(startCommand("state-" + state));
@@ -1517,12 +1516,12 @@ class TestDefaultCiAutofixService
         assertThat(observed.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("provider fact"));
     }
 
-    private DefaultCiAutofixService service(MemoryStore requestedStore)
+    private DefaultCiAutofixService service(InMemoryCiAutofixStore requestedStore)
     {
         return service(requestedStore, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    private DefaultCiAutofixService service(MemoryStore requestedStore, Clock requestedClock)
+    private DefaultCiAutofixService service(InMemoryCiAutofixStore requestedStore, Clock requestedClock)
     {
         return new DefaultCiAutofixService(
                 requestedStore,
@@ -1860,77 +1859,5 @@ class TestDefaultCiAutofixService
     private static UserProfile profile(String login)
     {
         return new UserProfile(login, login, "", "", 0, 0, 0, null, null, null, null);
-    }
-
-    private static final class MemoryStore
-            implements CiAutofixStore
-    {
-        private CiAutofixRun run;
-        private CiAutofixRun conflict;
-        private RuntimeException updateFailure;
-
-        @Override
-        public void insert(CiAutofixRun value)
-        {
-            if (conflict != null) {
-                run = conflict;
-                throw new CiAutofixConflictException("simulated insert race");
-            }
-            if (run != null) {
-                throw new CiAutofixConflictException("run already exists");
-            }
-            run = value;
-        }
-
-        @Override
-        public Optional<CiAutofixRun> find(CiAutofixRunId runId)
-        {
-            return Optional.ofNullable(run).filter(value -> value.id().equals(runId));
-        }
-
-        @Override
-        public Optional<CiAutofixRun> findByIdempotencyKey(String key)
-        {
-            return Optional.ofNullable(run).filter(value -> value.startIdempotencyKey().equals(key));
-        }
-
-        @Override
-        public Optional<CiAutofixRun> findByAgentTaskId(String requestedTaskId)
-        {
-            return Optional.ofNullable(run)
-                    .filter(value -> value.agentTaskId().filter(requestedTaskId::equals).isPresent());
-        }
-
-        @Override
-        public List<CiAutofixRun> listRecent(int limit)
-        {
-            return run == null ? ImmutableList.of() : ImmutableList.of(run);
-        }
-
-        @Override
-        public List<CiAutofixRun> listNonFinished(int limit)
-        {
-            return run == null || run.status() == Status.FINISHED ? ImmutableList.of() : ImmutableList.of(run);
-        }
-
-        @Override
-        public CiAutofixRun update(CiAutofixRun value)
-        {
-            if (updateFailure != null) {
-                RuntimeException failure = updateFailure;
-                updateFailure = null;
-                throw failure;
-            }
-            if (run == null || value.version() != run.version()) {
-                throw new CiAutofixConflictException("version changed");
-            }
-            run = value.withVersion(value.version() + 1);
-            return run;
-        }
-
-        private void failNextUpdate(RuntimeException failure)
-        {
-            updateFailure = failure;
-        }
     }
 }

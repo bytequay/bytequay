@@ -146,6 +146,12 @@ final class InMemoryAgentStores
         return stored;
     }
 
+    /** Installs a task state directly, bypassing the version check. */
+    synchronized void put(AgentTask task)
+    {
+        tasks.put(task.id(), task);
+    }
+
     @Override
     public synchronized List<AgentTask> listRecent(int limit)
     {

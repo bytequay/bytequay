@@ -27,7 +27,6 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +58,7 @@ class TestDefaultCiMemoryService
     private Path temporaryDirectory;
 
     private TaskId taskId;
-    private MemoryStore store;
+    private InMemoryCiAutofixStore store;
     private MemoryResources resources;
     private DefaultCiMemoryService service;
 
@@ -68,7 +67,7 @@ class TestDefaultCiMemoryService
             throws Exception
     {
         taskId = TaskId.random();
-        store = new MemoryStore();
+        store = new InMemoryCiAutofixStore();
         resources = new MemoryResources(temporaryDirectory.resolve("runtime"));
         Files.createDirectories(resources.task(taskId).runtimeDirectory());
         service = new DefaultCiMemoryService(
@@ -236,55 +235,6 @@ class TestDefaultCiMemoryService
     {
         int number = Math.abs(signature.hashCode()) + 1;
         return new FailureEvidence(signature, summary, number, 1, number, 1, Optional.empty());
-    }
-
-    private static final class MemoryStore
-            implements CiAutofixStore
-    {
-        private CiAutofixRun run;
-
-        @Override
-        public void insert(CiAutofixRun value)
-        {
-            run = value;
-        }
-
-        @Override
-        public Optional<CiAutofixRun> find(CiAutofixRunId runId)
-        {
-            return Optional.ofNullable(run).filter(value -> value.id().equals(runId));
-        }
-
-        @Override
-        public Optional<CiAutofixRun> findByIdempotencyKey(String key)
-        {
-            return Optional.ofNullable(run).filter(value -> value.startIdempotencyKey().equals(key));
-        }
-
-        @Override
-        public Optional<CiAutofixRun> findByAgentTaskId(String requestedTaskId)
-        {
-            return Optional.ofNullable(run).filter(value -> value.agentTaskId().filter(requestedTaskId::equals).isPresent());
-        }
-
-        @Override
-        public List<CiAutofixRun> listRecent(int limit)
-        {
-            return run == null ? ImmutableList.of() : ImmutableList.of(run);
-        }
-
-        @Override
-        public List<CiAutofixRun> listNonFinished(int limit)
-        {
-            return listRecent(limit);
-        }
-
-        @Override
-        public CiAutofixRun update(CiAutofixRun value)
-        {
-            run = value.withVersion(value.version() + 1);
-            return run;
-        }
     }
 
     private static final class MemoryResources

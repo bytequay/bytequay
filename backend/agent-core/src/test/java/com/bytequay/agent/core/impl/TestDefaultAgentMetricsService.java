@@ -28,8 +28,6 @@ import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.store.AgentTaskStore;
-import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CostProvenance;
@@ -46,21 +44,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestDefaultAgentMetricsService
 {
     private static final Instant NOW = Instant.parse("2026-08-16T00:00:00Z");
 
-    private InMemoryTaskStore taskStore;
-    private InMemoryTurnStore turnStore;
+    private InMemoryAgentStores stores;
     private final InMemoryTaskLogStore logStore = new InMemoryTaskLogStore();
     private MutableClock clock;
     private DefaultAgentMetricsService service;
@@ -69,10 +62,9 @@ class TestDefaultAgentMetricsService
     @BeforeEach
     void setUp()
     {
-        taskStore = new InMemoryTaskStore();
-        turnStore = new InMemoryTurnStore();
+        stores = new InMemoryAgentStores();
         clock = new MutableClock(NOW);
-        service = new DefaultAgentMetricsService(taskStore, turnStore, logStore, clock);
+        service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
         task = AgentTask.created(
                 TaskId.random(),
                 Optional.empty(),
@@ -83,7 +75,7 @@ class TestDefaultAgentMetricsService
                 Path.of("/tmp/worktree"),
                 AgentPermissionPolicy.AUTO,
                 NOW);
-        taskStore.insert(task);
+        stores.insert(task);
     }
 
     @Test
@@ -94,16 +86,16 @@ class TestDefaultAgentMetricsService
                 .markDeliveryStarted(NOW)
                 .running(new ProviderTurnRef("previous"), Optional.empty())
                 .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
-        turnStore.insert(previous);
-        taskStore.put(task.withMetrics(
+        stores.insert(previous);
+        stores.put(task.withMetrics(
                 new TaskMetrics(100, 10, 20, previousMetrics.cost(), previousMetrics.costProvenance(), Duration.ZERO),
                 NOW));
         AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", turnSettings(), NOW.plusSeconds(2));
-        turnStore.insert(current);
+        stores.insert(current);
         service.beginTurn(task.id(), current.id());
 
         TurnMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
-        service = new DefaultAgentMetricsService(taskStore, turnStore, logStore, clock);
+        service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
         TurnMetrics duplicate = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
         TurnMetrics latest = service.record(task.id(), current.id(), cumulative("usage-2", 150, 15, 30, "2.75"));
 
@@ -117,7 +109,7 @@ class TestDefaultAgentMetricsService
     void addsDeltaAndFinalInvocationUsage()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
-        turnStore.insert(turn);
+        stores.insert(turn);
         service.beginTurn(task.id(), turn.id());
 
         service.record(task.id(), turn.id(), sample(
@@ -144,14 +136,14 @@ class TestDefaultAgentMetricsService
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW)
                 .markDeliveryStarted(NOW)
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty());
-        turnStore.insert(turn);
+        stores.insert(turn);
         service.beginTurn(task.id(), turn.id());
         clock.advance(Duration.ofSeconds(5));
 
         TurnMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
 
         assertThat(result.elapsed()).isEqualTo(Duration.ofSeconds(5));
-        assertThat(taskStore.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
+        assertThat(stores.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
     }
 
     private static AgentTurnSettings turnSettings()
@@ -250,140 +242,6 @@ class TestDefaultAgentMetricsService
                 AgentEventSource.root(),
                 NOW,
                 payload);
-    }
-
-    private static final class InMemoryTaskStore
-            implements AgentTaskStore
-    {
-        private final Map<TaskId, AgentTask> tasks = new HashMap<>();
-
-        @Override
-        public void insert(AgentTask task)
-        {
-            tasks.put(task.id(), task);
-        }
-
-        @Override
-        public Optional<AgentTask> find(TaskId taskId)
-        {
-            return Optional.ofNullable(tasks.get(taskId));
-        }
-
-        @Override
-        public AgentTask update(AgentTask task)
-        {
-            AgentTask stored = task.withVersion(task.version() + 1);
-            tasks.put(task.id(), stored);
-            return stored;
-        }
-
-        @Override
-        public List<AgentTask> listRecent(int limit)
-        {
-            return ImmutableList.copyOf(tasks.values());
-        }
-
-        @Override
-        public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
-        {
-            return tasks.values().stream()
-                    .filter(AgentTask::interactive)
-                    .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public boolean hasWorktreeReference(String workspaceId)
-        {
-            return tasks.values().stream()
-                    .anyMatch(task -> task.taskWorktree().stream()
-                            .anyMatch(worktree -> worktree.workspaceId().equals(workspaceId)));
-        }
-
-        @Override
-        public List<AgentTask> listLive()
-        {
-            return ImmutableList.copyOf(tasks.values());
-        }
-
-        @Override
-        public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
-        {
-            return ImmutableList.of();
-        }
-
-        @Override
-        public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
-        {
-            return ImmutableList.of();
-        }
-
-        private void put(AgentTask task)
-        {
-            tasks.put(task.id(), task);
-        }
-    }
-
-    private static final class InMemoryTurnStore
-            implements AgentTurnStore
-    {
-        private final Map<TurnId, AgentTurn> turns = new HashMap<>();
-
-        @Override
-        public void insert(AgentTurn turn)
-        {
-            turns.put(turn.id(), turn);
-        }
-
-        @Override
-        public Optional<AgentTurn> find(TurnId turnId)
-        {
-            return Optional.ofNullable(turns.get(turnId));
-        }
-
-        @Override
-        public Optional<AgentTurn> findByIdempotencyKey(TaskId taskId, String idempotencyKey)
-        {
-            return turns.values().stream()
-                    .filter(turn -> turn.taskId().equals(taskId))
-                    .filter(turn -> turn.idempotencyKey().equals(idempotencyKey))
-                    .findFirst();
-        }
-
-        @Override
-        public Optional<AgentTurn> findActive(TaskId taskId)
-        {
-            return turns.values().stream()
-                    .filter(turn -> turn.taskId().equals(taskId))
-                    .filter(turn -> turn.state().active())
-                    .findFirst();
-        }
-
-        @Override
-        public AgentTurn update(AgentTurn turn)
-        {
-            AgentTurn stored = turn.withVersion(turn.version() + 1);
-            turns.put(turn.id(), stored);
-            return stored;
-        }
-
-        @Override
-        public List<AgentTurn> list(TaskId taskId)
-        {
-            return turns.values().stream()
-                    .filter(turn -> turn.taskId().equals(taskId))
-                    .sorted(Comparator.comparing(AgentTurn::createdAt))
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public List<AgentTurn> listRecoverable()
-        {
-            return turns.values().stream()
-                    .filter(turn -> turn.state().active())
-                    .collect(toImmutableList());
-        }
     }
 
     private static final class MutableClock

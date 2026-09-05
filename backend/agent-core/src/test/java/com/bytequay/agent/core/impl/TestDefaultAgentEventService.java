@@ -26,7 +26,6 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
-import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -59,7 +58,7 @@ class TestDefaultAgentEventService
 
     private RecordingTaskLogStore logStore;
     private RecordingEventOutboxStore outboxStore;
-    private InMemoryTaskStore taskStore;
+    private InMemoryAgentStores taskStore;
     private DefaultAgentEventService service;
     private AgentTask task;
 
@@ -68,7 +67,7 @@ class TestDefaultAgentEventService
     {
         logStore = new RecordingTaskLogStore();
         outboxStore = new RecordingEventOutboxStore();
-        taskStore = new InMemoryTaskStore();
+        taskStore = new InMemoryAgentStores();
         service = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
         task = AgentTask.created(
                 TaskId.random(),
@@ -634,80 +633,6 @@ class TestDefaultAgentEventService
         public int size()
         {
             return entries.size();
-        }
-    }
-
-    private static final class InMemoryTaskStore
-            implements AgentTaskStore
-    {
-        private final Map<TaskId, AgentTask> tasks = new HashMap<>();
-
-        @Override
-        public void insert(AgentTask task)
-        {
-            tasks.put(task.id(), task);
-        }
-
-        @Override
-        public Optional<AgentTask> find(TaskId taskId)
-        {
-            return Optional.ofNullable(tasks.get(taskId));
-        }
-
-        @Override
-        public AgentTask update(AgentTask task)
-        {
-            tasks.put(task.id(), task);
-            return task;
-        }
-
-        @Override
-        public List<AgentTask> listRecent(int limit)
-        {
-            return ImmutableList.copyOf(tasks.values());
-        }
-
-        @Override
-        public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
-        {
-            return tasks.values().stream()
-                    .filter(AgentTask::interactive)
-                    .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public boolean hasWorktreeReference(String workspaceId)
-        {
-            return tasks.values().stream()
-                    .anyMatch(task -> task.taskWorktree().stream()
-                            .anyMatch(worktree -> worktree.workspaceId().equals(workspaceId)));
-        }
-
-        @Override
-        public List<AgentTask> listLive()
-        {
-            return tasks.values().stream()
-                    .filter(task -> !task.state().terminal())
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
-        {
-            return ImmutableList.of();
-        }
-
-        @Override
-        public List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit)
-        {
-            return ImmutableList.of();
-        }
-
-        public void put(AgentTask task)
-        {
-            tasks.put(task.id(), task);
         }
     }
 }

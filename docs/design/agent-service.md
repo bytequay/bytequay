@@ -2128,18 +2128,6 @@ public interface TaskLogStore
     void append(AgentEventEnvelope envelope);
 
     /**
-     * Finds an already appended envelope by ByteQuay event identity.
-     *
-     * <p>This makes outbox retry idempotent when JSONL was flushed before its
-     * SQLite outbox row was marked delivered.
-     *
-     * @param taskId owning task
-     * @param eventId stable ByteQuay event identity
-     * @return the existing task sequence when present
-     */
-    Optional<Long> findSequence(TaskId taskId, EventId eventId);
-
-    /**
      * Reads a bounded page after a sequence number.
      *
      * @param taskId task whose log is read
@@ -2271,7 +2259,7 @@ sequenceDiagram
         UoW-->>Turns: committed
         Turns->>Events: drain(userMessageEventId)
         Events->>Outbox: find(eventId)
-        Events->>Logs: findSequence or append(envelope)
+        Events->>Logs: append(envelope) unless its identity is already indexed from the log
         Logs-->>Events: flushed
         Events->>Outbox: markAppended(eventId, sequence)
         Events-->>Turns: persisted envelope

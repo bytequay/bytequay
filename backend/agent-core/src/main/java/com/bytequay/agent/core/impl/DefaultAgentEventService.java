@@ -38,7 +38,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -78,7 +80,7 @@ public final class DefaultAgentEventService
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
         synchronized (channel) {
-            Optional<Long> existingSequence = logStore.findSequence(event.taskId(), event.eventId());
+            Optional<Long> existingSequence = channel.sequenceOf(event.eventId());
             if (existingSequence.isPresent()) {
                 // Appended earlier, so its subscribers already have it; a repeat must not reach them twice.
                 return requirePersistedEnvelope(event, existingSequence.orElseThrow());
@@ -93,7 +95,7 @@ public final class DefaultAgentEventService
                     Instant.now(clock),
                     event.payload());
             logStore.append(envelope);
-            channel.lastSequence = envelope.sequence();
+            channel.appended(envelope);
             // Display events come only from a live turn, so none of them can settle a terminal task.
             subscriptions = handOver(channel, envelope);
         }
@@ -122,7 +124,7 @@ public final class DefaultAgentEventService
                 subscriptions = completeIfSettled(task, channel);
             }
             else {
-                Optional<Long> existingSequence = logStore.findSequence(entry.taskId(), eventId);
+                Optional<Long> existingSequence = channel.sequenceOf(eventId);
                 if (existingSequence.isPresent()) {
                     // Appended and handed over before its mark was lost; the mark is what is still owed.
                     envelope = requirePersistedEnvelope(entry, existingSequence.orElseThrow());
@@ -132,7 +134,7 @@ public final class DefaultAgentEventService
                 else {
                     envelope = materialize(entry, channel.lastSequence + 1);
                     logStore.append(envelope);
-                    channel.lastSequence = envelope.sequence();
+                    channel.appended(envelope);
                     subscriptions = handOver(channel, envelope);
                     try {
                         outboxStore.markAppended(eventId, envelope.sequence());
@@ -191,7 +193,14 @@ public final class DefaultAgentEventService
 
     private TaskChannel channel(TaskId taskId)
     {
-        return channels.computeIfAbsent(taskId, id -> new TaskChannel(logStore.lastSequence(id)));
+        // ponytail: one identity map per task touched since start, never evicted; evict idle channels if memory matters.
+        return channels.computeIfAbsent(taskId, id -> {
+            // lastSequence first: it repairs a torn tail, which readAfter only skips.
+            long lastSequence = logStore.lastSequence(id);
+            Map<EventId, Long> sequences = new HashMap<>();
+            readReplay(id, 0).forEach(envelope -> sequences.put(envelope.eventId(), envelope.sequence()));
+            return new TaskChannel(lastSequence, sequences);
+        });
     }
 
     private AgentTask requireTask(TaskId taskId)
@@ -321,12 +330,26 @@ public final class DefaultAgentEventService
     private static final class TaskChannel
     {
         private final List<EventSubscription> subscriptions = new ArrayList<>();
+        /** Identity to sequence for every appended record, so an idempotent append or drain is a lookup, not a log scan. */
+        private final Map<EventId, Long> sequences;
         /** Every sequence up to this one is in the log and was handed to the subscribers of its time. */
         private long lastSequence;
 
-        private TaskChannel(long lastSequence)
+        private TaskChannel(long lastSequence, Map<EventId, Long> sequences)
         {
             this.lastSequence = lastSequence;
+            this.sequences = sequences;
+        }
+
+        private Optional<Long> sequenceOf(EventId eventId)
+        {
+            return Optional.ofNullable(sequences.get(eventId));
+        }
+
+        private void appended(AgentEventEnvelope envelope)
+        {
+            lastSequence = envelope.sequence();
+            sequences.put(envelope.eventId(), envelope.sequence());
         }
 
         private synchronized void remove(EventSubscription subscription)

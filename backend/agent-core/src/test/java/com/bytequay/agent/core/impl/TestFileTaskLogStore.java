@@ -142,17 +142,6 @@ class TestFileTaskLogStore
     }
 
     @Test
-    void findsSequenceByStableEventId()
-    {
-        EventId target = EventId.random();
-        store.append(envelope(EventId.random(), 1, message("first")));
-        store.append(envelope(target, 2, message("second")));
-
-        assertThat(store.findSequence(taskId, target)).contains(2L);
-        assertThat(store.findSequence(taskId, EventId.random())).isEmpty();
-    }
-
-    @Test
     void ignoresOnlyAnUnterminatedFinalRecord()
             throws IOException
     {

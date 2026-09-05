@@ -15,7 +15,6 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.google.common.collect.ImmutableList;
@@ -23,7 +22,6 @@ import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /** A task log that keeps envelopes in memory, enough for tests that fold metrics from persisted events. */
 final class InMemoryTaskLogStore
@@ -35,12 +33,6 @@ final class InMemoryTaskLogStore
     public synchronized void append(AgentEventEnvelope envelope)
     {
         events.add(envelope);
-    }
-
-    @Override
-    public synchronized Optional<Long> findSequence(TaskId taskId, EventId eventId)
-    {
-        return events.stream().filter(event -> event.taskId().equals(taskId) && event.eventId().equals(eventId)).map(AgentEventEnvelope::sequence).findFirst();
     }
 
     @Override

@@ -144,35 +144,6 @@ public final class FileTaskLogStore
     }
 
     @Override
-    public Optional<Long> findSequence(TaskId taskId, EventId eventId)
-    {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(eventId, "eventId is null");
-        synchronized (lock(taskId)) {
-            Path eventsFile = resourceService.require(taskId).eventsFile();
-            Optional<Long> sequence = Optional.empty();
-            long expectedSequence = 1;
-            try (InputStream input = new BufferedInputStream(Files.newInputStream(eventsFile))) {
-                byte[] line;
-                while ((line = readCompleteLine(input)) != null) {
-                    AgentEventEnvelope envelope = deserialize(line);
-                    validateSequence(taskId, envelope, expectedSequence++);
-                    if (envelope.eventId().equals(eventId)) {
-                        if (sequence.isPresent()) {
-                            throw new AgentStorageException("Task log event identity is duplicated");
-                        }
-                        sequence = Optional.of(envelope.sequence());
-                    }
-                }
-                return sequence;
-            }
-            catch (IOException e) {
-                throw new AgentStorageException("Cannot read task log", e);
-            }
-        }
-    }
-
-    @Override
     public long lastSequence(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");

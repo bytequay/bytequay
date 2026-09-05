@@ -488,16 +488,6 @@ class TestDefaultAgentEventService
         }
 
         @Override
-        public Optional<Long> findSequence(TaskId taskId, EventId eventId)
-        {
-            return events.stream()
-                    .filter(event -> event.taskId().equals(taskId))
-                    .filter(event -> event.eventId().equals(eventId))
-                    .map(AgentEventEnvelope::sequence)
-                    .findFirst();
-        }
-
-        @Override
         public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
         {
             return events.stream()

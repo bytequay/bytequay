@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { CircleDot, GitPullRequest } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import hljs from 'highlight.js/lib/common';
 import {
@@ -806,8 +807,8 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
 
 function ReferenceIcon({ pull }: { pull: boolean }) {
   return pull
-    ? <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="4" cy="3" r="1.5" /><circle cx="12" cy="13" r="1.5" /><path d="M4 4.5v4A4.5 4.5 0 0 0 8.5 13h2M8 3h4v5" /></svg>
-    : <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6" /><circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" /></svg>;
+    ? <GitPullRequest size={14} strokeWidth={1.4} aria-hidden="true" />
+    : <CircleDot size={14} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 function markdownCode(text: string, keyPrefix: string) {

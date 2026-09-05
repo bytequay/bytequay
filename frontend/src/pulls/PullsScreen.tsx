@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { Check, Diff, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
@@ -1347,12 +1348,7 @@ function MergeReadyIcon() {
 }
 
 function MergeSuccessIcon() {
-  return <span className="pr-merge-success-icon" aria-hidden="true">
-    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor"
-      strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.4">
-      <path d="m3.5 8.2 2.8 2.8 6.2-6" />
-    </svg>
-  </span>;
+  return <span className="pr-merge-success-icon" aria-hidden="true"><Check size={11} strokeWidth={2.4} /></span>;
 }
 
 function ConflictIcon() {
@@ -1421,48 +1417,23 @@ function DetailBody({
 }
 
 export function RefreshIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M20 7v5h-5M4 17v-5h5" /><path d="M7.1 7.1a7 7 0 0 1 11.4 2.3M16.9 16.9a7 7 0 0 1-11.4-2.3" />
-    </svg>
-  );
+  return <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function ZoomIcon({ zoomed }: { zoomed: boolean }) {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {zoomed
-        ? <path d="M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5" />
-        : <path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" />}
-    </svg>
-  );
+  return zoomed
+    ? <Minimize size={15} strokeWidth={1.8} aria-hidden="true" />
+    : <Maximize size={15} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 export function PaneIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M15 4v16" />
-    </svg>
-  );
+  return <PanelRight size={15} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 export function CommentIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.3-.7L3 21l1.8-5.7a8.4 8.4 0 1 1 16.2-3.8z" />
-    </svg>
-  );
+  return <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function ChangesIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3M12 8v8M8 12h8" />
-    </svg>
-  );
+  return <Diff size={14} strokeWidth={1.8} aria-hidden="true" />;
 }

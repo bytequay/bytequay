@@ -20,6 +20,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
+import { CircleDot, User } from 'lucide-react';
 import type { NavigationMode } from '../navigationHistory';
 import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
 import {
@@ -814,9 +815,9 @@ function reactionEmoji(content: string) {
 }
 
 function IssueIcon() {
-  return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6.2" /><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" /></svg>;
+  return <CircleDot size={16} strokeWidth={1.6} aria-hidden="true" />;
 }
 
 function PersonIcon() {
-  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="5" r="2.4" /><path d="M3.5 14c.3-3 1.8-4.5 4.5-4.5s4.2 1.5 4.5 4.5" /></svg>;
+  return <User size={15} strokeWidth={1.4} aria-hidden="true" />;
 }

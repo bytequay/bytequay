@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
+import { CircleDot, GitBranch, History, House, LayoutGrid, ListChecks, PanelLeft, Settings, SquareCheck } from 'lucide-react';
 import Avatar from './Avatar';
 import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
@@ -212,91 +213,38 @@ export default function AppSidebar({
   );
 }
 
-function Icon({ children }: { children: ReactNode }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-      {children}
-    </svg>
-  );
-}
-
 function HomeIcon() {
-  return <Icon><path d="M3 9.8 12 3l9 6.8" /><path d="M5.5 8.8V20a1 1 0 0 0 1 1H17.5a1 1 0 0 0 1-1V8.8" /></Icon>;
+  return <House size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function RecentIcon() {
-  return (
-    <Icon>
-      <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
-      <path d="M3 4.4v4.2h4.2M12 7.6V12l3 1.8" />
-    </Icon>
-  );
+  return <History size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function PullsIcon() {
-  return (
-    <Icon>
-      <rect x="3" y="4" width="6.5" height="6.5" rx="1.4" />
-      <path d="m3.6 7.1 1.4 1.4 2.6-2.8M12.5 6.2h8.5M12.5 12h8.5M12.5 17.8h8.5" />
-    </Icon>
-  );
+  return <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function WorkspacesIcon() {
-  return (
-    <Icon>
-      <rect x="3" y="3" width="8" height="8" rx="1.4" />
-      <rect x="13" y="3" width="8" height="8" rx="1.4" />
-      <rect x="3" y="13" width="8" height="8" rx="1.4" />
-      <rect x="13" y="13" width="8" height="8" rx="1.4" />
-    </Icon>
-  );
+  return <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function TasksIcon() {
-  return (
-    <Icon>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7.5 12 3 3 6-6" />
-    </Icon>
-  );
+  return <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function IssuesIcon() {
-  return (
-    <Icon>
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="3" />
-    </Icon>
-  );
+  return <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function CommitsIcon() {
-  return (
-    <Icon>
-      <path d="M6 4v6.5a3.5 3.5 0 0 0 3.5 3.5H18M6 20v-3" />
-      <circle cx="6" cy="19.5" r="2" />
-      <circle cx="6" cy="4.5" r="2" />
-      <circle cx="18" cy="14" r="2" />
-    </Icon>
-  );
+  return <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function SettingsIcon() {
-  return (
-    <Icon>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-2.82 1.17V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15H3.5a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 5 8.6l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 5.6h.09A1.65 1.65 0 0 0 10 3.6V3.5a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 9h.1a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-    </Icon>
-  );
+  return <Settings size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function PanelIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="2" y="3" width="12" height="10" rx="2.2" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M6.4 3.4v9.2" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  );
+  return <PanelLeft size={18} strokeWidth={1.5} aria-hidden="true" />;
 }

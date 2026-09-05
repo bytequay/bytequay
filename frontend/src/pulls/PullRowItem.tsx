@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import Avatar from '../Avatar';
+import { GitMerge, GitPullRequest, MessageCircle } from 'lucide-react';
 import type { PullRow } from './model';
 
 export default function PullRowItem({ row, wide, selected, onPick }: {
@@ -130,26 +131,9 @@ function shortCount(value: number) {
 }
 
 export function PullRequestIcon({ merged = false }: { merged?: boolean }) {
-  return merged ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="5.5" r="2.4" /><circle cx="6" cy="18.5" r="2.4" />
-      <circle cx="18" cy="12" r="2.4" /><path d="M6 8v8M6 8a7.5 7.5 0 0 0 7.5 4H15" />
-    </svg>
-  ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="5.5" r="2.4" /><circle cx="6" cy="18.5" r="2.4" />
-      <circle cx="18" cy="18.5" r="2.4" /><path d="M6 8v8M11.5 5.5H15a3 3 0 0 1 3 3V16" />
-    </svg>
-  );
+  return merged ? <GitMerge size={16} /> : <GitPullRequest size={16} />;
 }
 
 function CommentIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.3-.7L3 21l1.8-5.7a8.4 8.4 0 1 1 16.2-3.8z" />
-    </svg>
-  );
+  return <MessageCircle size={12} strokeWidth={1.8} aria-hidden="true" />;
 }

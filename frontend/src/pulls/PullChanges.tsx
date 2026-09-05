@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import Avatar from '../Avatar';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import type {
@@ -1124,56 +1125,27 @@ function changeBlocks(additions: number, deletions: number): Array<'add' | 'del'
 }
 
 function ChevronIcon() {
-  return (
-    <svg className="pull-file-tree__chevron" width="12" height="12" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m6 3.5 4.5 4.5L6 12.5" />
-    </svg>
-  );
+  return <ChevronRight className="pull-file-tree__chevron" size={12} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 function FolderIcon() {
-  return (
-    <svg className="pull-file-tree__folder-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-      <path d="M1.75 2.5h4.1l1.2 1.5h7.2c.69 0 1.25.56 1.25 1.25v7.5c0 .69-.56 1.25-1.25 1.25H1.75C1.06 14 .5 13.44.5 12.75v-9C.5 3.06 1.06 2.5 1.75 2.5Z" />
-    </svg>
-  );
+  return <Folder className="pull-file-tree__folder-icon" size={16} aria-hidden="true" />;
 }
 
 function FileDiffIcon({ kind }: { kind: string }) {
-  return (
-    <svg className={`pull-file-tree__file-icon is-${kind}`} width="16" height="16" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3.25 1.5h5l3.5 3.5v9.5h-8.5z" /><path d="M8.25 1.5V5h3.5M5.5 8h4M7.5 6v4M5.5 12h4" />
-    </svg>
-  );
+  return <FileDiff className={`pull-file-tree__file-icon is-${kind}`} size={16} strokeWidth={1.5} aria-hidden="true" />;
 }
 
 function PanelIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M9 4v16" />
-    </svg>
-  );
+  return <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />;
 }
 
 function CommitPickerIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-      <path d="M2 8h3m6 0h3" /><circle cx="8" cy="8" r="2.5" />
-    </svg>
-  );
+  return <GitCommitHorizontal size={16} strokeWidth={1.5} aria-hidden="true" />;
 }
 
 function CheckIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="m3 8.5 3 3 7-7" />
-    </svg>
-  );
+  return <Check size={16} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 /** Normalizes both git letter statuses (M/A/D/R) and GitHub word statuses

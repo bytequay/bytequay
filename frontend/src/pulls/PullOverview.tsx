@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, LoaderCircle } from 'lucide-react';
+import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
 import { relativeTime as formatRelativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
@@ -1960,11 +1960,11 @@ function reactionEmoji(content: string) {
 }
 
 function CopyIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M3 11H2.5A1.5 1.5 0 0 1 1 9.5v-7A1.5 1.5 0 0 1 2.5 1h7A1.5 1.5 0 0 1 11 2.5V3" /></svg>;
+  return <Copy size={16} strokeWidth={1.5} aria-hidden="true" />;
 }
 
 function EditIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" aria-hidden="true"><path d="m3 11.5-.5 2 2-.5 8-8-1.5-1.5-8 8Z" /><path d="m9.8 4.7 1.5 1.5" /></svg>;
+  return <Pencil size={16} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 export function CopyLinkButton({ value, label }: { value: string; label: string }) {
@@ -1993,41 +1993,41 @@ export function CopyLinkButton({ value, label }: { value: string; label: string 
 }
 
 function PersonIcon() {
-  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><circle cx="8" cy="5" r="2.4" /><path d="M3.5 14c.3-3 1.8-4.5 4.5-4.5s4.2 1.5 4.5 4.5" /></svg>;
+  return <User size={15} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 function ResolvedIcon() {
-  return <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="7" /><path d="m4.7 8.1 2 2 4.5-4.5" fill="none" stroke="white" strokeWidth="1.5" /></svg>;
+  return <CircleCheck size={14} aria-hidden="true" />;
 }
 
 function CommitIcon() {
-  return <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M10.5 7.75a2.75 2.75 0 1 1-5.5 0 2.75 2.75 0 0 1 5.5 0Zm1.957-.75a4.25 4.25 0 0 0-8.414 0H1.75a.75.75 0 0 0 0 1.5h2.293a4.25 4.25 0 0 0 8.414 0h2.293a.75.75 0 0 0 0-1.5h-2.293Z" /></svg>;
+  return <GitCommitHorizontal size={14} aria-hidden="true" />;
 }
 
 function TagIcon() {
-  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.4" aria-hidden="true"><path d="M2.5 2.5h5l6 6-5 5-6-6v-5Z" /><circle cx="5.4" cy="5.4" r="1" fill="currentColor" stroke="none" /></svg>;
+  return <Tag size={15} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 function ReviewIcon() {
-  return <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4-6.5-4-6.5-4Z" /><circle cx="8" cy="8" r="1.8" /></svg>;
+  return <Eye size={15} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 function ReactionMenuIcon() {
-  return <svg viewBox="0 0 16 16" width="21" height="21" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.4" /><path d="M6 9.2c.8 1.2 3.2 1.2 4 0M6.2 6.5h.1M9.7 6.5h.1" /></svg>;
+  return <SmilePlus size={21} strokeWidth={1.3} aria-hidden="true" />;
 }
 
 function KebabIcon() {
-  return <svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.2" /><circle cx="8" cy="8" r="1.2" /><circle cx="13" cy="8" r="1.2" /></svg>;
+  return <Ellipsis size={18} aria-hidden="true" />;
 }
 
 function CheckIcon({ size = 12 }: { size?: number }) {
-  return <svg viewBox="0 0 16 16" width={size} height={size} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" aria-hidden="true"><path d="m3.5 8.2 2.8 2.8 6.2-6" /></svg>;
+  return <Check size={size} strokeWidth={2} aria-hidden="true" />;
 }
 
 function QuoteIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 4.5h4v4H4.5v3H2.8v-4c0-1.7.1-2.2.2-3ZM10 4.5h4v4h-2.5v3H9.8v-4c0-1.7.1-2.2.2-3Z" /></svg>;
+  return <Quote size={16} strokeWidth={1.4} aria-hidden="true" />;
 }
 
 function LinkIcon() {
-  return <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4"><path d="m6.2 9.8 3.6-3.6M5.2 11.8l-1 1a2.8 2.8 0 0 1-4-4l2.2-2.2a2.8 2.8 0 0 1 4 0M10.8 4.2l1-1a2.8 2.8 0 1 1 4 4l-2.2 2.2a2.8 2.8 0 0 1-4 0" /></svg>;
+  return <Link size={16} strokeWidth={1.4} aria-hidden="true" />;
 }

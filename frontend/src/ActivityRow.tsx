@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import Avatar from './Avatar';
+import { Check, GitBranch, GitCommitHorizontal, GitPullRequest, RefreshCw } from 'lucide-react';
 import {
   commitsUrl,
   followingNarrativeSegments,
@@ -177,6 +178,8 @@ function activityUrl(event: RecentEventDto): string {
   return repoUrl(event.repo);
 }
 
+const ACTIVITY_ICONS = { commit: GitCommitHorizontal, branch: GitBranch, review: Check, pr: GitPullRequest, sync: RefreshCw } as const;
+
 function ActivityIcon({ type }: { type: string }) {
   const kind = type === 'PushEvent'
     ? 'commit'
@@ -187,13 +190,10 @@ function ActivityIcon({ type }: { type: string }) {
         : type === 'PullRequestEvent'
           ? 'pr'
           : 'sync';
+  const Icon = ACTIVITY_ICONS[kind];
   return (
     <span className={`home-activity-icon home-activity-icon--${kind}`} aria-hidden="true">
-      {kind === 'commit' && <svg viewBox="0 0 24 24"><path d="M2.8 12h5.3M15.9 12h5.3" /><circle cx="12" cy="12" r="3.3" /></svg>}
-      {kind === 'branch' && <svg viewBox="0 0 24 24"><path d="M6 3v12M18 8a9 9 0 0 1-9 9" /><circle cx="6" cy="18" r="2.3" /><circle cx="18" cy="5.7" r="2.3" /></svg>}
-      {kind === 'review' && <svg viewBox="0 0 24 24"><path d="m20 6.5-10.6 10.6-5.2-5.2" /></svg>}
-      {kind === 'pr' && <svg viewBox="0 0 24 24"><circle cx="6" cy="5.5" r="2.3" /><circle cx="6" cy="18.5" r="2.3" /><circle cx="18" cy="18.5" r="2.3" /><path d="M6 7.8v8.4M11.3 5.5H15a3 3 0 0 1 3 3v7.7" /></svg>}
-      {kind === 'sync' && <svg viewBox="0 0 24 24"><path d="M20.8 12a8.8 8.8 0 1 1-2.6-6.2M20.8 3.4v4.4h-4.4" /></svg>}
+      <Icon />
     </span>
   );
 }

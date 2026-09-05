@@ -254,7 +254,7 @@ describe('PullOverview', () => {
     expect(html).toContain('>Copy link</button>');
     expect(html).toContain('>Copy Markdown</button>');
     expect(html).toContain('>Quote reply</button>');
-    expect(html).toContain('M10.5 7.75a2.75 2.75');
+    expect(html).toContain('lucide-git-commit-horizontal');
   });
 
   it('makes authored descriptions editable and their Markdown tasks interactive', () => {

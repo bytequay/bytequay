@@ -56,12 +56,8 @@ export function rangeWindow(key: RangeKey, today: string): { from: string; to: s
   return { from: shiftDay(to, -(option.days - 1)), to };
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 export function shortDate(iso: string): string {
-  const date = parseDay(iso);
-  return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+  return parseDay(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export function rangeLabel(from: string, to: string): string {
@@ -77,16 +73,13 @@ export function dayHeading(iso: string, today: string): string {
   if (iso === shiftDay(today, -1)) return 'YESTERDAY';
   const date = parseDay(iso);
   const within = Math.round((parseDay(today).getTime() - date.getTime()) / 86_400_000);
-  if (within < 7) return `${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}`.toUpperCase();
-  return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`.toUpperCase();
+  return date.toLocaleDateString('en-US', within < 7
+    ? { weekday: 'long', month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
 }
 
 export function clockTime(iso: string): string {
-  const date = new Date(iso);
-  const hours = date.getHours();
-  const minutes = `${date.getMinutes()}`.padStart(2, '0');
-  const suffix = hours < 12 ? 'AM' : 'PM';
-  return `${hours % 12 === 0 ? 12 : hours % 12}:${minutes} ${suffix}`;
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 /** Badge colour. Verdicts read green, discussion purple, agent work amber. */

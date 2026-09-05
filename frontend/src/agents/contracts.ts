@@ -13,9 +13,9 @@
  */
 
 import type {
-  AgentCapabilitiesDto,
   AgentApprovalDto,
   AgentAttachmentDto,
+  AgentCapabilitiesDto,
   AgentCompletionDto,
   AgentInputDeliveryDto,
   AgentMetricsDto,
@@ -30,6 +30,7 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
+  CodeGraphArm,
   ModelApiKeyDto,
   ModelOptionDto,
   ModelProviderDto,
@@ -244,7 +245,15 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     deleteAfter: optionalText(source.deleteAfter, `${path}.deleteAfter`),
     cleanupFailure: optionalText(source.cleanupFailure, `${path}.cleanupFailure`),
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
+    codegraphArm: codeGraphArm(source.codegraphArm, `${path}.codegraphArm`),
   };
+}
+
+/** Absent on tasks older than the arm; anything but ON or OFF is a contract break, not a third arm. */
+function codeGraphArm(value: unknown, path: string): CodeGraphArm | null {
+  if (value === null || value === undefined) return null;
+  if (value === 'ON' || value === 'OFF') return value;
+  throw new Error(`${path} is not a CodeGraph arm`);
 }
 
 export function parseAgentTasks(value: unknown): AgentTaskDto[] {

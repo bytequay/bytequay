@@ -28,7 +28,8 @@ import static java.util.Objects.requireNonNull;
 public class AppSettingsService
 {
     private static final String QUIET_HOURS_KEY = "github.quietHours";
-    private static final String CODEGRAPH_KEY = "codegraph.enabled";
+    private static final String CODEGRAPH_KEY = "codegraph.mode";
+    private static final String LEGACY_CODEGRAPH_KEY = "codegraph.enabled";
 
     private final AppSettingsStore store;
     private final ObjectMapper mapper;
@@ -60,16 +61,20 @@ public class AppSettingsService
         return quietHours;
     }
 
-    /** Whether agent tasks get a code graph; on by default so the vendored helper is used when present. */
-    public boolean codeGraphEnabled()
+    /** How new agent tasks get a code graph; on by default so the vendored helper is used when present. */
+    public CodeGraphMode codeGraphMode()
     {
-        return store.get(CODEGRAPH_KEY).map(Boolean::parseBoolean).orElse(true);
+        return store.get(CODEGRAPH_KEY)
+                .map(CodeGraphMode::valueOf)
+                // The setting was a boolean before the compare mode existed.
+                .or(() -> store.get(LEGACY_CODEGRAPH_KEY).map(enabled -> Boolean.parseBoolean(enabled) ? CodeGraphMode.ON : CodeGraphMode.OFF))
+                .orElse(CodeGraphMode.ON);
     }
 
     public CodeGraphSetting saveCodeGraph(CodeGraphSetting setting)
     {
         requireNonNull(setting, "setting is null");
-        store.put(CODEGRAPH_KEY, Boolean.toString(setting.enabled()));
+        store.put(CODEGRAPH_KEY, setting.mode().name());
         return setting;
     }
 

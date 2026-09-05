@@ -153,12 +153,11 @@ public class AgentConfiguration
             CodeGraphProperties properties,
             AgentProperties agentProperties,
             WorkspacePaths workspacePaths,
-            GitCommandRunner git,
-            AppSettingsService settings)
+            GitCommandRunner git)
     {
         // The helper may read only its task's source and index below these roots: no other worktree, runtime, log, or provider file.
         CodeGraphCli cli = new CodeGraphCli(properties.bundleHome(), git, ImmutableList.of(agentProperties.runtimeRoot(), workspacePaths.root()));
-        return new PinnedCodeGraphService(cli, git, agentProperties.runtimeRoot().resolve("codegraph-baselines"), settings::codeGraphEnabled);
+        return new PinnedCodeGraphService(cli, git, agentProperties.runtimeRoot().resolve("codegraph-baselines"));
     }
 
     @Bean
@@ -229,6 +228,7 @@ public class AgentConfiguration
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             CodeGraphService codeGraph,
+            AppSettingsService settings,
             Clock agentClock)
     {
         return new DefaultAgentTaskService(
@@ -237,6 +237,7 @@ public class AgentConfiguration
                 resourceService,
                 driverRegistry,
                 codeGraph,
+                () -> settings.codeGraphMode().arm(),
                 command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command),
                 agentClock);
     }

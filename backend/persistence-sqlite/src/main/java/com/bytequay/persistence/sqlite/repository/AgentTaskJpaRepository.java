@@ -33,6 +33,8 @@ public interface AgentTaskJpaRepository
 
     List<AgentTaskEntity> findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(String workspaceId, Pageable pageable);
 
+    List<AgentTaskEntity> findByCodegraphArmIsNotNullOrderByCreatedAtAsc();
+
     boolean existsByWorkspaceIdAndGeneratedBranchIsNotNull(String workspaceId);
 
     List<AgentTaskEntity> findByStateNotInOrderByCreatedAtAsc(Collection<TaskState> states);

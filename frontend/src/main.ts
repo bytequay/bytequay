@@ -858,6 +858,8 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(setting),
     }));
+  ipcMain.handle('settings:codegraph:comparison', () =>
+    backendJson(`${BACKEND_BASE}/api/settings/codegraph/comparison`));
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));

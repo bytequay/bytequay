@@ -15,7 +15,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import type {
+  CodeGraphArmComparisonDto,
+  CodeGraphComparisonDto,
+  CodeGraphMode,
   CodeGraphSettingDto,
+  CodeGraphWorkspaceComparisonDto,
   GitHubAccountDto,
   ModelApiKeyDto,
   ModelOptionDto,
@@ -529,15 +533,26 @@ function RecentCard() {
   );
 }
 
+const CODE_GRAPH_MODES: { mode: CodeGraphMode; label: string }[] = [
+  { mode: 'ON', label: 'On' },
+  { mode: 'OFF', label: 'Off' },
+  { mode: 'COMPARE', label: 'Compare' },
+];
+
 function CodeGraphCard() {
   const [setting, setSetting] = useState<CodeGraphSettingDto | null>(null);
+  const [comparison, setComparison] = useState<CodeGraphComparisonDto | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void window.bridge.getCodeGraphSetting().then(setSetting).catch(() => {});
+    void window.bridge.getCodeGraphComparison().then(setComparison).catch(() => {});
   }, []);
 
-  const update = (next: CodeGraphSettingDto) => {
+  const update = (value: string) => {
+    const choice = CODE_GRAPH_MODES.find(candidate => candidate.mode === value);
+    if (choice === undefined) return;
+    const next = { mode: choice.mode };
     setSetting(next);
     window.bridge.saveCodeGraphSetting(next)
       .then(saved => setSetting(saved))
@@ -549,24 +564,61 @@ function CodeGraphCard() {
     <section className="sets-card">
       <div className="sets-card-head"><span className="sets-card-title">Code graph</span></div>
       <div className="sets-quiet-row">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={setting.enabled}
-          aria-label="Give agent tasks a code graph of their worktree"
-          className={`sets-toggle${setting.enabled ? ' is-on' : ''}`}
-          onClick={() => update({ ...setting, enabled: !setting.enabled })}
-        >
-          <span className="sets-toggle-knob" />
-        </button>
         <span className="sets-quiet-label">Give agent tasks a code graph of their worktree</span>
+        <select aria-label="Code graph mode" value={setting.mode} onChange={event => update(event.target.value)}>
+          {CODE_GRAPH_MODES.map(choice => <option key={choice.mode} value={choice.mode}>{choice.label}</option>)}
+        </select>
       </div>
       <p className="sets-card-hint">
         Each task is indexed from a per-repository baseline so the agent can explore callers, callees, and
-        cross-file structure in one call. Off hides the tool and stops indexing.
+        cross-file structure in one call. Off hides the tool and stops indexing. Compare gives each new task
+        the tool or not at random, so the table below can show whether it helps.
       </p>
+      {comparison?.workspaces.map(workspace => <CodeGraphComparisonTable key={workspace.workspaceId} workspace={workspace} />)}
       {error && <div className="sets-error" role="alert">{error}</div>}
     </section>
+  );
+}
+
+const COMPARISON_COLUMNS: { label: string; value: (arm: CodeGraphArmComparisonDto) => number | null; digits: number }[] = [
+  { label: 'Input', value: arm => arm.inputTokens, digits: 0 },
+  { label: 'Output', value: arm => arm.outputTokens, digits: 0 },
+  { label: 'Tools', value: arm => arm.toolCalls, digits: 1 },
+  { label: 'Explored', value: arm => arm.exploreActions, digits: 1 },
+  { label: 'Minutes', value: arm => arm.minutes, digits: 1 },
+  { label: 'Graph calls', value: arm => arm.graphCalls, digits: 1 },
+  { label: 'Graph s', value: arm => arm.graphSeconds, digits: 1 },
+];
+
+/** One workspace's arms side by side; every number after the counts is a median per finished turn. */
+export function CodeGraphComparisonTable({ workspace }: { workspace: CodeGraphWorkspaceComparisonDto }) {
+  return (
+    <div className="sets-card-note">
+      <div className="sets-compare-title">{workspace.repository}</div>
+      <table className="sets-compare">
+        <thead>
+          <tr>
+            <th>Arm</th><th>Tasks</th><th>Turns</th><th>Turns / task</th>
+            {COMPARISON_COLUMNS.map(column => <th key={column.label}>{column.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {workspace.arms.map(arm => (
+            <tr key={arm.arm}>
+              <td>{arm.arm === 'ON' ? 'Graph' : 'No graph'}{arm.smallSample ? ' *' : ''}</td>
+              <td>{arm.taskCount}</td>
+              <td>{arm.turnCount}</td>
+              <td>{arm.turnsPerTask.toFixed(1)}</td>
+              {COMPARISON_COLUMNS.map(column => {
+                const value = column.value(arm);
+                return <td key={column.label}>{value === null ? '–' : value.toFixed(column.digits)}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="sets-card-hint">Medians per finished turn. Observational: tasks, models, and prompts differ. * fewer than five tasks.</div>
+    </div>
   );
 }
 

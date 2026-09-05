@@ -572,6 +572,8 @@ export type AgentTaskDto = {
   deleteAfter: string | null;
   cleanupFailure: string | null;
   checkoutRemovedAt: string | null;
+  /** ON when the task was given the CodeGraph tool, OFF when not, null for a task older than the arm. */
+  codegraphArm: CodeGraphArm | null;
 };
 
 /** An image the turn ran with, as the backend names it: an opaque id, its name and type, never bytes or a path. */
@@ -975,7 +977,27 @@ export type ModelSettingsDto = {
   keyProviders: Array<{ name: string; models: string[] }>;
 };
 
-export type CodeGraphSettingDto = { enabled: boolean };
+/** How new agent tasks get the CodeGraph tool; COMPARE gives each new task an arm at random. */
+export type CodeGraphMode = 'ON' | 'OFF' | 'COMPARE';
+export type CodeGraphSettingDto = { mode: CodeGraphMode };
+export type CodeGraphArm = 'ON' | 'OFF';
+/** One arm's tasks in a workspace: counts, and medians per finished turn that are null until the arm has one. */
+export type CodeGraphArmComparisonDto = {
+  arm: CodeGraphArm;
+  taskCount: number;
+  turnCount: number;
+  turnsPerTask: number;
+  smallSample: boolean;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  toolCalls: number | null;
+  exploreActions: number | null;
+  minutes: number | null;
+  graphCalls: number | null;
+  graphSeconds: number | null;
+};
+export type CodeGraphWorkspaceComparisonDto = { workspaceId: string; repository: string; arms: CodeGraphArmComparisonDto[] };
+export type CodeGraphComparisonDto = { workspaces: CodeGraphWorkspaceComparisonDto[] };
 
 export type QuietHoursDto = {
   enabled: boolean;
@@ -1297,6 +1319,7 @@ export type Bridge = {
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
   getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
   saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
+  getCodeGraphComparison: () => Promise<CodeGraphComparisonDto>;
   getGitHubAccount: () => Promise<GitHubAccountDto>;
   /** Copies the stored token to the clipboard in the main process; the renderer never sees it. */
   copyGitHubToken: () => Promise<boolean>;

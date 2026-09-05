@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -48,6 +49,7 @@ class TestCodeGraphBaselineJob
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("first"), workspace("second")));
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         when(appSettings.inQuietHours()).thenReturn(false);
+        when(appSettings.codeGraphMode()).thenReturn(CodeGraphMode.ON);
     }
 
     private static Workspace workspace(String id)
@@ -91,6 +93,16 @@ class TestCodeGraphBaselineJob
     void staysQuietWithoutTheHelper()
     {
         codeGraph.available = false;
+
+        job.tick();
+
+        verify(provisioning, never()).synchronizeCode("first");
+    }
+
+    @Test
+    void staysQuietWhenTheSettingIsOff()
+    {
+        when(appSettings.codeGraphMode()).thenReturn(CodeGraphMode.OFF);
 
         job.tick();
 

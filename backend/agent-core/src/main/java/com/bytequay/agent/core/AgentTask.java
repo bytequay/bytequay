@@ -52,7 +52,8 @@ public record AgentTask(
         Optional<Instant> worktreeRemovedAt,
         CleanupState cleanupState,
         Optional<Instant> deleteAfter,
-        Optional<String> cleanupFailure)
+        Optional<String> cleanupFailure,
+        Optional<CodeGraphArm> codegraphArm)
 {
     public AgentTask
     {
@@ -80,6 +81,7 @@ public record AgentTask(
         requireNonNull(cleanupState, "cleanupState is null");
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
+        requireNonNull(codegraphArm, "codegraphArm is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
                 "taskWorktree belongs to another task");
@@ -141,6 +143,7 @@ public record AgentTask(
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty());
     }
 
@@ -166,6 +169,21 @@ public record AgentTask(
             AgentLaneId laneId,
             TaskWorktree taskWorktree,
             AgentTaskDefaults defaults,
+            Instant now)
+    {
+        return created(id, interactive, creationFingerprint, title, titleSource, laneId, taskWorktree, defaults, Optional.empty(), now);
+    }
+
+    public static AgentTask created(
+            TaskId id,
+            boolean interactive,
+            Optional<String> creationFingerprint,
+            String title,
+            TitleSource titleSource,
+            AgentLaneId laneId,
+            TaskWorktree taskWorktree,
+            AgentTaskDefaults defaults,
+            Optional<CodeGraphArm> codegraphArm,
             Instant now)
     {
         requireNonNull(taskWorktree, "taskWorktree is null");
@@ -194,7 +212,8 @@ public record AgentTask(
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
-                Optional.empty());
+                Optional.empty(),
+                codegraphArm);
     }
 
     public static AgentTask created(
@@ -372,7 +391,8 @@ public record AgentTask(
                 worktreeRemovedAt,
                 cleanupState,
                 deleteAfter,
-                cleanupFailure);
+                cleanupFailure,
+                codegraphArm);
     }
 
     public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
@@ -406,7 +426,8 @@ public record AgentTask(
                 worktreeRemovedAt,
                 cleanupState,
                 deleteAfter,
-                cleanupFailure);
+                cleanupFailure,
+                codegraphArm);
     }
 
     public AgentTask withVersion(long updatedVersion)
@@ -473,7 +494,8 @@ public record AgentTask(
                 Optional.of(removedAt),
                 cleanupState,
                 deleteAfter,
-                cleanupFailure);
+                cleanupFailure,
+                codegraphArm);
     }
 
     public AgentTask withWorktreeCleanupAttemptAt(Instant attemptedAt)
@@ -546,7 +568,8 @@ public record AgentTask(
                 worktreeRemovedAt,
                 updatedCleanupState,
                 updatedDeleteAfter,
-                updatedCleanupFailure);
+                updatedCleanupFailure,
+                codegraphArm);
     }
 
     private void requireState(TaskState expected)

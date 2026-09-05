@@ -67,6 +67,9 @@ describe('agent contract parsing', () => {
 
   it('reads the worktree claim that decides whether the task is idle', () => {
     expect(parseAgentTask(fixture.task).mutationClaim).toBeNull();
+    expect(parseAgentTask(fixture.task).codegraphArm).toBeNull();
+    expect(parseAgentTask({ ...fixture.task, codegraphArm: 'ON' }).codegraphArm).toBe('ON');
+    expect(() => parseAgentTask({ ...fixture.task, codegraphArm: 'MAYBE' })).toThrow('task.codegraphArm is not a CodeGraph arm');
 
     const held = parseAgentTask({
       ...fixture.task,

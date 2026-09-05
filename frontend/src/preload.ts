@@ -185,6 +185,7 @@ const bridge: Bridge = {
   saveQuietHours: quietHours => ipcRenderer.invoke('settings:quiet-hours:save', quietHours),
   getCodeGraphSetting: () => ipcRenderer.invoke('settings:codegraph'),
   saveCodeGraphSetting: setting => ipcRenderer.invoke('settings:codegraph:save', setting),
+  getCodeGraphComparison: () => ipcRenderer.invoke('settings:codegraph:comparison'),
   getGitHubAccount: () => ipcRenderer.invoke('pat:account'),
   copyGitHubToken: () => ipcRenderer.invoke('pat:copy'),
   deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),

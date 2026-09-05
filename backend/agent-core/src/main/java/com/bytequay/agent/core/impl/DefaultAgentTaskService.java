@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -46,6 +47,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static java.util.Objects.requireNonNull;
@@ -58,6 +60,7 @@ public final class DefaultAgentTaskService
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
     private final CodeGraphService codeGraph;
+    private final Supplier<CodeGraphArm> codeGraphArms;
     private final Executor codeGraphExecutor;
     private final Clock clock;
 
@@ -67,6 +70,7 @@ public final class DefaultAgentTaskService
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
             CodeGraphService codeGraph,
+            Supplier<CodeGraphArm> codeGraphArms,
             Executor codeGraphExecutor,
             Clock clock)
     {
@@ -75,6 +79,7 @@ public final class DefaultAgentTaskService
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.codeGraphArms = requireNonNull(codeGraphArms, "codeGraphArms is null");
         this.codeGraphExecutor = requireNonNull(codeGraphExecutor, "codeGraphExecutor is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -237,6 +242,8 @@ public final class DefaultAgentTaskService
             Optional<String> creationFingerprint,
             TaskWorktree worktree)
     {
+        // Stamped once, and OFF when the helper is absent, so a comparison reflects what the task actually had.
+        CodeGraphArm arm = codeGraph.available() ? codeGraphArms.get() : CodeGraphArm.OFF;
         TaskResources resources;
         AgentTask task;
         try {
@@ -250,6 +257,7 @@ public final class DefaultAgentTaskService
                     laneId,
                     worktree,
                     defaults,
+                    Optional.of(arm),
                     Instant.now(clock));
             taskStore.insert(task);
         }
@@ -258,7 +266,9 @@ public final class DefaultAgentTaskService
             throw failure;
         }
         // The task exists from here on; preparing its graph index is best-effort and off the request path.
-        codeGraphExecutor.execute(() -> codeGraph.prepare(worktree, resources));
+        if (arm == CodeGraphArm.ON) {
+            codeGraphExecutor.execute(() -> codeGraph.prepare(worktree, resources));
+        }
         return task;
     }
 }

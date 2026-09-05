@@ -13,5 +13,13 @@
  */
 package com.bytequay.app.service.settings;
 
-/** Whether agent tasks get a code graph of their worktree; off hides the tool and stops indexing. */
-public record CodeGraphSetting(boolean enabled) {}
+import static java.util.Objects.requireNonNull;
+
+/** How new agent tasks get a code graph of their worktree; off hides the tool and stops indexing. */
+public record CodeGraphSetting(CodeGraphMode mode)
+{
+    public CodeGraphSetting
+    {
+        requireNonNull(mode, "mode is null");
+    }
+}

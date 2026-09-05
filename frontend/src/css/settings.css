@@ -83,6 +83,11 @@
 .sets-quiet-to { font-size: var(--ui-font-size); color: #8c959f; }
 .sets-quiet-row select { padding: 5px 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; font-size: var(--ui-font-size); font-weight: 600; color: #24292f; }
 .sets-quiet-row select:disabled { opacity: .55; }
+.sets-compare-title { font-size: var(--ui-font-size); font-weight: 600; margin-bottom: 6px; }
+.sets-compare { border-collapse: collapse; font-size: var(--ui-font-size); margin-bottom: 6px; }
+.sets-compare th, .sets-compare td { padding: 4px 10px 4px 0; text-align: right; white-space: nowrap; }
+.sets-compare th:first-child, .sets-compare td:first-child { text-align: left; }
+.sets-compare th { font-weight: 600; color: #8c959f; }
 .sets-toggle { flex: none; width: 34px; height: 20px; border: none; border-radius: 10px; background: #c9d0d6; position: relative; cursor: pointer; padding: 0; }
 .sets-toggle.is-on { background: #0969da; }
 .sets-toggle-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s ease; }

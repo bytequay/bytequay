@@ -26,6 +26,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
@@ -377,6 +378,23 @@ class TestSqliteAgentStores
         taskStore.insert(internal);
 
         assertThat(taskStore.listRecentInteractive("workspace-a", 10)).containsExactly(expected);
+    }
+
+    @Test
+    void roundTripsTheCodeGraphArmAndListsOnlyStampedTasks()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask unstamped = managedTask(now);
+        AgentTask on = managedTask(now.plusSeconds(1), Optional.of(CodeGraphArm.ON));
+        AgentTask off = managedTask(now.plusSeconds(2), Optional.of(CodeGraphArm.OFF));
+        taskStore.insert(unstamped);
+        taskStore.insert(off);
+        taskStore.insert(on);
+        entityManager.clear();
+
+        assertThat(taskStore.find(on.id()).orElseThrow().codegraphArm()).contains(CodeGraphArm.ON);
+        assertThat(taskStore.find(unstamped.id()).orElseThrow().codegraphArm()).isEmpty();
+        assertThat(taskStore.listWithCodeGraphArm()).containsExactly(on, off);
     }
 
     @Test
@@ -806,6 +824,29 @@ class TestSqliteAgentStores
     private static AgentTask managedTask(Instant now)
     {
         return managedTask(now, AgentPermissionPolicy.AUTO);
+    }
+
+    private static AgentTask managedTask(Instant now, Optional<CodeGraphArm> codegraphArm)
+    {
+        TaskId taskId = TaskId.random();
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-a",
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789012345678901234567890123456789");
+        return AgentTask.created(
+                taskId,
+                false,
+                Optional.empty(),
+                "Agent task",
+                TitleSource.USER,
+                AgentLaneId.CODEX_CLI,
+                worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                codegraphArm,
+                now);
     }
 
     private static AgentTask managedTask(Instant now, AgentPermissionPolicy permissionPolicy)

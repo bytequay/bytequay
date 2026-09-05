@@ -36,6 +36,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphException;
 import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CodeGraphService;
@@ -1097,14 +1098,14 @@ public final class DefaultAgentTurnService
     }
 
     /**
-     * The task-bound graph tool for this session, absent without a managed worktree or when the
-     * helper is off. The callback turns every expected graph failure into tool text so the provider
+     * The task-bound graph tool for this session, absent without a managed worktree, when the task's
+     * arm is off, or when the helper is missing. The callback turns every expected graph failure into tool text so the provider
      * adapter never sees it.
      */
     private Optional<CodeGraphBridge> codeGraphBridge(AgentTask task, TaskResources resources)
     {
         return task.taskWorktree()
-                .filter(worktree -> codeGraph.available())
+                .filter(worktree -> task.codegraphArm().orElse(CodeGraphArm.OFF) == CodeGraphArm.ON && codeGraph.available())
                 .map(worktree -> new CodeGraphBridge(query -> exploreForAgent(worktree, resources, query), CodeGraphInstructions.MANAGED));
     }
 

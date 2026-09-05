@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -28,6 +29,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -53,6 +55,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -114,6 +117,16 @@ class TestAgentHttpApi
         DeterministicAgentDriver deterministicClaudeAgentDriver()
         {
             return new DeterministicAgentDriver(AgentLaneId.CLAUDE_CLI);
+        }
+
+        // The baseline must not depend on whether the vendored helper is installed on the machine running the gate.
+        @Bean
+        @Primary
+        CodeGraphService absentCodeGraphService()
+        {
+            FakeCodeGraphService codeGraph = new FakeCodeGraphService();
+            codeGraph.available = false;
+            return codeGraph;
         }
     }
 

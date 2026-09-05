@@ -116,6 +116,15 @@ public class SqliteAgentTaskStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<AgentTask> listWithCodeGraphArm()
+    {
+        return repository.findByCodegraphArmIsNotNullOrderByCreatedAtAsc().stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<AgentTask> listRecentInteractive(String workspaceId, int limit)
     {
         requireNonNull(workspaceId, "workspaceId is null");

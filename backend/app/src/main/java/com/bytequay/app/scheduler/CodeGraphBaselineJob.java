@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
@@ -61,7 +62,7 @@ public class CodeGraphBaselineJob
             fixedDelayString = "${bytequay.codegraph.baseline-interval:PT1H}")
     public void tick()
     {
-        if (!codeGraph.available() || !credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {
+        if (!codeGraph.available() || appSettings.codeGraphMode() == CodeGraphMode.OFF || !credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {
             return;
         }
         for (Workspace workspace : workspaces.findAll()) {

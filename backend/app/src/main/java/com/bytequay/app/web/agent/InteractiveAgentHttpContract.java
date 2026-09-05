@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
@@ -75,7 +76,8 @@ final class InteractiveAgentHttpContract
                 task.cleanupState().name(),
                 task.deleteAfter(),
                 task.cleanupFailure(),
-                task.worktreeRemovedAt());
+                task.worktreeRemovedAt(),
+                task.codegraphArm());
     }
 
     /**
@@ -289,7 +291,8 @@ final class InteractiveAgentHttpContract
             String cleanupState,
             Optional<Instant> deleteAfter,
             Optional<String> cleanupFailure,
-            Optional<Instant> checkoutRemovedAt) {}
+            Optional<Instant> checkoutRemovedAt,
+            Optional<CodeGraphArm> codegraphArm) {}
 
     record MutationClaim(
             String kind,

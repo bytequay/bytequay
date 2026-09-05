@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -69,6 +70,7 @@ class TestDefaultAgentTaskService
     private RecordingWorktreeService managedWorktrees;
     private RecordingResourceService resources;
     private RecordingCodeGraphService codeGraph;
+    private CodeGraphArm nextArm = CodeGraphArm.ON;
     private DeterministicAgentDriver driver;
     private DefaultAgentTaskService service;
 
@@ -87,6 +89,7 @@ class TestDefaultAgentTaskService
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 codeGraph,
+                () -> nextArm,
                 Runnable::run,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -368,8 +371,31 @@ class TestDefaultAgentTaskService
 
         AgentTask task = service.createInteractive(interactiveCommand(taskId));
 
+        assertThat(task.codegraphArm()).contains(CodeGraphArm.ON);
         assertThat(codeGraph.prepared).containsExactly(task.taskWorktree().orElseThrow());
         assertThat(codeGraph.preparedResources).containsExactly(resources.require(taskId));
+    }
+
+    @Test
+    void stampsTheOffArmAndSkipsIndexPreparation()
+    {
+        nextArm = CodeGraphArm.OFF;
+
+        AgentTask task = service.createInteractive(interactiveCommand(TaskId.random()));
+
+        assertThat(task.codegraphArm()).contains(CodeGraphArm.OFF);
+        assertThat(codeGraph.prepared).isEmpty();
+    }
+
+    @Test
+    void stampsTheOffArmWhenTheHelperIsMissing()
+    {
+        codeGraph.available = false;
+
+        AgentTask task = service.createInteractive(interactiveCommand(TaskId.random()));
+
+        assertThat(task.codegraphArm()).contains(CodeGraphArm.OFF);
+        assertThat(codeGraph.prepared).isEmpty();
     }
 
     private static final class RecordingWorktreeService

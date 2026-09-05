@@ -36,7 +36,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BooleanSupplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
@@ -78,7 +77,6 @@ public final class PinnedCodeGraphService
     private static final String CHECKOUT_DIRECTORY = "checkout";
 
     private final CodeGraphCli cli;
-    private final BooleanSupplier enabled;
     private final GitCommandRunner git;
     private final Path baselineRoot;
     private final int resultLimitBytes;
@@ -89,33 +87,21 @@ public final class PinnedCodeGraphService
     private final ConcurrentMap<Path, ReentrantLock> taskLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<RepositoryIdentity, ReentrantLock> repositoryLocks = new ConcurrentHashMap<>();
 
-    public PinnedCodeGraphService(CodeGraphCli cli, GitCommandRunner git, Path baselineRoot, BooleanSupplier enabled)
+    public PinnedCodeGraphService(CodeGraphCli cli, GitCommandRunner git, Path baselineRoot)
     {
-        this(cli, git, baselineRoot, enabled, DEFAULT_RESULT_LIMIT_BYTES, BUILD_TIMEOUT, QUERY_TIMEOUT, PREPARE_WAIT);
-    }
-
-    PinnedCodeGraphService(CodeGraphCli cli, GitCommandRunner git, Path baselineRoot)
-    {
-        this(cli, git, baselineRoot, () -> true);
-    }
-
-    PinnedCodeGraphService(CodeGraphCli cli, GitCommandRunner git, Path baselineRoot, int resultLimitBytes, Duration buildTimeout, Duration queryTimeout, Duration prepareWait)
-    {
-        this(cli, git, baselineRoot, () -> true, resultLimitBytes, buildTimeout, queryTimeout, prepareWait);
+        this(cli, git, baselineRoot, DEFAULT_RESULT_LIMIT_BYTES, BUILD_TIMEOUT, QUERY_TIMEOUT, PREPARE_WAIT);
     }
 
     PinnedCodeGraphService(
             CodeGraphCli cli,
             GitCommandRunner git,
             Path baselineRoot,
-            BooleanSupplier enabled,
             int resultLimitBytes,
             Duration buildTimeout,
             Duration queryTimeout,
             Duration prepareWait)
     {
         this.cli = requireNonNull(cli, "cli is null");
-        this.enabled = requireNonNull(enabled, "enabled is null");
         this.git = requireNonNull(git, "git is null");
         this.baselineRoot = requireNonNull(baselineRoot, "baselineRoot is null").toAbsolutePath().normalize();
         checkArgument(resultLimitBytes > 0, "resultLimitBytes is not positive");
@@ -128,7 +114,7 @@ public final class PinnedCodeGraphService
     @Override
     public boolean available()
     {
-        return enabled.getAsBoolean() && cli.available();
+        return cli.available();
     }
 
     @Override

@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
@@ -65,6 +66,10 @@ public class AgentTaskEntity
     private Boolean interactive;
 
     private String creationFingerprint;
+
+    // Nullable: a task created before the compare arm existed has no arm and stays out of comparisons.
+    @Enumerated(EnumType.STRING)
+    private CodeGraphArm codegraphArm;
 
     @Column(nullable = false)
     private String title;
@@ -202,6 +207,7 @@ public class AgentTaskEntity
         workspaceId = task.workspaceId().orElse(null);
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
+        codegraphArm = task.codegraphArm().orElse(null);
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -287,7 +293,8 @@ public class AgentTaskEntity
                 Optional.ofNullable(worktreeRemovedAt),
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
-                Optional.ofNullable(cleanupFailure));
+                Optional.ofNullable(cleanupFailure),
+                Optional.ofNullable(codegraphArm));
     }
 
     private Optional<WorktreeMutationClaim> worktreeMutationClaim()

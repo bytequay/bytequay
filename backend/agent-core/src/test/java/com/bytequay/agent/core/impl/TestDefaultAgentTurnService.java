@@ -33,6 +33,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
@@ -134,6 +135,7 @@ class TestDefaultAgentTurnService
     private AgentRuntimeRegistry runtimeRegistry;
     private FixedWorktreeService worktrees;
     private final RecordingCodeGraphService codeGraph = new RecordingCodeGraphService();
+    private CodeGraphArm nextArm = CodeGraphArm.ON;
 
     @BeforeEach
     void setUp()
@@ -149,6 +151,7 @@ class TestDefaultAgentTurnService
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 codeGraph,
+                () -> nextArm,
                 Runnable::run,
                 CLOCK);
         task = taskService.create(new CreateAgentTaskCommand(
@@ -2010,6 +2013,18 @@ class TestDefaultAgentTurnService
 
         service.start(command("first", "key-1"));
 
+        assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
+    }
+
+    @Test
+    void opensProviderSessionsWithoutTheBridgeForAnOffArmTask()
+    {
+        nextArm = CodeGraphArm.OFF;
+        AgentTask offArm = interactiveTask("Off arm");
+
+        service.start(new StartAgentTurnCommand(offArm.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
+
+        assertThat(offArm.codegraphArm()).contains(CodeGraphArm.OFF);
         assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
     }
 

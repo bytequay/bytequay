@@ -93,6 +93,30 @@ class TestAgentMaintenance
     }
 
     @Test
+    void skipsATaskWhoseActiveTurnDoesNotOwnItsClaimAndRecoversTheRest()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId inconsistent = TaskId.random();
+        TurnId foreign = TurnId.random();
+        stores.insert(managedTask(inconsistent));
+        stores.update(stores.find(inconsistent).orElseThrow()
+                .claimWorktreeMutation(new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "completion-1", NOW), NOW));
+        stores.insert(AgentTurn.accepted(foreign, inconsistent, "request-1", turnSettings(), NOW));
+        TaskId healthy = TaskId.random();
+        TurnId unsent = TurnId.random();
+        stores.insert(managedTask(healthy));
+        stores.insert(AgentTurn.accepted(unsent, healthy, "request-2", turnSettings(), NOW));
+
+        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), new AdvancingClock(NOW.plusSeconds(10))).recover();
+
+        assertThat(stores.find(foreign).orElseThrow().state()).isEqualTo(TurnState.ACCEPTED);
+        assertThat(stores.find(inconsistent).orElseThrow().worktreeMutationClaim().map(WorktreeMutationClaim::kind))
+                .contains(WorktreeMutationClaim.Kind.COMPLETION);
+        assertThat(stores.find(unsent).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.find(healthy).orElseThrow().worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
     void keepsUncertainTurnAndItsClaimAfterRestart()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();

@@ -53,6 +53,7 @@ import static java.util.Objects.requireNonNull;
 
 public final class AgentMaintenance
 {
+    private static final System.Logger log = System.getLogger(AgentMaintenance.class.getName());
     private static final String INTERRUPTION_REASON = "Backend restarted while the turn was active";
     private static final String VERIFIED_STOP_REASON =
             INTERRUPTION_REASON + "; its provider process is verified stopped";
@@ -112,7 +113,11 @@ public final class AgentMaintenance
                         taskStore.update(task.claimWorktreeMutation(claim, Instant.now(clock)));
                     }
                     else if (!task.worktreeMutationClaim().equals(Optional.of(claim))) {
-                        throw new IllegalStateException("Active turn does not own the task worktree claim: " + current.id());
+                        // One task's rows disagree with each other. Leave it to the user's mark-failed
+                        // action instead of keeping every other task from being served.
+                        log.log(System.Logger.Level.ERROR, "Skipping recovery of task " + task.id() + ": its active turn " + current.id()
+                                + " does not own the worktree claim " + task.worktreeMutationClaim().orElseThrow());
+                        return;
                     }
                     if (current.startedAt().isPresent()) {
                         return;

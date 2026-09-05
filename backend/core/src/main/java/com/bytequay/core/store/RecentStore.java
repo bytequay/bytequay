@@ -66,9 +66,4 @@ public interface RecentStore
      * Clears the whole record, stream and Words index together.
      */
     void deleteAll();
-
-    /**
-     * Removes one row from the stream. Returns false when it was already gone.
-     */
-    boolean deleteTouch(String touchId);
 }

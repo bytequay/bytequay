@@ -37,7 +37,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
@@ -48,7 +47,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -102,33 +100,20 @@ class TestCherryPickPreviewHttpApi
     }
 
     @Test
-    void protectsBothEndpointsWithTheDesktopSessionAndRejectsBrowserOrigins()
+    void protectsThePreviewEndpointWithTheDesktopSessionAndRejectsBrowserOrigins()
             throws Exception
     {
-        mvc.perform(get("/api/cherry-pick-ranges/previews/any"))
-                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/cherry-pick-ranges/previews/any")
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
                         .header(AgentController.SESSION_HEADER, SESSION)
-                        .header("Origin", "https://example.com"))
+                        .header("Origin", "https://example.com")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY))
                 .andExpect(status().isForbidden());
         verify(previewService, never()).preview(any());
-        verify(previewService, never()).find(any());
-    }
-
-    @Test
-    void reportsAnExpiredPreviewAsNotFound()
-            throws Exception
-    {
-        when(previewService.find("gone")).thenReturn(Optional.empty());
-
-        mvc.perform(get("/api/cherry-pick-ranges/previews/gone")
-                        .header(AgentController.SESSION_HEADER, SESSION))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("Preview is unknown or expired; preview the range again"));
     }
 
     @Test

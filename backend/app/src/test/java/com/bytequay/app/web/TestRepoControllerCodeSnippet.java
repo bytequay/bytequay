@@ -14,7 +14,6 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -36,8 +35,7 @@ class TestRepoControllerCodeSnippet
         RepoService repos = mock(RepoService.class);
         RepoController controller = new RepoController(
                 repos,
-                mock(WorkspaceRepositoryService.class),
-                mock(WorkspaceMetadataService.class));
+                mock(WorkspaceRepositoryService.class));
         String commit = "4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa";
         when(repos.getCodeSnippet("trinodb", "trino", commit, "src/Main.java", 796, 797))
                 .thenReturn(ImmutableList.of("try (writer) {", "}"));

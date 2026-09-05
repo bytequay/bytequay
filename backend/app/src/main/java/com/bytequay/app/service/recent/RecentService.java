@@ -58,9 +58,6 @@ public interface RecentService
     /** Clears the whole record, stream and Words index together. */
     void clear();
 
-    /** Removes one row. Returns false when it was already gone. */
-    boolean clear(String touchId);
-
     /** Drops everything outside the retention window. */
     int sweep();
 

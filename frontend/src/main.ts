@@ -396,10 +396,6 @@ function registerIpc(): void {
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });
-  ipcMain.handle('cherrypick:preview:get', (_event, previewId: string) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/previews/${encodeURIComponent(previewId)}`, {
-      headers: { 'X-ByteQuay-Session': sessionToken() },
-    }));
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));
@@ -955,12 +951,6 @@ function registerIpc(): void {
       body: JSON.stringify(draft),
     }));
   ipcMain.handle('recent:clear', () => backendVoid(`${BACKEND_BASE}/recent`, { method: 'DELETE' }));
-  ipcMain.handle('recent:clear-row', (_event, id: string) => {
-    // The id spans path segments because it carries the repository; encode each
-    // segment and keep the separators.
-    const path = id.split('/').map(encodeURIComponent).join('/');
-    return backendVoid(`${BACKEND_BASE}/recent/${path}`, { method: 'DELETE' });
-  });
 
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {
     const url = new URL(workspaceId
@@ -1058,22 +1048,6 @@ function registerIpc(): void {
   });
   ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/diffCommits', repo, number)));
-  ipcMain.handle('prs:diff-content', (
-    _event,
-    repo: string,
-    number: number,
-    path: string,
-    baseSha?: string,
-    headSha?: string,
-  ) => {
-    const url = prUrl('/prs/diffContent', repo, number);
-    url.searchParams.set('path', path);
-    if (baseSha && headSha) {
-      url.searchParams.set('base', baseSha);
-      url.searchParams.set('head', headSha);
-    }
-    return backendJson(url);
-  });
   ipcMain.handle('prs:diff-content:refresh', (
     _event,
     repo: string,
@@ -1194,12 +1168,6 @@ function registerIpc(): void {
     return backendVoid(url, { method: 'POST' });
   });
 
-  ipcMain.handle('repos:list', () => backendJson(`${BACKEND_BASE}/api/repos`));
-  ipcMain.handle('repos:remove', (_event, owner: string, repo: string) =>
-    backendVoid(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-      { method: 'DELETE' },
-    ));
   ipcMain.handle('workspaces:search', (_event, query: string, limit: number) => {
     const url = new URL(`${BACKEND_BASE}/api/repository-search`);
     url.searchParams.set('q', query);
@@ -1306,10 +1274,6 @@ function registerIpc(): void {
   ipcMain.handle('repos:pull', (_event, owner: string, repo: string, number: number) =>
     backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
-    ));
-  ipcMain.handle('repos:meta', (_event, owner: string, repo: string) =>
-    backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
     ));
   ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) => {
     const url = new URL(

@@ -318,23 +318,6 @@ class TestDefaultWorkspaceMetadataService
     }
 
     @Test
-    void homeOverviewUsesTheWorkspaceStableRepositoryId()
-    {
-        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
-        when(gitHub.fetchOverview("token", DIRECT)).thenReturn(overview());
-
-        RepositoryMetadataSnapshot snapshot = service.getHomeSnapshot("OWNER", "PROJECT");
-
-        assertThat(snapshot.repositoryId()).isEqualTo(100);
-        assertThat(snapshot.description()).isEqualTo("Description");
-        assertThat(snapshot.stargazersCount()).isEqualTo(7);
-        assertThat(snapshot.languages()).containsEntry("Java", 100L);
-        verify(gitHub).fetchOverview("token", DIRECT);
-        verify(gitHub, never()).fetchContributors("token", DIRECT);
-        verify(gitHub, never()).fetchLabels("token", DIRECT);
-    }
-
-    @Test
     void failedRefreshRetainsSnapshotAndReadyCode()
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));

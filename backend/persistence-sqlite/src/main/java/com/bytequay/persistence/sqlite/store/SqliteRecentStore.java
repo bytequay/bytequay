@@ -126,16 +126,4 @@ public class SqliteRecentStore
         touches.deleteAllInBatch();
         texts.deleteAllInBatch();
     }
-
-    @Override
-    @Transactional
-    public boolean deleteTouch(String touchId)
-    {
-        requireNonNull(touchId, "touchId is null");
-        if (!touches.existsById(touchId)) {
-            return false;
-        }
-        touches.deleteById(touchId);
-        return true;
-    }
 }

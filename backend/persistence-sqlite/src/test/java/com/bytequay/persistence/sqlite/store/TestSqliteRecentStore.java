@@ -163,15 +163,6 @@ class TestSqliteRecentStore
         assertThat(store.findTextContaining("incantation", 10)).isEmpty();
     }
 
-    @Test
-    void removesOneRowAndReportsWhetherItWasThere()
-    {
-        store.recordTouch(touch("pr:trinodb/trino#10", TODAY, MORNING, RecentReason.READ, 1));
-
-        assertThat(store.deleteTouch("pr:trinodb/trino#10@" + TODAY)).isTrue();
-        assertThat(store.deleteTouch("pr:trinodb/trino#10@" + TODAY)).isFalse();
-    }
-
     private static RecentTouch touch(String itemKey, LocalDate day, Instant at, RecentReason reason, int count)
     {
         return new RecentTouch(

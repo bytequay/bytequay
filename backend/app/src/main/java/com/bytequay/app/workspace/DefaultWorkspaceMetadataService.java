@@ -116,21 +116,6 @@ public final class DefaultWorkspaceMetadataService
     }
 
     @Override
-    public RepositoryMetadataSnapshot getHomeSnapshot(String owner, String repo)
-    {
-        Workspace workspace = requireWorkspace(RepoRef.of(owner, repo));
-        RepositoryMetadataSnapshot current = snapshot(workspace);
-        if (!expired(current.overviewSyncedAt(), clock.instant(), OVERVIEW_TTL)) {
-            return current;
-        }
-        if (current.overviewSyncedAt().isPresent()) {
-            ioExecutor.execute(() -> refreshOverviewInBackground(workspace));
-            return current;
-        }
-        return refreshOverview(workspace);
-    }
-
-    @Override
     public RepositoryMetadataSnapshot getSnapshot(String workspaceId)
     {
         return snapshot(requireWorkspace(workspaceId));
@@ -224,39 +209,6 @@ public final class DefaultWorkspaceMetadataService
         }
     }
 
-    private RepositoryMetadataSnapshot refreshOverview(Workspace workspace)
-    {
-        Lock lock = locks.get(workspace.monitoredRepositoryId());
-        lock.lock();
-        try {
-            RepositoryMetadataSnapshot current = snapshot(workspace);
-            Instant now = clock.instant();
-            if (!expired(current.overviewSyncedAt(), now, OVERVIEW_TTL)) {
-                return current;
-            }
-            RepositoryOverview overview = gitHub.fetchOverview(
-                    credentials.resolveGitHubToken(), workspace.monitoredRepository());
-            metadata.upsertOverview(
-                    workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
-                    overview.description(), overview.stargazersCount(), overview.topics(), overview.languages(), now);
-            return snapshot(workspace);
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
-    private void refreshOverviewInBackground(Workspace workspace)
-    {
-        try {
-            refreshOverview(workspace);
-        }
-        catch (RuntimeException failure) {
-            log.warn("Repository {} overview refresh failed: {}",
-                    workspace.monitoredRepository().fullName(), failure.getMessage());
-        }
-    }
-
     private RepositoryMetadataSnapshot snapshot(Workspace workspace)
     {
         return metadata.find(workspace.monitoredRepositoryId())
@@ -269,12 +221,6 @@ public final class DefaultWorkspaceMetadataService
         requireNonNull(workspaceId, "workspaceId is null");
         return workspaces.findById(workspaceId)
                 .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
-    }
-
-    private Workspace requireWorkspace(RepoRef repository)
-    {
-        return findWorkspace(repository)
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(repository.owner(), repository.repo()));
     }
 
     private Optional<Workspace> findWorkspace(RepoRef repository)

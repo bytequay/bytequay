@@ -27,7 +27,6 @@ import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -130,21 +129,6 @@ public class RecentController
     public void clear()
     {
         recent.clear();
-    }
-
-    /**
-     * A row id carries the repository, so it spans path segments. Matching the
-     * remainder of the path keeps the id readable instead of forcing callers to
-     * percent-encode a slash, which the servlet container rejects outright.
-     */
-    @DeleteMapping("/recent/{*id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void clear(@PathVariable String id)
-    {
-        String rowId = id.startsWith("/") ? id.substring(1) : id;
-        if (rowId.isBlank() || !recent.clear(rowId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no such recent row");
-        }
     }
 
     private static Set<RecentItemType> itemTypes(String types)

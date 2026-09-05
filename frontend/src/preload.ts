@@ -43,8 +43,6 @@ const bridge: Bridge = {
   refreshPrDiffFiles: (repo, number, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff:refresh', repo, number, baseSha, headSha),
   fetchPrDiffCommits: (repo, number) => ipcRenderer.invoke('prs:diff-commits', repo, number),
-  fetchPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
-    ipcRenderer.invoke('prs:diff-content', repo, number, path, baseSha, headSha),
   refreshPrDiffFileContent: (repo, number, path, baseSha, headSha) =>
     ipcRenderer.invoke('prs:diff-content:refresh', repo, number, path, baseSha, headSha),
   postPrReviewComment: (repo, number, comment) =>
@@ -67,8 +65,6 @@ const bridge: Bridge = {
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
 
-  getWatchedRepos: () => ipcRenderer.invoke('repos:list'),
-  removeWatchedRepo: (owner, repo) => ipcRenderer.invoke('repos:remove', owner, repo),
   searchRepositories: (query, limit) => ipcRenderer.invoke('workspaces:search', query, limit),
   previewWatch: selectedRepositoryId => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId),
   watchRepository: command => ipcRenderer.invoke('workspaces:watch', command),
@@ -99,7 +95,6 @@ const bridge: Bridge = {
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),
   getUserCommitsOnDate: (login, date) => ipcRenderer.invoke('repos:contribution-day', login, date),
   getRepoPull: (owner, repo, number) => ipcRenderer.invoke('repos:pull', owner, repo, number),
-  getRepoMeta: (owner, repo) => ipcRenderer.invoke('repos:meta', owner, repo),
   fetchGitHubCodeSnippet: request => ipcRenderer.invoke('repos:code-snippet', request),
   getRecentActivity: login => ipcRenderer.invoke('repos:activity', login),
   getFollowingActivity: login => ipcRenderer.invoke('repos:following', login),
@@ -145,7 +140,6 @@ const bridge: Bridge = {
   },
 
   previewCherryPickRange: request => ipcRenderer.invoke('cherrypick:preview', request),
-  getCherryPickPreview: previewId => ipcRenderer.invoke('cherrypick:preview:get', previewId),
   refreshAgentProviderReadiness: () => ipcRenderer.invoke('agent:providers:refresh'),
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
@@ -219,7 +213,6 @@ const bridge: Bridge = {
   recordRecentTouch: touch => ipcRenderer.invoke('recent:touch', touch),
   saveRecentDraft: draft => ipcRenderer.invoke('recent:draft', draft),
   clearRecent: () => ipcRenderer.invoke('recent:clear'),
-  clearRecentRow: id => ipcRenderer.invoke('recent:clear-row', id),
 
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),

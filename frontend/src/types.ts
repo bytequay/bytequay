@@ -221,13 +221,6 @@ export type PullTimelinePayloadDto = {
   comments: PullTimelineCommentDto[];
 };
 
-export type WatchedRepoDto = {
-  id: string;
-  owner: string;
-  repo: string;
-  displayOrder: number;
-};
-
 export type RepoRefDto = {
   owner: string;
   repo: string;
@@ -347,12 +340,6 @@ export type WorkspaceIssueDetailDto = {
   currentType: string | null;
   availableTypes: string[];
   refreshedAt: string | null;
-};
-
-export type RepoMetaDto = {
-  description: string | null;
-  stargazersCount: number;
-  languages: Record<string, number>;
 };
 
 export type UserProfileDto = {
@@ -1143,13 +1130,6 @@ export type Bridge = {
     headSha?: string,
   ) => Promise<DiffFileDto[]>;
   fetchPrDiffCommits: (repo: string, number: number) => Promise<DiffCommitDto[]>;
-  fetchPrDiffFileContent: (
-    repo: string,
-    number: number,
-    path: string,
-    baseSha?: string,
-    headSha?: string,
-  ) => Promise<DiffFileContentDto>;
   refreshPrDiffFileContent: (
     repo: string,
     number: number,
@@ -1187,8 +1167,6 @@ export type Bridge = {
   betterWords: (text: string, repository: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
 
-  getWatchedRepos: () => Promise<WatchedRepoDto[]>;
-  removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
@@ -1220,7 +1198,6 @@ export type Bridge = {
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
-  getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
@@ -1254,7 +1231,6 @@ export type Bridge = {
   onFindResult: (callback: (result: FindResult) => void) => () => void;
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;
-  getCherryPickPreview: (previewId: string) => Promise<CherryPickPreview>;
   /**
    * Probes every configured provider and returns its readiness.
    *
@@ -1348,7 +1324,6 @@ export type Bridge = {
   recordRecentTouch: (touch: RecentTouchRequest) => Promise<void>;
   saveRecentDraft: (draft: RecentDraftRequest) => Promise<void>;
   clearRecent: () => Promise<void>;
-  clearRecentRow: (id: string) => Promise<void>;
 
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;

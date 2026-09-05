@@ -20,13 +20,11 @@ import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
 
@@ -85,15 +83,5 @@ public class CherryPickPreviewController
                 context.sourceRemote(),
                 request.targetBranch()));
         return CherryPickPreviewResponse.of(preview);
-    }
-
-    @GetMapping("/api/cherry-pick-ranges/previews/{previewId}")
-    public CherryPickPreviewResponse get(@PathVariable String previewId)
-    {
-        return previewService.find(previewId)
-                .map(CherryPickPreviewResponse::of)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Preview is unknown or expired; preview the range again"));
     }
 }

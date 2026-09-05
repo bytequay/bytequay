@@ -211,12 +211,6 @@ public class RecentServiceImpl
     }
 
     @Override
-    public boolean clear(String touchId)
-    {
-        return store.deleteTouch(touchId);
-    }
-
-    @Override
     public int sweep()
     {
         return store.deleteBefore(windowStart());

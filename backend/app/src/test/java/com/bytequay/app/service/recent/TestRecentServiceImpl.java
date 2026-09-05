@@ -525,11 +525,5 @@ class TestRecentServiceImpl
             touches.clear();
             texts.clear();
         }
-
-        @Override
-        public boolean deleteTouch(String touchId)
-        {
-            return touches.remove(touchId) != null;
-        }
     }
 }

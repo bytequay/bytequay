@@ -177,7 +177,6 @@ public final class DefaultAgentEventService
                 channel.checkUsable();
                 channel.checkReadyToSubscribe();
                 List<AgentEventEnvelope> replay = readReplay(taskId, afterSequence);
-                channel.legacyTerminalObserved |= task.state().terminal() && !channel.terminalEventPersisted;
                 boolean terminal = channel.terminal || shouldComplete(task, channel);
                 channel.terminal |= terminal;
                 subscription = new EventSubscription(subscriber, channel, replay, terminal);
@@ -312,7 +311,7 @@ public final class DefaultAgentEventService
     private boolean shouldComplete(AgentTask task, TaskChannel channel)
     {
         return task.state().terminal()
-                && (channel.terminalEventPersisted || channel.legacyTerminalObserved)
+                && channel.terminalEventPersisted
                 && !outboxStore.hasPending(task.id());
     }
 
@@ -349,7 +348,6 @@ public final class DefaultAgentEventService
         private long lastPublishedSequence;
         private AgentStorageException blockedFailure;
         private boolean terminalEventPersisted;
-        private boolean legacyTerminalObserved;
         private boolean terminal;
 
         private TaskChannel(long lastSequence, boolean terminalEventPersisted)

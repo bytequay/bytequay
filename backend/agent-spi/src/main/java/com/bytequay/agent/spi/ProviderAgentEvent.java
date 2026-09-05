@@ -107,12 +107,11 @@ public sealed interface ProviderAgentEvent
         {
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
-            // A record written before message kinds existed carries none, and every one was an answer.
-            messageKind = messageKind == null ? MessageKind.ANSWER : messageKind;
+            requireNonNull(messageKind, "messageKind is null");
             requireNonNull(phase, "phase is null");
             requireNonNull(text, "text is null");
             checkOptionalText(parentToolUseId, "parentToolUseId");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -142,7 +141,7 @@ public sealed interface ProviderAgentEvent
             checkOptionalText(providerEventId, "providerEventId");
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             items = ImmutableList.copyOf(items);
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -304,7 +303,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(diff, "diff is null");
             Path path = Path.of(relativePath);
             checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -340,7 +339,7 @@ public sealed interface ProviderAgentEvent
             checkNotBlank(approvalId, "approvalId");
             checkNotBlank(title, "title");
             requireNonNull(detail, "detail is null");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -361,7 +360,7 @@ public sealed interface ProviderAgentEvent
         public Usage
         {
             requireNonNull(sample, "sample is null");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -406,7 +405,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             requireNonNull(phase, "phase is null");
             requireNonNull(message, "message is null");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -441,7 +440,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(code, "code");
             checkNotBlank(message, "message");
-            source = legacySource(source);
+            requireNonNull(source, "source is null");
         }
 
         @Override
@@ -547,11 +546,5 @@ public sealed interface ProviderAgentEvent
         /** Brackets events recovered from a thread's history rather than seen live. */
         BACKFILL_STARTED,
         BACKFILL_COMPLETED
-    }
-
-    private static ProviderAgentEventSource legacySource(ProviderAgentEventSource source)
-    {
-        // Schema-v1 task logs predate explicit source metadata.
-        return source == null ? root() : source;
     }
 }

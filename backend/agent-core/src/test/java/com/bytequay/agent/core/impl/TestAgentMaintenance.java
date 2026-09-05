@@ -410,21 +410,6 @@ class TestAgentMaintenance
     }
 
     @Test
-    void failsLiveLegacyTaskWithoutManagedWorktreeFacts()
-    {
-        InMemoryAgentStores stores = new InMemoryAgentStores();
-        TaskId taskId = TaskId.random();
-        stores.insert(legacyTask(taskId));
-
-        maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
-
-        AgentTask failed = stores.find(taskId).orElseThrow();
-        assertThat(failed.state()).isEqualTo(TaskState.FAILED);
-        assertThat(failed.terminalReason()).contains("Task has no managed worktree ownership facts");
-        assertThat(stores.listPending(taskId, 10)).hasSize(1);
-    }
-
-    @Test
     void submitsDueAndRetryPendingTasksForCleanup()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
@@ -555,20 +540,6 @@ class TestAgentMaintenance
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(permissionPolicy),
-                NOW);
-    }
-
-    private static AgentTask legacyTask(TaskId taskId)
-    {
-        return AgentTask.created(
-                taskId,
-                Optional.empty(),
-                false,
-                "Legacy recovery test",
-                AgentLaneId.CODEX_CLI,
-                REPOSITORY,
-                WORKTREE.resolve(taskId.toString()),
-                AgentPermissionPolicy.AUTO,
                 NOW);
     }
 

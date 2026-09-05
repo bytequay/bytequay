@@ -145,20 +145,6 @@ class TestDefaultAgentEventService
     }
 
     @Test
-    void closesLegacyTerminalTaskWhenNoOutboxIsPending()
-    {
-        AgentEventEnvelope replay = service.append(event("legacy result"));
-        taskStore.put(failedTask());
-
-        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
-        service.subscribe(task.id(), 0).subscribe(subscriber);
-        subscriber.request(Long.MAX_VALUE);
-
-        assertThat(subscriber.events()).containsExactly(replay);
-        assertThat(subscriber.completed()).isTrue();
-    }
-
-    @Test
     void closesAfterRemainingOutboxDrainsWhenTerminalEventWasAlreadyPersisted()
     {
         AgentEventOutboxEntry earlier = inlineOutbox("earlier");

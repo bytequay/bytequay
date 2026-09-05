@@ -159,9 +159,6 @@ public final class AgentMaintenance
                     }
                     return;
                 }
-                if (current.taskWorktree().isEmpty()) {
-                    failLegacyTask(current);
-                }
             }
         });
     }
@@ -380,27 +377,6 @@ public final class AgentMaintenance
                     AgentEventPayload.LifecyclePhase.INTERRUPTED,
                     reason,
                     interruptedAt));
-            return null;
-        });
-    }
-
-    private void failLegacyTask(AgentTask task)
-    {
-        String reason = "Task has no managed worktree ownership facts";
-        Instant failedAt = Instant.now(clock);
-        EventId eventId = EventId.random();
-        unitOfWork.execute(() -> {
-            AgentTask failed = taskStore.update(task.fail(
-                    reason,
-                    failedAt,
-                    failedAt.plus(DefaultAgentCompletionService.RETENTION_PERIOD)));
-            outboxStore.insert(pendingLifecycle(
-                    eventId,
-                    failed.id(),
-                    Optional.empty(),
-                    AgentEventPayload.LifecyclePhase.TASK_FAILED,
-                    reason,
-                    failedAt));
             return null;
         });
     }

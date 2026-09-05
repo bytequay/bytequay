@@ -20,12 +20,10 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
-import com.bytequay.agent.core.ProviderAgentEventAdapter;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -419,7 +417,6 @@ public final class FileTaskLogStore
             JsonNode root = objectMapper.readTree(line);
             int schemaVersion = root.required("schemaVersion").intValue();
             return switch (schemaVersion) {
-                case 1 -> deserializeV1(root);
                 case AgentEventEnvelope.CURRENT_SCHEMA_VERSION -> deserializeV2(root);
                 default -> throw new IllegalArgumentException("Unsupported schemaVersion: " + schemaVersion);
             };
@@ -427,37 +424,6 @@ public final class FileTaskLogStore
         catch (IOException | RuntimeException e) {
             throw new AgentStorageException("Task log contains a corrupt record", e);
         }
-    }
-
-    private AgentEventEnvelope deserializeV1(JsonNode root)
-            throws JsonProcessingException
-    {
-        ProviderAgentEvent.Kind kind = ProviderAgentEvent.Kind.valueOf(
-                root.required("type").textValue().toUpperCase(Locale.ROOT));
-        JsonNode eventNode = root.required("event");
-        ProviderAgentEvent event = switch (kind) {
-            case MESSAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Message.class);
-            case PLAN -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Plan.class);
-            case TOOL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Tool.class);
-            case COMMAND -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Command.class);
-            case FILE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.FileChange.class);
-            case APPROVAL -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Approval.class);
-            case USAGE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Usage.class);
-            case LIFECYCLE -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Lifecycle.class);
-            case ERROR -> objectMapper.treeToValue(eventNode, ProviderAgentEvent.Error.class);
-        };
-        long sequence = root.required("sequence").longValue();
-        TaskId taskId = TaskId.valueOf(root.required("taskId").textValue());
-        ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adaptLegacy(event);
-        return new AgentEventEnvelope(
-                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.legacy(taskId, sequence),
-                sequence,
-                taskId,
-                turnId(root),
-                canonical.source(),
-                Instant.parse(root.required("occurredAt").textValue()),
-                canonical.payload());
     }
 
     private AgentEventEnvelope deserializeV2(JsonNode root)

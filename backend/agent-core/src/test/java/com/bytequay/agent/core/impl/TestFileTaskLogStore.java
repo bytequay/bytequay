@@ -241,38 +241,6 @@ class TestFileTaskLogStore
     }
 
     @Test
-    void readsLegacyV1AsCanonicalRootEventAndContinuesWithV2()
-            throws IOException
-    {
-        String legacy = """
-                {"schemaVersion":1,"sequence":1,"taskId":"%s","turnId":null,"occurredAt":"2026-08-16T00:00:02Z","type":"MESSAGE","event":{"providerEventId":"legacy-message","providerTimestamp":null,"phase":"FINAL","text":"legacy response","parentToolUseId":null}}
-                """.formatted(taskId);
-        Files.writeString(resources.require(taskId).eventsFile(), legacy, StandardOpenOption.TRUNCATE_EXISTING);
-
-        AgentEventEnvelope expectedLegacy = new AgentEventEnvelope(
-                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.legacy(taskId, 1),
-                1,
-                taskId,
-                Optional.empty(),
-                new AgentEventSource(
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        Optional.of("legacy-message"),
-                        Optional.empty()),
-                Instant.parse("2026-08-16T00:00:02Z"),
-                message("legacy response"));
-        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expectedLegacy);
-
-        AgentEventEnvelope second = envelope(2, message("new response"));
-        store.append(second);
-        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expectedLegacy, second);
-    }
-
-    @Test
     void toleratesAdditionalV2FieldsAndRejectsUnknownType()
             throws IOException
     {
@@ -295,27 +263,6 @@ class TestFileTaskLogStore
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
                 .isInstanceOf(AgentStorageException.class)
                 .hasRootCauseInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void readsLegacyApprovalAsNonActionableHistory()
-            throws IOException
-    {
-        String legacy = """
-                {"schemaVersion":1,"sequence":1,"taskId":"%s","turnId":null,"occurredAt":"2026-08-16T00:00:02Z","type":"APPROVAL","event":{"providerEventId":"legacy-approval-event","providerTimestamp":null,"approvalId":"legacy-approval","title":"Run command","detail":"git status"}}
-                """.formatted(taskId);
-        Files.writeString(resources.require(taskId).eventsFile(), legacy, StandardOpenOption.TRUNCATE_EXISTING);
-
-        assertThat(store.readAfter(taskId, 0, 10)).singleElement().satisfies(envelope -> {
-            assertThat(envelope.source().providerItemId()).isEmpty();
-            assertThat(envelope.payload()).isInstanceOfSatisfying(
-                    AgentEventPayload.ApprovalRequested.class,
-                    approval -> {
-                        assertThat(approval.approvalId()).isEqualTo("legacy-approval");
-                        assertThat(approval.actionable()).isFalse();
-                        assertThat(approval.availableDecisions()).isEmpty();
-                    });
-        });
     }
 
     @Test
@@ -397,7 +344,7 @@ class TestFileTaskLogStore
     {
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.legacy(taskId, sequence),
+                EventId.random(),
                 sequence,
                 taskId,
                 Optional.empty(),

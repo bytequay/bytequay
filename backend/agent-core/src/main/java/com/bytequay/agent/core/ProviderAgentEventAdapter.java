@@ -19,7 +19,6 @@ import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
-import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -93,20 +92,6 @@ public final class ProviderAgentEventAdapter
                     error.retryable());
         };
         return new CanonicalEvent(source, payload);
-    }
-
-    public static CanonicalEvent adaptLegacy(ProviderAgentEvent event)
-    {
-        CanonicalEvent canonical = adapt(event);
-        AgentEventSource source = new AgentEventSource(
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                event.providerEventId(),
-                event.providerTimestamp());
-        return new CanonicalEvent(source, canonical.payload());
     }
 
     private static AgentEventPayload.UsageUpdated usage(ProviderUsageSample sample)

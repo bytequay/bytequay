@@ -1703,7 +1703,7 @@ class TestDefaultCiAutofixService
     {
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.legacy(taskId, 1),
+                EventId.random(),
                 1,
                 taskId,
                 Optional.of(turnId),

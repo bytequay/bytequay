@@ -78,26 +78,6 @@ class TestProviderAgentEventAdapter
     }
 
     @Test
-    void doesNotInventRoutingIdentityForLegacyEvents()
-    {
-        ProviderAgentEvent.Tool tool = new ProviderAgentEvent.Tool(
-                Optional.of("event-1"),
-                Optional.empty(),
-                "tool-call-1",
-                "read",
-                ProviderAgentEvent.ActivityState.COMPLETED,
-                "read",
-                Optional.empty());
-
-        AgentEventSource source = ProviderAgentEventAdapter.adaptLegacy(tool).source();
-
-        assertThat(source.providerThreadId()).isEmpty();
-        assertThat(source.providerTurnId()).isEmpty();
-        assertThat(source.providerItemId()).isEmpty();
-        assertThat(source.providerEventId()).contains("event-1");
-    }
-
-    @Test
     void carriesMessageKindCommandFactsAndToolDuration()
     {
         ProviderAgentEvent.Message summary = new ProviderAgentEvent.Message(

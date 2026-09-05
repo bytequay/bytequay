@@ -541,7 +541,7 @@ class TestDefaultAgentCompletionService
         {
             return new AgentEventEnvelope(
                     AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                    EventId.legacy(taskId, sequence),
+                    EventId.random(),
                     sequence,
                     taskId,
                     Optional.empty(),

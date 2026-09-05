@@ -36,14 +36,6 @@ public record EventId(UUID value)
         return new EventId(UUID.fromString(value));
     }
 
-    public static EventId legacy(TaskId taskId, long sequence)
-    {
-        requireNonNull(taskId, "taskId is null");
-        checkArgument(sequence > 0, "sequence must be positive");
-        String key = "bytequay-agent-event-v1:" + taskId + ":" + sequence;
-        return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
-    }
-
     public static EventId providerUsage(TaskId taskId, TurnId turnId, String providerEventId)
     {
         requireNonNull(taskId, "taskId is null");

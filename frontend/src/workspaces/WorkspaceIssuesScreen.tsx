@@ -28,6 +28,7 @@ import {
   CopyLinkButton,
   DiscussionComposer,
   MetadataPicker,
+  reactionEmoji,
   remoteErrorMessage,
   toggleSelection,
   type MentionCandidate,
@@ -808,10 +809,6 @@ function labelStyle(color?: string | null) {
 
 function labelColor(color?: string | null) {
   return color && /^[0-9a-f]{6}$/i.test(color) ? `#${color}` : '#d0d7de';
-}
-
-function reactionEmoji(content: string) {
-  return ({ '+1': '👍', '-1': '👎', laugh: '😄', hooray: '🎉', confused: '😕', heart: '❤️', rocket: '🚀', eyes: '👀' } as Record<string, string>)[content] ?? content;
 }
 
 function IssueIcon() {

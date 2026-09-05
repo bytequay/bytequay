@@ -15,7 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, relativeTime, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import { relativeTime } from '../relativeTime';
 import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
@@ -800,7 +801,7 @@ describe('PullOverview', () => {
   });
 
   it('formats compact relative timestamps', () => {
-    expect(relativeTime('2026-08-20T09:58:00Z', Date.parse('2026-08-20T10:00:00Z'))).toBe('2m ago');
+    expect(relativeTime('2026-08-20T09:58:00Z', { now: Date.parse('2026-08-20T10:00:00Z') })).toBe('2m ago');
   });
 
   it('suggests unique pull-request participants and replaces the active mention', () => {

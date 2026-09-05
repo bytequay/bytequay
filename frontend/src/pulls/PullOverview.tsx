@@ -14,7 +14,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
-import { relativeTime as formatRelativeTime } from '../relativeTime';
+import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
 import type {
   Bridge,
@@ -1102,7 +1102,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
         <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={28} showLogin />
         {payload.actorBot && <span className="pr-bot">Bot</span>}
         <span>{eventText(activity, activities)}</span>
-        <time dateTime={activity.timestamp ?? undefined}>{formatRelativeTime(activity.timestamp, { style: 'long' })}</time>
+        <time dateTime={activity.timestamp ?? undefined}>{relativeTime(activity.timestamp, { style: 'long' })}</time>
       </div>
     );
   }
@@ -1941,21 +1941,7 @@ function threadLocation(path: string | null, line: number | null) {
   return `${path ?? 'Changed file'}${line ? `:L${line}` : ''}`;
 }
 
-export function relativeTime(value: string | null, now = Date.now()) {
-  if (!value) return '';
-  const seconds = Math.max(0, Math.floor((now - new Date(value).getTime()) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return months < 12 ? `${months}mo ago` : `${Math.floor(months / 12)}y ago`;
-}
-
-function reactionEmoji(content: string) {
+export function reactionEmoji(content: string) {
   return ({ '+1': '👍', '-1': '👎', laugh: '😄', hooray: '🎉', confused: '😕', heart: '❤️', rocket: '🚀', eyes: '👀' } as Record<string, string>)[content] ?? content;
 }
 

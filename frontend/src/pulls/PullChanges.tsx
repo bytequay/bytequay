@@ -27,7 +27,8 @@ import type {
 import { useResizablePane } from '../useResizablePane';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody from './MarkdownBody';
-import { CopyLinkButton, relativeTime, remoteErrorMessage } from './PullOverview';
+import { CopyLinkButton, remoteErrorMessage } from './PullOverview';
+import { relativeTime } from '../relativeTime';
 
 export type CommitRange = { start: number; end: number } | null;
 

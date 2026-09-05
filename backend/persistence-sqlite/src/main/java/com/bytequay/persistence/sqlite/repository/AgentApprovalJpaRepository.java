@@ -50,4 +50,6 @@ public interface AgentApprovalJpaRepository
     List<AgentApprovalEntity> findByTurnIdAndDecisionIsNullOrderByRequestedAtAscIdAsc(String turnId);
 
     List<AgentApprovalEntity> findByDecisionIsNullOrderByRequestedAtAscIdAsc();
+
+    List<AgentApprovalEntity> findByTaskIdAndDecisionAndForTask(String taskId, ApprovalDecision.Decision decision, boolean forTask);
 }

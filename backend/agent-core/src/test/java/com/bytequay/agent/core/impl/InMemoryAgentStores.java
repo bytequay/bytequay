@@ -380,6 +380,17 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public synchronized boolean hasTaskAllow(TaskId taskId, String taskScope)
+    {
+        return approvals.values().stream()
+                .filter(approval -> approval.request().taskId().equals(taskId))
+                .filter(approval -> approval.request().providerRequest().taskScope().equals(Optional.of(taskScope)))
+                .anyMatch(approval -> approval.decision()
+                        .filter(decision -> decision.decision() == ApprovalDecision.Decision.ALLOW && decision.forTask())
+                        .isPresent());
+    }
+
+    @Override
     public synchronized void insert(AgentEventOutboxEntry entry)
     {
         if (entry.payload().kind() == failingOutboxInsertKind) {

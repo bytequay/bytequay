@@ -55,6 +55,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -192,6 +193,61 @@ class TestSqliteAgentApprovalStore
                 .hasMessageContaining(eventId.toString());
 
         assertThat(approvals.find(pending.request().id())).contains(pending);
+    }
+
+    @Test
+    void findsATaskWideAllowOnlyForTheSameTaskAndScope()
+    {
+        TaskId taskId = TaskId.random();
+        AgentApproval allowedForTask = scopedApproval(taskId, "git status", ApprovalId.random());
+        AgentApproval stillPending = scopedApproval(taskId, "npm test", ApprovalId.random());
+        AgentApproval allowedOnce = scopedApproval(taskId, "mvn verify", ApprovalId.random());
+        AgentApproval otherTask = scopedApproval(TaskId.random(), "git status", ApprovalId.random());
+        approvals.insert(allowedForTask);
+        approvals.insert(stillPending);
+        approvals.insert(allowedOnce);
+        approvals.insert(otherTask);
+        approvals.resolve(
+                allowedForTask.request().id(),
+                decision(allowedForTask.request().id(), ApprovalDecision.Decision.ALLOW, NOW.plusSeconds(1)),
+                AgentEventPayload.ApprovalOutcome.ALLOWED);
+        approvals.resolve(
+                otherTask.request().id(),
+                decision(otherTask.request().id(), ApprovalDecision.Decision.ALLOW, NOW.plusSeconds(1)),
+                AgentEventPayload.ApprovalOutcome.ALLOWED);
+        approvals.resolve(
+                allowedOnce.request().id(),
+                new ApprovalDecision(allowedOnce.request().id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false, NOW.plusSeconds(1), false),
+                AgentEventPayload.ApprovalOutcome.ALLOWED);
+
+        assertThat(approvals.hasTaskAllow(taskId, "git status")).isTrue();
+        assertThat(approvals.hasTaskAllow(taskId, "npm test")).isFalse();
+        assertThat(approvals.hasTaskAllow(taskId, "mvn verify")).isFalse();
+        assertThat(approvals.hasTaskAllow(TaskId.random(), "git status")).isFalse();
+    }
+
+    private static AgentApproval scopedApproval(TaskId taskId, String scope, ApprovalId approvalId)
+    {
+        return AgentApproval.pending(new ApprovalRequest(
+                approvalId,
+                taskId,
+                TurnId.random(),
+                new ProviderApprovalRequest(
+                        "provider-" + approvalId,
+                        ProviderApprovalRequest.Kind.COMMAND,
+                        "Run command",
+                        scope,
+                        ImmutableList.of("command:" + scope),
+                        ImmutableList.of(ALLOW_ONCE, ALLOW_FOR_TASK, DENY),
+                        Optional.of(scope),
+                        new ProviderAgentEventSource(
+                                Optional.of("thread-1"),
+                                Optional.empty(),
+                                Optional.empty(),
+                                Optional.of("turn-1"),
+                                Optional.of("item-1")),
+                        NOW),
+                NOW));
     }
 
     private static AgentApproval approval(TurnId turnId, Instant requestedAt, ApprovalId approvalId)

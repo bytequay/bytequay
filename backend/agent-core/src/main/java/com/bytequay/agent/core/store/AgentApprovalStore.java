@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApproval;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 
 import java.util.List;
@@ -37,4 +38,7 @@ public interface AgentApprovalStore
     List<AgentApproval> listPending(TurnId turnId);
 
     List<AgentApproval> listPending();
+
+    /** Whether an earlier "allow for this task" decision on the task covers {@code taskScope}. */
+    boolean hasTaskAllow(TaskId taskId, String taskScope);
 }

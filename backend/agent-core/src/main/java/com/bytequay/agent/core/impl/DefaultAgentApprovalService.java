@@ -41,7 +41,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,8 +71,6 @@ public final class DefaultAgentApprovalService
     private final Clock clock;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final ConcurrentMap<ApprovalId, PendingApproval> pending = new ConcurrentHashMap<>();
-    // ponytail: task-wide allows live with the process, so a restart asks once more; keep them on the task if that bites.
-    private final ConcurrentMap<TaskId, Set<String>> taskAllows = new ConcurrentHashMap<>();
 
     public DefaultAgentApprovalService(
             AgentApprovalStore approvalStore,
@@ -192,9 +189,6 @@ public final class DefaultAgentApprovalService
         }
         ApprovalDecision recorded = publishResolution(resolution);
         if (sameDecision(recorded, command)) {
-            if (recorded.forTask()) {
-                rememberTaskAllow(discovered.request());
-            }
             return recorded;
         }
         throw new AgentConflictException("Approval was already resolved differently: " + command.approvalId());
@@ -271,19 +265,12 @@ public final class DefaultAgentApprovalService
         return new ApprovalDecision(approvalId, ApprovalDecision.Decision.ALLOW, Optional.empty(), true, Instant.now(clock), false);
     }
 
+    /** An earlier "allow for this task" on the same scope is durable, so it survives a restart and answers here. */
     private boolean covered(ApprovalRequest request)
     {
         ProviderApprovalRequest providerRequest = request.providerRequest();
         return providerRequest.availableDecisions().contains(ALLOW_FOR_TASK)
-                && providerRequest.taskScope()
-                        .map(scope -> taskAllows.getOrDefault(request.taskId(), Set.of()).contains(scope))
-                        .orElse(false);
-    }
-
-    private void rememberTaskAllow(ApprovalRequest request)
-    {
-        request.providerRequest().taskScope().ifPresent(scope ->
-                taskAllows.computeIfAbsent(request.taskId(), ignored -> ConcurrentHashMap.newKeySet()).add(scope));
+                && providerRequest.taskScope().filter(scope -> approvalStore.hasTaskAllow(request.taskId(), scope)).isPresent();
     }
 
     private void resolveAndPublish(

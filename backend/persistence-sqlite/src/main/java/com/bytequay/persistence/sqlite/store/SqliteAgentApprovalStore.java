@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.persistence.sqlite.entity.AgentApprovalEntity;
@@ -114,6 +115,18 @@ public class SqliteAgentApprovalStore
         return repository.findByDecisionIsNullOrderByRequestedAtAscIdAsc().stream()
                 .map(AgentApprovalEntity::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasTaskAllow(TaskId taskId, String taskScope)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(taskScope, "taskScope is null");
+        // The scope lives inside the request JSON, so the row filter narrows to the task's allows and Java matches the scope.
+        return repository.findByTaskIdAndDecisionAndForTask(taskId.toString(), ApprovalDecision.Decision.ALLOW, true).stream()
+                .map(AgentApprovalEntity::toDomain)
+                .anyMatch(approval -> approval.request().providerRequest().taskScope().equals(Optional.of(taskScope)));
     }
 
     private static boolean matches(

@@ -16,7 +16,7 @@ package com.bytequay.app.ci;
 import com.bytequay.core.domain.PullRequestRef;
 
 import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
-import static com.bytequay.app.ci.CiActionsChecks.checkSha;
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record RerunFailedJobsCommand(

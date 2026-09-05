@@ -25,9 +25,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import static com.bytequay.core.ci.CiAutofixChecks.checkOptionalText;
-import static com.bytequay.core.ci.CiAutofixChecks.checkSha;
-import static com.bytequay.core.ci.CiAutofixChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;

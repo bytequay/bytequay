@@ -15,10 +15,10 @@ package com.bytequay.app.ci;
 
 import java.util.Optional;
 
-import static com.bytequay.app.ci.CiActionsChecks.checkText;
 import static com.bytequay.app.ci.CiActionsChecks.isActionableConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeConclusion;
 import static com.bytequay.app.ci.CiActionsChecks.normalizeState;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 public record CiStep(

@@ -18,9 +18,9 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.ci.CiActionsChecks.checkOptionalText;
-import static com.bytequay.app.ci.CiActionsChecks.checkSha;
-import static com.bytequay.app.ci.CiActionsChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 

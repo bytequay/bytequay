@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
-import static com.bytequay.app.utils.StringInputUtil.requireText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** GitHub-hosted identity returned by a repository people-picker endpoint. */
@@ -22,7 +22,7 @@ public record GitHubRepositoryUser(long id, String login, String avatarUrl, bool
     public GitHubRepositoryUser
     {
         checkArgument(id > 0, "id is not positive");
-        requireText(login, "login");
-        requireText(avatarUrl, "avatarUrl");
+        checkText(login, "login");
+        checkText(avatarUrl, "avatarUrl");
     }
 }

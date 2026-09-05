@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.ci;
 
-import static com.bytequay.app.ci.CiActionsChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 public record CiRerunResult(Outcome outcome, String reason)

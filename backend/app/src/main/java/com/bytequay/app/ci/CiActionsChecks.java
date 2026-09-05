@@ -21,6 +21,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -43,27 +45,6 @@ final class CiActionsChecks
         checkText(pullRequest.owner(), "repository owner", 100);
         checkText(pullRequest.repo(), "repository name", 100);
         return pullRequest;
-    }
-
-    static String checkText(String value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank() && value.length() <= maximumLength, name + " must contain between 1 and " + maximumLength + " characters");
-        return value;
-    }
-
-    static Optional<String> checkOptionalText(Optional<String> value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        value.ifPresent(text -> checkText(text, name, maximumLength));
-        return value;
-    }
-
-    static String checkSha(String value, String name)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), name + " is not a full lowercase Git SHA");
-        return value;
     }
 
     static String checkUrl(String value, String name)

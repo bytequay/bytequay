@@ -15,7 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import static com.bytequay.app.utils.StringInputUtil.requireText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 record GitHubCreatedPullRequest(
@@ -27,6 +27,6 @@ record GitHubCreatedPullRequest(
     {
         checkArgument(id > 0, "id is not positive");
         checkArgument(number > 0, "number is not positive");
-        requireText(htmlUrl, "htmlUrl");
+        checkText(htmlUrl, "htmlUrl");
     }
 }

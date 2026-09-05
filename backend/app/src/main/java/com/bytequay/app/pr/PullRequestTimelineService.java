@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -110,12 +111,5 @@ public class PullRequestTimelineService
     {
         checkText(value, name, 64);
         checkArgument(value.matches("[0-9a-fA-F]{40,64}"), name + " is not a Git SHA");
-    }
-
-    private static void checkText(String value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
-        checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
     }
 }

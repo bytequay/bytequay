@@ -18,7 +18,7 @@ import com.bytequay.core.domain.RepoRef;
 
 import java.util.Optional;
 
-import static com.bytequay.app.utils.StringInputUtil.requireText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -78,9 +78,9 @@ public interface WorkspacePullRequestService
     {
         public PushResult
         {
-            requireText(remote, "remote");
-            requireText(head, "head");
-            requireText(sha, "sha");
+            checkText(remote, "remote");
+            checkText(head, "head");
+            checkText(sha, "sha");
         }
     }
 
@@ -96,10 +96,10 @@ public interface WorkspacePullRequestService
         {
             checkArgument(providerId > 0, "providerId is not positive");
             checkArgument(number > 0, "number is not positive");
-            requireText(url, "url");
+            checkText(url, "url");
             requireNonNull(baseRepository, "baseRepository is null");
-            requireText(baseBranch, "baseBranch");
-            requireText(head, "head");
+            checkText(baseBranch, "baseBranch");
+            checkText(head, "head");
         }
     }
 
@@ -117,8 +117,8 @@ public interface WorkspacePullRequestService
         {
             requireNonNull(disabledReason, "disabledReason is null");
             requireNonNull(baseRepository, "baseRepository is null");
-            requireText(baseBranch, "baseBranch");
-            requireText(head, "head");
+            checkText(baseBranch, "baseBranch");
+            checkText(head, "head");
             requireNonNull(push, "push is null");
             requireNonNull(pullRequest, "pullRequest is null");
             requireNonNull(ciAutofix, "ciAutofix is null");
@@ -135,8 +135,8 @@ public interface WorkspacePullRequestService
     {
         public CiAutofixStatus
         {
-            requireText(runId, "runId");
-            requireText(status, "status");
+            checkText(runId, "runId");
+            checkText(status, "status");
             checkArgument(attemptsUsed >= 0, "attemptsUsed is negative");
             requireNonNull(summary, "summary is null");
         }

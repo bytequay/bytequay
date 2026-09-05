@@ -43,7 +43,7 @@ import java.util.Optional;
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
-import static com.bytequay.app.utils.StringInputUtil.requireText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -275,7 +275,7 @@ public class GitHubPullRequestWriteClient
 
     public void updateReviewerRequest(String pat, PullRequestRef pullRequest, String login, boolean requested)
     {
-        requireText(login, "reviewer login");
+        checkText(login, "reviewer login");
         translating(() -> gitHubRestClient.method(requested ? HttpMethod.POST : HttpMethod.DELETE)
                 .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                         pullRequest.owner(), pullRequest.repo(), pullRequest.number())
@@ -424,9 +424,9 @@ public class GitHubPullRequestWriteClient
             String body)
     {
         requireNonNull(baseRepository, "baseRepository is null");
-        requireText(head, "head");
-        requireText(base, "base");
-        requireText(title, "title");
+        checkText(head, "head");
+        checkText(base, "base");
+        checkText(title, "title");
         requireNonNull(body, "body is null");
         return translating(() -> {
             GitHubCreatedPullRequest created = gitHubRestClient.post()

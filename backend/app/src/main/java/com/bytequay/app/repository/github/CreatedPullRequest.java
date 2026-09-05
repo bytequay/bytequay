@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
-import static com.bytequay.app.utils.StringInputUtil.requireText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** Stable identity returned by GitHub after pull-request creation. */
@@ -23,6 +23,6 @@ public record CreatedPullRequest(long id, int number, String url)
     {
         checkArgument(id > 0, "id is not positive");
         checkArgument(number > 0, "number is not positive");
-        requireText(url, "url");
+        checkText(url, "url");
     }
 }

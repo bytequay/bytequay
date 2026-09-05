@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.core.cherrypick;
+package com.bytequay.core.domain;
 
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -19,11 +19,18 @@ import java.util.regex.Pattern;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-final class CherryPickChecks
+public final class Checks
 {
     private static final Pattern SHA = Pattern.compile("(?:[0-9a-f]{40}|[0-9a-f]{64})");
 
-    private CherryPickChecks() {}
+    private Checks() {}
+
+    public static String checkText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        checkArgument(!value.isBlank(), name + " is blank");
+        return value;
+    }
 
     public static String checkText(String value, String name, int maximumLength)
     {

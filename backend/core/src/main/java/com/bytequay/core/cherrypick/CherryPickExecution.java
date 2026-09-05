@@ -25,9 +25,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkOptionalText;
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkSha;
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkOptionalSha;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -579,7 +580,7 @@ public record CherryPickExecution(
         public ActionJournal
         {
             requireNonNull(type, "type is null");
-            CherryPickChecks.checkOptionalSha(sourceSha, "sourceSha");
+            checkOptionalSha(sourceSha, "sourceSha");
             checkSha(expectedHead, "expectedHead");
             checkArgument(attempt >= 1, "attempt is not positive");
             checkText(idempotencyKey, "idempotencyKey", 200);

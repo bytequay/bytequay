@@ -17,8 +17,8 @@ import com.bytequay.agent.core.RepositoryIdentity;
 
 import java.nio.file.Path;
 
-import static com.bytequay.app.ci.CiActionsChecks.checkSha;
-import static com.bytequay.app.ci.CiActionsChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 

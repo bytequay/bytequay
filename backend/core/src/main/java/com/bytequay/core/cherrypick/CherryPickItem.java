@@ -18,10 +18,10 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkOptionalSha;
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkOptionalText;
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkSha;
-import static com.bytequay.core.cherrypick.CherryPickChecks.checkText;
+import static com.bytequay.core.domain.Checks.checkOptionalSha;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 

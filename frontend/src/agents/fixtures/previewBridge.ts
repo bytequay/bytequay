@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 
-import contracts from './fixtures/agent-contracts-v1.json';
-import eventFixture from './fixtures/agent-events-v2.json';
-import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
-import type { AgentBridgePort } from './model';
-import { NO_AGENT_CAPABILITIES } from './capabilities';
+import contracts from './agent-contracts-v1.json';
+import eventFixture from './agent-events-v2.json';
+import { parseAgentEventSequence, type AgentEventEnvelope } from '../events';
+import type { AgentBridgePort } from '../model';
+import { NO_AGENT_CAPABILITIES } from '../capabilities';
 import type {
   AgentQueuedInputDto,
   AgentStreamMessage,
@@ -24,9 +24,7 @@ import type {
   AgentTaskDto,
   AgentTurnDto,
   ModelSettingsDto,
-} from '../types';
-
-export type { AgentBridgePort } from './model';
+} from '../../types';
 
 /** Every command the preview sent, so a test can assert the exact bridge calls. */
 export interface PreviewCommand {

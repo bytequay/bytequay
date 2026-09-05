@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { createPreviewBridge, type PreviewCommand } from './preview';
+import { createPreviewBridge, type PreviewCommand } from './fixtures/previewBridge';
 import {
   agentTaskReducer,
   initialAgentTaskState,

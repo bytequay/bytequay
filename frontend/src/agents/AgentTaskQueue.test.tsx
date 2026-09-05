@@ -17,7 +17,7 @@ import { AgentTaskBody } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
-import { previewTask } from './preview';
+import { previewTask } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
 

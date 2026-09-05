@@ -23,7 +23,7 @@ import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
-import { previewTask } from './preview';
+import { previewTask } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentCapabilitiesDto,

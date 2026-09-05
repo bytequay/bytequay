@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { AgentHomeView } from './AgentHome';
-import { createPreviewBridge, previewTask } from './preview';
+import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { TaskComposer } from './AgentTasksView';
 import { TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';

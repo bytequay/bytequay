@@ -408,7 +408,6 @@
   border-radius: inherit;
   padding: 1px;
   pointer-events: none;
-  background: repeating-linear-gradient(115deg, transparent 0 2px, #ffffff40 2px 3px, #20345220 3px 4px);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
 }

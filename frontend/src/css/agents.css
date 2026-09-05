@@ -399,7 +399,46 @@
   border: 1px solid #d0d7de;
   border-radius: 12px;
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.06);
+}
+
+/* Mask only the decoration so the pickers can still open beyond the card. */
+.agt-compose__streamer {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: repeating-linear-gradient(115deg, transparent 0 2px, #ffffff40 2px 3px, #20345220 3px 4px);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+.agt-compose__streamer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: min(180px, 160%);
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, #edfaffee, #a3d8e8dd 24%, #839bd999 50%, #91a8bf00);
+  /* Edge distance keeps the pace even on both the long sides and rounded corners. */
+  offset-path: border-box;
+  offset-anchor: center;
+  offset-rotate: 0deg;
+  animation: agt-compose-streamer 14s linear infinite;
+}
+
+.agt-compose:has(.agt-compose__input:disabled) .agt-compose__streamer {
+  opacity: 0;
+}
+
+.agt-compose:has(.agt-compose__input:disabled) .agt-compose__streamer::after {
+  animation: none;
+}
+
+@keyframes agt-compose-streamer {
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
 }
 
 .agt-compose__input {
@@ -429,7 +468,11 @@
   flex-direction: column;
   border-color: #647181;
   border-radius: 14px;
-  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.14);
+}
+
+.agt-compose:focus-within {
+  border-color: #526f96;
+  box-shadow: 0 0 0 1px #526f96;
 }
 
 .agt-compose.is-new-task .agt-compose__row {
@@ -2488,6 +2531,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agt-compose__streamer::after,
   .agt-spin,
   .agt-state__dot,
   .agt-skeleton__bar,

@@ -1679,6 +1679,7 @@ export function AgentTaskBody({
             </div>
           )}
           <div className="agt-compose" aria-busy={state.sending}>
+            <span className="agt-compose__streamer" aria-hidden="true" />
             <textarea
               ref={composerRef}
               className="agt-compose__input"

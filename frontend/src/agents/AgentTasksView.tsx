@@ -304,6 +304,7 @@ export function TaskComposer({
         </div>
       )}
       <div className="agt-compose is-new-task">
+        <span className="agt-compose__streamer" aria-hidden="true" />
         <input
           className="agt-compose__input"
           type="text"

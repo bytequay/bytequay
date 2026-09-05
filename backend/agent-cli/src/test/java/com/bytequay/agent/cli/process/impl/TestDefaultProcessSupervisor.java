@@ -284,6 +284,52 @@ class TestDefaultProcessSupervisor
     }
 
     @Test
+    void cliProbeShortLivedDescendantsDoNotInvalidateTreeVerification()
+            throws Exception
+    {
+        ManagedProcess process = supervisor
+                .prepare(spec("i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
+                .start((stream, bytes) -> {});
+
+        ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+
+        assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants()).isPresent();
+    }
+
+    @Test
+    void modelCatalogShortLivedDescendantsDoNotInvalidateTreeVerification()
+            throws Exception
+    {
+        ManagedProcess process = supervisor
+                .prepare(spec(
+                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-model-catalog"),
+                        "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
+                .start((stream, bytes) -> {});
+
+        ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+
+        assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants()).isPresent();
+    }
+
+    @Test
+    void scratchHelperShortLivedDescendantsDoNotInvalidateTreeVerification()
+            throws Exception
+    {
+        ManagedProcess process = supervisor
+                .prepare(spec(
+                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-title"),
+                        "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
+                .start((stream, bytes) -> {});
+
+        ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+
+        assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants()).isPresent();
+    }
+
+    @Test
     void preparesADurableMarkerBeforeAnyProcessExists()
     {
         PreparedProcess prepared = supervisor.prepare(spec("exit 0"));
@@ -408,8 +454,13 @@ class TestDefaultProcessSupervisor
 
     private ProcessSpec spec(String script)
     {
+        return spec(PROBE, script);
+    }
+
+    private ProcessSpec spec(ProcessOwner owner, String script)
+    {
         return new ProcessSpec(
-                PROBE,
+                owner,
                 ImmutableList.of("/bin/sh", "-c", script),
                 worktree,
                 ImmutableMap.of("PATH", "/usr/bin:/bin"),

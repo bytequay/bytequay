@@ -273,7 +273,7 @@ public final class CodexCliDriver
         return new CodexAppServerClient(
                 supervisor,
                 new ProcessSpec(
-                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId),
+                        new ProcessOwner(textOnly ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.APP_SERVER, ownerId),
                         CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly),
                         workingDirectory,
                         processEnvironment,

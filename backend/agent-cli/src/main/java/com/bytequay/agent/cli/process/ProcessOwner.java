@@ -54,7 +54,7 @@ public record ProcessOwner(Kind kind, String id)
         TASK_EXEC_SERVER(ExecutionProfile.TASK_EXEC_SERVER),
         /** One Claude turn process. */
         CLAUDE_TURN(ExecutionProfile.PROVIDER_CONTROL),
-        /** One short-lived provider CLI probe such as a version or update command. */
+        /** One short-lived provider control command or isolated text-only helper. */
         CLI_PROBE(ExecutionProfile.PROVIDER_CONTROL);
 
         private final ExecutionProfile profile;

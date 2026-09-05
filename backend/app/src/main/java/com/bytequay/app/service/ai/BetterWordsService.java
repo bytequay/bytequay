@@ -157,6 +157,8 @@ public class BetterWordsService
                     "Better words is not available with the selected CLI model. Choose Claude or an API-key model.");
         }
         TaskId taskId = TaskId.random();
+        boolean processMayBeRunning = false;
+        AgentSession session = null;
         try {
             TaskResources taskResources = resources.allocate(taskId);
             Path worktree = Files.createDirectory(taskResources.runtimeDirectory().resolve("better-words-worktree"));
@@ -173,22 +175,28 @@ public class BetterWordsService
                     Optional.of(model.model()),
                     model.effort(),
                     true);
-            try (AgentSession session = driver.open(context, event -> {})) {
-                AgentTurnResult result = session.start(new AgentTurnCommand(
-                                TaskId.random().toString(),
-                                CLI_PROMPT.formatted(INSTRUCTIONS, comment),
-                                ImmutableList.of(),
-                                MAXIMUM_RUNTIME))
-                        .completion()
-                        .toCompletableFuture()
-                        .join();
-                if (result.state() != AgentTurnResult.State.COMPLETED) {
-                    throw new AgentUnavailableException(
-                            "The selected model could not rewrite the comment: "
-                                    + result.terminalReason().orElse(result.state().name().toLowerCase()));
-                }
-                return result.finalResponse().orElse("");
+            processMayBeRunning = true;
+            session = driver.open(context, event -> {});
+            AgentTurnResult result = session.start(new AgentTurnCommand(
+                            TaskId.random().toString(),
+                            CLI_PROMPT.formatted(INSTRUCTIONS, comment),
+                            ImmutableList.of(),
+                            MAXIMUM_RUNTIME))
+                    .completion()
+                    .toCompletableFuture()
+                    .join();
+            if (!closeSession(session, taskId)) {
+                session = null;
+                throw new AgentUnavailableException("The writing-assistant provider could not be verified stopped.");
             }
+            session = null;
+            processMayBeRunning = false;
+            if (result.state() != AgentTurnResult.State.COMPLETED) {
+                throw new AgentUnavailableException(
+                        "The selected model could not rewrite the comment: "
+                                + result.terminalReason().orElse(result.state().name().toLowerCase()));
+            }
+            return result.finalResponse().orElse("");
         }
         catch (IOException e) {
             throw new AgentUnavailableException("Could not prepare the writing assistant.", e);
@@ -197,7 +205,27 @@ public class BetterWordsService
             throw new AgentUnavailableException("The selected model could not rewrite the comment.", e.getCause());
         }
         finally {
-            resources.delete(taskId);
+            if (session != null && closeSession(session, taskId)) {
+                processMayBeRunning = false;
+            }
+            if (processMayBeRunning) {
+                log.warn("Retaining writing-assistant resources because the provider may still be running for {}", taskId);
+            }
+            else {
+                resources.delete(taskId);
+            }
+        }
+    }
+
+    private static boolean closeSession(AgentSession session, TaskId taskId)
+    {
+        try {
+            session.close();
+            return true;
+        }
+        catch (RuntimeException failure) {
+            log.warn("Could not verify writing-assistant provider shutdown for {}", taskId, failure);
+            return false;
         }
     }
 

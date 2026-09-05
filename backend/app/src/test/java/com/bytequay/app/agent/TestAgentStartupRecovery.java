@@ -174,6 +174,122 @@ class TestAgentStartupRecovery
     }
 
     @Test
+    void opensTheGateForUnverifiableControlOnlyMarkerOwnersAndKeepsTheirEvidence()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                unverifiableForOwner("claude-probe", ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
+                unverifiableForOwner("title-helper", ProcessOwner.Kind.CLI_PROBE, "task-title"),
+                unverifiableForOwner("model-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog")));
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, turnStore)
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isTrue();
+        verify(supervisor, never()).acknowledge("claude-probe");
+        verify(supervisor, never()).acknowledge("title-helper");
+        verify(supervisor, never()).acknowledge("model-catalog");
+    }
+
+    @Test
+    void opensTheGateForUnverifiableControlOnlyLaunchRowsAndKeepsTheirEvidence()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                unverifiable("claude-probe"), unverifiable("title-helper"), unverifiable("model-catalog")));
+
+        new AgentStartupRecovery(
+                outboxStore,
+                eventService,
+                maintenance(taskStore, turnStore),
+                supervisor,
+                servingGate,
+                launchStore(
+                        launch("claude-probe", LaunchOwnerKind.CLI_PROBE, "claude-cli"),
+                        launch("title-helper", LaunchOwnerKind.CLI_PROBE, "task-title"),
+                        launch("model-catalog", LaunchOwnerKind.APP_SERVER, "codex-model-catalog")),
+                taskStore,
+                turnStore)
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isTrue();
+        verify(supervisor, never()).acknowledge("claude-probe");
+        verify(supervisor, never()).acknowledge("title-helper");
+        verify(supervisor, never()).acknowledge("model-catalog");
+    }
+
+    @Test
+    void keepsTheGateClosedForAnUnrecognizedAppServerOwner()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                unverifiableForOwner("unknown-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog-v2")));
+
+        new AgentStartupRecovery(
+                outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, turnStore)
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isFalse();
+        verify(supervisor, never()).acknowledge("unknown-catalog");
+    }
+
+    @Test
+    void keepsTheGateClosedWhenMarkerAndLaunchRowOwnersDisagree()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentEventService eventService = mock(AgentEventService.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
+                unverifiableForOwner("control-marker", ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
+                unverifiableFor("task-marker", taskId.toString())));
+
+        new AgentStartupRecovery(
+                outboxStore,
+                eventService,
+                maintenance(taskStore, turnStore),
+                supervisor,
+                servingGate,
+                launchStore(
+                        appServerLaunch("control-marker", taskId),
+                        launch("task-marker", LaunchOwnerKind.CLI_PROBE, "codex-cli")),
+                taskStore,
+                turnStore)
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isFalse();
+        verify(taskStore, never()).update(any());
+        verify(supervisor, never()).acknowledge("control-marker");
+        verify(supervisor, never()).acknowledge("task-marker");
+    }
+
+    @Test
     void blocksOnlyTheTaskThatLeftAnUnverifiableProcess()
     {
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
@@ -435,10 +551,15 @@ class TestAgentStartupRecovery
 
     private static AgentProcessLaunch appServerLaunch(String launchId, TaskId taskId)
     {
+        return launch(launchId, LaunchOwnerKind.APP_SERVER, taskId.toString());
+    }
+
+    private static AgentProcessLaunch launch(String launchId, LaunchOwnerKind ownerKind, String ownerId)
+    {
         return new AgentProcessLaunch(
                 launchId,
-                LaunchOwnerKind.APP_SERVER,
-                taskId.toString(),
+                ownerKind,
+                ownerId,
                 true,
                 "/usr/local/bin/codex",
                 "argv-digest",
@@ -447,9 +568,14 @@ class TestAgentStartupRecovery
 
     private static OwnedProcessRecovery unverifiableFor(String launchId, String taskId)
     {
+        return unverifiableForOwner(launchId, ProcessOwner.Kind.APP_SERVER, taskId);
+    }
+
+    private static OwnedProcessRecovery unverifiableForOwner(String launchId, ProcessOwner.Kind ownerKind, String ownerId)
+    {
         return new OwnedProcessRecovery(
                 launchId,
-                Optional.of(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, taskId)),
+                Optional.of(new ProcessOwner(ownerKind, ownerId)),
                 Optional.empty(),
                 OwnedProcessRecovery.Outcome.UNVERIFIABLE,
                 "unverifiable");

@@ -210,6 +210,8 @@ class TestCodexCliDriver
 
         AgentSession session = driver.open(textOnly, event -> {});
 
+        assertThat(supervisor.serverOwners()).extracting(ProcessOwner::kind)
+                .containsExactly(ProcessOwner.Kind.CLI_PROBE);
         assertThat(supervisor.server().approvalPolicies()).containsExactly("never");
         assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
         JsonNode thread = supervisor.server().threadRequests().getFirst();
@@ -227,6 +229,20 @@ class TestCodexCliDriver
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
         session.close();
+
+        assertThatThrownBy(() -> new AgentSessionContext(
+                plain.taskId(),
+                plain.worktree(),
+                plain.runtimeDirectory().resolve("scratch"),
+                plain.runtimeDirectory().resolve("scratch/provider"),
+                plain.permissionPolicy(),
+                plain.sessionReference(),
+                plain.approvals(),
+                plain.model(),
+                plain.effort(),
+                true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
         ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
         ObjectNode config = objectMapper.valueToTree(

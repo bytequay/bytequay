@@ -55,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -138,6 +139,51 @@ class TestBetterWordsService
         verify(resources).allocate(taskId.capture());
         verify(resources).delete(taskId.getValue());
         verify(settings, never()).mainModel();
+    }
+
+    @Test
+    void retainsScratchResourcesWhenCliShutdownCannotBeVerified()
+            throws Exception
+    {
+        ModelSettingsService settings = mock(ModelSettingsService.class);
+        when(settings.mainModel()).thenReturn(mainModel("claude", "sonnet"));
+        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        AgentResourceService resources = mock(AgentResourceService.class);
+        Path runtime = temporaryDirectory.resolve("retained-runtime");
+        Path provider = runtime.resolve("provider/scratch");
+        Files.createDirectories(provider);
+        when(resources.allocate(any())).thenReturn(new TaskResources(
+                runtime,
+                runtime.resolve("events.jsonl"),
+                runtime.resolve("blobs"),
+                provider));
+
+        AgentDriver driver = mock(AgentDriver.class);
+        AgentSession session = mock(AgentSession.class);
+        RunningTurn turn = mock(RunningTurn.class);
+        when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
+        when(driver.open(any(), any())).thenReturn(session);
+        when(session.start(any())).thenReturn(turn);
+        when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
+                AgentTurnResult.State.COMPLETED,
+                Optional.of("Rewritten comment"),
+                Optional.empty(),
+                Duration.ofMillis(20))));
+        doThrow(new AgentUnavailableException("unverifiable process tree")).when(session).close();
+
+        BetterWordsService service = service(
+                settings,
+                mock(WorkspaceStore.class),
+                mock(ModelApiKeyStore.class),
+                drivers,
+                resources,
+                unusedClient(),
+                unusedClient());
+
+        assertThatThrownBy(() -> service.improve("rewrite this", REPOSITORY, Optional.empty()))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("could not be verified stopped");
+        verify(resources, never()).delete(any());
     }
 
     @Test

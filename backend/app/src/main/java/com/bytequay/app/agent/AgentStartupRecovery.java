@@ -22,6 +22,7 @@ import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
+import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -53,6 +54,7 @@ public final class AgentStartupRecovery
         implements SmartInitializingSingleton
 {
     private static final Logger log = LoggerFactory.getLogger(AgentStartupRecovery.class);
+    private static final String CODEX_MODEL_CATALOG_OWNER = "codex-model-catalog";
     private static final int OUTBOX_BATCH_SIZE = 100;
 
     private final AgentEventOutboxStore outboxStore;
@@ -173,9 +175,10 @@ public final class AgentStartupRecovery
      *
      * <p>An unverifiable tree that can be attributed to one live task holds that task's worktree
      * mutation claim, so only that task is blocked. One that cannot be attributed blocks every
-     * agent operation, because something may still be writing somewhere nobody can name. Either
-     * way the launch marker is retained and never acknowledged, so the block survives a restart
-     * until the process is resolved.
+     * agent operation, because something may still be writing somewhere nobody can name. The only
+     * exception is a launch durably identified as non-worktree control work or the model-catalog
+     * App Server: none receives a task worktree, so its retained receipt cannot represent a stray writer.
+     * An unverifiable launch marker is never acknowledged, so the evidence survives a restart.
      *
      * <p>Classification runs before any write. A task can leak more than one launch and can hold
      * only one claim, so deciding per launch as it is read would release a block that another
@@ -183,7 +186,7 @@ public final class AgentStartupRecovery
      * crash are settled by that verdict: a verified stop releases the turn's worktree, an
      * unverifiable one reserves it until a later startup can verify it.
      *
-     * @return true when nothing unattributable was left running
+     * @return true when every unverifiable launch is task-attributable or known not to own a task worktree
      */
     private boolean recoverOwnedProcesses()
     {
@@ -202,7 +205,22 @@ public final class AgentStartupRecovery
                 resolved.add(recovery.launchId());
                 continue;
             }
-            Optional<TaskId> owner = blockableTask(recovery, launches.get(recovery.launchId()));
+            AgentProcessLaunch launch = launches.get(recovery.launchId());
+            if (!ownerFactsAgree(recovery.owner(), launch)) {
+                log.error("Owned provider process {} has conflicting marker and launch-row owners, "
+                                + "so agent operations remain unavailable: marker={}, row={}",
+                        recovery.launchId(),
+                        recovery.owner().orElse(null), launch);
+                attributable = false;
+                continue;
+            }
+            if (knownControlOnly(recovery.owner(), launch)) {
+                log.warn("Owned control-only provider process {} is unverifiable; its recovery evidence "
+                                + "is retained without blocking task worktrees: {}",
+                        recovery.launchId(), recovery.detail());
+                continue;
+            }
+            Optional<TaskId> owner = blockableTask(recovery, launch);
             if (owner.isEmpty()) {
                 log.error("Owned provider process {} owned by {} is unverifiable and belongs to no "
                                 + "live task, so agent operations remain unavailable: {}",
@@ -221,6 +239,33 @@ public final class AgentStartupRecovery
                 attributable);
         resolved.forEach(supervisor::acknowledge);
         return attributable;
+    }
+
+    private static boolean ownerFactsAgree(Optional<ProcessOwner> markerOwner, AgentProcessLaunch launch)
+    {
+        return markerOwner
+                .map(owner -> launch == null
+                        || owner.kind().name().equals(launch.ownerKind().name()) && owner.id().equals(launch.ownerId()))
+                .orElse(true);
+    }
+
+    private static boolean knownControlOnly(Optional<ProcessOwner> markerOwner, AgentProcessLaunch launch)
+    {
+        return markerOwner
+                .map(AgentStartupRecovery::controlOnly)
+                .orElseGet(() -> launch != null && controlOnly(launch));
+    }
+
+    private static boolean controlOnly(ProcessOwner owner)
+    {
+        return owner.kind() == ProcessOwner.Kind.CLI_PROBE
+                || owner.kind() == ProcessOwner.Kind.APP_SERVER && owner.id().equals(CODEX_MODEL_CATALOG_OWNER);
+    }
+
+    private static boolean controlOnly(AgentProcessLaunch launch)
+    {
+        return launch.ownerKind() == LaunchOwnerKind.CLI_PROBE
+                || launch.ownerKind() == LaunchOwnerKind.APP_SERVER && launch.ownerId().equals(CODEX_MODEL_CATALOG_OWNER);
     }
 
     /**
@@ -269,8 +314,8 @@ public final class AgentStartupRecovery
             return Optional.of(TaskId.valueOf(ownerId));
         }
         catch (IllegalArgumentException notATask) {
-            // An App Server owner that is not a task id belongs to something without a worktree,
-            // such as the model catalog probe.
+            // Recognized non-task App Server owners are classified before task attribution.
+            // Every other malformed owner stays unattributable and therefore fails closed.
             return Optional.empty();
         }
     }

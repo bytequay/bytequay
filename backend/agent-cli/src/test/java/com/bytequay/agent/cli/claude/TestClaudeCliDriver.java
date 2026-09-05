@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
@@ -163,6 +164,7 @@ class TestClaudeCliDriver
                 messages.getFirst().source().providerItemId().orElseThrow(),
                 "authoritative [REDACTED]"));
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
+        assertThat(firstSpec.owner().kind()).isEqualTo(ProcessOwner.Kind.CLAUDE_TURN);
         assertThat(firstSpec.argv()).containsSequence("--session-id", reference.providerValue());
         assertThat(firstSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
         assertThat(firstSpec.argv()).containsSequence("--permission-mode", "manual");
@@ -250,6 +252,8 @@ class TestClaudeCliDriver
                 events::add);
         assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec textSpec = supervisor.turns().getLast().spec();
+        assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
+        assertThat(textSpec.workingDirectory().normalize().startsWith(runtimeDirectory().normalize())).isTrue();
         assertThat(textSpec.argv()).contains("--tools=");
         assertThat(textSpec.argv()).contains("--disable-slash-commands", "--no-session-persistence");
         assertThat(textSpec.argv()).containsSequence("--model", "sonnet");
@@ -745,9 +749,10 @@ class TestClaudeCliDriver
             Optional<String> effort,
             boolean textOnly)
     {
+        Path sessionWorktree = textOnly ? runtimeDirectory().resolve("text-worktree") : worktree;
         return new AgentSessionContext(
                 "task-1",
-                worktree,
+                sessionWorktree,
                 runtimeDirectory(),
                 runtimeDirectory().resolve("provider/scratch"),
                 permissionPolicy,

@@ -9,7 +9,7 @@ The exact service and method sequence is defined in
 The shared provisioning and cleanup boundary is defined in
 [Managed Worktree Service](worktree-service.md).
 
-## Current implementation (2026-09-04)
+## Current implementation (2026-09-05)
 
 This status note records the implemented, ungated, shipped boundary.
 It supersedes older wording that described the agent subsystem or its rich task
@@ -20,12 +20,12 @@ surface as future work.
 - The Codex lane already uses the official App Server transport.
   `CodexCliDriver` starts one task-owned execution
   `codex app-server --listen stdio://` process per active turn, rooted at that
-  task's worktree. The only concurrent exception is the bounded, read-only title
-  helper described below; it runs in empty task-owned scratch and has no tools,
-  network, approvals, or resumable history. The next real turn resumes the same
-  thread in a new matching-profile process. The driver persists Codex thread and
-  turn references and maps App Server JSON-RPC notifications into
-  `ProviderAgentEvent`.
+  task's worktree. The only concurrent exceptions are bounded text-only helpers
+  for task titles and Better Words; they run in isolated runtime scratch and
+  have no model-callable tools, writable task worktree, approvals, or resumable
+  history. The next real turn resumes the same thread in a new matching-profile
+  process. The driver persists Codex thread and turn references and maps App
+  Server JSON-RPC notifications into `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
   reference fixture. It does not constrain production. ByteQuay updates a
   user-managed Codex CLI only when its parsed version is below the supported
@@ -82,8 +82,8 @@ The implementation therefore has these fixed boundaries:
    turn, and that process serves no other task, so root and child thread IDs need
    no routing between tasks; the process is verified stopped before the turn
    releases its claim, and a later turn resumes the same provider thread in a new
-   process; a concurrent title helper is permitted only in its empty, read-only,
-   tool-free task-owned scratch directory;
+   process; concurrent disposable text-only helpers are permitted only in
+   isolated, tool-free runtime scratch directories;
 2. every interactive task is durably scoped to a ByteQuay workspace and a
    separate ByteQuay-provisioned worktree, and every accepted input, resolved
    approval, and child relationship is replayable from the task event
@@ -1296,6 +1296,11 @@ only steerable text and attachment references. `AgentCapabilities` adds native
 steering support, while each `ProviderModel` reports its own input modalities
 and effort choices.
 
+A text-only session's normalized worktree must be beneath its runtime directory.
+Both CLI drivers validate that invariant before assigning the existing
+`CLI_PROBE` owner role, so this compatibility name covers provider control
+commands and isolated helpers but never a task-worktree-capable process.
+
 ### 4.5 AgentEventSink
 
 ```java
@@ -1417,6 +1422,13 @@ back to durable domain state. `ProcessOwner.Kind` also carries one closed
 - `TASK_EXEC_SERVER` is retained only to recover markers written by the
   superseded loopback-executor design; no current launch selects it.
 
+Within `PROVIDER_CONTROL`, `CLI_PROBE` identifies short-lived provider control
+commands and validated text-only helpers. The exact
+`APP_SERVER/codex-model-catalog` owner is also control-only. Every other
+`APP_SERVER` owner and every `CLAUDE_TURN` owner is task-worktree-capable.
+Keeping this classification on existing owner values preserves durable marker
+and SQLite compatibility without adding a lifecycle state.
+
 Adding another profile requires a design change and compatibility fixture. A
 caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
 provider approval into a different execution profile.
@@ -1445,10 +1457,13 @@ also records the owner process group/job identity and observed member
 PID/start-token pairs; this permits recovery after the root exits while a child
 remains. This proves only recorded membership. A descendant that can escape
 before observation makes the result `UNVERIFIABLE`; ByteQuay does not infer
-containment from one readiness fixture or from root exit. Recovery blocks the
-affected claim unless the validated launch path provides a stronger platform
-primitive or all relevant execution is reconciled through the provider
-contract instead.
+containment from one readiness fixture or from root exit. The narrow exception
+is a control-only launch whose descendant disappears between the OS snapshot
+and start-token read. A live unreadable descendant, or any unidentified
+descendant of a task-worktree-capable launch, remains `UNVERIFIABLE`. Recovery
+blocks the affected claim unless the validated launch path provides a stronger
+platform primitive or all relevant execution is reconciled through the
+provider contract instead.
 
 The owning row records one durable fact, whether the owner had committed to
 spawning, while the marker supplies every finer launch fact. Recovery uses both:
@@ -1477,16 +1492,22 @@ Orphan prepared markers without an owning committed intent are removable only
 when their format proves no launcher was released.
 
 Tree stop changes the marker to `TERMINAL` and fsyncs the `ProcessExit`/result
-receipt; it does not delete it. The owning core transaction first commits the
-turn terminal fact and tree proof, then calls
-`acknowledge(launchId)`. A crash on either side replays the terminal receipt or
-deletes an already-acknowledged marker idempotently. An App Server marker names
-the task that owns that process, so a recovered orphan is attributable to one
-task. A Claude marker names its one turn.
+receipt; it does not delete it. For a task process, the owning core transaction
+first commits the turn terminal fact and tree proof, then calls
+`acknowledge(launchId)`. Probes and text-only helpers acknowledge after verified
+close. A crash on either side replays the terminal receipt or deletes an
+already-acknowledged marker idempotently. Task App Server markers name their
+task and Claude turn markers name their turn; model-catalog, probe, and helper
+markers instead carry their closed control owner.
 Markers contain no credentials, prompt
 text, or core-domain objects. A missing/incomplete marker for a
 launch intent that had reached `ATTEMPTING` is unverifiable: recovery keeps the
 durable claim and task worktree untouched instead of assuming the launch never happened.
+
+When marker and launch-row owners both exist, they must agree. An unverifiable
+task-capable launch blocks its task; an unknown or conflicting owner blocks the
+agent gate globally. A recognized control-only receipt is retained for later
+recovery but does not block task worktrees it could never access.
 
 ### 5.2 ManagedProcess
 
@@ -2210,7 +2231,7 @@ sequenceDiagram
 
     par Background naming
         Titles->>Resources: require(taskId) + create task-owned scratch
-        Titles->>Driver: open(text-only, isolated, no tools/write/network)
+        Titles->>Driver: open(text-only, isolated, no tools or task-worktree write)
         Driver-->>Titles: TitleSession
         Titles->>TitleSession: start(first-message naming prompt)
         TitleSession-->>Titles: short title or failure
@@ -3150,7 +3171,8 @@ derived from the missing response; it is not a separate lifecycle state.
 `agent_process_launch` begins when `prepare(...)` returns and stores the launch
 ID, closed owner kind and opaque owner ID, whether the owner committed to
 spawning, the resolved executable and argv digest, and a transition timestamp,
-for each task's App Server and each Claude turn. Before that row
+for every supervised launch, including task providers, probes, the model
+catalog, and text-only helpers. Before that row
 exists, a turn owner has never been attempted. The executable is retained
 because it is the only record of what was launched when the process marker
 itself is the thing that went missing. The launch row stores no prompt,
@@ -3194,17 +3216,19 @@ The directory is outside every worktree:
 ```
 
 The task ID and content IDs are generated by ByteQuay, not supplied as paths.
-Process markers are owner-only, identify one task's App Server or a Claude
-turn, contain
+Process markers are owner-only, identify the task or closed control role that
+owns the launch, contain
 identity/recovery metadata only, and are validated against the OS process-start
 token before any signal is sent.
 Every resolved child is checked to remain under the configured runtime root.
 Attachment and event blobs share this root but use typed references,
 independent media/size validation, and separate subdirectories. Only a
 validated attachment owned by the task can be converted into a provider input
-path. A title helper's unique subtree is deleted after verified shutdown; if
-shutdown cannot be verified, it stays inside the owning task's resources until
-recovery and normal task cleanup can safely remove it.
+path. A disposable helper's unique scratch is deleted only after verified
+shutdown. Task-title scratch otherwise stays inside the owning task's resources
+until recovery and normal task cleanup can safely remove it; standalone Better
+Words scratch is likewise retained rather than deleting files beneath a
+possibly live process.
 
 On successful completion, after the execution tree is quiescent and live queued
 work is empty:
@@ -3264,8 +3288,10 @@ requires a separate explicit user action and design decision.
 - Provider launches carry an owner marker with PID, executable, OS process-start
   token, and driver owner. Startup signals only a process whose identity still
   matches, then observes the entire directly owned process tree exit. If
-  identity or exit cannot be proven, the affected `OPEN` task retains its claim
-  and projects recovery required.
+  identity or exit cannot be proven, a known task owner retains its claim and
+  projects recovery required; an unknown or conflicting owner closes the global
+  agent gate. Recognized control-only evidence is retained but does not close
+  that gate because the launch could not access a task worktree.
 - Durable launch phase distinguishes a known pre-launch crash from an uncertain
   process result. `NOT_ATTEMPTED` and an intact `PREPARED` marker before
   `PreparedProcess.start()` prove no payload ran; a missing/corrupt marker after

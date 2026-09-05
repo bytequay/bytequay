@@ -21,6 +21,7 @@ import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
+import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
@@ -91,6 +92,7 @@ public final class DefaultProcessSupervisor
     private static final Duration IDENTITY_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration LAUNCHER_EXIT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
+    private static final String CODEX_MODEL_CATALOG_OWNER = "codex-model-catalog";
 
     private final LaunchMarkerStore store;
     private final LaunchIntentRecorder intents;
@@ -908,7 +910,12 @@ public final class DefaultProcessSupervisor
             }
             Optional<Instant> startToken = descendant.info().startInstant();
             if (startToken.isEmpty()) {
-                markDescendantTrackingIncomplete();
+                // The descendant can exit between the descendants snapshot and this identity read.
+                // Only control-only launches can ignore that race; task owners still fail closed
+                // because the unseen child could have detached before it was inspected.
+                if (!controlOnly(spec.owner()) || descendant.isAlive()) {
+                    markDescendantTrackingIncomplete();
+                }
                 return;
             }
             ProcessIdentity identity = new ProcessIdentity(descendant.pid(), startToken.orElseThrow());
@@ -919,6 +926,13 @@ public final class DefaultProcessSupervisor
                 marker = marker.withDescendant(identity);
                 store.write(marker);
             }
+        }
+
+        private static boolean controlOnly(ProcessOwner owner)
+        {
+            return owner.kind() == ProcessOwner.Kind.CLI_PROBE
+                    || owner.kind() == ProcessOwner.Kind.APP_SERVER
+                            && owner.id().equals(CODEX_MODEL_CATALOG_OWNER);
         }
 
         private void markDescendantTrackingIncomplete()

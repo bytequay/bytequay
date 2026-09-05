@@ -842,7 +842,9 @@ public final class ClaudeCliDriver
             this.reference = new ProviderTurnRef(command.turnId());
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
-                    new ProcessOwner(ProcessOwner.Kind.CLAUDE_TURN, command.turnId()),
+                    new ProcessOwner(
+                            session.context.textOnly() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.CLAUDE_TURN,
+                            session.context.textOnly() ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
                             session.context.codeGraph(),

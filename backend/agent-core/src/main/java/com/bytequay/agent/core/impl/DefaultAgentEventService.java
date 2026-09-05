@@ -73,32 +73,29 @@ public final class DefaultAgentEventService
     public AgentEventEnvelope append(UnsequencedAgentEvent event)
     {
         requireNonNull(event, "event is null");
-        AgentTask task = requireTask(event.taskId());
+        requireTask(event.taskId());
         TaskChannel channel = channel(event.taskId());
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
         synchronized (channel) {
-            channel.checkUsable();
             Optional<Long> existingSequence = logStore.findSequence(event.taskId(), event.eventId());
             if (existingSequence.isPresent()) {
-                envelope = requirePersistedEnvelope(event, existingSequence.orElseThrow());
-                subscriptions = finishPublication(task, channel, envelope);
+                // Appended earlier, so its subscribers already have it; a repeat must not reach them twice.
+                return requirePersistedEnvelope(event, existingSequence.orElseThrow());
             }
-            else {
-                channel.checkReadyToPersist();
-                envelope = new AgentEventEnvelope(
-                        AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                        event.eventId(),
-                        channel.lastSequence + 1,
-                        event.taskId(),
-                        event.turnId(),
-                        event.source(),
-                        Instant.now(clock),
-                        event.payload());
-                logStore.append(envelope);
-                channel.lastSequence = envelope.sequence();
-                subscriptions = finishPublication(task, channel, envelope);
-            }
+            envelope = new AgentEventEnvelope(
+                    AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                    event.eventId(),
+                    channel.lastSequence + 1,
+                    event.taskId(),
+                    event.turnId(),
+                    event.source(),
+                    Instant.now(clock),
+                    event.payload());
+            logStore.append(envelope);
+            channel.lastSequence = envelope.sequence();
+            // Display events come only from a live turn, so none of them can settle a terminal task.
+            subscriptions = handOver(channel, envelope);
         }
         subscriptions.forEach(EventSubscription::drain);
         return envelope;
@@ -113,37 +110,47 @@ public final class DefaultAgentEventService
         TaskChannel channel = channel(discovered.taskId());
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
+        RuntimeException deferred = null;
         synchronized (channel) {
-            channel.checkUsable();
             AgentEventOutboxEntry entry = requireOutboxEntry(eventId);
             if (!entry.taskId().equals(discovered.taskId())) {
                 throw new AgentStorageException("Event outbox task identity changed: " + eventId);
             }
             if (entry.sequence().isPresent()) {
+                // Appended, marked, and handed over; only a close that an earlier failed check missed can still be owed.
                 envelope = requirePersistedEnvelope(entry, entry.sequence().orElseThrow());
+                subscriptions = completeIfSettled(task, channel);
             }
             else {
                 Optional<Long> existingSequence = logStore.findSequence(entry.taskId(), eventId);
                 if (existingSequence.isPresent()) {
+                    // Appended and handed over before its mark was lost; the mark is what is still owed.
                     envelope = requirePersistedEnvelope(entry, existingSequence.orElseThrow());
+                    outboxStore.markAppended(eventId, envelope.sequence());
+                    subscriptions = completeIfSettled(task, channel);
                 }
                 else {
-                    channel.checkReadyToPersist();
                     envelope = materialize(entry, channel.lastSequence + 1);
                     logStore.append(envelope);
                     channel.lastSequence = envelope.sequence();
-                }
-
-                try {
-                    outboxStore.markAppended(eventId, envelope.sequence());
-                }
-                catch (RuntimeException failure) {
-                    throw channel.block(eventId, failure);
+                    subscriptions = handOver(channel, envelope);
+                    try {
+                        outboxStore.markAppended(eventId, envelope.sequence());
+                        completeIfSettled(task, channel);
+                    }
+                    catch (RuntimeException failure) {
+                        // The event is in the log and with its subscribers. A lost mark leaves a pending
+                        // row that the next drain settles without appending again, and that drain also
+                        // redoes a close check that failed here.
+                        deferred = failure;
+                    }
                 }
             }
-            subscriptions = finishPublication(task, channel, envelope);
         }
         subscriptions.forEach(EventSubscription::drain);
+        if (deferred != null) {
+            throw deferred;
+        }
         return envelope;
     }
 
@@ -155,7 +162,6 @@ public final class DefaultAgentEventService
         requireTask(taskId);
         TaskChannel channel = channel(taskId);
         synchronized (channel) {
-            channel.checkUsable();
             return logStore.readAfter(taskId, afterSequence, limit);
         }
     }
@@ -174,12 +180,8 @@ public final class DefaultAgentEventService
             TaskChannel channel = channel(taskId);
             EventSubscription subscription;
             synchronized (channel) {
-                channel.checkUsable();
-                channel.checkReadyToSubscribe();
                 List<AgentEventEnvelope> replay = readReplay(taskId, afterSequence);
-                boolean terminal = channel.terminal || shouldComplete(task, channel);
-                channel.terminal |= terminal;
-                subscription = new EventSubscription(subscriber, channel, replay, terminal);
+                subscription = new EventSubscription(subscriber, channel, replay, shouldComplete(task));
                 channel.subscriptions.add(subscription);
             }
             subscriber.onSubscribe(subscription);
@@ -189,9 +191,7 @@ public final class DefaultAgentEventService
 
     private TaskChannel channel(TaskId taskId)
     {
-        return channels.computeIfAbsent(taskId, id -> new TaskChannel(
-                logStore.lastSequence(id),
-                containsTaskTerminalEvent(id)));
+        return channels.computeIfAbsent(taskId, id -> new TaskChannel(logStore.lastSequence(id)));
     }
 
     private AgentTask requireTask(TaskId taskId)
@@ -270,15 +270,6 @@ public final class DefaultAgentEventService
         return envelope;
     }
 
-    private static boolean isTaskTerminalEvent(AgentEventEnvelope envelope)
-    {
-        if (envelope.turnId().isPresent() || !(envelope.payload() instanceof AgentEventPayload.Lifecycle lifecycle)) {
-            return false;
-        }
-        return lifecycle.phase() == AgentEventPayload.LifecyclePhase.TASK_COMPLETED
-                || lifecycle.phase() == AgentEventPayload.LifecyclePhase.TASK_FAILED;
-    }
-
     private List<AgentEventEnvelope> readReplay(TaskId taskId, long afterSequence)
     {
         ImmutableList.Builder<AgentEventEnvelope> replay = ImmutableList.builder();
@@ -293,43 +284,29 @@ public final class DefaultAgentEventService
         }
     }
 
-    private boolean containsTaskTerminalEvent(TaskId taskId)
+    private boolean shouldComplete(AgentTask task)
     {
-        long cursor = 0;
-        while (true) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, cursor, REPLAY_PAGE_SIZE);
-            if (page.stream().anyMatch(DefaultAgentEventService::isTaskTerminalEvent)) {
-                return true;
-            }
-            if (page.size() < REPLAY_PAGE_SIZE) {
-                return false;
-            }
-            cursor = page.getLast().sequence();
-        }
+        // The terminal event is committed with the terminal state, so a terminal task with nothing
+        // pending already has that event in its log.
+        return task.state().terminal() && !outboxStore.hasPending(task.id());
     }
 
-    private boolean shouldComplete(AgentTask task, TaskChannel channel)
+    /** Queues a freshly appended event for every current subscriber; nothing here can fail once the log has it. */
+    private static List<EventSubscription> handOver(TaskChannel channel, AgentEventEnvelope envelope)
     {
-        return task.state().terminal()
-                && channel.terminalEventPersisted
-                && !outboxStore.hasPending(task.id());
+        List<EventSubscription> subscriptions = ImmutableList.copyOf(channel.subscriptions);
+        subscriptions.forEach(subscription -> subscription.enqueue(envelope));
+        return subscriptions;
     }
 
-    private List<EventSubscription> finishPublication(
-            AgentTask task,
-            TaskChannel channel,
-            AgentEventEnvelope envelope)
+    /** Ends every current subscription of a terminal task once nothing of its is left to drain. */
+    private List<EventSubscription> completeIfSettled(AgentTask task, TaskChannel channel)
     {
-        channel.observePersisted(envelope.sequence());
-        if (!channel.needsPublication(envelope.sequence())) {
+        if (!shouldComplete(task)) {
             return ImmutableList.of();
         }
-        channel.terminalEventPersisted |= isTaskTerminalEvent(envelope);
-        boolean terminal = shouldComplete(task, channel);
         List<EventSubscription> subscriptions = ImmutableList.copyOf(channel.subscriptions);
-        subscriptions.forEach(subscription -> subscription.enqueue(envelope, terminal));
-        channel.markPublished(envelope.sequence());
-        channel.terminal |= terminal;
+        subscriptions.forEach(EventSubscription::complete);
         return subscriptions;
     }
 
@@ -344,80 +321,17 @@ public final class DefaultAgentEventService
     private static final class TaskChannel
     {
         private final List<EventSubscription> subscriptions = new ArrayList<>();
+        /** Every sequence up to this one is in the log and was handed to the subscribers of its time. */
         private long lastSequence;
-        private long lastPublishedSequence;
-        private AgentStorageException blockedFailure;
-        private boolean terminalEventPersisted;
-        private boolean terminal;
 
-        private TaskChannel(long lastSequence, boolean terminalEventPersisted)
+        private TaskChannel(long lastSequence)
         {
             this.lastSequence = lastSequence;
-            this.lastPublishedSequence = lastSequence;
-            this.terminalEventPersisted = terminalEventPersisted;
         }
 
         private synchronized void remove(EventSubscription subscription)
         {
             subscriptions.remove(subscription);
-        }
-
-        private void checkUsable()
-        {
-            if (blockedFailure != null) {
-                throw blockedFailure;
-            }
-        }
-
-        private AgentStorageException block(EventId eventId, RuntimeException failure)
-        {
-            blockedFailure = new AgentStorageException(
-                    "Task event channel is blocked after an uncertain outbox mark: " + eventId,
-                    failure);
-            return blockedFailure;
-        }
-
-        private void checkReadyToPersist()
-        {
-            if (lastPublishedSequence != lastSequence) {
-                throw new AgentStorageException("Cannot persist a later task event before sequence "
-                        + (lastPublishedSequence + 1) + " is published");
-            }
-        }
-
-        private void checkReadyToSubscribe()
-        {
-            if (lastPublishedSequence != lastSequence) {
-                throw new AgentStorageException("Cannot subscribe while task event sequence "
-                        + (lastPublishedSequence + 1) + " awaits publication");
-            }
-        }
-
-        private void observePersisted(long sequence)
-        {
-            if (sequence > lastSequence) {
-                if (sequence != lastSequence + 1) {
-                    throw new AgentStorageException("Task event publication sequence has a gap");
-                }
-                lastSequence = sequence;
-            }
-        }
-
-        private boolean needsPublication(long sequence)
-        {
-            if (sequence <= lastPublishedSequence) {
-                return false;
-            }
-            if (sequence != lastPublishedSequence + 1) {
-                throw new AgentStorageException("Cannot publish task event sequence " + sequence
-                        + " before sequence " + (lastPublishedSequence + 1));
-            }
-            return true;
-        }
-
-        private void markPublished(long sequence)
-        {
-            lastPublishedSequence = sequence;
         }
     }
 
@@ -471,12 +385,17 @@ public final class DefaultAgentEventService
             channel.remove(this);
         }
 
-        private synchronized void enqueue(AgentEventEnvelope envelope, boolean completeAfterEvent)
+        private synchronized void enqueue(AgentEventEnvelope envelope)
         {
             if (!cancelled) {
                 pending.add(envelope);
-                terminal |= completeAfterEvent;
             }
+        }
+
+        /** Ends the subscription once everything already queued has been delivered. */
+        private synchronized void complete()
+        {
+            terminal = true;
         }
 
         private void drain()

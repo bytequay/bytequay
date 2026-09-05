@@ -265,51 +265,41 @@ class TestDefaultAgentEventService
     }
 
     @Test
-    void blocksLaterTaskEventsWhenOutboxMarkIsUncertain()
+    void retriesALostOutboxMarkWithoutAppendingOrPublishingTwice()
     {
         TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
         service.subscribe(task.id(), 0).subscribe(subscriber);
         subscriber.request(Long.MAX_VALUE);
-        AgentEventOutboxEntry uncertain = inlineOutbox("uncertain");
+        AgentEventOutboxEntry unmarked = inlineOutbox("unmarked");
         AgentEventOutboxEntry later = inlineOutbox("later");
-        outboxStore.insert(uncertain);
+        outboxStore.insert(unmarked);
         outboxStore.insert(later);
         outboxStore.failNextMark = true;
 
-        assertThatThrownBy(() -> service.drain(uncertain.eventId()))
+        assertThatThrownBy(() -> service.drain(unmarked.eventId()))
                 .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("uncertain outbox mark");
-        assertThatThrownBy(() -> service.drain(later.eventId()))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("uncertain outbox mark");
-        assertThatThrownBy(() -> service.append(event("display-only")))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("uncertain outbox mark");
-        assertThatThrownBy(() -> service.readAfter(task.id(), 0, 10))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("uncertain outbox mark");
+                .hasMessageContaining("mark failed");
 
-        assertThat(logStore.events)
-                .extracting(AgentEventEnvelope::eventId)
-                .containsExactly(uncertain.eventId());
-        assertThat(outboxStore.find(uncertain.eventId()).orElseThrow().sequence()).isEmpty();
-        assertThat(outboxStore.find(later.eventId()).orElseThrow().sequence()).isEmpty();
-        assertThat(subscriber.events()).isEmpty();
+        // The append and the hand-over happened; only the mark is owed, and the channel stays open.
+        assertThat(logStore.events).extracting(AgentEventEnvelope::eventId).containsExactly(unmarked.eventId());
+        assertThat(outboxStore.find(unmarked.eventId()).orElseThrow().sequence()).isEmpty();
+        assertThat(subscriber.events()).extracting(AgentEventEnvelope::eventId).containsExactly(unmarked.eventId());
+        assertThat(subscriber.observedUnpersistedEvent()).isFalse();
+        assertThat(subscriber.observedUnmarkedOutboxEvent()).isTrue();
 
-        DefaultAgentEventService restarted = new DefaultAgentEventService(
-                logStore,
-                outboxStore,
-                taskStore,
-                Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
-        assertThat(restarted.drain(uncertain.eventId()).sequence()).isEqualTo(1);
-        assertThat(logStore.events)
-                .extracting(AgentEventEnvelope::eventId)
-                .containsExactly(uncertain.eventId());
-        assertThat(outboxStore.find(uncertain.eventId()).orElseThrow().sequence()).contains(1L);
+        AgentEventEnvelope laterEnvelope = service.drain(later.eventId());
+        AgentEventEnvelope recovered = service.drain(unmarked.eventId());
+
+        assertThat(recovered.sequence()).isEqualTo(1);
+        assertThat(laterEnvelope.sequence()).isEqualTo(2);
+        assertThat(logStore.events).containsExactly(recovered, laterEnvelope);
+        assertThat(outboxStore.find(unmarked.eventId()).orElseThrow().sequence()).contains(1L);
+        assertThat(outboxStore.find(later.eventId()).orElseThrow().sequence()).contains(2L);
+        assertThat(subscriber.events()).containsExactly(recovered, laterEnvelope);
     }
 
     @Test
-    void retriesMarkedTerminalEventWhenCompletionCheckFails()
+    void completesSubscribersOnRetryWhenTheCloseCheckFails()
     {
         AgentEventOutboxEntry terminalEntry = outbox(new AgentEventOutboxPayload.Inline(
                 new AgentEventPayload.Lifecycle(
@@ -326,15 +316,10 @@ class TestDefaultAgentEventService
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("pending check failed");
 
+        // The event reached the log, the outbox mark, and the subscriber; only the close is owed.
         assertThat(outboxStore.find(terminalEntry.eventId()).orElseThrow().sequence()).contains(1L);
-        assertThat(subscriber.events()).isEmpty();
+        assertThat(subscriber.events()).extracting(AgentEventEnvelope::eventId).containsExactly(terminalEntry.eventId());
         assertThat(subscriber.completed()).isFalse();
-        assertThatThrownBy(() -> service.append(event("later")))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("before sequence 1 is published");
-        assertThatThrownBy(() -> service.subscribe(task.id(), 0).subscribe(new TestSubscriber(logStore, outboxStore)))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("awaits publication");
 
         AgentEventEnvelope terminal = service.drain(terminalEntry.eventId());
         AgentEventEnvelope repeated = service.drain(terminalEntry.eventId());

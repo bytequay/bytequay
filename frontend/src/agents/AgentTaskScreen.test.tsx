@@ -350,7 +350,8 @@ describe('agent task list', () => {
     };
     expect(creationBlocker(unavailable, 'codex', { model: 'gpt-5.6-codex', effort: 'high' }))
       .toContain('exec-policy rules at ~/.codex/rules');
-    expect(creationBlocker(null, 'codex', null)).toContain('Agent providers');
+    // A catalog that has not arrived yet is loading, not an unchecked provider.
+    expect(creationBlocker(null, 'codex', null)).toBeNull();
     expect(creationBlocker(readyCatalog(MODELS), 'codex', { model: 'gpt-5.6-codex', effort: 'high' })).toBeNull();
   });
 

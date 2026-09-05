@@ -85,9 +85,12 @@ export function creationBlocker(
   laneId: string,
   selection: TaskModelSelection | null,
 ): string | null {
-  const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
+  // No catalog yet means the settings fetch is still in flight, not that the provider is unchecked:
+  // the backend lists every driver with a probed readiness, so there is no "unchecked" state.
+  if (catalog === null) return null;
+  const provider = catalog.providers.find((candidate) => candidate.id === laneId) ?? null;
   if (provider === null) {
-    return `${laneLabel(laneId)} has not been checked yet. Check it in Workspace settings → Agent providers.`;
+    return `${laneLabel(laneId)} is not available in this build.`;
   }
   if (!providerAvailable(provider.readiness)) {
     const remedy = providerRemedy(provider.readiness, provider.id);
@@ -449,7 +452,7 @@ export function TaskComposer({
             aria-label="Send — creates the task"
             title="Sends the first message, which creates the task"
             onClick={onCreate}
-            disabled={busy || blocker !== null || draft.trim() === ''}
+            disabled={busy || blocker !== null || selection === null || draft.trim() === ''}
           >
             ↑
           </button>

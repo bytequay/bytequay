@@ -64,7 +64,6 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -75,6 +74,11 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.git;
+import static com.bytequay.app.git.GitTestSupport.head;
+import static com.bytequay.app.git.GitTestSupport.initRepository;
+import static com.bytequay.app.git.GitTestSupport.write;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1350,16 +1354,6 @@ class TestCherryPickExecutionService
                 .orElseThrow(() -> new AssertionError("commit not in plan: " + sourceSha));
     }
 
-    private Path init(String name)
-            throws IOException
-    {
-        Path root = Files.createDirectories(temporaryDirectory.resolve(name));
-        git(temporaryDirectory, "init", "--quiet", "-b", "main", root.toString());
-        git(root, "config", "user.name", "ByteQuay Test");
-        git(root, "config", "user.email", "bytequay@example.com");
-        return root.toRealPath();
-    }
-
     /**
      * Clones a seeded repository as the fork. One clone leaves the same remote,
      * branch and committer identity that separate init, remote, fetch and
@@ -1379,22 +1373,6 @@ class TestCherryPickExecutionService
         return root.toRealPath();
     }
 
-    private static void write(Path repository, String name, String content)
-    {
-        try {
-            Files.writeString(repository.resolve(name), content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new AssertionError(e);
-        }
-    }
-
-    private static void commit(Path repository, String subject)
-    {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", subject);
-    }
-
     private WorkspaceRepositoryContext workspaceContext(RepoRef selectedRepository)
     {
         RepoRef monitoredRepository = RepoRef.of(PHYSICAL_REPOSITORY.owner(), PHYSICAL_REPOSITORY.name());
@@ -1409,20 +1387,6 @@ class TestCherryPickExecutionService
                 "origin",
                 "main",
                 ImmutableList.of());
-    }
-
-    private static String head(Path repository)
-    {
-        return git(repository, "rev-parse", "HEAD");
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.exitCode())
-                .as("git %s: %s", String.join(" ", arguments), result.output())
-                .isZero();
-        return result.output().strip();
     }
 
     private static final class TestWorktreeService
@@ -1529,5 +1493,10 @@ class TestCherryPickExecutionService
             }
             git(repository, "worktree", "remove", worktree.canonicalWorktree().toString());
         }
+    }
+    private Path init(String name)
+            throws IOException
+    {
+        return initRepository(Files.createDirectories(temporaryDirectory.resolve(name)));
     }
 }

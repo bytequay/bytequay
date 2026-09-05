@@ -16,17 +16,18 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.app.cherrypick.ConflictPreview.Status;
 import com.bytequay.app.cherrypick.ConflictPreview.Type;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitTestSupport;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
+import static com.bytequay.app.git.GitTestSupport.git;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestCherryPickConflictScout
@@ -212,33 +213,16 @@ class TestCherryPickConflictScout
 
     private void write(String name, String content)
     {
-        try {
-            Path file = repository.resolve(name);
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new AssertionError(e);
-        }
+        GitTestSupport.write(repository, name, content);
     }
 
     private void commit(String subject)
     {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", subject);
+        GitTestSupport.commit(repository, subject);
     }
 
     private String head()
     {
-        return git(repository, "rev-parse", "HEAD");
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.exitCode())
-                .as("git %s: %s", String.join(" ", arguments), result.output())
-                .isZero();
-        return result.output().strip();
+        return GitTestSupport.head(repository);
     }
 }

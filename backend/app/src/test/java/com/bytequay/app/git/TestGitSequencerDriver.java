@@ -20,10 +20,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static com.bytequay.app.git.GitTestSupport.git;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitSequencerDriver
@@ -348,31 +348,16 @@ class TestGitSequencerDriver
 
     private void write(String name, String content)
     {
-        try {
-            Files.writeString(repository.resolve(name), content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new AssertionError(e);
-        }
+        GitTestSupport.write(repository, name, content);
     }
 
     private void commit(String subject)
     {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", subject);
+        GitTestSupport.commit(repository, subject);
     }
 
     private String head()
     {
-        return git(repository, "rev-parse", "HEAD");
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.exitCode())
-                .as("git %s: %s", String.join(" ", arguments), result.output())
-                .isZero();
-        return result.output().strip();
+        return GitTestSupport.head(repository);
     }
 }

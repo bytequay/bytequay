@@ -40,6 +40,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitTestSupport;
 import com.bytequay.app.git.RebaseSequencerDriver;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.FinishReason;
@@ -56,7 +57,6 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -70,6 +70,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -79,8 +80,8 @@ import static org.mockito.Mockito.when;
 @Execution(ExecutionMode.CONCURRENT)
 class TestBranchRebaseService
 {
-    private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final GitCommandRunner GIT = new GitCommandRunner();
+    private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final RepositoryIdentity REPOSITORY_ID = RepositoryIdentity.valueOf("trinodb/trino");
 
     @TempDir
@@ -551,25 +552,17 @@ class TestBranchRebaseService
 
     private void write(String path, String content)
     {
-        try {
-            Path file = repository.resolve(path);
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new AssertionError(e);
-        }
+        GitTestSupport.write(repository, path, content);
     }
 
     private void commit(String message)
     {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", message);
+        GitTestSupport.commit(repository, message);
     }
 
     private String head()
     {
-        return git(repository, "rev-parse", "HEAD");
+        return GitTestSupport.head(repository);
     }
 
     private WorktreeSnapshot worktreeSnapshot()
@@ -589,13 +582,6 @@ class TestBranchRebaseService
     private String workBranch()
     {
         return "bytequay/task/" + taskId;
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.successful()).as(result.output()).isTrue();
-        return result.output().strip();
     }
 
     private record Tips(String original, String base) {}

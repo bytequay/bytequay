@@ -19,10 +19,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static com.bytequay.app.git.GitTestSupport.git;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestRebaseSequencerDriver
@@ -217,32 +217,17 @@ class TestRebaseSequencerDriver
 
     private void write(String path, String content)
     {
-        try {
-            Path file = repository.resolve(path);
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            throw new AssertionError(e);
-        }
+        GitTestSupport.write(repository, path, content);
     }
 
     private void commit(String message)
     {
-        git(repository, "add", "-A");
-        git(repository, "commit", "--quiet", "-m", message);
+        GitTestSupport.commit(repository, message);
     }
 
     private String head()
     {
-        return git(repository, "rev-parse", "HEAD");
-    }
-
-    private static String git(Path directory, String... arguments)
-    {
-        GitCommandRunner.Result result = GIT.run(directory, arguments);
-        assertThat(result.successful()).as(result.output()).isTrue();
-        return result.output().strip();
+        return GitTestSupport.head(repository);
     }
 
     private record Conflict(String originalTip, String baseTip, String sourceCommit) {}

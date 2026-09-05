@@ -103,6 +103,7 @@ class TestAgentHttpErrors
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
                 mock(AgentCompletionService.class),
+                mock(AgentMetricsService.class),
                 driverRegistry,
                 mock(ModelSettingsService.class),
                 mock(AgentResourceService.class),

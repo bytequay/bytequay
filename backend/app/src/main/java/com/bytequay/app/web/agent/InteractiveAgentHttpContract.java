@@ -53,9 +53,11 @@ final class InteractiveAgentHttpContract
 {
     private InteractiveAgentHttpContract() {}
 
-    static TaskResponse task(AgentTask task)
+    /** {@code metrics} are the totals to show: a live task's row lags its turns, so the caller folds them. */
+    static TaskResponse task(AgentTask task, TaskMetrics metrics)
     {
         requireNonNull(task, "task is null");
+        requireNonNull(metrics, "metrics is null");
         checkArgument(task.interactive(), "task is not interactive");
         return new TaskResponse(
                 task.id().toString(),
@@ -71,7 +73,7 @@ final class InteractiveAgentHttpContract
                 task.updatedAt(),
                 task.terminalAt(),
                 task.terminalReason(),
-                task.metrics(),
+                metrics,
                 task.summary().map(InteractiveAgentHttpContract::summary),
                 task.cleanupState().name(),
                 task.deleteAfter(),

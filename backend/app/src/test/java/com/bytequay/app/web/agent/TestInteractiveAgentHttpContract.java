@@ -248,7 +248,7 @@ class TestInteractiveAgentHttpContract
                 Optional.empty(),
                 TurnMetrics.empty());
 
-        JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task));
+        JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task, task.metrics()));
         JsonNode turnJson = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(taskJson.path("defaults").get("model").isNull()).isTrue();

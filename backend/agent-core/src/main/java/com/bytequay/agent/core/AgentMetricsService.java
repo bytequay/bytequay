@@ -37,7 +37,8 @@ public interface AgentMetricsService
 
     /**
      * Applies one normalized provider usage sample. The caller must deduplicate
-     * provider event identifiers before invoking this method.
+     * provider event identifiers before invoking this method. Only the turn is
+     * written; task totals fold into the task when the turn finishes.
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample

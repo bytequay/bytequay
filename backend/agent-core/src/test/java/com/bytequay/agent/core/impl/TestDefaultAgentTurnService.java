@@ -293,7 +293,7 @@ class TestDefaultAgentTurnService
         assertThat(events.readAfter(task.id(), 0, 100))
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.USAGE)
                 .hasSize(1);
-        assertThat(stores.find(task.id()).orElseThrow().metrics().inputTokens()).isEqualTo(4);
+        assertThat(metrics.taskTotals(task.id()).inputTokens()).isEqualTo(4);
         driver.complete("first response");
         assertThat(service.get(first.id()).state()).isEqualTo(TurnState.COMPLETED);
         assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
@@ -431,7 +431,7 @@ class TestDefaultAgentTurnService
         driver.emitUsage(sample);
         driver.emitUsage(sample);
 
-        assertThat(stores.find(task.id()).orElseThrow().metrics().inputTokens()).isEqualTo(4);
+        assertThat(metrics.taskTotals(task.id()).inputTokens()).isEqualTo(4);
         assertThat(stores.find(running.id()).orElseThrow().metrics().inputTokens()).isEqualTo(4);
         assertThat(stores.outboxEntries())
                 .filteredOn(entry -> entry.eventId().equals(EventId.providerUsage(task.id(), running.id(), "usage-1")))

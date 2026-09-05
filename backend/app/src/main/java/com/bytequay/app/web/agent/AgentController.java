@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -39,6 +40,7 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -103,6 +105,7 @@ public class AgentController
     private final AgentEventService eventService;
     private final AgentApprovalService approvalService;
     private final AgentCompletionService completionService;
+    private final AgentMetricsService metricsService;
     private final AgentDriverRegistry driverRegistry;
     private final ModelSettingsService modelSettings;
     private final AgentResourceService resourceService;
@@ -118,6 +121,7 @@ public class AgentController
             AgentEventService eventService,
             AgentApprovalService approvalService,
             AgentCompletionService completionService,
+            AgentMetricsService metricsService,
             AgentDriverRegistry driverRegistry,
             ModelSettingsService modelSettings,
             AgentResourceService resourceService,
@@ -132,11 +136,22 @@ public class AgentController
         this.eventService = requireNonNull(eventService, "eventService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
+        this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+    }
+
+    /**
+     * Task totals fold at turn end, so only a task whose worktree is claimed can have a turn
+     * mid-flight and a row that lags it; the response sums the turns for that one.
+     */
+    private InteractiveAgentHttpContract.TaskResponse taskResponse(AgentTask task)
+    {
+        TaskMetrics metrics = task.worktreeMutationClaim().isPresent() ? metricsService.taskTotals(task.id()) : task.metrics();
+        return InteractiveAgentHttpContract.task(task, metrics);
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -197,8 +212,7 @@ public class AgentController
                 request.message(),
                 attachments,
                 request.idempotencyKey()));
-        InteractiveAgentHttpContract.TaskResponse response = InteractiveAgentHttpContract.task(
-                taskService.get(taskId));
+        InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
         if (!replay) {
             taskTitles.generate(task, initialTurn.id(), request.message());
             recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
@@ -234,8 +248,7 @@ public class AgentController
             @PathVariable String taskId,
             @RequestParam String workspaceId)
     {
-        return InteractiveAgentHttpContract.task(
-                taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
+        return taskResponse(taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
     }
 
     @PutMapping("/tasks/{taskId}/defaults")
@@ -252,7 +265,7 @@ public class AgentController
                 request.defaults().model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                 request.defaults().effort(),
                 request.defaults().serviceTier());
-        return InteractiveAgentHttpContract.task(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+        return taskResponse(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 id,
                 request.expectedVersion(),
                 new AgentTaskDefaults(
@@ -270,7 +283,7 @@ public class AgentController
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        return InteractiveAgentHttpContract.task(taskService.rename(new RenameAgentTaskCommand(
+        return taskResponse(taskService.rename(new RenameAgentTaskCommand(
                 id,
                 request.expectedVersion(),
                 request.title())));
@@ -385,7 +398,7 @@ public class AgentController
             @RequestParam(defaultValue = "100") int limit)
     {
         return taskService.list(workspaceId, limit).stream()
-                .map(InteractiveAgentHttpContract::task)
+                .map(this::taskResponse)
                 .collect(toImmutableList());
     }
 
@@ -643,7 +656,7 @@ public class AgentController
                 log.warn("Task {} was marked failed but its worktree was retained: {}", taskId, failure.toString());
             }
         }
-        return InteractiveAgentHttpContract.task(taskService.get(id));
+        return taskResponse(taskService.get(id));
     }
 
     /**
@@ -678,7 +691,7 @@ public class AgentController
                 .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
                 .map(claim -> startupRecovery.stopRecoveredRuntime(id, request.generation()))
                 .orElseGet(() -> turnService.stopRuntime(id, request.generation()));
-        return InteractiveAgentHttpContract.task(stopped);
+        return taskResponse(stopped);
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")
@@ -689,7 +702,7 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
         completionService.cleanupWorktree(id);
-        return InteractiveAgentHttpContract.task(taskService.get(id));
+        return taskResponse(taskService.get(id));
     }
 
     /**

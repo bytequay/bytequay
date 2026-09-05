@@ -102,9 +102,9 @@ public final class DefaultAgentMetricsService
         if (updated.equals(turn.metrics())) {
             return updated;
         }
-        AgentTurn stored = turnStore.update(turn.withMetrics(updated));
-        persistTaskTotals(taskId);
-        return stored.metrics();
+        // Task totals fold at turn end: writing them here would bump the task's optimistic version
+        // under every request the user makes while a turn streams.
+        return turnStore.update(turn.withMetrics(updated)).metrics();
     }
 
     @Override

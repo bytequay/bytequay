@@ -145,10 +145,6 @@ export function workspaceLocationFromRoute(hash: string): {
   }
 }
 
-export function workspaceIdFromRoute(hash: string): string | null {
-  return workspaceLocationFromRoute(hash)?.workspaceId ?? null;
-}
-
 /** "owner/repo" from a GitHub remote URL, or null for non-GitHub remotes. */
 export function githubSlug(url: string): string | null {
   const match = /github\.com[:/]+([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());

@@ -18,7 +18,6 @@ import {
   metadataAgeDays,
   workspaceCodeState,
   workspaceHasReadableCode,
-  workspaceIdFromRoute,
   workspaceIssueRoute,
   workspaceLocationFromRoute,
   workspaceMetadataState,
@@ -89,8 +88,6 @@ describe('workspace model', () => {
   it('round-trips workspace IDs through the renderer route', () => {
     const route = workspaceRoute('workspace/id');
     expect(route).toBe('#/workspaces/workspace%2Fid');
-    expect(workspaceIdFromRoute(route)).toBe('workspace/id');
-    expect(workspaceIdFromRoute('#/workspaces')).toBeNull();
 
     const issueRoute = workspaceIssueRoute('workspace/id', 42);
     expect(issueRoute).toBe('#/workspaces/workspace%2Fid/issues/42');

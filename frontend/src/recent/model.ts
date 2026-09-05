@@ -127,11 +127,7 @@ export function highlightParts(
   return parts;
 }
 
-/** GitHub-flavoured link and Markdown forms, the two things worth copying off a row. */
-export function rowLink(row: RecentRowDto): string {
-  return row.htmlUrl ?? '';
-}
-
+/** The Markdown form of a row, the one thing worth copying off it. */
 export function rowMarkdown(row: RecentRowDto): string {
   const number = row.number === null ? '' : ` #${row.number}`;
   return row.htmlUrl ? `[${row.title}${number}](${row.htmlUrl})` : `${row.title}${number}`;

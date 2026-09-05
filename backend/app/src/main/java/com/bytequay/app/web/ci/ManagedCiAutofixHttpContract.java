@@ -26,8 +26,4 @@ final class ManagedCiAutofixHttpContract
             boolean allowFailedJobReruns,
             boolean allowHistoryRewrites,
             boolean allowExactLeasePush) {}
-
-    record BranchFacts(
-            String remoteHeadRef,
-            String generatedLocalBranch) {}
 }

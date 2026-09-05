@@ -48,12 +48,4 @@ class TestManagedCiAutofixHttpContract
                 .doesNotContain("worktree")
                 .doesNotContain("path");
     }
-
-    @Test
-    void keepsAuthorizedRemoteHeadSeparateFromGeneratedLocalBranch()
-    {
-        assertThat(ManagedCiAutofixHttpContract.BranchFacts.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("remoteHeadRef", "generatedLocalBranch");
-    }
 }

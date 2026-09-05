@@ -49,10 +49,6 @@ export function selectedSpan(commits: GitCommitDto[], checked: ReadonlySet<strin
   return lo < 0 ? null : { lo, hi };
 }
 
-export function inSpan(index: number, span: { lo: number; hi: number } | null): boolean {
-  return span !== null && index >= span.lo && index <= span.hi;
-}
-
 /**
  * Typed from/to SHA prefixes select the same span checkboxes would.
  * Order does not matter; either input may name the newer commit.

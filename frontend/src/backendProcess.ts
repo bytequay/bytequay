@@ -16,7 +16,7 @@ import { ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
-export const BACKEND_PORT = 53123;
+const BACKEND_PORT = 53123;
 export const BACKEND_BASE = `http://127.0.0.1:${BACKEND_PORT}`;
 
 const MIN_JAVA_VERSION = 25;
@@ -79,7 +79,7 @@ function javaHomeTool(): string | null {
 }
 
 /** `java -version` prints to stderr; the stub prints an install prompt and exits non-zero. */
-export function javaMajorVersion(javaBin: string): number | null {
+function javaMajorVersion(javaBin: string): number | null {
   const res = spawnSync(javaBin, ['-version'], { encoding: 'utf8' });
   if (res.error || res.status !== 0) return null;
   const match = /version "(\d+)/.exec(`${res.stderr}${res.stdout}`);

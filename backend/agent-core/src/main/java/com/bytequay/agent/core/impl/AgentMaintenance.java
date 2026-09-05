@@ -163,31 +163,18 @@ public final class AgentMaintenance
         });
     }
 
-    /**
-     * A restart pauses the queue: nothing starts by itself until the user has seen what happened.
-     *
-     * <p>An input that was being claimed is settled by what its turn durably shows. Never sent
-     * means it waits again as paused; sent but never acknowledged means nobody knows, so it is
-     * uncertain and only the user may discard it; acknowledged means it was consumed.
-     */
+    /** A restart pauses the queue: nothing starts by itself until the user has seen what happened. */
     private void pauseQueue(TaskId taskId)
     {
         Instant now = Instant.now(clock);
         for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
             switch (input.state()) {
                 case QUEUED -> queueStore.update(input.paused("Backend restarted", now));
-                case STARTING -> {
-                    AgentTurn turn = turnStore.find(input.turnId().orElseThrow()).orElseThrow();
-                    if (turn.knownUnsent() || turn.startedAt().isEmpty()) {
-                        queueStore.update(input.paused("Backend restarted before the input was sent", now));
-                    }
-                    else if (turn.providerTurnReference().isEmpty()) {
-                        queueStore.update(input.uncertain("Backend restarted while the input was being sent", now));
-                    }
-                    else {
-                        queueStore.update(input.started(now));
-                    }
-                }
+                case STARTING -> queueStore.update(input.settledBy(
+                        turnStore.find(input.turnId().orElseThrow()).orElseThrow(),
+                        "Backend restarted before the input was sent",
+                        "Backend restarted while the input was being sent",
+                        now));
                 default -> {}
             }
         }

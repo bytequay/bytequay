@@ -94,9 +94,7 @@ public final class DefaultAgentTaskTitleService
     private final AgentTaskStore taskStore;
     private final AgentResourceService resources;
     private final AgentDriverRegistry drivers;
-    private final AgentUnitOfWork unitOfWork;
-    private final AgentEventOutboxStore outboxStore;
-    private final AgentEventService events;
+    private final AgentEventCommitter eventCommitter;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final Executor executor;
     private final Clock clock;
@@ -142,9 +140,7 @@ public final class DefaultAgentTaskTitleService
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.resources = requireNonNull(resources, "resources is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
-        this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
-        this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
-        this.events = requireNonNull(events, "events is null");
+        this.eventCommitter = new AgentEventCommitter(unitOfWork, outboxStore, events);
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -192,8 +188,7 @@ public final class DefaultAgentTaskTitleService
         boolean processMayBeRunning = false;
         AgentSession session = null;
         try {
-            AgentTask current = taskStore.find(task.id()).orElse(null);
-            if (!eligible(current)) {
+            if (taskStore.find(task.id()).filter(DefaultAgentTaskTitleService::eligible).isEmpty()) {
                 return;
             }
             TaskResources taskResources = resources.require(task.id());
@@ -275,42 +270,39 @@ public final class DefaultAgentTaskTitleService
             return;
         }
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            persistTitle(taskId, title).ifPresent(events::drain);
+            persistTitle(taskId, title);
         }
     }
 
-    private Optional<EventId> persistTitle(TaskId taskId, String title)
+    private void persistTitle(TaskId taskId, String title)
     {
         for (int attempt = 0; attempt < 5; attempt++) {
+            Optional<AgentTask> current = taskStore.find(taskId).filter(DefaultAgentTaskTitleService::eligible);
+            if (current.isEmpty()) {
+                return;
+            }
+            Instant changedAt = Instant.now(clock);
             try {
-                return unitOfWork.execute(() -> {
-                    AgentTask current = taskStore.find(taskId).orElse(null);
-                    if (!eligible(current)) {
-                        return Optional.empty();
-                    }
-                    Instant changedAt = Instant.now(clock);
-                    taskStore.update(current.withTitle(title, TitleSource.AGENT, changedAt));
-                    EventId eventId = EventId.random();
-                    outboxStore.insert(pendingLifecycle(
-                            eventId,
-                            taskId,
-                            Optional.empty(),
-                            AgentEventPayload.LifecyclePhase.TITLE_UPDATED,
-                            "Task title generated",
-                            changedAt));
-                    return Optional.of(eventId);
-                });
+                eventCommitter.commit(
+                        pendingLifecycle(
+                                EventId.random(),
+                                taskId,
+                                Optional.empty(),
+                                AgentEventPayload.LifecyclePhase.TITLE_UPDATED,
+                                "Task title generated",
+                                changedAt),
+                        () -> taskStore.update(current.orElseThrow().withTitle(title, TitleSource.AGENT, changedAt)));
+                return;
             }
             catch (AgentConflictException ignored) {
                 // A manual rename or turn update may have won; retry from current durable state.
             }
         }
-        return Optional.empty();
     }
 
     private static boolean eligible(AgentTask task)
     {
-        if (task == null || task.state() != TaskState.OPEN || task.titleSource() != TitleSource.PROVISIONAL) {
+        if (task.state() != TaskState.OPEN || task.titleSource() != TitleSource.PROVISIONAL) {
             return false;
         }
         return task.worktreeMutationClaim()

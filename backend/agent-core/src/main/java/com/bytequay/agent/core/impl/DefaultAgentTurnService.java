@@ -129,6 +129,7 @@ public final class DefaultAgentTurnService
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
     private final AgentEventService eventService;
+    private final AgentEventCommitter eventCommitter;
     private final AgentMetricsService metricsService;
     private final AgentApprovalService approvalService;
     private final AgentRuntimeRegistry runtimeRegistry;
@@ -170,6 +171,7 @@ public final class DefaultAgentTurnService
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
+        this.eventCommitter = new AgentEventCommitter(unitOfWork, outboxStore, eventService);
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
@@ -233,7 +235,7 @@ public final class DefaultAgentTurnService
             eventService.drain(acceptance.deliveryEventId());
             session = session(task, accepted.id(), acceptance.settings());
             metricsService.beginTurn(task.id(), accepted.id());
-            markDeliveryStarted(accepted.id());
+            markDeliveryStarted(accepted);
             deliveryAttempted = true;
             RunningTurn runningTurn = session.start(new AgentTurnCommand(
                     accepted.id().toString(),
@@ -427,24 +429,18 @@ public final class DefaultAgentTurnService
                 case DELIVERED -> Optional.empty();
                 case ACCEPTED, SENDING -> throw new IllegalArgumentException("outcome is not terminal: " + outcome);
             };
-            EventId eventId = EventId.random();
-            AgentInputDelivery stored = unitOfWork.execute(() -> {
-                AgentInputDelivery updated = steerStore.update(settled);
-                if (errorCode.isPresent()) {
-                    outboxStore.insert(pendingInline(
-                            eventId,
-                            updated.taskId(),
-                            Optional.of(updated.turnId()),
+            if (errorCode.isEmpty()) {
+                return unitOfWork.execute(() -> steerStore.update(settled));
+            }
+            return eventCommitter.commit(
+                    pendingInline(
+                            EventId.random(),
+                            settled.taskId(),
+                            Optional.of(settled.turnId()),
                             root(),
                             new AgentEventPayload.Error(errorCode.orElseThrow(), failure.orElseThrow(), false),
-                            now));
-                }
-                return updated;
-            });
-            if (errorCode.isPresent()) {
-                eventService.drain(eventId);
-            }
-            return stored;
+                            now),
+                    () -> steerStore.update(settled));
         }
     }
 
@@ -494,22 +490,20 @@ public final class DefaultAgentTurnService
                     command.message(),
                     turnSettings(task, references(command.attachments())),
                     queuedAt);
-            EventId eventId = EventId.random();
-            QueuedAgentInput queued = unitOfWork.execute(() -> {
-                // The version write is what serializes this against Complete.
-                taskStore.update(task.withUpdatedAt(queuedAt));
-                queueStore.insert(input);
-                outboxStore.insert(pendingLifecycle(
-                        eventId,
-                        task.id(),
-                        Optional.empty(),
-                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
-                        "Queued input added",
-                        queuedAt));
-                return input;
-            });
-            eventService.drain(eventId);
-            return queued;
+            return eventCommitter.commit(
+                    pendingLifecycle(
+                            EventId.random(),
+                            task.id(),
+                            Optional.empty(),
+                            AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
+                            "Queued input added",
+                            queuedAt),
+                    () -> {
+                        // The version write is what serializes this against Complete.
+                        taskStore.update(task.withUpdatedAt(queuedAt));
+                        queueStore.insert(input);
+                        return input;
+                    });
         }
     }
 
@@ -559,21 +553,15 @@ public final class DefaultAgentTurnService
             if (removed == input) {
                 return displayInput(input);
             }
-            EventId eventId = EventId.random();
-            QueuedAgentInput stored = unitOfWork.execute(() -> {
-                QueuedAgentInput updated = queueStore.update(removed);
-                outboxStore.insert(pendingLifecycle(
-                        eventId,
-                        taskId,
-                        Optional.empty(),
-                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
-                        removed.state() == QueuedAgentInput.State.ABANDONED
-                                ? "Queued input abandoned"
-                                : "Queued input removed",
-                        now));
-                return updated;
-            });
-            eventService.drain(eventId);
+            QueuedAgentInput stored = eventCommitter.commit(
+                    pendingLifecycle(
+                            EventId.random(),
+                            taskId,
+                            Optional.empty(),
+                            AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
+                            removed.state() == QueuedAgentInput.State.ABANDONED ? "Queued input abandoned" : "Queued input removed",
+                            now),
+                    () -> queueStore.update(removed));
             return displayInput(stored);
         }
     }
@@ -659,19 +647,15 @@ public final class DefaultAgentTurnService
     private void pauseQueuedHead(QueuedAgentInput input, String reason)
     {
         Instant pausedAt = Instant.now(clock);
-        EventId eventId = EventId.random();
-        unitOfWork.execute(() -> {
-            queueStore.update(input.paused(reason, pausedAt));
-            outboxStore.insert(pendingLifecycle(
-                    eventId,
-                    input.taskId(),
-                    Optional.empty(),
-                    AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
-                    reason,
-                    pausedAt));
-            return null;
-        });
-        eventService.drain(eventId);
+        eventCommitter.commit(
+                pendingLifecycle(
+                        EventId.random(),
+                        input.taskId(),
+                        Optional.empty(),
+                        AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
+                        reason,
+                        pausedAt),
+                () -> queueStore.update(input.paused(reason, pausedAt)));
     }
 
     private Launch launchQueuedLocked(AgentTask task, QueuedAgentInput head)
@@ -917,22 +901,18 @@ public final class DefaultAgentTurnService
         return new StartedTurn(running, runningTurn);
     }
 
-    private void markDeliveryStarted(TurnId turnId)
+    private void markDeliveryStarted(AgentTurn accepted)
     {
         Instant startedAt = Instant.now(clock);
-        EventId eventId = EventId.random();
-        unitOfWork.execute(() -> {
-            AgentTurn stored = turnStore.update(requireTurn(turnId).markDeliveryStarted(startedAt));
-            outboxStore.insert(pendingLifecycle(
-                    eventId,
-                    stored.taskId(),
-                    Optional.of(stored.id()),
-                    AgentEventPayload.LifecyclePhase.TURN_STARTED,
-                    "Turn started",
-                    startedAt));
-            return null;
-        });
-        eventService.drain(eventId);
+        eventCommitter.commit(
+                pendingLifecycle(
+                        EventId.random(),
+                        accepted.taskId(),
+                        Optional.of(accepted.id()),
+                        AgentEventPayload.LifecyclePhase.TURN_STARTED,
+                        "Turn started",
+                        startedAt),
+                () -> turnStore.update(requireTurn(accepted.id()).markDeliveryStarted(startedAt)));
     }
 
     @Override
@@ -1159,19 +1139,13 @@ public final class DefaultAgentTurnService
                 throw new AgentUnavailableException("Provider resumed a different session reference");
             }
             if (current.sessionReference().isEmpty()) {
-                Instant openedAt = Instant.now(clock);
-                EventId eventId = EventId.random();
-                unitOfWork.execute(() -> {
-                    outboxStore.insert(pendingLifecycle(
-                            eventId,
-                            current.id(),
-                            Optional.of(turnId),
-                            AgentEventPayload.LifecyclePhase.SESSION_OPENED,
-                            "Provider session opened",
-                            openedAt));
-                    return null;
-                });
-                eventService.drain(eventId);
+                eventCommitter.publish(pendingLifecycle(
+                        EventId.random(),
+                        current.id(),
+                        Optional.of(turnId),
+                        AgentEventPayload.LifecyclePhase.SESSION_OPENED,
+                        "Provider session opened",
+                        Instant.now(clock)));
             }
             return registered;
         }
@@ -1449,11 +1423,8 @@ public final class DefaultAgentTurnService
     }
 
     /**
-     * What a turn's end means for the queue behind it.
-     *
-     * <p>The input this turn was claimed from is settled by what the turn proves: never sent, it
-     * waits again as paused; sent but never acknowledged, nobody knows, so it is uncertain and
-     * only the user may discard it. Anything less than a clean success pauses the rest.
+     * What a turn's end means for the queue behind it: the input this turn was claimed from is
+     * settled by what the turn proves, and anything less than a clean success pauses the rest.
      */
     private void settleQueue(
             AgentTurn terminal,
@@ -1465,15 +1436,7 @@ public final class DefaultAgentTurnService
         boolean success = terminalState == TurnState.COMPLETED && providerQuiescent;
         for (QueuedAgentInput input : queueStore.listQueued(terminal.taskId())) {
             if (input.state() == QueuedAgentInput.State.STARTING && input.turnId().equals(Optional.of(terminal.id()))) {
-                if (terminal.knownUnsent() || terminal.startedAt().isEmpty()) {
-                    queueStore.update(input.paused(outcome, endedAt));
-                }
-                else if (terminal.providerTurnReference().isEmpty()) {
-                    queueStore.update(input.uncertain(outcome, endedAt));
-                }
-                else {
-                    queueStore.update(input.started(endedAt));
-                }
+                queueStore.update(input.settledBy(terminal, outcome, outcome, endedAt));
             }
             else if (input.state() == QueuedAgentInput.State.QUEUED && !success) {
                 queueStore.update(input.paused(

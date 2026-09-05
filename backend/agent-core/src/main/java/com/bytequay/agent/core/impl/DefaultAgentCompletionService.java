@@ -68,6 +68,7 @@ public final class DefaultAgentCompletionService
     private final AgentUnitOfWork unitOfWork;
     private final AgentEventOutboxStore outboxStore;
     private final AgentEventService eventService;
+    private final AgentEventCommitter eventCommitter;
     private final AgentFinalResponseReader finalResponseReader;
     private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
@@ -97,6 +98,7 @@ public final class DefaultAgentCompletionService
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
+        this.eventCommitter = new AgentEventCommitter(unitOfWork, outboxStore, eventService);
         this.finalResponseReader = new AgentFinalResponseReader(logStore);
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
@@ -218,59 +220,40 @@ public final class DefaultAgentCompletionService
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireAbandonable(taskId);
             Instant failedAt = Instant.now(clock);
-            EventId eventId = EventId.random();
-            AgentTask failed = unitOfWork.execute(() -> {
-                AgentTask current = requireTask(taskId);
-                settleQueueForFailedTask(taskId, failedAt);
-                // The worktree is kept, not cleaned: the reason this task is stuck is that
-                // something may still have been writing to it, and that evidence is the point.
-                AgentTask terminal = taskStore.update(current.worktreeMutationClaim()
-                        .map(claim -> current.fail(
-                                reason,
-                                failedAt,
-                                failedAt.plus(RETENTION_PERIOD),
-                                claim))
-                        .orElseGet(() -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD))));
-                outboxStore.insert(pendingLifecycle(
-                        eventId,
-                        taskId,
-                        Optional.empty(),
-                        AgentEventPayload.LifecyclePhase.TASK_FAILED,
-                        reason,
-                        failedAt));
-                return terminal;
-            });
-            eventService.drain(eventId);
-            return failed;
+            return eventCommitter.commit(
+                    pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.TASK_FAILED, reason, failedAt),
+                    () -> {
+                        AgentTask current = requireTask(taskId);
+                        settleQueueForFailedTask(taskId, failedAt);
+                        // The worktree is kept, not cleaned: the reason this task is stuck is that
+                        // something may still have been writing to it, and that evidence is the point.
+                        return taskStore.update(current.worktreeMutationClaim()
+                                .map(claim -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD), claim))
+                                .orElseGet(() -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD))));
+                    });
         }
     }
 
-    /** A terminal task cannot retain work that still looks resumable. */
+    /**
+     * A terminal task cannot retain work that still looks resumable. An input mid-claim is first
+     * settled by what its turn proves, and then discarded the way its settled state is discarded.
+     */
     private void settleQueueForFailedTask(TaskId taskId, Instant failedAt)
     {
         for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
-            switch (input.state()) {
-                case QUEUED, PAUSED -> queueStore.update(input.removed(failedAt));
-                case UNCERTAIN -> queueStore.update(input.abandoned("Task was marked failed without resending it", failedAt));
-                case STARTING -> settleStartingInputForFailedTask(input, failedAt);
-                case STARTED, REMOVED, ABANDONED -> {}
+            QueuedAgentInput settled = input.state() == QueuedAgentInput.State.STARTING
+                    ? queueStore.update(input.settledBy(
+                            turnStore.find(input.turnId().orElseThrow()).orElseThrow(),
+                            "Task was marked failed before the input was sent",
+                            "Task was marked failed while input delivery was unresolved",
+                            failedAt))
+                    : input;
+            switch (settled.state()) {
+                case QUEUED, PAUSED -> queueStore.update(settled.removed(failedAt));
+                case UNCERTAIN -> queueStore.update(settled.abandoned("Task was marked failed without resending it", failedAt));
+                case STARTING, STARTED, REMOVED, ABANDONED -> {}
             }
         }
-    }
-
-    private void settleStartingInputForFailedTask(QueuedAgentInput input, Instant failedAt)
-    {
-        boolean knownUnsent = turnStore.find(input.turnId().orElseThrow())
-                .map(turn -> turn.knownUnsent() || turn.startedAt().isEmpty())
-                .orElse(false);
-        if (knownUnsent) {
-            QueuedAgentInput paused = queueStore.update(input.paused("Task was marked failed before the input was sent", failedAt));
-            queueStore.update(paused.removed(failedAt));
-            return;
-        }
-        QueuedAgentInput uncertain = queueStore.update(input.uncertain(
-                "Task was marked failed while input delivery was unresolved", failedAt));
-        queueStore.update(uncertain.abandoned("Task was marked failed without resending it", failedAt));
     }
 
     /**

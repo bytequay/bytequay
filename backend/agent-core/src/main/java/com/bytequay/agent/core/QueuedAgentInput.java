@@ -123,6 +123,24 @@ public record QueuedAgentInput(
         return copy(State.STARTED, messageEventId, turnId, Optional.empty(), now);
     }
 
+    /**
+     * Settles a claimed input by what its turn durably proves: never sent, it waits again as
+     * paused; sent but never acknowledged, nobody knows, so it is uncertain and only the user may
+     * discard it; acknowledged, it was consumed.
+     */
+    public QueuedAgentInput settledBy(AgentTurn turn, String unsentReason, String unacknowledgedReason, Instant now)
+    {
+        requireNonNull(turn, "turn is null");
+        checkArgument(turnId.equals(Optional.of(turn.id())), "input was not claimed by turn %s", turn.id());
+        if (turn.knownUnsent() || turn.startedAt().isEmpty()) {
+            return paused(unsentReason, now);
+        }
+        if (turn.providerTurnReference().isEmpty()) {
+            return uncertain(unacknowledgedReason, now);
+        }
+        return started(now);
+    }
+
     public QueuedAgentInput paused(String reason, Instant now)
     {
         checkNotBlank(reason, "reason");

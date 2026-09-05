@@ -34,11 +34,15 @@ processes, interpret graph results, or expose graph tools.
 
 `CodeGraphService` owns:
 
-- initializing and incrementally refreshing one graph for a verified
-  `TaskWorktree`;
+- keeping one baseline index per repository at the fetched remote
+  default-branch commit;
+- preparing one graph for a verified `TaskWorktree` from that baseline and
+  synchronizing it before every query;
 - running bounded structural queries;
-- serializing refresh and query work for the same task;
-- deleting the derived graph index after successful worktree cleanup.
+- serializing refresh, preparation, and query work for the same repository
+  or task;
+- deleting the derived task index after successful worktree cleanup and the
+  baseline when its workspace is removed.
 
 `CodeGraphService` is application-scoped and holds no durable per-worktree
 registration. ByteQuay does not construct and retain a service object for
@@ -63,7 +67,13 @@ owner-only task runtime:
 
 ```text
 <task-runtime>/<task-id>/codegraph/
+<task-runtime>/<task-id>/codegraph.head
+<task-runtime>/<task-id>/codegraph-home/
 ```
+
+`codegraph.head` records the commit the index was last synchronized to and
+`codegraph-home` is the helper's scratch `HOME`; both are derived cache that
+task-runtime retention removes with the runtime.
 
 The repository baseline that every task index is cloned from lives beside
 the task runtimes:
@@ -113,6 +123,8 @@ The logical application contract is deliberately small:
 ```java
 public interface CodeGraphService
 {
+    boolean available();
+
     void refreshBaseline(RepositoryIdentity repository, Path repositoryDirectory, String defaultBranchCommit);
 
     void prepare(TaskWorktree worktree, TaskResources resources);
@@ -124,6 +136,11 @@ public interface CodeGraphService
     void deleteBaseline(RepositoryIdentity repository);
 }
 ```
+
+`available` is true when the pinned helper bundle is present and the
+CodeGraph setting is on. Every caller checks it first, so the setting is one
+switch: `off` omits the tool bridge and instruction from the next session
+open, skips `prepare` for new tasks, and idles the scheduled job.
 
 `refreshBaseline` is idempotent: it returns immediately when the baseline
 `HEAD` already equals the commit. Otherwise it takes the per-repository lock,
@@ -167,11 +184,14 @@ operation and retains no open per-worktree handle or daemon. Add an
 in-memory handle cache only if measurement shows reopening is material; any
 such cache remains reconstructable and is never durable ownership state.
 
-Expected operational failures use one narrow `CodeGraphException`. The
-service does not swallow them; the refresh, prepare, tool, and cleanup
-adapters catch that exception at the optional-capability boundary.
-Programming errors remain visible rather than being mislabeled as graph
-unavailability.
+Expected operational failures use one narrow `CodeGraphException`.
+`refreshBaseline` and `explore` throw it, and their callers catch it at the
+optional-capability boundary: the fetch hook logs a failed refresh, and the
+tool wrapper turns a failed query into tool text. `prepare`, `deleteIndex`,
+and `deleteBaseline` are best-effort inside the adapter, which logs and
+swallows their expected failures, because `agent-core` has no logging
+facility by design. Programming errors remain visible rather than being
+mislabeled as graph unavailability.
 
 Any later application workflow that calls this port follows the same rule:
 catch `CodeGraphException` at its optional-capability boundary, record the
@@ -184,7 +204,7 @@ module or general-purpose tool framework.
 
 The first adapter targets the pinned, audited 1.6.0 release of
 [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph) with the
-five-line external-index patch recorded in the implementation tracker. Its
+five-line external-index patch recorded in Section 13. Its
 CLI, storage, and result types remain behind this port so ByteQuay can
 replace it without changing agent or worktree contracts.
 
@@ -193,14 +213,19 @@ replace it without changing agent or worktree contracts.
 ### Baseline refresh
 
 The baseline for a repository is the index of `refs/remotes/origin/<default-branch>`.
-It changes only when a fetch shows that branch gained commits. Two things
-fetch: the fetches ByteQuay already performs before provisioning a worktree
-for an interactive task, CI Autofix, or cherry-pick, and one scheduled job
-for repositories whose workspace has the graph on, at application start and
-then hourly by default. After either, the application compares the fetched
-commit with the baseline `HEAD` and calls `refreshBaseline` on a virtual
-thread when they differ. The refresh is the only network-adjacent activity
-the feature adds; it never runs on a turn path.
+It changes only when a fetch shows that branch gained commits. The hook sits
+on the workspace code synchronization, which fetches the managed
+repository's remotes when a workspace is first used, when the workspace
+service's own refresh cycle finds the code stale, before every CI Autofix
+start, and in the commit-history refresh: after each, the application
+resolves the fetched default-branch commit, compares it with the baseline
+`HEAD`, and calls `refreshBaseline` on a virtual thread when they differ.
+Interactive and cherry-pick task creation do not fetch; they start from the
+last synchronized commit. One scheduled job drives the same synchronization for every workspace hourly by default,
+one minute after application start, and only while the helper is available,
+the CodeGraph setting is on, a GitHub account is configured, and quiet hours
+are not active. That job is the only network activity the feature adds; it
+never runs on a turn path.
 
 ### Task creation
 
@@ -261,9 +286,6 @@ supported files into about 360,000 nodes and 1.13 million edges.
 | Initial full index | about 39–40 seconds |
 | Existing index, no source change | about 0.49–0.54 seconds |
 | Existing index, one small Java edit | about 0.94–1.06 seconds |
-
-The resulting index occupied about 1.28 GB. These measurements are a reference
-baseline, not a cross-machine service-level objective.
 
 The resulting index occupied about 1.28 GB. These measurements are a reference
 baseline, not a cross-machine service-level objective. They originally
@@ -328,8 +350,8 @@ stays as a floor, not a claim.
 trace questions, two repetitions per arm, every answer correct on all
 required anchors. Medians per run: 4.5 tool calls and 25 s with the graph
 against 9.5 and 37 s without, 139k against 174k input tokens. The deepest
-trace needed 7–13 tool calls with the graph against 26–29 without. Details
-are in the implementation tracker.
+trace needed 7–13 tool calls with the graph against 26–29 without. The
+probe's method, medians, and caveats are in Section 12.
 
 ## 6. Agent tools
 
@@ -361,34 +383,42 @@ indefinitely, fail the turn, or require the agent to use CodeGraph.
 ### Provider bridge
 
 The current no-business-tool boundary in `agent-service.md` remains the
-default; this design supersedes it only for this one optional tool on a lane
-whose task-scoped bridge passes the reference compatibility fixture and its
-running preflight. ByteQuay adds one narrow, optional task tool bridge to
+default; this design supersedes it only for this one optional tool. ByteQuay
+adds one narrow, optional task tool bridge to
 `AgentSessionContext`, containing the fixed schema, its task-bound callback,
 and the managed instruction. It does not add a model-controlled registry or
 a general application-tool framework.
 
 Both lanes reach the tool through the same ByteQuay task MCP endpoint, the
 strict, capability-token-protected boundary that already serves Claude's
-permission prompt. Claude sees the tool through the existing broker. For
-Codex the pinned v0.151.0 bindings carry the `dynamicToolCall` item but no
-dynamic-tool registration method, while Codex 0.152.1 supports
-streamable-HTTP MCP servers with `bearer_token_env_var` and `http_headers`;
-the per-task Codex config therefore points at the same endpoint, and the
-Codex isolation check changes from "no MCP servers" to "exactly the ByteQuay
-task server". `agent-core` owns the task binding and callback; `app`
-supplies the concrete `CodeGraphService`. The model never receives the
-callback token or filesystem identity.
+permission prompt. Claude sees the tool through the existing broker, allowed
+as `mcp__bytequay__codegraph_explore` for the root agent. The pinned Codex
+0.151.0 bindings carry the `dynamicToolCall` item but no dynamic-tool
+registration method, while Codex 0.152.1 supports streamable-HTTP MCP
+servers, so a bridged Codex launch adds one `mcp_servers.bytequay` entry as
+launch overrides: the endpoint URL, the bearer token read from the App Server
+process environment rather than the command line, and the managed
+instruction as `developer_instructions`. The broker registers a
+CodeGraph-only token for that session that exposes no permission tool. The
+per-thread configuration override that otherwise pins the MCP map empty
+leaves it to the launch flags on such a launch, and the isolation guard
+requires the effective configuration and the thread's `mcpServerStatus/list`
+to show exactly the `bytequay` server, or none on an unbridged launch.
+`agent-core` owns the task binding and callback; `app` supplies the concrete
+`CodeGraphService`. The model never receives the callback token or
+filesystem identity.
 
-Before constructing provider session configuration, ByteQuay starts and
-self-tests the optional bridge and its fixed schema; this does not start the
-graph executable or touch an index. If registration or self-test fails, it
-omits the tool and its managed instruction and opens the normal provider
-session. If the provider explicitly rejects that optional tool configuration,
-ByteQuay discards it and retries the provider open once without the tool or
-instruction. Unrelated provider failures remain provider failures. CodeGraph
-is not part of `AgentDriver.probe()` or lane readiness, so an absent
-executable or unsupported graph transport never disables a lane.
+The bridge is present when the task has a persisted `TaskWorktree` and the
+service is available, that is, the helper bundle is present and the setting
+is on. There is no separate preflight or self-test: the bridge rides on the
+same registration as the permission prompt, which cannot fail without
+failing the session open, and it never starts the graph executable or
+touches an index. Without the bridge the session opens without the tool and
+instruction. A provider that rejects the configuration fails the turn the
+way any launch failure does; there is no retry without the tool. Unrelated
+provider failures remain provider failures. CodeGraph is not part of
+`AgentDriver.probe()` or lane readiness, so an absent helper never disables
+a lane.
 
 The initial version guarantees the bridge for the task's root agent only.
 Provider-managed child agents continue with normal source tools unless a
@@ -416,9 +446,10 @@ The managed instruction is:
 > yourself, invoke its CLI directly, or provide repository paths to it; use
 > only the managed tool.
 
-The instruction is versioned by ByteQuay and applied on initial and resumed
-provider sessions only when the task-scoped tool bridge passed preflight and
-the workspace's graph setting is on. A provider lane that cannot guarantee
+The instruction is applied on initial and resumed provider sessions only
+when the bridge is present: Claude receives it through
+`--append-system-prompt`, Codex through the `developer_instructions` launch
+override. A provider lane that cannot guarantee
 the managed instruction and task-scoped tool boundary omits CodeGraph
 without becoming unavailable.
 
@@ -429,8 +460,8 @@ without becoming unavailable.
 | Baseline refresh | Keep the previous baseline; the atomic rename never exposes a partial one; log and retry on the next fetch that moves the branch |
 | Task preparation | Task creation and turns are unchanged; the first tool call builds lazily and may retry |
 | Explore synchronization, rebuild, or query | Return a recoverable tool error; agent continues |
-| Corrupt/incompatible task index | Delete the derived index and return unavailable; a later call may rebuild from the baseline |
-| Tool-bridge registration or preflight | Construct provider configuration without the CodeGraph tool or instruction and start the turn normally |
+| Corrupt/incompatible task index | Discard the derived index and rebuild it inside the same call; the result is the query or a bounded tool error |
+| Helper absent or setting off | Open the provider session without the CodeGraph tool or instruction and start the turn normally |
 | Index or baseline deletion | Keep the successfully cleaned worktree or removed workspace result; task-runtime retention later removes a leftover task index |
 
 No graph failure creates a task recovery mode. Repeated graph failure does not
@@ -440,8 +471,15 @@ without changing the meaning or outcome of that task.
 ## 9. Security and privacy
 
 - Bind every operation server-side to one persisted canonical `TaskWorktree`.
-- Give the graph process read-only source access and write access only to its
-  task-owned index directory.
+- Run every helper process under a macOS `sandbox-exec` profile built for
+  that run: network denied; every write denied except the index directory,
+  the helper's scratch home, and `/dev/null`; every read below the agent
+  runtime root and the workspace root denied except the source, its git
+  common directory, and that index and scratch home, with only the metadata
+  of the directories a path lookup traverses re-allowed. Other tasks'
+  runtimes, other worktrees, task logs, and provider files stay unreadable.
+  `sandbox-exec` is deprecated but functional on current macOS; without it
+  every helper operation fails as an expected CodeGraph failure.
 - Do not expose a model-controlled project path or cross-project query.
 - Deny network access and disable telemetry, update checks, and downloads.
 - Pin and verify the graph executable or library version.
@@ -500,8 +538,8 @@ insufficient.
 10. Missing graph binaries and refresh, preparation, and query failures
     become bounded unavailable/tool-error results without terminating the
     provider turn or changing lane readiness.
-11. Tool-bridge preflight failure starts the provider turn with the graph
-    tool and the graph managed instruction omitted.
+11. An absent helper or an off setting starts the provider turn with the
+    graph tool and the graph managed instruction omitted.
 12. Completion owns the task-local execution boundary across worktree cleanup
     and best-effort graph deletion, so no graph query races worktree removal.
 13. Graph deletion failure is observable but does not fail already-successful
@@ -515,8 +553,8 @@ insufficient.
     or leaves it untouched.
 17. With a current baseline, the first graph call in an interactive task
     costs the query alone.
-18. The scheduled fetch never runs on a turn path and is skipped for a
-    workspace whose graph setting is off.
+18. The scheduled fetch never runs on a turn path and is skipped while the
+    CodeGraph setting is off.
 19. The Section 12 counters fold from persisted events, so replay and
     recovery produce the same numbers.
 20. Performance tests record version, repository commit, hardware, wall time,
@@ -525,9 +563,8 @@ insufficient.
 
 ## 12. Benefit measurement
 
-Status: approved 2026-09-05 in the first-version form of Section 13; the
-`on`/`off` setting and the five counters are implemented, and the `compare`
-arm and the Settings table follow as CG7.
+Status: the `on`/`off` setting and the five counters shipped on 2026-09-05;
+the `compare` arm and the Settings table follow as CG7 after field data.
 
 CodeGraph earns its cost only if a turn that can use it needs fewer tokens,
 fewer exploration calls, and less time than a comparable turn that cannot. No
@@ -537,6 +574,12 @@ compare tasks that had the graph with tasks that did not, inside one
 workspace.
 
 ### Arm
+
+The first version has one global `codegraph` setting, `on` by default or
+`off`, read at each operation: `off` omits the bridge and instruction from
+the next session open, skips `prepare` for new tasks, and idles the
+scheduled job. No arm is stamped on tasks yet. The planned `compare` arm
+(CG7) follows.
 
 A `codegraph` setting selects `on` (default), `off`, or `compare`. At task
 creation ByteQuay stamps an immutable `codegraphArm` of `ON` or `OFF` on the
@@ -562,26 +605,31 @@ same numbers:
 | `codegraphFailures` | those that ended in a failed state |
 
 Child-agent events count toward the turn that owns them. Task totals sum the
-turn counters through the existing totals path. No new event kind, table, or
-history store is added.
+turn counters through the existing totals path, and the stored task summary
+carries them so a completed task's summary and totals stay equal; turn rows,
+task rows, and summaries written before the counters read as zero. No new
+event kind, table, or history store is added.
 
 ### Presentation
 
-- The task metrics footer and each finished turn's summary line append tool
-  calls, exploration actions, and either the graph calls with their seconds or
-  `CodeGraph off`.
-- A CodeGraph section in Settings holds the mode picker and one read-only
-  table per workspace: for each arm, task count, turn count, turns per task,
-  and medians per finished turn of input tokens, output tokens, tool calls,
-  exploration actions, and minutes, plus graph calls and seconds per turn for
-  `ON`. The table states that it is observational and flags an arm with fewer
-  than five tasks.
+- The task stats line under the composer appends `Tools N · Explored N` and
+  either `CodeGraph N calls · S s`, with a failed count when any failed,
+  `CodeGraph off` while the setting is off, or `CodeGraph unused`. Each
+  finished turn's footer appends its own tools and explored counts, and its
+  graph calls when it made any.
+- A CodeGraph card in Settings holds the on/off switch.
+- CG7 adds one read-only table per workspace: for each arm, task count, turn
+  count, turns per task, and medians per finished turn of input tokens,
+  output tokens, tool calls, exploration actions, and minutes, plus graph
+  calls and seconds per turn for `ON`. The table states that it is
+  observational and flags an arm with fewer than five tasks.
 
 The numbers are a comparison, not a verdict; different tasks, models, and
-prompts confound them. The opt-in developer benchmark in CG5 runs a fixed
-prompt set on a fixed repository commit under both arms and additionally
-records whether the produced change passes the repository's tests. Only that
-benchmark supports a claim in documentation.
+prompts confound them. The probe below is the only benchmark so far. A
+product-level benchmark that runs a fixed prompt set on a fixed repository
+commit under both arms and records whether the produced change passes the
+repository's tests belongs with CG7; only such a benchmark supports a claim
+in documentation.
 
 This section narrows the Section 10 exclusion of renderer-facing graph UI to
 management UI; the read-only readout and comparison table are permitted.
@@ -589,6 +637,47 @@ management UI; the read-only readout and comparison table are permitted.
 Deliberately not included: statistical tests, agent self-assessment,
 per-model or per-effort breakdown, a benefit badge, live per-turn charts, and
 export.
+
+### Probe (2026-09-04)
+
+A bounded first answer to "is the graph worth it", run before any product
+code: one repository, one model, exploration questions only, two runs per
+cell. Claude Code 2.1.260 headless with the `claude-sonnet` alias, built-in
+tools pinned to `Read`, `Grep`, and `Glob` so no subagent or shell could
+run, against a linked worktree of this repository at `1f6ab2fe2`. The graph
+arm added upstream's own MCP server with only `codegraph_explore` exposed
+and the Section 7 instruction; the other arm had neither. Three questions
+asked for cross-file traces with file and line citations: the Claude
+permission-prompt registration and driver flags, the Codex `dynamicToolCall`
+path to the transcript, and where `TurnMetrics` are computed, persisted, and
+displayed. Each answer was scored against three to five required anchors,
+and every one of the twelve scored full marks, so the comparison is about
+cost, not correctness. Medians per cell:
+
+| Question | Arm | Tool calls | Graph calls | Seconds | Input tokens | Output tokens |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Q1 | no graph | 3.5 | 0 | 30 | 119k | 2.0k |
+| Q1 | graph | 2.5 | 1.0 | 23 | 65k | 1.8k |
+| Q2 | no graph | 27.5 | 0 | 72 | 527k | 6.1k |
+| Q2 | graph | 10.0 | 2.0 | 42 | 321k | 3.4k |
+| Q3 | no graph | 9.5 | 0 | 37 | 174k | 2.8k |
+| Q3 | graph | 4.5 | 1.5 | 25 | 139k | 1.8k |
+| all six | no graph | 9.5 | 0 | 37 | 174k | 2.8k |
+| all six | graph | 4.5 | 1.5 | 25 | 139k | 1.9k |
+
+The graph arm used one or two graph calls, then verified with `Read`, and
+needed about half the tool calls and wall time overall, with the largest
+gap on the deepest trace. Cost was not compared: cache accounting prices
+first-turn cache creation above later reads and the two arms have different
+prompt prefixes, so differences of a few cents are not signal.
+
+Caveats an in-app comparison must not inherit: upstream's MCP server also
+injected a 5,787-character server instruction into the graph arm; each
+`codegraph_explore` result was about 25 KB, which the shipped adapter caps
+at 16 KB; and no question required an edit, a test run, or a second turn. A
+first probe without the tool pin was discarded because three of six runs
+delegated to a background subagent and returned no answer, which is itself
+a reason the product bridge is root-agent only.
 
 ## 13. First version
 
@@ -619,17 +708,21 @@ means "none". Tasks never modify it.
 The baseline is refreshed only when a fetch shows that the remote default
 branch gained commits. Two things fetch:
 
-1. The fetches ByteQuay already performs. Interactive task creation, CI
-   Autofix, and cherry-pick each fetch their exact commit on the managed
-   repository before provisioning a worktree. After any of them, ByteQuay
-   compares `origin/<default-branch>` with the baseline `HEAD` and schedules
-   a refresh on a virtual thread when they differ.
-2. One scheduled job for repositories whose workspace has the graph on: it
-   fetches the default branch at application start and then hourly, a
-   configurable interval, and runs the same comparison. This is the only
-   network activity the feature adds, it never runs on a turn path, and it
-   follows the earlier decision that freshness comes from a background fetch
-   rather than a per-turn one.
+1. The fetches ByteQuay already performs. The workspace code
+   synchronization fetches the managed repository's remotes when a workspace
+   is first used, when the workspace service's own refresh cycle finds the
+   code stale, before every CI Autofix start, and in the commit-history
+   refresh. After each, ByteQuay resolves `origin/<default-branch>`, compares
+   it with the baseline `HEAD`, and schedules a refresh on a virtual thread
+   when they differ.
+2. One scheduled job that drives the same workspace synchronization for
+   every workspace hourly by default (`bytequay.codegraph.baseline-interval`),
+   one minute after application start, and only while the helper is
+   available, the setting is on, a GitHub account is configured, and quiet
+   hours are not active; the start-up refresh comes from the workspace
+   service itself. This is the only network activity the feature adds, it
+   never runs on a turn path, and it follows the earlier decision that
+   freshness comes from a background fetch rather than a per-turn one.
 
 A refresh runs under a per-repository lock:
 
@@ -683,10 +776,11 @@ records that a prepare or refresh ran.
   No `codegraph_refresh`, no pre-turn hook, no turn-service seam. An
   unchanged sync costs 0.14 s here and 0.5 s on Trino.
 - **Expected first-call latency.** Baseline current, the normal case because
-  the hourly job and the creation fetch keep it so: the query itself,
-  0.25–1.6 s. Remote moved since the last refresh: the creation fetch
-  triggers a refresh of seconds before the clone, usually finished before the
-  agent's first call. Drift above five percent, about a day of Trino
+  the workspace refresh cycle and the hourly job keep it so: the query
+  itself, 0.25–1.6 s. Remote moved since the last refresh: the
+  synchronization that saw it triggers a refresh of seconds, and a task
+  created meanwhile clones the previous baseline and syncs the difference.
+  Drift above five percent, about a day of Trino
   commits with the application closed, or a repository with no baseline
   yet: a 38–42 s build in the background at creation, hidden whenever the
   first graph call comes later than that.
@@ -713,21 +807,73 @@ staleness sweep is not part of the first version.
 ### Provider bridge, metrics, packaging
 
 - **One bridge.** The existing ByteQuay task MCP endpoint gains the tool;
-  Claude sees it through the current broker, Codex through one `mcp_servers`
-  entry in its per-task config with the bearer header, and the compatibility
-  fixture asserts exactly that server. Root agent only.
-- **Metrics.** An `on`/`off` setting and the five Section 12 counters shown
-  in the task footer. `off` also skips `prepare`. The `compare` arm and the
-  Settings table wait for CG7.
-- **Packaging.** Ship the pinned darwin-arm64 platform bundle with its own
-  Node runtime, 278 MB unpacked and 58 MB compressed, through the same
-  `extraResource` path as the backend jar. Running the bundle on Electron's
-  own Node would save 117 MB, but commander misparses the arguments under
-  `ELECTRON_RUN_AS_NODE` and five wrapper variants did not fix it; deferred.
+  Claude sees it through the current broker, Codex through `mcp_servers`
+  launch overrides with the bearer token in the process environment, and the
+  isolation guard asserts exactly that server, as Section 6 details. The
+  Codex compatibility script gained a code-graph launch profile for its live
+  gate, which pins the 0.151.0 binary and needs a signed-in profile, so that
+  gate has not run for it. Root agent only.
+- **Metrics.** An `on`/`off` setting and the five Section 12 counters in the
+  task stats line and turn footers. `off` also skips `prepare` and idles the
+  scheduled job. The `compare` arm and the Settings table wait for CG7.
+- **Packaging.** `scripts/codegraph-bundle.mjs` fetches
+  `@colbymchenry/codegraph-<platform>@1.6.0` from the npm registry by its
+  recorded sha512 integrity, for darwin-arm64 and darwin-x64, into the
+  gitignored `frontend/vendor/codegraph/`, refuses on mismatch, applies the
+  patch below with an assertion that the original text is present, and
+  writes a marker so reruns are no-ops. `dev.sh` and the forge
+  `generateAssets` hook run it, and `extraResource` ships the bundle to
+  `Contents/Resources/codegraph` beside the backend jar; the backend locates
+  it through `bytequay.codegraph.home`, and an absent or invalid home means
+  unavailable, never an error. The bundle is self-contained, 278 MB unpacked
+  and 58 MB compressed: a Node 24 runtime, the Rust kernel as a Node addon,
+  tree-sitter grammars, and `bin/codegraph`; the packaged copy printed its
+  version with an empty `PATH`, a throwaway `HOME`, and no writes. Only the
+  platform bundle ships, never the npm shim, which self-downloads from GitHub
+  Releases. Running the bundle on Electron's own Node would save 117 MB, but
+  commander misparses the arguments under `ELECTRON_RUN_AS_NODE` and five
+  wrapper variants did not fix it; deferred.
+- **Helper environment.** Every run sets `HOME` to the scratch home,
+  `CODEGRAPH_DATA_DIR` to the index directory, `DO_NOT_TRACK`,
+  `CODEGRAPH_NO_UPDATE_CHECK`, `CODEGRAPH_NO_DOWNLOAD`, `CODEGRAPH_NO_WATCH`,
+  `CODEGRAPH_NO_DAEMON`, and `NO_COLOR`, and runs under the Section 9
+  sandbox. Upstream otherwise writes `~/.codegraph` for its update-check
+  cache, daemon registry, and beta-signup marker; with this environment it
+  writes nothing under `HOME`.
+
+### The external-index patch
+
+`CODEGRAPH_DIR` rejects absolute paths and path separators by design, so
+upstream cannot place the index outside the source root. Every index path
+in the bundle derives from one function, `getCodeGraphDir(projectRoot)` in
+`lib/dist/directory.js`, so the audited patch is five lines:
+
+```diff
+--- a/lib/dist/directory.js
++++ b/lib/dist/directory.js
+@@ -126,6 +126,11 @@
+  * Get the .codegraph directory path for a project
+  */
+ function getCodeGraphDir(projectRoot) {
++    // ByteQuay patch: an absolute CODEGRAPH_DATA_DIR keeps the index outside the source root.
++    const external = process.env.CODEGRAPH_DATA_DIR?.trim();
++    if (external && path.isAbsolute(external)) {
++        return external;
++    }
+     return path.join(projectRoot, codeGraphDirName());
+ }
+```
+
+With the variable set, `isInitialized(anyPath)` is true for every path, so
+the adapter always passes the worktree path explicitly and never relies on
+the cwd walk-up.
 
 ### Reconciled
 
 Sections 1, 4, 5, 6, 7, 8, 10, and 11 were rewritten on 2026-09-05 to match
 this section; the per-worktree index, the fail-open contract, the security
 bounds, and the storage-outside-the-worktree rule were unchanged by the
-redesign.
+redesign. After the implementation shipped the same day, Sections 2, 3, 4,
+5, 6, 7, 8, 9, 11, 12, and this section were reconciled with the code and
+the temporary implementation tracker was deleted; its evidence lives in
+Sections 5, 12, and 13.

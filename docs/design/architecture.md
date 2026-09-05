@@ -245,8 +245,9 @@ extension point currently justified.
 7. Phase one uses only provider-native tools under the selected task sandbox
    and approval policy. ByteQuay does not expose product actions as
    model-callable tools; GitHub writes remain behind direct product actions.
-   The CodeGraph design may add only its two fixed,
-   optional structural-exploration tools after their compatibility gate.
+   The CodeGraph service adds exactly one fixed, optional, fail-open
+   structural-exploration tool, `codegraph_explore`, behind its own
+   isolation gate.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 
@@ -388,8 +389,9 @@ React projection implement this end-to-end flow:
 10. Phase one stops at the stock App Server harness. It
     does not register ByteQuay actions as model-callable tools or add custom
     product-tool routing. The CodeGraph service is the only narrow
-    exception: two fixed, fail-open structural tools after the base protocol,
-    event streaming, approvals, and recovery paths work end to end.
+    exception: one fixed, fail-open structural tool, added after the base
+    protocol, event streaming, approvals, and recovery paths worked end to
+    end.
 
 The detailed backend contract is in
 [Agent Service Design](agent-service.md); the frontend behavior is in
@@ -416,7 +418,7 @@ The detailed backend contract is in
 - Stock provider tool workloads run through the selected sandbox and approval
   policy. App Server and Claude retain the provider traffic their control loops
   require; endpoint-level OS filtering is not claimed by this first design.
-  ByteQuay product-action tools are deferred. The optional two-tool CodeGraph
+  ByteQuay product-action tools are deferred. The optional one-tool CodeGraph
   boundary is specified separately and remains fail-open. Directly owned App
   Server and Claude processes use durable launch intents/markers. Codex first
   closes the recursive item-history and background-terminal inventories, then

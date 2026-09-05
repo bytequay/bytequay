@@ -182,11 +182,11 @@ require a separate later design. Claude's task-scoped permission callback is
 only an approval transport adapter, not a product tool.
 
 The [CodeGraph Service](codegraph-service.md) is the one narrow later
-exception to this baseline: after its own compatibility and isolation gates,
-ByteQuay may expose exactly two optional, fail-open structural-exploration
-tools. They perform no product action and do not create a general tool
-registry. Every other business MCP, dynamic tool, and workflow action remains
-outside this contract.
+exception to this baseline: behind its own isolation gate, ByteQuay exposes
+exactly one optional, fail-open structural-exploration tool,
+`codegraph_explore`. It performs no product action and does not create a
+general tool registry. Every other business MCP, dynamic tool, and workflow
+action remains outside this contract.
 
 SQLite stores durable task/turn lifecycle facts, provider session references,
 per-turn metrics, task totals, runtime-retention state, and the final summary. Detailed active-task
@@ -2562,7 +2562,7 @@ The driver normalizes these App Server events:
 | `item/started` and `item/completed` for `commandExecution` | Command start and terminal result |
 | `item/commandExecution/outputDelta` | Incremental stdout/stderr output |
 | `fileChange` items and `turn/diff/updated` | File change and aggregated diff |
-| `mcpToolCall` and experimental `dynamicToolCall` items | Disabled by the base agent release; the separately gated CodeGraph design may enable and normalize only its two fixed optional tools |
+| `mcpToolCall` and experimental `dynamicToolCall` items | Disabled by the base agent release; the separately gated CodeGraph bridge enables and normalizes only its one fixed optional tool |
 | `webSearch` and `imageView` items | Search/view activity and terminal result |
 | synchronous `hook/started` and `hook/completed` notifications | Reserved for a future approved profile; the first-release strict profile requires `hooks/list` to be empty and advertises no Codex hook lifecycle |
 | V1 `collabAgentToolCall` with `tool: "spawnAgent"`, `senderThreadId`, `receiverThreadIds[]`, and `agentsStates` | Child discovery and direct parent relation; other collaboration tools update activity but never manufacture a parent/child edge; child content comes from child history |
@@ -2642,8 +2642,8 @@ first-release process profile enforces a destination allowlist for that control
 traffic. The driver sets `approvalsReviewer: "user"` at start, resume, and turn
 start so approval requests remain visible to ByteQuay. ByteQuay adds no general
 custom tool router, semantic Git-command policy, or post-turn Git workflow in
-this phase. The separately gated CodeGraph bridge remains limited to its two
-fixed structural tools.
+this phase. The separately gated CodeGraph bridge remains limited to its one
+fixed structural tool.
 
 Each task connection maintains its own root-thread, active-turn, and
 known-child registry. A task event that arrives for an unknown child is held in
@@ -3533,8 +3533,7 @@ proved:
    built-in tool calls run through the task-owned process and worktree and produce
    typed progress and terminal events; no ByteQuay business MCP/dynamic tool,
    lifecycle hook, or Code Mode host is registered for Codex, except that the
-   CodeGraph compatibility gate may enable exactly its two
-   fixed optional structural tools;
+   CodeGraph bridge enables exactly its one fixed optional structural tool;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
    sandbox settings; attended `AUTO` uses CLI `manual` mode so sandbox escapes

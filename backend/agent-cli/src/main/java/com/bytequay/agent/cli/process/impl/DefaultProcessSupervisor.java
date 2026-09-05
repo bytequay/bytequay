@@ -230,9 +230,9 @@ public final class DefaultProcessSupervisor
                     "Replayed a durable terminal receipt");
         }
         if (phase == LaunchPhase.PREPARED && !released) {
-            // The gate file is the only way a launcher can reach the payload, and it was never
-            // written. Cancelling the gate also stops a launcher that spawned before the crash but
-            // never recorded its identity.
+            // Release requires a durable GO gate, and it was never written. STOP also prevents
+            // release of an unrecorded launcher, whose read ends on the old backend's pipe EOF
+            // or the gate timeout.
             store.writeGate(launchId, LaunchMarkerStore.CANCEL);
             return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gate was never released");
         }
@@ -536,11 +536,13 @@ public final class DefaultProcessSupervisor
                 store.write(recorded);
                 released = true;
                 store.writeGate(launchId(), LaunchMarkerStore.RELEASE);
+                launcher.getOutputStream().write((LaunchMarkerStore.RELEASE + "\n").getBytes(StandardCharsets.UTF_8));
+                launcher.getOutputStream().flush();
                 recorded = recorded.withPhase(LaunchPhase.RUNNING);
                 store.write(recorded);
                 return new DefaultManagedProcess(recorded, launcher, identity.pid(), group, spec, output);
             }
-            catch (RuntimeException failure) {
+            catch (IOException | RuntimeException failure) {
                 abort(launcher, recorded, released);
                 throw failure instanceof AgentUnavailableException unavailable
                         ? unavailable
@@ -572,6 +574,7 @@ public final class DefaultProcessSupervisor
             }
             store.writeGate(launchId(), LaunchMarkerStore.CANCEL);
             try {
+                launcher.getOutputStream().close();
                 if (!launcher.waitFor(LAUNCHER_EXIT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
                     launcher.destroyForcibly();
                 }
@@ -582,6 +585,9 @@ public final class DefaultProcessSupervisor
             }
             catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                launcher.destroyForcibly();
+            }
+            catch (IOException e) {
                 launcher.destroyForcibly();
             }
             intents.forget(launchId());
@@ -599,7 +605,6 @@ public final class DefaultProcessSupervisor
                                 "bytequay-launch",
                                 store.gateFile(launchId()).toString(),
                                 store.identityFile(launchId()).toString(),
-                                Long.toString(ProcessHandle.current().pid()),
                                 executable);
                 spec.argv().stream().skip(1).forEach(argv::add);
                 ProcessBuilder builder = new ProcessBuilder(argv.build())
@@ -891,10 +896,15 @@ public final class DefaultProcessSupervisor
         {
             while (observingDescendants.get()) {
                 try {
-                    launcher.toHandle().descendants().forEach(this::rememberDescendant);
+                    // The outer launcher can still be reaping its identity-file publisher. Only
+                    // the gated payload's descendants can belong to the provider's task tree.
+                    launcher.children()
+                            .filter(child -> child.pid() == payloadPid)
+                            .flatMap(ProcessHandle::descendants)
+                            .forEach(this::rememberDescendant);
                 }
                 catch (RuntimeException failure) {
-                    markDescendantTrackingIncomplete();
+                    markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
                     return;
                 }
                 if (!sleep(10)) {
@@ -914,7 +924,7 @@ public final class DefaultProcessSupervisor
                 // Only control-only launches can ignore that race; task owners still fail closed
                 // because the unseen child could have detached before it was inspected.
                 if (!controlOnly(spec.owner()) || descendant.isAlive()) {
-                    markDescendantTrackingIncomplete();
+                    markDescendantTrackingIncomplete("Unable to read the start token for descendant " + descendant.pid());
                 }
                 return;
             }
@@ -935,9 +945,10 @@ public final class DefaultProcessSupervisor
                             && owner.id().equals(CODEX_MODEL_CATALOG_OWNER);
         }
 
-        private void markDescendantTrackingIncomplete()
+        private void markDescendantTrackingIncomplete(String detail)
         {
             observingDescendants.set(false);
+            log.warn("Process launch {} for {}/{} has incomplete descendant tracking: {}", marker.launchId(), spec.owner().kind(), spec.owner().id(), detail);
             synchronized (markerLock) {
                 marker = marker.withIncompleteDescendantTracking();
                 store.write(marker);
@@ -952,7 +963,7 @@ public final class DefaultProcessSupervisor
             }
             catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                markDescendantTrackingIncomplete();
+                markDescendantTrackingIncomplete("Interrupted while waiting for the descendant observer");
             }
             CompletableFuture.allOf(stdoutDone, stderrDone).whenComplete((ignored, failure) -> {
                 try {

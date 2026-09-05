@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -327,6 +328,106 @@ class TestDefaultProcessSupervisor
 
         assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
         assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().descendants()).isPresent();
+    }
+
+    @Test
+    void tracksPayloadDescendantsWithoutTheLaunchersIdentityPublisher()
+            throws Exception
+    {
+        Path publisher = worktree.resolve("mv");
+        Files.writeString(publisher, """
+                #!/bin/sh
+                printf '%s' "$$" > "$0.pid"
+                /bin/mv "$@"
+                /bin/sleep 30
+                """);
+        assertThat(publisher.toFile().setExecutable(true)).isTrue();
+        StringBuilder output = new StringBuilder();
+        CountDownLatch childReported = new CountDownLatch(1);
+        ProcessSpec spec = new ProcessSpec(
+                new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"),
+                ImmutableList.of("/bin/sh", "-c", "sleep 30 & printf '%s\\n' \"$!\"; read value"),
+                worktree,
+                ImmutableMap.of("PATH", worktree + ":/usr/bin:/bin"),
+                1024,
+                1024,
+                Duration.ofSeconds(20),
+                Duration.ofMillis(100));
+        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {
+            output.append(StandardCharsets.UTF_8.decode(bytes));
+            if (output.indexOf("\n") >= 0) {
+                childReported.countDown();
+            }
+        });
+        try {
+            assertThat(childReported.await(5, TimeUnit.SECONDS)).isTrue();
+            long childPid = Long.parseLong(output.toString().trim());
+            LaunchMarkerStore store = new LaunchMarkerStore(launches);
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (store.read(process.launchId()).orElseThrow().descendants().orElseThrow().stream().noneMatch(identity -> identity.pid() == childPid)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            long publisherPid = Long.parseLong(Files.readString(worktree.resolve("mv.pid")));
+            assertThat(store.read(process.launchId()).orElseThrow().descendants().orElseThrow())
+                    .extracting(ProcessIdentity::pid)
+                    .contains(childPid)
+                    .doesNotContain(publisherPid);
+        }
+        finally {
+            process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
+        }
+        assertThat(process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS).treeTermination())
+                .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+    }
+
+    @Test
+    void verifiesTextOnlyTaskProcesses()
+            throws Exception
+    {
+        for (int index = 0; index < 10; index++) {
+            ManagedProcess process = supervisor
+                    .prepare(spec(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"), "read value; printf '%s' \"$value\""))
+                    .start((stream, bytes) -> {});
+            process.write(ByteBuffer.wrap("hello\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            assertThat(exit.treeTermination()).as("task launch %s", index).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+    }
+
+    @Test
+    void waitsForReleaseWithoutDescendantsAndExitsWhenInputCloses()
+            throws Exception
+    {
+        String script;
+        try (InputStream resource = DefaultProcessSupervisor.class.getResourceAsStream("launcher.sh")) {
+            script = new String(resource.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        Path identity = worktree.resolve("identity");
+        Path sentinel = worktree.resolve("payload-ran");
+        ProcessBuilder builder = new ProcessBuilder(
+                "/bin/bash", "-c", script, "bytequay-launch", worktree.resolve("gate").toString(), identity.toString(), "/usr/bin/touch", sentinel.toString());
+        builder.environment().clear();
+        builder.environment().put("PATH", "/usr/bin:/bin");
+        Process launcher = builder.start();
+        try {
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (!Files.exists(identity) && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            long payloadPid = Long.parseLong(Files.readString(identity).trim());
+            assertThat(ProcessHandle.of(payloadPid).orElseThrow().children()).isEmpty();
+            launcher.getOutputStream().close();
+
+            assertThat(launcher.waitFor(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(launcher.exitValue()).isEqualTo(70);
+            assertThat(awaitDead(payloadPid, Duration.ofSeconds(2))).isTrue();
+            assertThat(sentinel).doesNotExist();
+        }
+        finally {
+            launcher.descendants().forEach(ProcessHandle::destroyForcibly);
+            launcher.destroyForcibly();
+        }
     }
 
     @Test

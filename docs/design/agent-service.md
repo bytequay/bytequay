@@ -1450,6 +1450,13 @@ instead of a spawn-then-record race:
 5. only after `start` returns a `RUNNING` marker does the owning service commit
    `ATTEMPTING -> RUNNING`.
 
+The launcher waits with a shell builtin on its stdin pipe, without spawning
+polling helpers. After fsyncing the release gate, the supervisor writes one
+private release line before exposing stdin for provider protocol messages.
+EOF or a timeout exits without executing the payload. Descendant observation
+follows the payload subtree, excluding the outer launcher's PID-file publisher;
+launcher housekeeping cannot invalidate a task's process-stop receipt.
+
 A pre-spawn `PREPARED` marker is removable only after recovery proves no gated
 launcher exists. A crash after spawn but before identity fsync closes the gate,
 so the launcher exits without executing the payload. Once released, the marker

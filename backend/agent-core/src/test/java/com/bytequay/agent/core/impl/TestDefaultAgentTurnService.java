@@ -339,28 +339,28 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void namesTheTaskFromItsFirstAnswerOnce()
+    void doesNotUseTheFirstAnswerAsTheTaskTitle()
     {
         AgentTask interactive = interactiveTask("Investigate the flaky cherry-pick preview test and fix the root cause.");
-        assertThat(interactive.title()).isEqualTo("Investigate the flaky cherry-pick preview test and fix the root cause");
+        assertThat(interactive.title()).isEqualTo("Investigate the flaky cherry-pick…");
         assertThat(interactive.titleSource()).isEqualTo(TitleSource.PROVISIONAL);
 
         service.start(new StartAgentTurnCommand(interactive.id(), "first", ImmutableList.of(), "key-1"));
         driver.complete("The preview reads every commit body. Trimming it to the selection fixes the flake.");
 
-        AgentTask named = stores.find(interactive.id()).orElseThrow();
-        assertThat(named.title()).isEqualTo("The preview reads every commit body");
-        assertThat(named.titleSource()).isEqualTo(TitleSource.AGENT);
-        assertThat(named.worktreeMutationClaim()).isEmpty();
+        AgentTask afterFirstAnswer = stores.find(interactive.id()).orElseThrow();
+        assertThat(afterFirstAnswer.title()).isEqualTo(interactive.title());
+        assertThat(afterFirstAnswer.titleSource()).isEqualTo(TitleSource.PROVISIONAL);
+        assertThat(afterFirstAnswer.worktreeMutationClaim()).isEmpty();
 
         service.start(new StartAgentTurnCommand(interactive.id(), "second", ImmutableList.of(), "key-2"));
         driver.complete("Done. Nothing else to rename.");
 
-        assertThat(stores.find(interactive.id()).orElseThrow().title()).isEqualTo("The preview reads every commit body");
+        assertThat(stores.find(interactive.id()).orElseThrow().title()).isEqualTo(interactive.title());
     }
 
     @Test
-    void keepsAUserChosenTitleOverALaterProposal()
+    void keepsAUserChosenTitleAcrossTurnCompletion()
     {
         AgentTask interactive = interactiveTask("Fix the flaky preview");
         service.start(new StartAgentTurnCommand(interactive.id(), "first", ImmutableList.of(), "key-1"));

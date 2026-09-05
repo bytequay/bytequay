@@ -14,8 +14,8 @@
   "createResponse": {
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
-    "title": "deterministic: first",
-    "titleSource": "AGENT",
+    "title": "first",
+    "titleSource": "PROVISIONAL",
     "laneId": "codex",
     "defaults": {
       "model": "test-model",
@@ -361,6 +361,28 @@
       "eventId": "<event-id>",
       "sequence": 6,
       "taskId": "<task-id>",
+      "turnId": null,
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "TITLE_UPDATED",
+        "message": "Task title generated"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 7,
+      "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
         "providerThreadId": null,
@@ -382,7 +404,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 7,
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -404,7 +426,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -427,7 +449,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -451,7 +473,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 6,
+      "sequence": 7,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -474,7 +496,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 7,
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -496,7 +518,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -519,7 +541,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -542,7 +564,7 @@
   "sse": {
     "schemaVersion": 2,
     "eventId": "<event-id>",
-    "sequence": 6,
+    "sequence": 7,
     "taskId": "<task-id>",
     "turnId": "<turn-2>",
     "source": {
@@ -590,7 +612,7 @@
   "finalTask": {
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
-    "title": "deterministic: first",
+    "title": "Name first task",
     "titleSource": "AGENT",
     "laneId": "codex",
     "defaults": {
@@ -600,7 +622,7 @@
     },
     "state": "COMPLETED",
     "mutationClaim": null,
-    "version": 10,
+    "version": 11,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": "<timestamp>",

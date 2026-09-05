@@ -26,6 +26,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.TaskId;
@@ -37,6 +38,7 @@ import com.bytequay.agent.core.impl.DefaultAgentCompletionService;
 import com.bytequay.agent.core.impl.DefaultAgentEventService;
 import com.bytequay.agent.core.impl.DefaultAgentMetricsService;
 import com.bytequay.agent.core.impl.DefaultAgentTaskService;
+import com.bytequay.agent.core.impl.DefaultAgentTaskTitleService;
 import com.bytequay.agent.core.impl.DefaultAgentTurnService;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
@@ -235,6 +237,29 @@ public class AgentConfiguration
                 driverRegistry,
                 codeGraph,
                 command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command),
+                agentClock);
+    }
+
+    @Bean
+    public AgentTaskTitleService agentTaskTitleService(
+            AgentTaskStore taskStore,
+            AgentResourceService resourceService,
+            AgentDriverRegistry driverRegistry,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            AgentEventService eventService,
+            AgentRuntimeRegistry runtimeRegistry,
+            Clock agentClock)
+    {
+        return new DefaultAgentTaskTitleService(
+                taskStore,
+                resourceService,
+                driverRegistry,
+                unitOfWork,
+                outboxStore,
+                eventService,
+                runtimeRegistry,
+                command -> Thread.ofVirtual().name("bytequay-task-title").start(command),
                 agentClock);
     }
 

@@ -335,8 +335,8 @@ public record AgentTask(
     }
 
     /**
-     * Replaces the title. A person's choice is final; the agent may only propose over a
-     * provisional title, so a proposal that arrives after a rename changes nothing.
+     * Replaces the title. A person's choice is final; generation may replace only a provisional
+     * title, so a result that arrives after a rename changes nothing.
      */
     public AgentTask withTitle(String updatedTitle, TitleSource source, Instant now)
     {

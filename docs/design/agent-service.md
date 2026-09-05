@@ -18,9 +18,11 @@ surface as future work.
 ### Current situation
 
 - The Codex lane already uses the official App Server transport.
-  `CodexCliDriver` starts one task-owned
-  `codex app-server --listen stdio://` process per active turn, never more than
-  one for a task, rooted at that task's worktree. The next turn resumes the same
+  `CodexCliDriver` starts one task-owned execution
+  `codex app-server --listen stdio://` process per active turn, rooted at that
+  task's worktree. The only concurrent exception is the bounded, read-only title
+  helper described below; it runs in empty task-owned scratch and has no tools,
+  network, approvals, or resumable history. The next real turn resumes the same
   thread in a new matching-profile process. The driver persists Codex thread and
   turn references and maps App Server JSON-RPC notifications into
   `ProviderAgentEvent`.
@@ -76,10 +78,12 @@ pass through Codex App Server.
 
 The implementation therefore has these fixed boundaries:
 
-1. one task owns at most one App Server process for its active turn, and that
-   process serves no other task, so root and child thread IDs need no routing
-   between tasks; the process is verified stopped before the turn releases its
-   claim, and a later turn resumes the same provider thread in a new process;
+1. one task owns at most one worktree-capable App Server process for its active
+   turn, and that process serves no other task, so root and child thread IDs need
+   no routing between tasks; the process is verified stopped before the turn
+   releases its claim, and a later turn resumes the same provider thread in a new
+   process; a concurrent title helper is permitted only in its empty, read-only,
+   tool-free task-owned scratch directory;
 2. every interactive task is durably scoped to a ByteQuay workspace and a
    separate ByteQuay-provisioned worktree, and every accepted input, resolved
    approval, and child relationship is replayable from the task event
@@ -407,23 +411,20 @@ import java.util.List;
 public interface AgentTaskService
 {
     /**
-     * Creates a durable task and its separate managed worktree.
+     * Creates a workspace-owned interactive task and its separate managed worktree.
      *
-     * <p>The implementation validates the command and verifies that the lane
-     * is ready before asking {@link WorktreeService} to provision a generated
-     * branch/worktree at the app-resolved exact commit. It then allocates task
-     * resources, persists the task, and returns it. No provider turn is
-     * started. If creation fails after provisioning, cleanup is attempted with
-     * that returned {@link TaskWorktree} before the failure is propagated.
+     * <p>The app resolves the workspace and exact commit before constructing
+     * this path-free command. Core verifies lane readiness, provisions the
+     * worktree, allocates resources, and persists {@code OPEN} with a bounded
+     * first-message title whose source is {@code PROVISIONAL}. No provider turn
+     * is started by this method.
      *
-     * @param command ByteQuay-generated task ID, workspace, exact starting
-     * commit, requested lane, repository identity, title, and default
-     * model/effort/permission settings; no filesystem path
+     * @param command trusted workspace, exact commit, first message, lane, and defaults
      * @return the newly created task in {@code OPEN} state
-     * @throws InvalidAgentRequestException when the workspace, commit, or command is invalid
-     * @throws AgentConflictException when the derived task path or branch conflicts
-     * @throws AgentUnavailableException when the requested lane is unavailable
      */
+    AgentTask createInteractive(CreateInteractiveAgentTaskCommand command);
+
+    /** Creates a workflow-owned task whose caller supplies its final title. */
     AgentTask create(CreateAgentTaskCommand command);
 
     /**
@@ -2142,7 +2143,7 @@ coordinates the narrower interfaces shown in the last column.
 
 | Step | Frontend action | Public service method | Required internal calls and result |
 | --- | --- | --- | --- |
-| 1. Create | `POST /agent/tasks` with `workspaceId`, never a path | `AgentTaskService.create(CreateAgentTaskCommand)` | `app` resolves the workspace/repository and exact starting commit; core calls `AgentDriverRegistry.require(...)` and `AgentDriver.probe()` before `WorktreeService.provision(...)`, `AgentResourceService.allocate(...)`, and task publication; a failed readiness probe creates no worktree or runtime resource, and success persists `OPEN` only after `TaskWorktree` has been verified |
+| 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)`, `AgentTurnService.start(...)`, then `AgentTaskTitleService.generate(...)` | `app` resolves the workspace/repository and exact starting commit; core verifies readiness before provisioning and persists `OPEN` with a 36-character first-message fallback marked `PROVISIONAL`. The controller starts the idempotent initial turn, captures the response, and only for a new turn schedules best-effort naming. That disposable text-only session uses the same lane outside the task conversation; it may atomically replace only a still-provisional title and insert `TITLE_UPDATED`. Failure leaves the fallback, and a user rename always wins |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
@@ -2165,7 +2166,9 @@ sequenceDiagram
     actor User
     participant Desktop as React + Electron main
     participant Web as HTTP/SSE controller
+    participant Creator as InteractiveAgentTaskCreator
     participant Tasks as AgentTaskService
+    participant Titles as AgentTaskTitleService
     participant Worktree as WorktreeService
     participant Resources as AgentResourceService
     participant Drivers as AgentDriverRegistry
@@ -2179,30 +2182,43 @@ sequenceDiagram
     participant TurnStore as AgentTurnStore
     participant ApprovalStore
     participant Session as AgentSession
+    participant TitleSession as Disposable title session
     participant Run as RunningTurn
     participant Metrics as AgentMetricsService
     participant Approvals as AgentApprovalService
     participant Logs as TaskLogStore
     participant Completion as AgentCompletionService
 
-    User->>Desktop: Create agent task
+    User->>Desktop: Create task with first message
     Desktop->>Web: POST /agent/tasks
-    Web->>Tasks: create(CreateAgentTaskCommand)
-    Tasks->>Drivers: require(laneId)
-    Drivers-->>Tasks: AgentDriver
-    Tasks->>Driver: probe()
-    Driver-->>Tasks: AgentProviderStatus
+    Web->>Creator: create(taskId, workspaceId, message, lane, defaults, key)
+    Creator->>Tasks: createInteractive(CreateInteractiveAgentTaskCommand)
+    Tasks->>Drivers: require(laneId) + probe()
     Tasks->>Worktree: provision(ProvisionWorktreeCommand)
     Worktree-->>Tasks: TaskWorktree
     Tasks->>Resources: allocate(taskId)
-    Resources-->>Tasks: TaskResources
-    Tasks->>UoW: execute(create task + event)
-    UoW->>TaskStore: insert(openTask)
-    UoW->>Outbox: insert(taskCreatedEvent)
-    Tasks->>Events: drain(taskCreatedEventId)
-    Tasks-->>Web: AgentTask(OPEN)
+    Tasks->>UoW: persist OPEN + PROVISIONAL fallback
+    Tasks-->>Creator: AgentTask(OPEN)
+    Creator-->>Web: AgentTask(OPEN)
+    Web->>Turns: start(trusted initial message)
+    Turns-->>Web: initial AgentTurn
+    Web->>Tasks: get(taskId)
+    Tasks-->>Web: response snapshot
+    Web->>Titles: schedule generate(task, initialTurnId, firstMessage)
     Web-->>Desktop: 201 Created
     Desktop-->>User: Task created
+
+    par Background naming
+        Titles->>Resources: require(taskId) + create task-owned scratch
+        Titles->>Driver: open(text-only, isolated, no tools/write/network)
+        Driver-->>Titles: TitleSession
+        Titles->>TitleSession: start(first-message naming prompt)
+        TitleSession-->>Titles: short title or failure
+        Titles->>UoW: update PROVISIONAL title + insert TITLE_UPDATED
+        Titles->>Events: drain(titleUpdatedEventId)
+    and Initial turn
+        Note over Turns,Session: Runs through the same turn lifecycle below
+    end
 
     User->>Desktop: Open task
     Desktop->>Web: GET /agent/tasks/{taskId}/stream?after=0
@@ -3051,7 +3067,8 @@ safe to remove; the shared service has no force-removal operation.
 The public task-creation DTO contains the client-generated `taskId`,
 `workspaceId`, first `message`, immutable `laneId`, defaults, and an
 `idempotencyKey`, not a title or filesystem path. The first message provides
-the initial task label for now. `app` resolves the managed repository and exact
+the bounded provisional task label and the input to best-effort background
+title generation. `app` resolves the managed repository and exact
 starting commit, verifies the task belongs to that workspace, and only then
 builds the core command. Trusted internal workflow callers such as cherry-pick
 and CI Autofix supply their own already-frozen commit, but they use the same
@@ -3158,8 +3175,11 @@ The directory is outside every worktree:
     │   ├── attachments/<content-id>
     │   ├── queue/<content-id>
     │   └── events/<content-id>
-    └── provider/
-        └── scratch/
+    ├── provider/
+    │   └── scratch/
+    └── title-<request-id>/
+        ├── worktree/
+        └── provider/
 ```
 
 The task ID and content IDs are generated by ByteQuay, not supplied as paths.
@@ -3171,7 +3191,9 @@ Every resolved child is checked to remain under the configured runtime root.
 Attachment and event blobs share this root but use typed references,
 independent media/size validation, and separate subdirectories. Only a
 validated attachment owned by the task can be converted into a provider input
-path.
+path. A title helper's unique subtree is deleted after verified shutdown; if
+shutdown cannot be verified, it stays inside the owning task's resources until
+recovery and normal task cleanup can safely remove it.
 
 On successful completion, after the execution tree is quiescent and live queued
 work is empty:

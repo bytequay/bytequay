@@ -55,6 +55,7 @@ final class CodexIsolationGuard
     private final Path codexHome;
     private final CodexLaunchProfile.ChildProfile childProfile;
     private final Optional<URI> codeGraphEndpoint;
+    private final boolean textOnly;
 
     /**
      * @param codexHome the isolated home ByteQuay assigned to this process
@@ -65,10 +66,12 @@ final class CodexIsolationGuard
             Path codexHome,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        this(client, codexHome, childProfile, Optional.empty());
+        this(client, codexHome, childProfile, Optional.empty(), false);
     }
 
     /**
+     * @param codexHome the isolated home ByteQuay assigned to this process
+     * @param childProfile the exact feature profile selected from the model catalog
      * @param codeGraphEndpoint the one MCP server this launch may expose, ByteQuay's own task
      *        endpoint for the CodeGraph tool; every other MCP server is an isolation failure
      */
@@ -78,10 +81,28 @@ final class CodexIsolationGuard
             CodexLaunchProfile.ChildProfile childProfile,
             Optional<URI> codeGraphEndpoint)
     {
+        this(client, codexHome, childProfile, codeGraphEndpoint, false);
+    }
+
+    /**
+     * @param codexHome the isolated home ByteQuay assigned to this process
+     * @param childProfile the exact feature profile selected from the model catalog
+     * @param codeGraphEndpoint the one MCP server this launch may expose, ByteQuay's own task
+     *        endpoint for the CodeGraph tool; every other MCP server is an isolation failure
+     * @param textOnly whether the process must also prove every execution feature disabled
+     */
+    CodexIsolationGuard(
+            CodexAppServerClient client,
+            Path codexHome,
+            CodexLaunchProfile.ChildProfile childProfile,
+            Optional<URI> codeGraphEndpoint,
+            boolean textOnly)
+    {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
         this.childProfile = requireNonNull(childProfile, "childProfile is null");
         this.codeGraphEndpoint = requireNonNull(codeGraphEndpoint, "codeGraphEndpoint is null");
+        this.textOnly = textOnly;
     }
 
     /**
@@ -238,7 +259,7 @@ final class CodexIsolationGuard
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly).entrySet()) {
             JsonNode value = features.path(feature.getKey());
             if (!value.isBoolean() || value.asBoolean() != feature.getValue()) {
                 throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");

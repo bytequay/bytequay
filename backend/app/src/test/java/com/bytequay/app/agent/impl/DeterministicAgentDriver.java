@@ -188,12 +188,12 @@ public final class DeterministicAgentDriver
                 laneId,
                 1,
                 "deterministic-" + UUID.randomUUID()));
-        return new DeterministicSession(this, reference, events);
+        return new DeterministicSession(this, reference, events, context.textOnly());
     }
 
-    private RunningTurn start(AgentTurnCommand command, AgentEventSink events)
+    private RunningTurn start(AgentTurnCommand command, AgentEventSink events, boolean textOnly)
     {
-        String response = "deterministic: " + command.message();
+        String response = textOnly ? "Name first task" : "deterministic: " + command.message();
         events.emit(new ProviderAgentEvent.Message(
                 Optional.of("message-" + command.turnId()),
                 Optional.empty(),
@@ -219,13 +219,17 @@ public final class DeterministicAgentDriver
                 Duration.ZERO);
     }
 
-    private record DeterministicSession(DeterministicAgentDriver driver, AgentSessionRef reference, AgentEventSink events)
+    private record DeterministicSession(
+            DeterministicAgentDriver driver,
+            AgentSessionRef reference,
+            AgentEventSink events,
+            boolean textOnly)
             implements AgentSession
     {
         @Override
         public RunningTurn start(AgentTurnCommand command)
         {
-            return driver.start(command, events);
+            return driver.start(command, events, textOnly);
         }
 
         @Override

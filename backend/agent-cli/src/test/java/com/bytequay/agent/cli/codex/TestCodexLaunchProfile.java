@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -58,6 +59,22 @@ class TestCodexLaunchProfile
         assertThat(arguments).containsSequence("--disable", "multi_agent");
         assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
         assertThat(arguments).doesNotContain("agents.max_depth=2");
+    }
+
+    @Test
+    void disablesAndReportsEveryExecutionFeatureForTextOnlyRequests()
+    {
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "/usr/local/bin/codex",
+                CodexLaunchProfile.ChildProfile.NONE,
+                Optional.empty(),
+                true);
+
+        for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
+            assertThat(arguments).containsSequence("--disable", feature);
+            assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
+                    .containsEntry(feature, false);
+        }
     }
 
     private static void assertCommonIsolation(List<String> arguments)

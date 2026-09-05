@@ -16,10 +16,10 @@ package com.bytequay.agent.core;
 /**
  * Where a task's current title came from, which decides whether anything may still replace it.
  *
- * <p>An interactive task is created from its first message alone, so its title starts as that
- * message. The agent's first answer proposes a better one exactly once. A person's rename is final:
- * nothing the agent says afterwards replaces it. Tasks a workflow creates with a fixed title are
- * {@link #USER} from the start, because that title is not up for proposal either.
+ * <p>An interactive task is created from its first message alone, so its title starts as a bounded
+ * form of that message. A separate naming request may replace it exactly once. A person's rename is
+ * final: no later generated result replaces it. Tasks a workflow creates with a fixed title are
+ * {@link #USER} from the start, because that title is not up for replacement either.
  */
 public enum TitleSource
 {

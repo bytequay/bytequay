@@ -93,7 +93,7 @@ public final class DefaultAgentTaskService
                 command.workspaceId(),
                 command.physicalRepository(),
                 command.startCommit()));
-        // Named after its first message until the agent's first answer proposes something better.
+        // The dedicated naming request may replace this prompt fallback after creation returns.
         return createManaged(
                 command.taskId(),
                 true,

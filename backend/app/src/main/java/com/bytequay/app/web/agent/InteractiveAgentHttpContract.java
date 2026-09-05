@@ -196,7 +196,7 @@ final class InteractiveAgentHttpContract
                 attachment.mediaType());
     }
 
-    /** The first message creates the task; there is no title field, the message names it for now. */
+    /** The first message creates the task and supplies its provisional title; there is no title field. */
     record CreateTaskRequest(
             String taskId,
             String workspaceId,

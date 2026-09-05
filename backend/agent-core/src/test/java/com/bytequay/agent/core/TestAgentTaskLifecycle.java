@@ -102,7 +102,7 @@ class TestAgentTaskLifecycle
                 CREATED_AT);
         AgentTask proposed = provisional.withTitle("Agent proposal", TitleSource.AGENT, CREATED_AT.plusSeconds(1));
         assertThat(proposed.titleSource()).isEqualTo(TitleSource.AGENT);
-        // The agent proposes once; only a person changes it after that.
+        // Generation proposes once; only a person changes it after that.
         assertThatThrownBy(() -> proposed.withTitle("Again", TitleSource.AGENT, CREATED_AT.plusSeconds(2)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(proposed.withTitle("Mine", TitleSource.USER, CREATED_AT.plusSeconds(2)).titleSource())

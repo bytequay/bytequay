@@ -530,7 +530,7 @@ describe('agent task side panel', () => {
 });
 
 describe('agent task detail', () => {
-  it('offers the header title as the rename control, marked provisional until the agent names the task', () => {
+  it('offers the header title as the rename control while a short name is generated', () => {
     const provisional = { ...task('t-1', 'OPEN', 'Investigate the flaky preview'), titleSource: 'PROVISIONAL' };
     const renamable = renderToStaticMarkup(
       <AgentTaskBody
@@ -548,7 +548,7 @@ describe('agent task detail', () => {
         onMarkFailed={() => {}}
       />);
     expect(renamable).toMatch(/<button[^>]*class="agt-title is-provisional"[^>]*>Investigate the flaky preview</);
-    expect(renamable).toContain('until the agent proposes a name');
+    expect(renamable).toContain('while a short name is generated');
 
     // Without a rename handler the title is text, not a dead control; an agent-named task is not provisional.
     const named = body({ task: { ...task('t-1', 'OPEN', 'Trim the preview to the selection'), titleSource: 'AGENT' } });

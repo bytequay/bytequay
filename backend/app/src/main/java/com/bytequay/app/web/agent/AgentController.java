@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -89,6 +90,7 @@ public class AgentController
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentTaskService taskService;
+    private final AgentTaskTitleService taskTitles;
     private final InteractiveAgentTaskCreator taskCreator;
     private final AgentStartupRecovery startupRecovery;
     private final AgentTurnService turnService;
@@ -103,6 +105,7 @@ public class AgentController
 
     public AgentController(
             AgentTaskService taskService,
+            AgentTaskTitleService taskTitles,
             InteractiveAgentTaskCreator taskCreator,
             AgentStartupRecovery startupRecovery,
             AgentTurnService turnService,
@@ -116,6 +119,7 @@ public class AgentController
             PullRequestStore pullRequests)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
@@ -138,7 +142,7 @@ public class AgentController
                 request.defaults().effort(),
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()));
         TaskId taskId = TaskId.valueOf(request.taskId());
-        taskCreator.create(
+        AgentTask task = taskCreator.create(
                 taskId,
                 request.workspaceId(),
                 request.message(),
@@ -146,16 +150,18 @@ public class AgentController
                 defaults,
                 request.idempotencyKey());
         boolean replay = turnService.findTurnByIdempotencyKey(taskId, request.idempotencyKey()).isPresent();
-        turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
+        AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                 taskId,
                 request.message(),
                 ImmutableList.of(),
                 request.idempotencyKey()));
+        InteractiveAgentHttpContract.TaskResponse response = InteractiveAgentHttpContract.task(
+                taskService.get(taskId));
         if (!replay) {
+            taskTitles.generate(task, initialTurn.id(), request.message());
             recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                InteractiveAgentHttpContract.task(taskService.get(taskId)));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/tasks/{taskId}")

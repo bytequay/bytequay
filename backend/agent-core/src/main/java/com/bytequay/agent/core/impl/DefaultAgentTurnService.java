@@ -52,9 +52,7 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
-import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -134,7 +132,6 @@ public final class DefaultAgentTurnService
     private final AgentApprovalService approvalService;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final CodeGraphService codeGraph;
-    private final AgentFinalResponseReader finalResponseReader;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
     /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
@@ -169,7 +166,6 @@ public final class DefaultAgentTurnService
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.logStore = requireNonNull(logStore, "logStore is null");
-        this.finalResponseReader = new AgentFinalResponseReader(logStore);
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -1407,9 +1403,6 @@ public final class DefaultAgentTurnService
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
             AgentTask task = requireTask(terminal.taskId());
             AgentTask updated = providerQuiescent ? task.releaseWorktreeMutation(claim, endedAt) : task;
-            if (terminalState == TurnState.COMPLETED) {
-                updated = proposeTitle(updated, endedAt);
-            }
             if (updated != task) {
                 taskStore.update(updated);
             }
@@ -1486,19 +1479,6 @@ public final class DefaultAgentTurnService
                         endedAt));
             }
         }
-    }
-
-    /**
-     * Names a task from its first answer, once. The title starts as the first message; the first
-     * completed answer proposes a better one, and a title the user chose is never touched.
-     */
-    private AgentTask proposeTitle(AgentTask task, Instant now)
-    {
-        if (task.titleSource() != TitleSource.PROVISIONAL) {
-            return task;
-        }
-        String proposed = TaskTitles.proposed(finalResponseReader.read(task.id()));
-        return proposed.isEmpty() ? task : task.withTitle(proposed, TitleSource.AGENT, now);
     }
 
     private void retryCompletedTurn(TaskId taskId)

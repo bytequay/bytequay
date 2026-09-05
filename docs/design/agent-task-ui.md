@@ -65,12 +65,14 @@ isolation requirements retained after release.
   lane, and one separately provisioned generated branch/worktree through the
   shared [Managed Worktree Service](worktree-service.md). It contains multiple
   turns in one resumable provider conversation.
-- ByteQuay runs one task-owned Codex App Server per active turn, never more than
-  one for a task, with the task worktree as its working directory. It verifies
-  that process tree stopped at turn completion; the next turn resumes the same
-  provider thread in a new matching-profile process. Root and child threads
-  inside a process all belong to that task, so IDs are never routed between
-  tasks.
+- ByteQuay runs one task-owned, worktree-capable Codex App Server per active
+  turn, with the task worktree as its working directory. It verifies that
+  process tree stopped at turn completion; the next turn resumes the same
+  provider thread in a new matching-profile process. The only concurrent
+  process allowed for that task is its bounded title helper, confined to empty
+  read-only task-owned scratch with tools and network disabled. Root and child
+  threads inside a process all belong to that task, so IDs are never routed
+  between tasks.
 - No execution environment is registered. App Server's default environment is
   rooted at its own working directory, so `workspace-write` confines a turn to
   the task worktree. Task sessions declare `experimentalApi: true` solely for
@@ -105,8 +107,8 @@ isolation requirements retained after release.
 ### 2.1 Task and conversation
 
 - Create, list, open, resume, cancel, complete, and retain an agent task.
-- Create a task from its first message alone, let the agent propose the task
-  name, and let the user rename it at any time.
+- Create a task from its first message alone, generate a short task name from
+  that message in the background, and let the user rename it at any time.
 - Send multiple turns to the same root provider conversation.
 - Rebuild the transcript from persisted events after navigation, renderer
   reload, SSE reconnect, or backend restart.
@@ -358,16 +360,36 @@ commit, then the shared service provisions a separate generated task worktree
 before `agent-core` persists the task as `OPEN` and accepts that first message
 as its first turn.
 
-A task is therefore never named by hand at creation. `agent-core` stores the
-trimmed first message as a provisional name so no row or header is ever blank,
-then replaces it once with a name derived from the agent's own first turn
-output, and records which of the two the current name came from. A user rename
-is final: it clears that provisional state, so no later agent output can
-overwrite a name the user chose. The name stays editable from the task header
-for the life of the task. App Server supplies no thread title of its own — the
-only `title` in the v0.151.0 reference bindings is the client's
-`clientInfo.title` handshake field — so this naming is ByteQuay's own and
-costs no extra provider turn.
+A task is therefore never named by hand at creation. `agent-core` immediately
+stores a plain-text first-prompt fallback capped at 36 characters so no row or
+header is ever blank. After the real first turn is durably accepted, a disposable
+text-only provider session receives at most the first 2,000 prompt characters
+and asks for one sentence-case title: at most 36 characters, preferably two to
+five words, specific, identifier-safe, in the user's language, and without
+Markdown or trailing punctuation. Change requests use a precise imperative
+verb. The naming session uses the first turn's selected lane, model, and validated
+effort, has no attachments or resumable history, and treats the prompt as
+untrusted quoted data. Claude runs with tools disabled. Codex uses an ephemeral
+thread with shell, code-mode, and subagents disabled in an empty read-only
+scratch directory; approvals and network access are denied. The turn times out
+after 30 seconds. Its unique scratch directory lives inside the durable task's
+runtime resources: that subtree is deleted only after provider shutdown is
+verified and otherwise stays task-owned for recovery and normal task cleanup.
+It never enters the task transcript or task usage totals, while the supervised
+provider process remains attributable to the durable task and first turn across
+restart.
+
+The generated name and its pending `TITLE_UPDATED` event are committed together
+under the task's runtime lock, and overlapping create replays share one in-flight
+naming request. The name replaces only a still-provisional fallback. A user
+rename is final, so a late naming result or retry cannot overwrite a name the
+user chose; failure or invalid output simply leaves the fallback. A task-level
+`TITLE_UPDATED` lifecycle event makes an open screen re-read the authoritative
+task projection. The name stays editable from the task header for the life of
+the task. Provider task protocols do not supply this name to ByteQuay: App
+Server stores a name only after a client sets one, while Claude's one-way
+print stream does not expose its internal session title. ByteQuay therefore
+owns the same fallback-plus-background-generation lifecycle itself.
 
 The workspace Home is the design's idle screen: the question "What should the
 agent do in {repo}?", three starting points that fill the composer, the same

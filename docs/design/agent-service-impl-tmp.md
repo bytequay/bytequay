@@ -1810,7 +1810,7 @@ Scope rules:
 Decisions, resolved 2026-09-03:
 
 - [x] Creation follows the HTML: sending the first message creates the task and
-  there is no title field. The agent proposes the name and the user can change
+  there is no title field. A background naming request proposes the name and the user can change
   it. [Agent Task UI Design](agent-task-ui.md) sections 2.1, 2.8, 5, and 6 were
   updated to match, replacing the New-agent-task dialog they described.
 - [x] Home task windows (02) and the Tab Overview (14) are in the first
@@ -1826,18 +1826,19 @@ Decisions, resolved 2026-09-03:
 Implementation — task-name contract:
 
 - [x] Accept task creation without a title, carrying the first message
-  instead, and store the trimmed message as the task's provisional name.
-- [x] Replace that provisional name exactly once from the agent's own first
-  turn output, and record whether the current name is provisional,
-  agent-proposed, or user-chosen. Add no extra provider turn and do not look
-  for a provider thread title: the only `title` in the CP1 reference bindings
-  is the client's `clientInfo.title` handshake field.
+  instead, and store its bounded first plain-text line as the task's provisional name.
+- [x] Replace that provisional name exactly once from an isolated title-only
+  request over the first prompt, and record whether the current name is
+  provisional, agent-proposed, or user-chosen. The naming request is separate
+  from the task transcript because neither provider's normal task stream
+  supplies a generated title to ByteQuay. Concurrent create replays share one
+  in-flight request, and its disposable scratch remains owned by the durable task.
 - [x] Add `PATCH /agent/tasks/{taskId}` taking a user-chosen name and the
   observed task version, plus its typed Electron/preload operation. A rename
   marks the name user-chosen so no later agent output overwrites it.
 - [x] Make the task name editable from the task header, and reflect a rename
   in the list, Home windows, and Tab Overview without a reload.
-- [x] Cover the ordering that matters: an agent proposal arriving after a
+- [x] Cover the ordering that matters: a generated proposal arriving after a
   rename must not replace the user's name.
 
 Implementation — panel pull-request tab:

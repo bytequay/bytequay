@@ -191,6 +191,54 @@ class TestCodexCliDriver
     }
 
     @Test
+    void opensATextOnlySessionWithoutWriteOrApprovalAuthority()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
+        AgentSessionContext textOnly = new AgentSessionContext(
+                plain.taskId(),
+                plain.worktree(),
+                plain.runtimeDirectory(),
+                plain.providerDirectory(),
+                plain.permissionPolicy(),
+                plain.sessionReference(),
+                plain.approvals(),
+                plain.model(),
+                plain.effort(),
+                true);
+
+        AgentSession session = driver.open(textOnly, event -> {});
+
+        assertThat(supervisor.server().approvalPolicies()).containsExactly("never");
+        assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
+        JsonNode thread = supervisor.server().threadRequests().getFirst();
+        assertThat(thread.path("ephemeral").asBoolean()).isTrue();
+        assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
+        assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
+        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_tool");
+        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "code_mode");
+        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
+        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
+        assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
+        session.start(command("read only"));
+        JsonNode request = supervisor.server().turnRequests().getFirst();
+        assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
+        assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
+        assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+        session.close();
+
+        ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
+        ObjectNode config = objectMapper.valueToTree(
+                CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true));
+        ((ObjectNode) config.path("features")).put("shell_tool", true);
+        poisoned.configBody = config.toString();
+        assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("shell_tool");
+    }
+
+    @Test
     void steersOnlyTheActiveTurnAndTellsARefusalFromSilence()
             throws Exception
     {
@@ -2616,7 +2664,7 @@ class TestCodexCliDriver
             try {
                 CodexLaunchProfile.ChildProfile childProfile = childProfile();
                 ObjectNode config = objectMapper.valueToTree(
-                        CodexLaunchProfile.threadConfig(childProfile));
+                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile()));
                 ObjectNode shell = (ObjectNode) config.path("shell_environment_policy");
                 shell.putNull("exclude");
                 shell.putNull("set");
@@ -2647,7 +2695,8 @@ class TestCodexCliDriver
                     sessionLayer.putObject("name").put("type", "sessionFlags");
                     sessionLayer.set(
                             "config",
-                            objectMapper.valueToTree(CodexLaunchProfile.threadConfig(childProfile)));
+                            objectMapper.valueToTree(
+                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile())));
                     sessionLayer.putNull("disabledReason");
                 }
                 ObjectNode response = objectMapper.createObjectNode();
@@ -2670,6 +2719,11 @@ class TestCodexCliDriver
                 return CodexLaunchProfile.ChildProfile.V2;
             }
             return CodexLaunchProfile.ChildProfile.NONE;
+        }
+
+        private boolean textOnlyProfile()
+        {
+            return hasArguments("--disable", "shell_tool");
         }
 
         private boolean hasArguments(String first, String second)

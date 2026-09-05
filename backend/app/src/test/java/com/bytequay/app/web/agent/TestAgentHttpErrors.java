@@ -90,6 +90,7 @@ class TestAgentHttpErrors
         git = mock(GitCommandRunner.class);
         AgentController controller = new AgentController(
                 taskService,
+                mock(com.bytequay.agent.core.AgentTaskTitleService.class),
                 new InteractiveAgentTaskCreator(
                         taskService,
                         turnService,

@@ -52,6 +52,14 @@ final class CodexLaunchProfile
             "tool_call_mcp_elicitation",
             "tool_suggest",
             "workspace_dependencies");
+    /** Execution features a disposable text-only request must not expose to prompt data. */
+    private static final List<String> TEXT_ONLY_DISABLED_FEATURES = ImmutableList.of(
+            "code_mode",
+            "js_repl",
+            "shell_snapshot",
+            "shell_tool",
+            "unified_exec");
+
     /** The only environment variables a model-requested command may inherit. */
     private static final List<String> SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.of(
             "HOME",
@@ -88,6 +96,15 @@ final class CodexLaunchProfile
      */
     static List<String> arguments(String executable, ChildProfile childProfile, Optional<CodeGraphLaunch> codeGraph)
     {
+        return arguments(executable, childProfile, codeGraph, false);
+    }
+
+    static List<String> arguments(
+            String executable,
+            ChildProfile childProfile,
+            Optional<CodeGraphLaunch> codeGraph,
+            boolean textOnly)
+    {
         requireNonNull(codeGraph, "codeGraph is null");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
@@ -112,6 +129,9 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
+        if (textOnly) {
+            TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
+        }
         arguments.add(childProfile == ChildProfile.V1 ? "--enable" : "--disable", "multi_agent");
         arguments.add(childProfile == ChildProfile.V2 ? "--enable" : "--disable", "multi_agent_v2");
         if (childProfile == ChildProfile.V1) {
@@ -139,10 +159,15 @@ final class CodexLaunchProfile
 
     static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph)
     {
+        return threadConfig(childProfile, codeGraph, false);
+    }
+
+    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly)
+    {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", "disabled")
-                .put("features", expectedFeatures(childProfile))
+                .put("features", expectedFeatures(childProfile, textOnly))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy());
         if (!codeGraph) {
             config.put("mcp_servers", ImmutableMap.of());
@@ -155,10 +180,18 @@ final class CodexLaunchProfile
 
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile)
     {
+        return expectedFeatures(childProfile, false);
+    }
+
+    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
+    {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
+        if (textOnly) {
+            TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
+        }
         features.put("multi_agent", childProfile == ChildProfile.V1);
         features.put("multi_agent_v2", childProfile == ChildProfile.V2);
         return features.buildOrThrow();

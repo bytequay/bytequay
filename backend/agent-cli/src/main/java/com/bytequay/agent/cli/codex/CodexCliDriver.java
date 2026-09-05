@@ -252,7 +252,7 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty());
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false);
     }
 
     private CodexAppServerClient appServerClient(
@@ -260,7 +260,8 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile,
             Optional<CodexLaunchProfile.CodeGraphLaunch> codeGraph,
-            Optional<String> codeGraphToken)
+            Optional<String> codeGraphToken,
+            boolean textOnly)
     {
         Map<String, String> processEnvironment = codeGraphToken
                 .<Map<String, String>>map(token -> ImmutableMap.<String, String>builder()
@@ -272,7 +273,7 @@ public final class CodexCliDriver
                 supervisor,
                 new ProcessSpec(
                         new ProcessOwner(ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph),
+                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly),
                         workingDirectory,
                         processEnvironment,
                         MAX_APP_SERVER_STDOUT_BYTES,
@@ -458,6 +459,9 @@ public final class CodexCliDriver
         // App Server's default environment confines a turn's writes to its own working directory,
         // which is why a task needs no separately registered execution environment.
         ModelProfile modelProfile = modelCatalog().select(context.model());
+        CodexLaunchProfile.ChildProfile childProfile = context.textOnly()
+                ? CodexLaunchProfile.ChildProfile.NONE
+                : modelProfile.childProfile();
         // A code-graph token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
         Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.codeGraph().map(bridge -> permissions.registerCodeGraph(
@@ -467,16 +471,17 @@ public final class CodexCliDriver
             client = appServerClient(
                     context.taskId(),
                     context.worktree(),
-                    modelProfile.childProfile(),
+                    childProfile,
                     codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), context.codeGraph().orElseThrow().instruction())),
-                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token));
+                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token),
+                    context.textOnly());
         }
         catch (RuntimeException failure) {
             codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
             throw failure;
         }
         try {
-            return new CodexSession(client, context, events, modelProfile, codeGraph);
+            return new CodexSession(client, context, events, modelProfile, childProfile, codeGraph);
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
@@ -716,6 +721,7 @@ public final class CodexCliDriver
         private final Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
+        private final CodexLaunchProfile.ChildProfile childProfile;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
         /** Every subagent this process has named, by thread, with its parent and label. */
@@ -737,7 +743,7 @@ public final class CodexCliDriver
             @Override
             public Optional<String> labelOf(String threadId)
             {
-                if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+                if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
                     return Optional.ofNullable(v2AgentPaths.get(threadId));
                 }
                 return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
@@ -756,19 +762,22 @@ public final class CodexCliDriver
                 AgentSessionContext context,
                 AgentEventSink events,
                 ModelProfile modelProfile,
+                CodexLaunchProfile.ChildProfile childProfile,
                 Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph)
         {
             this.client = requireNonNull(client, "client is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
+            this.childProfile = requireNonNull(childProfile, "childProfile is null");
             this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
             this.isolation = new CodexIsolationGuard(
                     client,
                     codexHome,
-                    modelProfile.childProfile(),
-                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::endpoint));
+                    childProfile,
+                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::endpoint),
+                    context.textOnly());
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
@@ -779,7 +788,7 @@ public final class CodexCliDriver
             isolation.verifyThread(threadId, worktree);
             this.reference = new AgentSessionRef(LANE_ID, CONTRACT_VERSION, threadId);
             observedThreads.add(reference.providerValue());
-            if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+            if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
                 v2AgentPaths.put(reference.providerValue(), "/");
             }
         }
@@ -794,8 +803,11 @@ public final class CodexCliDriver
         {
             Optional<AgentSessionRef> existing = context.sessionReference();
             String approvalPolicy = approvalPolicy();
-            String sandbox = "workspace-write";
-            Map<String, Object> config = CodexLaunchProfile.threadConfig(modelProfile.childProfile(), codeGraph.isPresent());
+            String sandbox = context.textOnly() ? "read-only" : "workspace-write";
+            Map<String, Object> config = CodexLaunchProfile.threadConfig(
+                    childProfile,
+                    codeGraph.isPresent(),
+                    context.textOnly());
             String method;
             Object params;
             if (existing.isPresent()) {
@@ -822,7 +834,7 @@ public final class CodexCliDriver
                         "user",
                         config,
                         sandbox,
-                        false,
+                        context.textOnly(),
                         "ByteQuay",
                         ImmutableList.of(),
                         ImmutableList.of());
@@ -896,11 +908,16 @@ public final class CodexCliDriver
 
         private String approvalPolicy()
         {
-            return "on-request";
+            return context.textOnly() ? "never" : "on-request";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
         {
+            if (context.textOnly()) {
+                return ImmutableMap.of(
+                        "type", "readOnly",
+                        "networkAccess", false);
+            }
             return ImmutableMap.of(
                     "type", "workspaceWrite",
                     "writableRoots", ImmutableList.of(worktree.toString()),
@@ -1076,7 +1093,7 @@ public final class CodexCliDriver
             if (buffered.isPresent()) {
                 return buffered;
             }
-            if (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V2) {
+            if (childProfile != CodexLaunchProfile.ChildProfile.V2) {
                 return Optional.empty();
             }
             return children.keySet().stream()
@@ -1175,7 +1192,7 @@ public final class CodexCliDriver
                     collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
                     return ImmutableList.of();
                 }
-                if (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V1) {
+                if (childProfile != CodexLaunchProfile.ChildProfile.V1) {
                     collab.receiverThreadIds().forEach(receiver -> {
                         requireKnownGraphIdentity(receiver);
                         enrichKnown(receiver, Optional.empty(), collab.prompt());
@@ -1193,7 +1210,7 @@ public final class CodexCliDriver
                 return collab.receiverThreadIds();
             }
             if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
-                boolean edge = modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2
+                boolean edge = childProfile == CodexLaunchProfile.ChildProfile.V2
                         && activity.kind() == CodexProtocol.SubAgentActivityKind.STARTED;
                 String agentPath = validateV2AgentPath(
                         activity.agentThreadId(),
@@ -1203,7 +1220,7 @@ public final class CodexCliDriver
                 Optional<String> label = Optional.of(agentPath);
                 if (!edge) {
                     requireKnownGraphIdentity(activity.agentThreadId());
-                    if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2
+                    if (childProfile == CodexLaunchProfile.ChildProfile.V2
                             && !v2AgentPaths.containsKey(activity.agentThreadId())) {
                         throw new AgentUnavailableException("Codex supplementary V2 activity has no canonical STARTED path");
                     }
@@ -1335,7 +1352,7 @@ public final class CodexCliDriver
         /** A canonical V2 path, once known, cannot be replaced by thread metadata. */
         private String resolvedChildLabel(String threadId, Optional<String> reported, String fallback)
         {
-            if (modelProfile.childProfile() == CodexLaunchProfile.ChildProfile.V2) {
+            if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
                 String canonical = v2AgentPaths.get(threadId);
                 if (canonical != null) {
                     return canonical;
@@ -1397,7 +1414,7 @@ public final class CodexCliDriver
         private boolean routableThread(String threadId)
         {
             return confirmedLineage(threadId)
-                    && (modelProfile.childProfile() != CodexLaunchProfile.ChildProfile.V2
+                    && (childProfile != CodexLaunchProfile.ChildProfile.V2
                             || v2AgentPaths.containsKey(threadId));
         }
 

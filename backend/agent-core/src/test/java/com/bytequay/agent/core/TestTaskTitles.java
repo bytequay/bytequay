@@ -21,14 +21,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestTaskTitles
 {
     @Test
-    void namesATaskAfterTheFirstSentenceOfItsFirstMessage()
+    void keepsACompactFallbackFromTheFirstMessage()
     {
         assertThat(TaskTitles.provisional(
                 "Investigate the flaky cherry-pick preview test and fix the root cause.\nThen open a PR."))
-                .isEqualTo("Investigate the flaky cherry-pick preview test and fix the root cause");
-        // A sentence too short to stand alone gives way to the whole line.
-        assertThat(TaskTitles.provisional("Why? Because the test flakes.")).isEqualTo("Why? Because the test flakes");
+                .isEqualTo("Investigate the flaky cherry-pick…");
+        assertThat(TaskTitles.provisional("Why? Because the test flakes.")).isEqualTo("Why? Because the test flakes.");
         assertThat(TaskTitles.provisional("### Heading\n\nbody")).isEqualTo("Heading");
+        assertThat(TaskTitles.provisional("#123 Fix char* with -Xmx and foo_bar"))
+                .isEqualTo("#123 Fix char* with -Xmx and foo_bar");
         assertThat(TaskTitles.provisional("  Fix it  ")).isEqualTo("Fix it");
         // Nothing usable in the message still yields a non-blank name.
         assertThat(TaskTitles.provisional("...")).isEqualTo("...");
@@ -37,25 +38,37 @@ class TestTaskTitles
     }
 
     @Test
-    void proposesTheOpeningSentenceOfAnAnswerWithoutMarkdown()
+    void normalizesTheDedicatedNamingResponse()
     {
-        assertThat(TaskTitles.proposed("I traced the failing test to the preview limit. The fix is small."))
-                .isEqualTo("I traced the failing test to the preview limit");
-        assertThat(TaskTitles.proposed("**Done.** Everything passes.")).isEqualTo("Done. Everything passes");
+        assertThat(TaskTitles.generated("Improve agent task naming")).isEqualTo("Improve agent task naming");
+        assertThat(TaskTitles.generated("**Fix preview title.**")).isEqualTo("Fix preview title");
+        assertThat(TaskTitles.generated("Title: `Locate foo_bar`. ")).isEqualTo("Locate foo_bar");
+        assertThat(TaskTitles.generated("__init__")).isEqualTo("__init__");
+        assertThat(TaskTitles.generated("_request_id_")).isEqualTo("_request_id_");
+        assertThat(TaskTitles.generated("*pointer")).isEqualTo("*pointer");
         // A link keeps its text and drops the worktree path it pointed at.
-        assertThat(TaskTitles.proposed("The project has **109 Maven modules**, defined in the root [pom.xml](/Users/me/worktrees/x/pom.xml:30)."))
-                .isEqualTo("The project has 109 Maven modules, defined in the root pom.xml");
-        assertThat(TaskTitles.proposed("")).isEmpty();
-        assertThat(TaskTitles.proposed("\n\n")).isEmpty();
+        assertThat(TaskTitles.generated("Review [pom.xml](/Users/me/worktrees/x/pom.xml:30)"))
+                .isEqualTo("Review pom.xml");
+        assertThat(TaskTitles.generated("")).isEmpty();
+        assertThat(TaskTitles.generated("\n\n")).isEmpty();
     }
 
     @Test
     void cutsALongTitleAtAWordBoundary()
     {
         String words = "word ".repeat(30).strip();
-        String title = TaskTitles.proposed(words);
-        assertThat(title).endsWith("\u2026");
+        String title = TaskTitles.generated(words);
+        assertThat(title).doesNotEndWith("\u2026");
         assertThat(title.length()).isLessThanOrEqualTo(TaskTitles.MAX_LENGTH);
-        assertThat(title).doesNotContain(" \u2026");
+        assertThat(title).doesNotEndWith(" ");
+    }
+
+    @Test
+    void cutsUnicodeOnlyBetweenCodePoints()
+    {
+        String title = TaskTitles.provisional("😀".repeat(40));
+
+        assertThat(title.codePointCount(0, title.length())).isEqualTo(TaskTitles.MAX_LENGTH);
+        assertThat(title).isEqualTo("😀".repeat(TaskTitles.MAX_LENGTH - 1) + "…");
     }
 }

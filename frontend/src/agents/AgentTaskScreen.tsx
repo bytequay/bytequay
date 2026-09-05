@@ -623,8 +623,8 @@ const CONNECTION_TEXT: Record<string, string> = {
  */
 /**
  * The task's name, and the control that changes it: click to edit, Enter or blur to keep, Escape
- * to drop. Until the agent's first answer proposes a name, the title is the first message and
- * reads as provisional.
+ * to drop. While the background naming request runs, the title is a compact first-message
+ * fallback and reads as provisional.
  */
 function TaskTitle({ title, provisional, onRename }: {
   title: string;
@@ -645,7 +645,7 @@ function TaskTitle({ title, provisional, onRename }: {
         type="button"
         className={className}
         title={provisional
-          ? 'Named after your first message until the agent proposes a name. Click to rename.'
+          ? 'Using your first message while a short name is generated. Click to rename.'
           : 'Click to rename'}
         onClick={() => { committed.current = false; setDraft(title); }}
       >

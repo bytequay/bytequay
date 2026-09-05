@@ -164,7 +164,7 @@ class TestDefaultAgentTurnService
                         AgentPermissionPolicy.AUTO)));
         logs = new FileTaskLogStore(resources);
         events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
-        metrics = new DefaultAgentMetricsService(stores, stores, CLOCK);
+        metrics = new DefaultAgentMetricsService(stores, stores, logs, CLOCK);
         approvals = new RecordingApprovalService();
         scheduler = Executors.newSingleThreadScheduledExecutor();
         runtimeRegistry = new AgentRuntimeRegistry();
@@ -705,7 +705,7 @@ class TestDefaultAgentTurnService
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
         AgentRuntimeRegistry runtimeRegistry = new AgentRuntimeRegistry();
-        metrics = new DefaultAgentMetricsService(stores, stores, clock);
+        metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
         service = service(driver, runtimeRegistry, events, approvals, clock);
         AgentTurn running = service.start(command("first", "key-1"));
 
@@ -1147,7 +1147,7 @@ class TestDefaultAgentTurnService
     void preservesFailureWhenSessionReferenceAndCloseThrowTheSameInstance()
     {
         Clock clock = new AdvancingClock(NOW.plusMillis(1));
-        metrics = new DefaultAgentMetricsService(stores, stores, clock);
+        metrics = new DefaultAgentMetricsService(stores, stores, logs, clock);
         runtimeRegistry = new AgentRuntimeRegistry();
         service = service(driver, runtimeRegistry, events, approvals, clock);
         IllegalStateException failure = new IllegalStateException("session transport failed");

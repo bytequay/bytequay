@@ -13,13 +13,18 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -56,6 +61,7 @@ class TestDefaultAgentMetricsService
 
     private InMemoryTaskStore taskStore;
     private InMemoryTurnStore turnStore;
+    private final InMemoryTaskLogStore logStore = new InMemoryTaskLogStore();
     private MutableClock clock;
     private DefaultAgentMetricsService service;
     private AgentTask task;
@@ -66,7 +72,7 @@ class TestDefaultAgentMetricsService
         taskStore = new InMemoryTaskStore();
         turnStore = new InMemoryTurnStore();
         clock = new MutableClock(NOW);
-        service = new DefaultAgentMetricsService(taskStore, turnStore, clock);
+        service = new DefaultAgentMetricsService(taskStore, turnStore, logStore, clock);
         task = AgentTask.created(
                 TaskId.random(),
                 Optional.empty(),
@@ -97,7 +103,7 @@ class TestDefaultAgentMetricsService
         service.beginTurn(task.id(), current.id());
 
         TurnMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
-        service = new DefaultAgentMetricsService(taskStore, turnStore, clock);
+        service = new DefaultAgentMetricsService(taskStore, turnStore, logStore, clock);
         TurnMetrics duplicate = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
         TurnMetrics latest = service.record(task.id(), current.id(), cumulative("usage-2", 150, 15, 30, "2.75"));
 
@@ -203,6 +209,47 @@ class TestDefaultAgentMetricsService
                 Optional.of(new BigDecimal(cost)),
                 CostProvenance.PROVIDER_REPORTED,
                 Duration.ZERO);
+    }
+
+    @Test
+    void foldsToolCountersFromTheTurnsPersistedEventsOnly()
+    {
+        TurnId turn = TurnId.random();
+        TurnId other = TurnId.random();
+        List<AgentEventEnvelope> events = ImmutableList.of(
+                event(1, turn, new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.STARTED, "reading")),
+                event(2, turn, new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.COMPLETED, "read")),
+                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__codegraph_explore", AgentEventPayload.ActivityState.COMPLETED, "graph", Optional.of(1200L))),
+                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/codegraph_explore", AgentEventPayload.ActivityState.FAILED, "graph", Optional.of(300L))),
+                event(5, turn, new AgentEventPayload.CommandActivity(
+                        AgentEventPayload.ActivityState.COMPLETED,
+                        ImmutableList.of("rg", "cleanup"),
+                        Optional.empty(),
+                        Optional.of(0),
+                        false,
+                        Optional.empty(),
+                        Optional.of(40L),
+                        ImmutableList.of(
+                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.SEARCH, Optional.empty(), Optional.of("cleanup")),
+                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.OTHER, Optional.empty(), Optional.empty())))),
+                event(6, other, new AgentEventPayload.ToolActivity("Grep", AgentEventPayload.ActivityState.COMPLETED, "elsewhere")));
+
+        ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
+
+        assertThat(counters).isEqualTo(new ToolCounters(4, 2, 2, 1500, 1));
+    }
+
+    private AgentEventEnvelope event(long sequence, TurnId turnId, AgentEventPayload payload)
+    {
+        return new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.random(),
+                sequence,
+                task.id(),
+                Optional.of(turnId),
+                AgentEventSource.root(),
+                NOW,
+                payload);
     }
 
     private static final class InMemoryTaskStore

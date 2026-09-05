@@ -525,9 +525,9 @@ insufficient.
 
 ## 12. Benefit measurement
 
-Status: approved 2026-09-05 in the first-version form of Section 13 (the
-`on`/`off` setting and counters); the `compare` arm and the Settings table
-follow as CG7.
+Status: approved 2026-09-05 in the first-version form of Section 13; the
+`on`/`off` setting and the five counters are implemented, and the `compare`
+arm and the Settings table follow as CG7.
 
 CodeGraph earns its cost only if a turn that can use it needs fewer tokens,
 fewer exploration calls, and less time than a comparable turn that cannot. No

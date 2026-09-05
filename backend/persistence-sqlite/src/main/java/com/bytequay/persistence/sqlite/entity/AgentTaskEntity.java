@@ -23,6 +23,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -151,6 +152,22 @@ public class AgentTaskEntity
     @Column(nullable = false)
     private long elapsedMillis;
 
+    // Nullable so a database written before these counters keeps opening; null reads as zero.
+    @Column(name = "tool_calls")
+    private Long toolCalls;
+
+    @Column(name = "explore_actions")
+    private Long exploreActions;
+
+    @Column(name = "codegraph_calls")
+    private Long codegraphCalls;
+
+    @Column(name = "codegraph_millis")
+    private Long codegraphMillis;
+
+    @Column(name = "codegraph_failures")
+    private Long codegraphFailures;
+
     @Column(columnDefinition = "TEXT")
     private String summaryJson;
 
@@ -214,6 +231,11 @@ public class AgentTaskEntity
         cost = task.metrics().cost().orElse(null);
         costProvenance = task.metrics().costProvenance();
         elapsedMillis = task.metrics().elapsed().toMillis();
+        toolCalls = task.metrics().counters().toolCalls();
+        exploreActions = task.metrics().counters().exploreActions();
+        codegraphCalls = task.metrics().counters().codegraphCalls();
+        codegraphMillis = task.metrics().counters().codegraphMillis();
+        codegraphFailures = task.metrics().counters().codegraphFailures();
         summaryJson = task.summary().map(AgentTaskSummaryJson::encode).orElse(null);
         worktreeRemovedAt = task.worktreeRemovedAt().orElse(null);
         cleanupState = task.cleanupState();
@@ -259,7 +281,8 @@ public class AgentTaskEntity
                         outputTokens,
                         Optional.ofNullable(cost),
                         costProvenance,
-                        Duration.ofMillis(elapsedMillis)),
+                        Duration.ofMillis(elapsedMillis),
+                        counters()),
                 Optional.ofNullable(summaryJson).map(json -> AgentTaskSummaryJson.decode(json, storedWorktree)),
                 Optional.ofNullable(worktreeRemovedAt),
                 cleanupState,
@@ -306,5 +329,15 @@ public class AgentTaskEntity
     private void markPersisted()
     {
         newEntity = false;
+    }
+
+    private ToolCounters counters()
+    {
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(codegraphCalls), zeroIfNull(codegraphMillis), zeroIfNull(codegraphFailures));
+    }
+
+    private static long zeroIfNull(Long value)
+    {
+        return value == null ? 0 : value;
     }
 }

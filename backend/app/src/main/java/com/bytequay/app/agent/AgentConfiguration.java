@@ -194,9 +194,10 @@ public class AgentConfiguration
     public AgentMetricsService agentMetricsService(
             AgentTaskStore taskStore,
             AgentTurnStore turnStore,
+            TaskLogStore logStore,
             Clock agentClock)
     {
-        return new DefaultAgentMetricsService(taskStore, turnStore, agentClock);
+        return new DefaultAgentMetricsService(taskStore, turnStore, logStore, agentClock);
     }
 
     @Bean

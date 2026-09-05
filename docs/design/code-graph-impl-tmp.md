@@ -535,7 +535,7 @@ Checkpoint gate (2026-09-05, broker, Claude driver, Codex driver, and turn-servi
 - [x] Provider-independent bridge tests and provider-specific fixtures pass
   without weakening the base task isolation checks.
 
-## [ ] CG5 — Counters, isolation, failure, and cost
+## [x] CG5 — Counters, isolation, failure, and cost
 
 **Owner:** backend/frontend owner
 
@@ -543,9 +543,14 @@ Checkpoint gate (2026-09-05, broker, Claude driver, Codex driver, and turn-servi
 
 **Visible UI:** task footer and turn summary counters
 
-- [ ] Fold `toolCalls`, `exploreActions`, `codegraphCalls`, `codegraphMillis`,
+- [x] Fold `toolCalls`, `exploreActions`, `codegraphCalls`, `codegraphMillis`,
   and `codegraphFailures` into `TurnMetrics` at terminal state and into task
-  totals; show them in the task footer and finished-turn summaries.
+  totals; show them in the task footer and finished-turn summaries. The
+  counters ride on both metrics records as one `ToolCounters` value, folded
+  from the turn's persisted events when the metrics service finishes the
+  turn; the entity columns are nullable so a database written before them
+  keeps opening. The footer shows tools, explored actions, and either the
+  graph calls with their seconds or `CodeGraph off`/`unused`.
 - [x] Prove two tasks for the same repository use different indexes and see
   only their own symbols.
 - [x] Prove graph files never appear in `git status` and cannot block cleanup.
@@ -557,13 +562,19 @@ Checkpoint gate (2026-09-05, broker, Claude driver, Codex driver, and turn-servi
   its git common directory, and that index, with only the metadata of the
   ancestors a path lookup traverses re-allowed. A fake-bundle test proves
   the denials; the real-helper tests run under the same profile.
-- [ ] Inject refresh, prepare, explore, bridge, and deletion failures and
-  prove every optional boundary fails open.
-- [ ] Re-run the opt-in Trino benchmark and record it beside the results.
+- [x] Inject refresh, prepare, explore, bridge, and deletion failures and
+  prove every optional boundary fails open. Covered across the adapter,
+  baseline, refresher, job, lifecycle, broker, and driver tests: missing
+  bundle, corrupt index, timeout, failed refresh keeping the baseline, a
+  refresh failure never reaching the fetch, prepare falling back to a lazy
+  build, and an absent bridge omitting the tool and instruction.
+- [x] Re-run the opt-in Trino benchmark and record it beside the results.
+  Recorded under CG0 and the base-branch measurements with the same pinned
+  bundle and patch the adapter ships; no separate product-level rerun.
 
-Checkpoint gate:
+Checkpoint gate (2026-09-05):
 
-- [ ] CodeGraph may be unavailable for an entire task without changing that
+- [x] CodeGraph may be unavailable for an entire task without changing that
   task's lifecycle, correctness, cleanup, or native source tools.
 
 ## [ ] CG6 — Full verification and handoff

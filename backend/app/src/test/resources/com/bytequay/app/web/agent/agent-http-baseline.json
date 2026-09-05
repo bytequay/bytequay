@@ -36,7 +36,14 @@
       "outputTokens": 0,
       "cost": null,
       "costProvenance": "UNAVAILABLE",
-      "elapsed": "<duration>"
+      "elapsed": "<duration>",
+      "counters": {
+        "toolCalls": 0,
+        "exploreActions": 0,
+        "codegraphCalls": 0,
+        "codegraphMillis": 0,
+        "codegraphFailures": 0
+      }
     },
     "summary": null,
     "cleanupState": "RETAINED",
@@ -78,7 +85,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       },
       "terminalResponse": {
@@ -109,7 +123,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       }
     },
@@ -146,7 +167,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       },
       "terminalResponse": {
@@ -177,7 +205,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       }
     },
@@ -214,7 +249,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       },
       "terminalResponse": {
@@ -245,7 +287,14 @@
           "outputTokens": 0,
           "cost": null,
           "costProvenance": "UNAVAILABLE",
-          "elapsed": "<duration>"
+          "elapsed": "<duration>",
+          "counters": {
+            "toolCalls": 0,
+            "exploreActions": 0,
+            "codegraphCalls": 0,
+            "codegraphMillis": 0,
+            "codegraphFailures": 0
+          }
         }
       }
     }
@@ -607,7 +656,14 @@
         "outputTokens": 0,
         "cost": null,
         "costProvenance": "UNAVAILABLE",
-        "elapsed": "<duration>"
+        "elapsed": "<duration>",
+        "counters": {
+          "toolCalls": 0,
+          "exploreActions": 0,
+          "codegraphCalls": 0,
+          "codegraphMillis": 0,
+          "codegraphFailures": 0
+        }
       },
       "learnings": [],
       "notes": "ready for review",
@@ -641,7 +697,14 @@
       "outputTokens": 0,
       "cost": null,
       "costProvenance": "UNAVAILABLE",
-      "elapsed": "<duration>"
+      "elapsed": "<duration>",
+      "counters": {
+        "toolCalls": 0,
+        "exploreActions": 0,
+        "codegraphCalls": 0,
+        "codegraphMillis": 0,
+        "codegraphFailures": 0
+      }
     },
     "summary": {
       "finalResponse": "deterministic: second",
@@ -654,7 +717,14 @@
         "outputTokens": 0,
         "cost": null,
         "costProvenance": "UNAVAILABLE",
-        "elapsed": "<duration>"
+        "elapsed": "<duration>",
+        "counters": {
+          "toolCalls": 0,
+          "exploreActions": 0,
+          "codegraphCalls": 0,
+          "codegraphMillis": 0,
+          "codegraphFailures": 0
+        }
       },
       "learnings": [],
       "notes": "ready for review",

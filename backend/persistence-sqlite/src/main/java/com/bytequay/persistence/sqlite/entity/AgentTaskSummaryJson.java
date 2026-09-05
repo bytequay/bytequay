@@ -19,6 +19,7 @@ import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.CostProvenance;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -60,6 +61,7 @@ final class AgentTaskSummaryJson
                 metrics.cost().map(BigDecimal::toPlainString).orElse(null),
                 metrics.costProvenance(),
                 metrics.elapsed().toMillis(),
+                metrics.counters(),
                 summary.learnings(),
                 summary.notes().orElse(null),
                 summary.children().stream()
@@ -91,7 +93,9 @@ final class AgentTaskSummaryJson
                     value.outputTokens(),
                     Optional.ofNullable(value.cost()).map(BigDecimal::new),
                     value.costProvenance(),
-                    Duration.ofMillis(value.elapsedMillis()));
+                    Duration.ofMillis(value.elapsedMillis()),
+                    // A summary stored before tool counters existed has no field for them.
+                    value.counters() == null ? ToolCounters.ZERO : value.counters());
             Optional<WorktreeSnapshot> worktree = Optional.ofNullable(value.head())
                     .flatMap(head -> taskWorktree.map(task -> new WorktreeSnapshot(
                             task,
@@ -143,6 +147,7 @@ final class AgentTaskSummaryJson
             String cost,
             CostProvenance costProvenance,
             long elapsedMillis,
+            ToolCounters counters,
             List<String> learnings,
             String notes,
             List<ChildValue> children) {}

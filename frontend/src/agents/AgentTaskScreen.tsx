@@ -110,13 +110,14 @@ import type {
   AgentApprovalDecision,
   AgentCapabilitiesDto,
   AgentChildSummaryDto,
-  AgentProviderUnavailableDto,
   AgentProviderStatus,
+  AgentProviderUnavailableDto,
   AgentQueuedInputDto,
   AgentTaskDto,
   AgentTurnDto,
   ModelOptionDto,
   PullRequestDto,
+  ToolCountersDto,
 } from '../types';
 
 export type PanelTab = 'agents' | 'prs';
@@ -526,6 +527,15 @@ function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, 
   }
 }
 
+/** The graph part of a stats line: calls with their seconds, or why there are none. */
+function codeGraphText(counters: ToolCountersDto, enabled: boolean | null): string {
+  if (counters.codegraphCalls > 0) {
+    const failed = counters.codegraphFailures > 0 ? `, ${counters.codegraphFailures} failed` : '';
+    return `CodeGraph ${counters.codegraphCalls} ${counters.codegraphCalls === 1 ? 'call' : 'calls'} · ${(counters.codegraphMillis / 1000).toFixed(1)}s${failed}`;
+  }
+  return enabled === false ? 'CodeGraph off' : 'CodeGraph unused';
+}
+
 /** The line under an answer: what the turn ran with and what it used, from the durable turn and its usage event. */
 function TurnFooter({ turn, durable, models }: {
   turn: TranscriptTurn;
@@ -540,6 +550,10 @@ function TurnFooter({ turn, durable, models }: {
     const tier = serviceTierName(models, durable.settings.model, durable.settings.serviceTier);
     if (tier !== '') parts.push(tier);
     parts.push(permissionLabel(durable.settings.permissionPolicy));
+  }
+  const counters = durable?.metrics.counters;
+  if (counters) {
+    parts.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}${counters.codegraphCalls > 0 ? ` · ${codeGraphText(counters, true)}` : ''}`);
   }
   if (turn.endedAt !== null) parts.push(clock(turn.endedAt));
   return (
@@ -1803,6 +1817,10 @@ function tokens(count: number): string {
 
 /** The line under the composer: what the task has done so far and what it has used, from the task's totals. */
 function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: TranscriptTurn[]; now: number }): React.JSX.Element | null {
+  const [codeGraphEnabled, setCodeGraphEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    void window.bridge.getCodeGraphSetting().then(setting => setCodeGraphEnabled(setting.enabled)).catch(() => {});
+  }, []);
   if (task === null || turns.length === 0) return null;
   const steps = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
@@ -1816,6 +1834,10 @@ function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: Tra
     ? ' · Cost unavailable'
     : costProvenance === 'CLI_ESTIMATE' ? ` · Approx. $${cost.toFixed(2)}` : ` · $${cost.toFixed(2)}`;
   groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${costText}`);
+  const counters = task.metrics.counters;
+  if (counters) {
+    groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions} · ${codeGraphText(counters, codeGraphEnabled)}`);
+  }
   return (
     <div className="agt-compose__stats" aria-label="Task statistics">
       {groups.map((group, index) => (

@@ -28,10 +28,23 @@ public record TurnMetrics(
         long outputTokens,
         Optional<BigDecimal> cost,
         CostProvenance costProvenance,
-        Duration elapsed)
+        Duration elapsed,
+        ToolCounters counters)
 {
+    public TurnMetrics(
+            long inputTokens,
+            long cachedInputTokens,
+            long outputTokens,
+            Optional<BigDecimal> cost,
+            CostProvenance costProvenance,
+            Duration elapsed)
+    {
+        this(inputTokens, cachedInputTokens, outputTokens, cost, costProvenance, elapsed, ToolCounters.ZERO);
+    }
+
     public TurnMetrics
     {
+        requireNonNull(counters, "counters is null");
         requireNonNull(cost, "cost is null");
         requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(elapsed, "elapsed is null");

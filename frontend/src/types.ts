@@ -501,6 +501,15 @@ export type AgentCapabilitiesDto = {
   attachmentMediaTypes: string[];
 };
 
+/** What a turn or task did with tools, folded from persisted events when each turn ended. */
+export type ToolCountersDto = {
+  toolCalls: number;
+  exploreActions: number;
+  codegraphCalls: number;
+  codegraphMillis: number;
+  codegraphFailures: number;
+};
+
 /** Token and cost totals the backend reports for a task or turn. */
 export type AgentMetricsDto = {
   inputTokens: number;
@@ -509,6 +518,7 @@ export type AgentMetricsDto = {
   cost: number | null;
   costProvenance: AgentCostProvenance;
   elapsed: string;
+  counters?: ToolCountersDto;
 };
 
 export type AgentTaskDefaultsDto = {

@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -145,6 +146,22 @@ public class AgentTurnEntity
     @Column(nullable = false)
     private long elapsedMillis;
 
+    // Nullable so a database written before these counters keeps opening; null reads as zero.
+    @Column(name = "tool_calls")
+    private Long toolCalls;
+
+    @Column(name = "explore_actions")
+    private Long exploreActions;
+
+    @Column(name = "codegraph_calls")
+    private Long codegraphCalls;
+
+    @Column(name = "codegraph_millis")
+    private Long codegraphMillis;
+
+    @Column(name = "codegraph_failures")
+    private Long codegraphFailures;
+
     @Transient
     private boolean newEntity = true;
 
@@ -191,6 +208,11 @@ public class AgentTurnEntity
         cost = turn.metrics().cost().orElse(null);
         costProvenance = turn.metrics().costProvenance();
         elapsedMillis = turn.metrics().elapsed().toMillis();
+        toolCalls = turn.metrics().counters().toolCalls();
+        exploreActions = turn.metrics().counters().exploreActions();
+        codegraphCalls = turn.metrics().counters().codegraphCalls();
+        codegraphMillis = turn.metrics().counters().codegraphMillis();
+        codegraphFailures = turn.metrics().counters().codegraphFailures();
     }
 
     public AgentTurn toDomain()
@@ -226,7 +248,8 @@ public class AgentTurnEntity
                         outputTokens,
                         Optional.ofNullable(cost),
                         costProvenance,
-                        Duration.ofMillis(elapsedMillis)));
+                        Duration.ofMillis(elapsedMillis),
+                        counters()));
     }
 
     @Override
@@ -240,5 +263,15 @@ public class AgentTurnEntity
     private void markPersisted()
     {
         newEntity = false;
+    }
+
+    private ToolCounters counters()
+    {
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(codegraphCalls), zeroIfNull(codegraphMillis), zeroIfNull(codegraphFailures));
+    }
+
+    private static long zeroIfNull(Long value)
+    {
+        return value == null ? 0 : value;
     }
 }

@@ -41,6 +41,7 @@ import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TestFact;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
@@ -158,7 +159,8 @@ class TestSqliteAgentStores
                 5,
                 Optional.of(new BigDecimal("0.1873740")),
                 CostProvenance.PROVIDER_REPORTED,
-                Duration.ofSeconds(3));
+                Duration.ofSeconds(3),
+                new ToolCounters(4, 2, 1, 900, 0));
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,
@@ -676,7 +678,7 @@ class TestSqliteAgentStores
         resources.allocate(task.id());
         FileTaskLogStore logs = new FileTaskLogStore(resources);
         AgentApprovalService approvals = mock(AgentApprovalService.class);
-        DefaultAgentMetricsService metrics = new DefaultAgentMetricsService(taskStore, turnStore, clock);
+        DefaultAgentMetricsService metrics = new DefaultAgentMetricsService(taskStore, turnStore, logs, clock);
 
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(

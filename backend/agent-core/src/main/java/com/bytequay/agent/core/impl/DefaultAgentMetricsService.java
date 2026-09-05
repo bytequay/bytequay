@@ -14,6 +14,8 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
@@ -22,14 +24,18 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UsageBaseline;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderUsageSample;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -37,6 +43,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -44,14 +51,22 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentMetricsService
         implements AgentMetricsService
 {
+    private static final int EVENT_PAGE_SIZE = 500;
+    private static final String CODEGRAPH_TOOL = "codegraph_explore";
+    private static final Set<String> CLAUDE_EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS");
+    private static final Set<AgentEventPayload.CommandActionKind> EXPLORE_ACTIONS =
+            ImmutableSet.of(AgentEventPayload.CommandActionKind.READ, AgentEventPayload.CommandActionKind.LIST_FILES, AgentEventPayload.CommandActionKind.SEARCH);
+
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final TaskLogStore logStore;
     private final Clock clock;
 
-    public DefaultAgentMetricsService(AgentTaskStore taskStore, AgentTurnStore turnStore, Clock clock)
+    public DefaultAgentMetricsService(AgentTaskStore taskStore, AgentTurnStore turnStore, TaskLogStore logStore, Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.logStore = requireNonNull(logStore, "logStore is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -107,13 +122,15 @@ public final class DefaultAgentMetricsService
             throw new AgentStorageException("Turn elapsed time is negative");
         }
         TurnMetrics current = turn.metrics();
+        // Folded from the persisted log rather than counted live, so replay and recovery agree with it.
         TurnMetrics finished = new TurnMetrics(
                 current.inputTokens(),
                 current.cachedInputTokens(),
                 current.outputTokens(),
                 current.cost(),
                 current.costProvenance(),
-                elapsed);
+                elapsed,
+                foldCounters(readEvents(turn.taskId()), turnId));
         AgentTurn stored = turnStore.update(turn.withMetrics(finished));
         persistTaskTotals(turn.taskId());
         return stored.metrics();
@@ -220,12 +237,65 @@ public final class DefaultAgentMetricsService
         return Optional.of(current.cost().orElseThrow().add(sample.cost().orElseThrow()));
     }
 
+    /** Counts a turn's finished tool and command activity; child-agent events carry the owning turn and count with it. */
+    static ToolCounters foldCounters(List<AgentEventEnvelope> events, TurnId turnId)
+    {
+        long toolCalls = 0;
+        long exploreActions = 0;
+        long codegraphCalls = 0;
+        long codegraphMillis = 0;
+        long codegraphFailures = 0;
+        for (AgentEventEnvelope event : events) {
+            if (!event.turnId().map(turnId::equals).orElse(false)) {
+                continue;
+            }
+            if (event.payload() instanceof AgentEventPayload.ToolActivity tool && terminal(tool.state())) {
+                toolCalls++;
+                if (CLAUDE_EXPLORE_TOOLS.contains(tool.name())) {
+                    exploreActions++;
+                }
+                if (tool.name().endsWith(CODEGRAPH_TOOL)) {
+                    codegraphCalls++;
+                    codegraphMillis += tool.durationMs().orElse(0L);
+                    if (tool.state() == AgentEventPayload.ActivityState.FAILED) {
+                        codegraphFailures++;
+                    }
+                }
+            }
+            else if (event.payload() instanceof AgentEventPayload.CommandActivity command && terminal(command.state())) {
+                toolCalls++;
+                exploreActions += command.actions().stream().filter(action -> EXPLORE_ACTIONS.contains(action.kind())).count();
+            }
+        }
+        return new ToolCounters(toolCalls, exploreActions, codegraphCalls, codegraphMillis, codegraphFailures);
+    }
+
+    private static boolean terminal(AgentEventPayload.ActivityState state)
+    {
+        return state == AgentEventPayload.ActivityState.COMPLETED || state == AgentEventPayload.ActivityState.FAILED;
+    }
+
+    private List<AgentEventEnvelope> readEvents(TaskId taskId)
+    {
+        ImmutableList.Builder<AgentEventEnvelope> events = ImmutableList.builder();
+        long after = 0;
+        while (true) {
+            List<AgentEventEnvelope> page = logStore.readAfter(taskId, after, EVENT_PAGE_SIZE);
+            if (page.isEmpty()) {
+                return events.build();
+            }
+            events.addAll(page);
+            after = page.getLast().sequence();
+        }
+    }
+
     private static TaskMetrics calculateTaskTotals(List<AgentTurn> turns)
     {
         long inputTokens = 0;
         long cachedInputTokens = 0;
         long outputTokens = 0;
         Duration elapsed = Duration.ZERO;
+        ToolCounters counters = ToolCounters.ZERO;
         Optional<BigDecimal> cost = Optional.of(BigDecimal.ZERO);
         CostProvenance provenance = null;
         try {
@@ -235,6 +305,7 @@ public final class DefaultAgentMetricsService
                 cachedInputTokens = Math.addExact(cachedInputTokens, metrics.cachedInputTokens());
                 outputTokens = Math.addExact(outputTokens, metrics.outputTokens());
                 elapsed = elapsed.plus(metrics.elapsed());
+                counters = counters.plus(metrics.counters());
                 if (metrics.cost().isEmpty()) {
                     cost = Optional.empty();
                 }
@@ -259,9 +330,10 @@ public final class DefaultAgentMetricsService
                     outputTokens,
                     Optional.empty(),
                     CostProvenance.UNAVAILABLE,
-                    elapsed);
+                    elapsed,
+                    counters);
         }
-        return new TaskMetrics(inputTokens, cachedInputTokens, outputTokens, cost, provenance, elapsed);
+        return new TaskMetrics(inputTokens, cachedInputTokens, outputTokens, cost, provenance, elapsed, counters);
     }
 
     private AgentTask requireTask(TaskId taskId)

@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto } from '../types';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
 import {
   applyMarkdownCommand,
   buildFileTree,
@@ -22,8 +22,11 @@ import {
   filenameTooltip,
   nextCommitRange,
   nextLineSelection,
+  PendingReviewCommentRow,
   reviewTarget,
   submitInlineReviewComment,
+  updatePendingReviewComment,
+  type DiffViewerProps,
 } from './PullChanges';
 
 const commits: DiffCommitDto[] = [
@@ -62,6 +65,41 @@ function reviewComment(overrides: Partial<InlineReviewCommentDto> = {}): InlineR
     ...overrides,
   };
 }
+
+function reviewActivity(id: number, body: string, payload: Partial<PullTimelinePayloadDto> = {}): PullRequestDetailDto['recentActivity'][number] {
+  return {
+    actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-25T10:00:00Z', body: null, githubId: id,
+    payload: {
+      actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
+      renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null,
+      sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null,
+      path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, startLine: null,
+      originalStartLine: null, side: 'RIGHT', resolved: false, outdated: false, reactions: [],
+      comments: [{
+        githubId: id, actor: 'bob', actorAvatarUrl: 'https://example.com/bob.png', actorBot: false,
+        timestamp: '2026-08-25T10:00:00Z', body, htmlUrl: null, reviewId: 9, inReplyToId: null, reactions: [],
+      }],
+      ...payload,
+    },
+  };
+}
+
+function reviewThreads(activities: PullRequestDetailDto['recentActivity']): NonNullable<DiffViewerProps['reviewThreads']> {
+  const pr: PullRequestDto = {
+    id: 1, repo: 'owner/repo', number: 42, title: 'Example pull request', author: 'alice',
+    htmlUrl: 'https://github.com/owner/repo/pull/42', createdAt: '2026-08-25T09:00:00Z',
+    updatedAt: '2026-08-25T10:00:00Z', origin: 'AUTHORED', labels: [], labelColors: {}, draft: false,
+    viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'PASSING',
+    additions: 1, deletions: 1, commentCount: activities.length, attentionReason: null, state: 'open',
+    mergeable: true, mergeableState: 'clean', headPushedAt: null, headRef: 'feature/review',
+  };
+  return { activities, pr, unavailable: false, onRefresh: async () => {}, onDetailUpdate: () => {} };
+}
+
+const viewer: UserProfileDto = {
+  login: 'alice', name: 'Alice', avatarUrl: 'https://example.com/alice.png', htmlUrl: 'https://github.com/alice',
+  publicRepos: 1, followers: 1, following: 1, bio: null, location: null, company: null, email: null,
+};
 
 describe('DiffViewer', () => {
   it('renders expandable unchanged regions and line-review controls', () => {
@@ -169,6 +207,86 @@ describe('DiffViewer', () => {
     expect(html.indexOf('Range pending')).toBeGreaterThan(html.indexOf('trailing'));
   });
 
+  it('places existing threads at the matching side and range endpoint with replies and avatars', () => {
+    const rightThread = reviewActivity(102, 'New-side discussion');
+    rightThread.payload.comments.push({
+      ...rightThread.payload.comments[0], githubId: 103, actor: 'carol', actorAvatarUrl: 'https://example.com/carol.png',
+      body: 'A reply in this discussion', inReplyToId: 102,
+    });
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} reviewThreads={reviewThreads([
+      reviewActivity(101, 'Old-side discussion', { side: 'LEFT' }),
+      rightThread,
+      reviewActivity(104, 'Range discussion', { line: 97, startLine: 95 }),
+      reviewActivity(105, 'Resolved discussion', { line: 95, resolved: true }),
+    ])} />);
+
+    expect(html.match(/<tr class="is-review-thread">/g)).toHaveLength(4);
+    expect(html.indexOf('Old-side discussion')).toBeGreaterThan(html.indexOf('old value'));
+    expect(html.indexOf('Old-side discussion')).toBeLessThan(html.indexOf('aVeryLongReplacementValue'));
+    expect(html.indexOf('New-side discussion')).toBeGreaterThan(html.indexOf('aVeryLongReplacementValue'));
+    expect(html.indexOf('Range discussion')).toBeGreaterThan(html.indexOf('trailing'));
+    expect(html).toContain('<code>src/Example.java:L96</code>');
+    expect(html).toContain('<code>src/Example.java:R96</code>');
+    expect(html).toContain('<code>src/Example.java:R95–R97</code>');
+    expect(html).toContain('A reply in this discussion');
+    expect(html).toContain('src="https://example.com/bob.png"');
+    expect(html).toContain('src="https://example.com/carol.png"');
+    expect(html).toContain('<details class="pr-thread-row"><summary>');
+    expect(html).toContain('Resolved discussion');
+    expect(html).toContain('>Unresolve</button>');
+    expect(html).toContain('>Resolve</button>');
+    expect(html).not.toContain('pr-commented-code-line');
+    expect(html).not.toContain('Review comments outside the visible lines');
+  });
+
+  it('keeps outdated, unmapped, and unavailable-patch threads visible below their file', () => {
+    const binary = changedFile('assets/logo.png');
+    const html = renderToStaticMarkup(<DiffViewer files={[file, binary]} reviewThreads={reviewThreads([
+      reviewActivity(101, 'Outdated discussion', { outdated: true, line: null }),
+      reviewActivity(102, 'Hidden-line discussion', { line: 20 }),
+      reviewActivity(103, 'Unknown-side discussion', { side: null }),
+      reviewActivity(104, 'Missing-line discussion', { line: null, originalLine: null }),
+      reviewActivity(105, 'Binary-file discussion', { path: binary.filename }),
+    ])} />);
+
+    expect(html).not.toContain('<tr class="is-review-thread">');
+    expect(html.match(/aria-label="Review comments outside the visible lines"/g)).toHaveLength(2);
+    expect(html).toContain('Outdated</span>');
+    for (const body of ['Outdated discussion', 'Hidden-line discussion', 'Unknown-side discussion', 'Missing-line discussion', 'Binary-file discussion']) {
+      expect(html.split(body)).toHaveLength(2);
+    }
+    expect(html.indexOf('Outdated discussion')).toBeGreaterThan(html.indexOf('</table>'));
+    expect(html.indexOf('Binary-file discussion')).toBeGreaterThan(html.indexOf('Binary file or diff unavailable.'));
+  });
+
+  it('retains threads for files outside the diff and excludes unrelated timeline events', () => {
+    const outside = reviewActivity(101, 'Discussion on a removed file', { path: 'src/Removed.java' });
+    const unrelated = { ...reviewActivity(102, 'Unrelated event'), eventType: 'reviewed' };
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} reviewThreads={reviewThreads([outside, unrelated])} />);
+
+    expect(html).toContain('aria-label="Review comments on files outside this diff"');
+    expect(html).toContain('Discussion on a removed file');
+    expect(html).not.toContain('Unrelated event');
+  });
+
+  it('shows full-PR threads separately when a selected commit range changes line positions', () => {
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} commits={commits} commitRange={{ start: 1, end: 1 }}
+      reviewThreads={reviewThreads([reviewActivity(101, 'Full-PR discussion')])} />);
+
+    expect(html).not.toContain('<tr class="is-review-thread">');
+    expect(html).toContain('aria-label="Review comments on the full pull request"');
+    expect(html).toContain('Full-PR discussion');
+    expect(html.indexOf('Full-PR discussion')).toBeGreaterThan(html.indexOf('</table>'));
+  });
+
+  it('reports unavailable review comments without hiding the code', () => {
+    const html = renderToStaticMarkup(<DiffViewer files={[file]}
+      reviewThreads={{ ...reviewThreads([]), unavailable: true }} />);
+
+    expect(html).toContain('role="alert">Review comments could not be loaded. Refresh the pull request to try again.');
+    expect(html).toContain('aVeryLongReplacementValue');
+  });
+
   it('offers a Copilot-style consecutive commit range', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-26T10:00:00Z'));
     const html = renderToStaticMarkup(<DiffViewer
@@ -246,6 +364,57 @@ describe('DiffViewer', () => {
 
     expect(postPrReviewComment).toHaveBeenCalledWith('owner/repo', 42, comment);
     expect(onDetailChange).toHaveBeenCalledWith(updated);
+  });
+});
+
+describe('pending review comments', () => {
+  it('edits only the selected duplicate and preserves its range and commit payload', () => {
+    const first = reviewComment({ line: 97, startLine: 95, startSide: 'RIGHT', commitId: 'head-sha' });
+    const second = { ...first };
+    const comments = [first, second];
+    const updated = updatePendingReviewComment(comments, second, '  Updated feedback  ');
+
+    expect(updated).toEqual([first, { ...second, body: 'Updated feedback' }]);
+    expect(updated[0]).toBe(first);
+    expect(comments[1].body).toBe('Pending feedback');
+    expect(updatePendingReviewComment(comments, second, ' \n\t ')).toBe(comments);
+  });
+
+  it('discards only the selected comment even when another comment has identical content', () => {
+    const first = reviewComment();
+    const second = { ...first };
+
+    expect(updatePendingReviewComment([first, second], first, null)).toEqual([second]);
+    expect(updatePendingReviewComment([first, second], first, null)[0]).toBe(second);
+  });
+
+  it('shows the signed-in avatar and edit/discard controls on the pending card', () => {
+    const html = renderToStaticMarkup(<table><tbody><PendingReviewCommentRow
+      comment={reviewComment({ body: '**Pending feedback**' })} rowKind="add" viewer={viewer} repository="owner/repo"
+      editBody={null} onEdit={() => {}} onSave={() => {}} onDiscard={() => {}}
+    /></tbody></table>);
+
+    expect(html).toContain('src="https://example.com/alice.png" alt="alice"');
+    expect(html).toContain('<strong>Pending feedback</strong>');
+    expect(html).toContain('>Edit</button>');
+    expect(html).toContain('>Discard</button>');
+    expect(html).not.toContain('<textarea');
+  });
+
+  it.each([
+    { body: 'Updated feedback', disabled: false },
+    { body: ' \n\t ', disabled: true },
+  ])('offers cancel and guards saving an editor with body "$body"', ({ body, disabled }) => {
+    const html = renderToStaticMarkup(<table><tbody><PendingReviewCommentRow
+      comment={reviewComment()} rowKind="add" viewer={viewer} repository="owner/repo"
+      editBody={body} onEdit={() => {}} onSave={() => {}} onDiscard={() => {}}
+    /></tbody></table>);
+
+    expect(html).toContain('aria-label="Edit pending review comment"');
+    expect(html).toContain('>Cancel</button>');
+    expect(html).toContain(`<button type="submit" class="is-primary"${disabled ? ' disabled=""' : ''}>Save</button>`);
+    expect(html).not.toContain('>Edit</button>');
+    expect(html).not.toContain('>Discard</button>');
   });
 });
 

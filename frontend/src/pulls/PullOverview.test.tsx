@@ -624,6 +624,7 @@ describe('PullOverview', () => {
           ...emptyPayload,
           path: 'plugin/trino-oracle/src/main/java/io/trino/plugin/oracle/RewriteCast.java',
           line: 67,
+          side: 'RIGHT',
           resolved: true,
           outdated: true,
           comments: [
@@ -668,7 +669,7 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-review-group"');
     expect(html).toContain('chenjian2664</strong></button><span>reviewed</span>');
     expect(html).toContain('src="https://example.com/chenjian2664.png"');
-    expect(html).toContain('RewriteCast.java:L67');
+    expect(html).toContain('RewriteCast.java:R67');
     expect(html).toContain('Can you add a test?');
   });
 

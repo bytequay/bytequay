@@ -37,6 +37,7 @@ import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -428,6 +429,69 @@ class TestGitHubPullRequestOverviewClient
                 .containsExactly(
                         "Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)",
                         "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
+        fixture.verify();
+    }
+
+    @Test
+    void loadsReviewCommentsAndThreadLocationsAcrossPages()
+    {
+        Fixture fixture = fixture();
+        String comments = IntStream.rangeClosed(1, 100)
+                .mapToObj(id -> """
+                        {"id":%d,"path":"a.txt","line":%d,"side":"RIGHT","body":"Comment %d",
+                         "created_at":"2026-08-20T10:00:00Z","user":{"login":"alice","avatar_url":"https://avatars/alice"}}
+                        """.formatted(id, id, id))
+                .collect(joining(",", "[", "]"));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
+                .andRespond(withSuccess(comments, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=2"))
+                .andRespond(withSuccess("""
+                        [{"id":101,"in_reply_to_id":1,"body":"Reply on the next page",
+                          "created_at":"2026-08-20T10:01:00Z","user":{"login":"bob","avatar_url":"https://avatars/bob"}}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"owner":"owner","repo":"repo","number":42,"after":null}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                          "nodes":[{"id":"PRRT_1","isResolved":false,"isOutdated":false,
+                            "path":"a.txt","line":7,"originalLine":1,"diffSide":"RIGHT",
+                            "comments":{"nodes":[{"databaseId":1}]}}],
+                          "pageInfo":{"hasNextPage":true,"endCursor":"next-thread-page"}
+                        }}}}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"owner":"owner","repo":"repo","number":42,"after":"next-thread-page"}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                          "nodes":[{"id":"PRRT_100","isResolved":true,"isOutdated":true,
+                            "path":"a.txt","line":null,"originalLine":100,"startLine":null,
+                            "originalStartLine":98,"diffSide":"LEFT","comments":{"nodes":[{"databaseId":100}]}}],
+                          "pageInfo":{"hasNextPage":false,"endCursor":"last-thread-page"}
+                        }}}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> threads = fixture.client().fetchPrReviewThreads("pat", PULL_REQUEST);
+
+        assertThat(threads).hasSize(100);
+        assertThat(threads.getFirst().payload()).satisfies(payload -> {
+            assertThat(payload.line()).isEqualTo(7);
+            assertThat(payload.side()).isEqualTo("RIGHT");
+            assertThat(payload.actorAvatarUrl()).isEqualTo("https://avatars/alice");
+            assertThat(payload.comments()).extracting(comment -> comment.body()).containsExactly("Comment 1", "Reply on the next page");
+            assertThat(payload.comments().getLast().actorAvatarUrl()).isEqualTo("https://avatars/bob");
+        });
+        assertThat(threads.getLast().payload()).satisfies(payload -> {
+            assertThat(payload.resolved()).isTrue();
+            assertThat(payload.outdated()).isTrue();
+            assertThat(payload.line()).isNull();
+            assertThat(payload.originalLine()).isEqualTo(100);
+            assertThat(payload.originalStartLine()).isEqualTo(98);
+            assertThat(payload.side()).isEqualTo("LEFT");
+        });
         fixture.verify();
     }
 

@@ -1401,6 +1401,14 @@ function DetailBody({
       canReview={canSubmitReview(pr, detail)}
       pendingComments={pendingComments}
       onCommitRangeChange={onCommitRangeChange}
+      reviewThreads={{
+        activities: detail.recentActivity,
+        pr,
+        workspaceId: contributorsWorkspaceId,
+        unavailable: detail.unavailableSections.includes('reviewThreads'),
+        onRefresh,
+        onDetailUpdate,
+      }}
       onPendingCommentsChange={onPendingCommentsChange}
       onDetailChange={onReviewPosted}
     /></div>;

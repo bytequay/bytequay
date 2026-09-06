@@ -22,17 +22,27 @@ import type {
   DiffFileDto,
   InlineReviewCommentDto,
   PullRequestDetailDto,
+  PullRequestDto,
   UserProfileDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody from './MarkdownBody';
-import { CopyLinkButton, remoteErrorMessage } from './PullOverview';
+import { CopyLinkButton, remoteErrorMessage, ReviewThread, type PullDetailUpdater } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 
 export type CommitRange = { start: number; end: number } | null;
 
 const SINGLE_FILE_MODE_THRESHOLD = 20;
+
+type ReviewThreads = {
+  activities: PullRequestDetailDto['recentActivity'];
+  pr: PullRequestDto;
+  workspaceId?: string;
+  unavailable: boolean;
+  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
+};
 
 type PullChangesProps = {
   repo: string;
@@ -44,6 +54,7 @@ type PullChangesProps = {
   loading: boolean;
   canReview: boolean;
   pendingComments: InlineReviewCommentDto[];
+  reviewThreads: ReviewThreads;
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   onDetailChange: (detail: PullRequestDetailDto) => void;
@@ -66,6 +77,7 @@ export type DiffViewerProps = {
   loading?: boolean;
   onCommitRangeChange?: (range: CommitRange) => void;
   review?: ReviewOptions;
+  reviewThreads?: ReviewThreads;
   loadFileContent?: (
     path: string,
     baseSha?: string,
@@ -83,6 +95,7 @@ export default function PullChanges({
   loading,
   canReview,
   pendingComments,
+  reviewThreads,
   onCommitRangeChange,
   onPendingCommentsChange,
   onDetailChange,
@@ -93,6 +106,7 @@ export default function PullChanges({
       commits={commits}
       commitRange={commitRange}
       loading={loading}
+      reviewThreads={reviewThreads}
       onCommitRangeChange={onCommitRangeChange}
       review={{
         repo,
@@ -109,7 +123,7 @@ export default function PullChanges({
   );
 }
 
-/** The signed-in account, for the avatar on the review composer. */
+/** The signed-in account, for review composers and local pending comments. */
 function useViewer(enabled: boolean): UserProfileDto | null {
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
   useEffect(() => {
@@ -130,9 +144,10 @@ export function DiffViewer({
   loading = false,
   onCommitRangeChange,
   review,
+  reviewThreads,
   loadFileContent,
 }: DiffViewerProps) {
-  const viewer = useViewer(review?.canReview ?? false);
+  const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length));
   const [treeOpen, setTreeOpen] = useState(false);
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
@@ -257,6 +272,9 @@ export function DiffViewer({
         )}
         <div className="pull-changes__scroll" ref={scrollRef}>
           {loading && <div className="pull-changes__loading">Loading selected commits…</div>}
+          {reviewThreads?.unavailable && <p className="pull-diff-file__content-error" role="alert">
+            Review comments could not be loaded. Refresh the pull request to try again.
+          </p>}
           {!loading && files.length === 0 && <div className="hp-empty">No changed files reported.</div>}
           {files.map(file => (
             <DiffFileCard
@@ -265,12 +283,20 @@ export function DiffViewer({
               baseSha={baseSha}
               headSha={headSha}
               review={review}
+              reviewThreads={reviewThreads}
+              fullDiff={commitRange === null}
               viewer={viewer}
               loadFileContent={loadFileContent}
               open={isFileOpen(file.filename)}
               onToggle={() => toggle(file.filename)}
             />
           ))}
+          {reviewThreads && <UnplacedReviewThreads
+            reviewThreads={reviewThreads}
+            activities={reviewThreads.activities.filter(activity => activity.eventType === 'review_thread'
+              && !files.some(file => file.filename === activity.payload.path))}
+            label="Review comments on files outside this diff"
+          />}
         </div>
       </div>
     </div>
@@ -614,6 +640,8 @@ function DiffFileCard({
   baseSha,
   headSha,
   review,
+  reviewThreads,
+  fullDiff,
   viewer,
   loadFileContent,
   open,
@@ -623,6 +651,8 @@ function DiffFileCard({
   baseSha?: string;
   headSha?: string;
   review?: ReviewOptions;
+  reviewThreads?: ReviewThreads;
+  fullDiff: boolean;
   viewer?: UserProfileDto | null;
   loadFileContent?: DiffViewerProps['loadFileContent'];
   open: boolean;
@@ -646,9 +676,13 @@ function DiffFileCard({
   const [preview, setPreview] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [posting, setPosting] = useState(false);
+  const [pendingEdit, setPendingEdit] = useState<{ comment: InlineReviewCommentDto; body: string } | null>(null);
   const oldLines = sourceLines(content?.oldContent);
   const newLines = sourceLines(content?.newContent);
   const canReview = review?.canReview ?? false;
+  const fileThreads = reviewThreads?.activities.filter(activity =>
+    activity.eventType === 'review_thread' && activity.payload.path === file.filename) ?? [];
+  const placedThreads = new Set<PullRequestDetailDto['recentActivity'][number]>();
 
   useEffect(() => {
     if (!selectingRange) return;
@@ -786,6 +820,11 @@ function DiffFileCard({
     const selectionPrefix = selection?.side === 'RIGHT' ? 'R' : 'L';
     const rowComments = pendingReviewCommentsForLine(
       review?.pendingComments ?? [], file.filename, oldLine, newLine);
+    const rowThreads = fullDiff ? fileThreads.filter(activity => !activity.payload.outdated
+      && activity.payload.line !== null
+      && (activity.payload.side === 'LEFT' ? activity.payload.line === oldLine
+        : activity.payload.side === 'RIGHT' && activity.payload.line === newLine)) : [];
+    rowThreads.forEach(activity => placedThreads.add(activity));
     return (
       <Fragment key={displayRow.key}>
         <tr className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}`}
@@ -845,11 +884,29 @@ function DiffFileCard({
             <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span>{displayRow.content || ' '}
           </td>
         </tr>
-        {rowComments.map((comment, index) => (
+        {reviewThreads && rowThreads.map(activity => (
+          <tr className="is-review-thread" key={`thread:${activity.githubId}`}><td colSpan={3}>
+            <ReviewThread {...reviewThreads} activity={activity} showCode={false} />
+          </td></tr>
+        ))}
+        {review && rowComments.map((comment, index) => (
           <PendingReviewCommentRow
             key={`${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}
             comment={comment}
             rowKind={displayRow.kind}
+            viewer={viewer}
+            repository={review.repo}
+            editBody={pendingEdit?.comment === comment ? pendingEdit.body : null}
+            onEdit={body => setPendingEdit(body === null ? null : { comment, body })}
+            onSave={() => {
+              if (pendingEdit?.comment !== comment || !pendingEdit.body.trim()) return;
+              review.onPendingCommentsChange(updatePendingReviewComment(review.pendingComments, comment, pendingEdit.body));
+              setPendingEdit(null);
+            }}
+            onDiscard={() => {
+              review.onPendingCommentsChange(updatePendingReviewComment(review.pendingComments, comment, null));
+              if (pendingEdit?.comment === comment) setPendingEdit(null);
+            }}
           />
         ))}
         {composerAfter && !selectingRange && (
@@ -996,13 +1053,36 @@ function DiffFileCard({
           </table>
         </div>
       )}
+      {open && reviewThreads && <UnplacedReviewThreads
+        reviewThreads={reviewThreads}
+        activities={fileThreads.filter(activity => !placedThreads.has(activity))}
+        label={fullDiff ? 'Review comments outside the visible lines' : 'Review comments on the full pull request'}
+      />}
     </article>
   );
 }
 
-function PendingReviewCommentRow({ comment, rowKind }: {
+function UnplacedReviewThreads({ reviewThreads, activities, label }: {
+  reviewThreads: ReviewThreads;
+  activities: PullRequestDetailDto['recentActivity'];
+  label: string;
+}) {
+  if (activities.length === 0) return null;
+  return <section className="pull-diff-threads" aria-label={label}>
+    <p>{label}</p>
+    {activities.map(activity => <ReviewThread {...reviewThreads} activity={activity} key={activity.githubId} />)}
+  </section>;
+}
+
+export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, editBody, onEdit, onSave, onDiscard }: {
   comment: InlineReviewCommentDto;
   rowKind: DisplayRow['kind'];
+  viewer?: UserProfileDto | null;
+  repository: string;
+  editBody: string | null;
+  onEdit: (body: string | null) => void;
+  onSave: () => void;
+  onDiscard: () => void;
 }) {
   const endLabel = `${comment.side === 'RIGHT' ? 'R' : 'L'}${comment.line}`;
   const isRange = comment.startLine !== null && comment.startLine !== comment.line;
@@ -1015,14 +1095,41 @@ function PendingReviewCommentRow({ comment, rowKind }: {
         <details className="pull-diff-pending" open>
           <summary>
             <span className="pull-diff-pending__chevron" aria-hidden="true">›</span>
+            <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22} allowGitHubFallback={false} />
             <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>
             <span className="pull-diff-pending__badge">Pending</span>
           </summary>
-          <div className="pull-diff-pending__body"><p>{comment.body}</p></div>
+          {editBody === null ? <>
+            <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} /></div>
+            <footer className="pull-diff-pending__actions">
+              <button type="button" onClick={() => onEdit(comment.body)}>Edit</button>
+              <button type="button" className="is-destructive" onClick={onDiscard}>Discard</button>
+            </footer>
+          </> : <form className="pull-diff-review pull-diff-pending__editor" onSubmit={event => {
+            event.preventDefault();
+            if (editBody.trim()) onSave();
+          }}>
+            <textarea autoFocus aria-label="Edit pending review comment" value={editBody}
+              onChange={event => onEdit(event.target.value)} />
+            <footer>
+              <button type="button" onClick={() => onEdit(null)}>Cancel</button>
+              <button type="submit" className="is-primary" disabled={!editBody.trim()}>Save</button>
+            </footer>
+          </form>}
         </details>
       </td>
     </tr>
   );
+}
+
+export function updatePendingReviewComment(
+  comments: InlineReviewCommentDto[],
+  target: InlineReviewCommentDto,
+  body: string | null,
+) {
+  if (body === null) return comments.filter(comment => comment !== target);
+  if (!body.trim()) return comments;
+  return comments.map(comment => comment === target ? { ...comment, body: body.trim() } : comment);
 }
 
 export async function submitInlineReviewComment(

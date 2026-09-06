@@ -873,12 +873,13 @@ export function updateReviewThreadResolution(
   };
 }
 
-function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate }: {
+export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
   activity: Activity;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
   onDetailUpdate: PullDetailUpdater;
+  showCode?: boolean;
 }) {
   const { payload } = activity;
   const [replying, setReplying] = useState(false);
@@ -891,7 +892,7 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate }: 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resolutionInFlight = useRef(false);
   const targetLine = payload.line ?? payload.originalLine;
-  const commentedLine = payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
+  const commentedLine = showCode && payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
   const resolved = optimisticResolved ?? payload.resolved;
@@ -993,7 +994,8 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate }: 
       <details className="pr-thread-row">
         <summary>
           <span className="pr-thread-chevron" aria-hidden="true">›</span>
-          <code>{threadLocation(payload.path, payload.line ?? payload.originalLine)}</code>
+          <code>{threadLocation(payload.path, targetLine, payload.side,
+            payload.line === null ? payload.originalStartLine : payload.startLine)}</code>
           <span className="pr-thread-row__resolved"><ResolvedIcon /> Resolved</span>
         </summary>
         <div className="pr-thread-row__comments">
@@ -1008,7 +1010,8 @@ function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate }: 
     <details className="pr-inline-thread" open>
       <summary>
         <span className="pr-thread-chevron" aria-hidden="true">›</span>
-        <code>{threadLocation(payload.path, commentedLine ? null : targetLine)}</code>
+        <code>{threadLocation(payload.path, commentedLine ? null : targetLine, payload.side,
+          payload.line === null ? payload.originalStartLine : payload.startLine)}</code>
         {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
       </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
@@ -1937,8 +1940,10 @@ function groupLabel(category: string) {
   return category.charAt(0).toUpperCase() + category.slice(1);
 }
 
-function threadLocation(path: string | null, line: number | null) {
-  return `${path ?? 'Changed file'}${line ? `:L${line}` : ''}`;
+function threadLocation(path: string | null, line: number | null, side: string | null, startLine: number | null) {
+  const prefix = side === 'RIGHT' ? 'R' : 'L';
+  const range = startLine !== null && startLine !== line ? `${prefix}${startLine}–` : '';
+  return `${path ?? 'Changed file'}${line ? `:${range}${prefix}${line}` : ''}`;
 }
 
 export function reactionEmoji(content: string) {

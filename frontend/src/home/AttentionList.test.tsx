@@ -53,10 +53,56 @@ describe('AttentionList', () => {
     expect(number).toBeGreaterThan(title);
     expect(repositoryAvatar).toBeGreaterThan(number);
     expect(authorAvatar).toBeGreaterThan(repositoryAvatar);
-    expect(html).toContain('class="bq-button bq-button--ghost"');
-    expect(html.match(/class="bq-button/g)).toHaveLength(3);
-    expect(html).toContain('Ack</button>');
-    expect(html).toContain('Snooze</button>');
-    expect(html).toContain('Open');
+    // The reason is an icon tile plus a labelled second line, and the actions are always-visible icon buttons.
+    expect(html).toContain('lucide-list-checks');
+    expect(html).toContain('Review requested');
+    expect(html).toContain('alice asked for your review');
+    expect(html).toContain('aria-label="Acknowledge #30920"');
+    expect(html).toContain('aria-label="Snooze #30920"');
+    expect(html).not.toContain('bq-button');
+    expect(html).not.toContain('Open');
+    expect(html).toContain('class="atn-count">1<');
+  });
+
+  it('scopes the workspace variant to a few rows and disappears when nothing needs the user', () => {
+    const items = [30920, 30921, 30922, 30923, 30924].map((number): AttentionItem => ({
+      key: `trinodb/trino#${number}`,
+      type: 'pr',
+      kind: 'ci',
+      repo: 'trinodb/trino',
+      number,
+      title: `Change ${number}`,
+      author: 'alice',
+      authorAvatarUrl: null,
+      createdAt: '2026-08-27T00:00:00Z',
+      updatedAt: '2026-08-28T00:00:00Z',
+      labels: [],
+      pr: null,
+      body: '',
+      commentCount: 0,
+      workspaceId: null,
+    }));
+    const html = renderToStaticMarkup(
+      <AttentionList
+        variant="workspace"
+        maxRows={3}
+        candidates={items}
+        handled={{}}
+        onHandledChange={() => {}}
+        onOpen={() => {}}
+        onSeeAll={() => {}}
+      />,
+    );
+
+    expect(html.match(/class="atn-row"/g)).toHaveLength(3);
+    expect(html).toContain('class="atn-count">3 of 5<');
+    expect(html).toContain('class="atn-head__label">Needs attention<');
+    expect(html).toContain('ci · checks failed');
+    // Inside a workspace the repository is a given, so its avatar is not repeated on every row.
+    expect(html).not.toContain('aria-label="trinodb/trino"');
+
+    expect(renderToStaticMarkup(
+      <AttentionList variant="workspace" candidates={[]} handled={{}} onHandledChange={() => {}} onOpen={() => {}} onSeeAll={() => {}} />,
+    )).toBe('');
   });
 });

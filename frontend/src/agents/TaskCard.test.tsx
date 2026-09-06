@@ -19,7 +19,7 @@ import { parseAgentEventSequence } from './events';
 import { AgentHomeView } from './AgentHome';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { TaskComposer } from './AgentTasksView';
-import { TaskCard } from './TaskCard';
+import { gridColumnWidth, needsAttention, TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { ModelOptionDto, ModelProviderDto } from '../types';
@@ -61,12 +61,53 @@ describe('task window', () => {
     expect(markup).toContain('style="--card-w:294"');
     expect(markup).toContain('aria-label="Open task: Fix flaky preview"');
     expect(markup).toContain('‹ Tasks');
-    expect(markup).toContain('5.6 Sol · 12m');
-    // The window shows the task's own first events, not a stand-in.
+    // The thumbnail names the lane and model; the footer names the task and its state, nothing more.
+    expect(markup).toContain('Codex · 5.6 Sol');
+    expect(markup).not.toContain('· 12m');
+    expect(markup).toMatch(/class="agt-card__foot"><span class="agt-card__name">Fix flaky preview<\/span><span class="agt-state is-running">/);
+    expect(markup).not.toContain('❋');
+    // The window shows the task's own events, not a stand-in.
     expect(markup).toContain('Review the authentication change');
     expect(markup).toContain('>Running<');
-    // Without a close handler the card cannot close its task.
+    // Without a close, rename or hide handler the card offers none of them.
     expect(markup).not.toContain('Close task');
+    expect(markup).not.toContain('agt-card__tools');
+  });
+
+  it('folds a finished turn to its answer and keeps a live one open, as the screen does', () => {
+    const render = (shown: typeof events) => renderToStaticMarkup(
+      <TaskCard task={task('t-1', 'Fix flaky preview')} events={shown} providers={PROVIDERS} width={294} now={NOW} onOpen={() => {}} />);
+
+    const finished = render(events);
+    expect(finished).toContain('aria-expanded="false"');
+    expect(finished).toContain('I found one authentication regression.');
+    expect(finished).not.toContain('npm test');
+
+    const live = render(events.filter((event) => !(event.type === 'lifecycle' && event.payload.phase === 'TURN_COMPLETED')));
+    expect(live).toContain('aria-expanded="true"');
+    expect(live).toContain('npm test');
+  });
+
+  it('offers rename and hide only where Home passes them, and scales its screen to the grid column', () => {
+    const markup = renderToStaticMarkup(
+      <TaskCard task={task('t-1', 'Audit storage')} events={[]} providers={PROVIDERS} width={250} now={NOW} onOpen={() => {}} onRename={() => {}} onHide={() => {}} />);
+    expect(markup).toContain('aria-label="Rename task: Audit storage"');
+    expect(markup).toContain('aria-label="Hide task from Home: Audit storage"');
+    expect(markup).toContain('title="Double-click to rename"');
+
+    // Three columns fit in 900px at the 250px minimum, and each is what is left after the gaps.
+    expect(gridColumnWidth(900)).toBe(289);
+    expect(gridColumnWidth(1400)).toBe(267);
+    expect(gridColumnWidth(0)).toBe(250);
+  });
+
+  it('brings a hidden window back for recovery or an approval, and for nothing else', () => {
+    const idle = task('t-1', 'Audit storage');
+    expect(needsAttention(idle, [])).toBe(false);
+    expect(needsAttention({ ...idle, mutationClaim: { kind: 'RECOVERY', ownerId: 'launch-1', acquiredAt: '2026-08-20T10:00:00Z' } }, [])).toBe(true);
+    // The fixture leaves one approval open; without it nothing waits on the user.
+    expect(needsAttention(idle, events)).toBe(true);
+    expect(needsAttention(idle, events.filter((event) => event.type !== 'approval_requested'))).toBe(false);
   });
 
   it('marks the task behind the overview and offers to close idle tasks only', () => {
@@ -85,7 +126,7 @@ describe('task window', () => {
 describe('agent home and overview', () => {
   const bridge = () => createPreviewBridge('workspace-1');
 
-  it('asks what the agent should do and shows the open tasks as windows', () => {
+  it('names the repository, keeps the composer in the page, and lays the open tasks out as a grid', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView
         repository="jackchen/trino"
@@ -105,11 +146,24 @@ describe('agent home and overview', () => {
         onShowAll={() => {}}
       />);
 
-    expect(markup).toContain('What should the agent do in jackchen/trino?');
-    expect(markup.match(/class="agt-suggestion"/g)).toHaveLength(3);
+    expect(markup).toContain('aria-label="jackchen/trino"');
+    expect(markup).toContain('class="agt-home__repo">jackchen/trino<');
+    expect(markup).not.toContain('What should the agent do');
+    expect(markup).not.toContain('❋');
+    expect(markup.match(/class="agt-start"/g)).toHaveLength(3);
+    expect(markup).toContain('lucide-search');
+    expect(markup).toContain('lucide-circle-dot');
+    expect(markup).toContain('lucide-list-checks');
     expect(markup).toContain('Open tasks · 2');
     expect(markup).toContain('⇧⌘\\');
-    expect(markup).toContain('style="--card-w:200"');
+    // Windows fill a grid whose column is measured in the browser; a static render uses the minimum.
+    expect(markup).toContain('class="agt-windows-grid"');
+    expect(markup.match(/style="--card-w:250"/g)).toHaveLength(2);
+    expect(markup.match(/aria-label="Rename task: /g)).toHaveLength(2);
+    // The composer sits under the repository, not docked to the bottom of the page.
+    expect(markup.indexOf('agt-compose')).toBeLessThan(markup.indexOf('agt-open-tasks'));
+    // A quiet repository shows no attention section at all.
+    expect(markup).not.toContain('Needs attention');
     expect(markup).toContain('aria-label="Describe a task"');
     expect(markup).not.toContain('Describe a task — sending the first message creates it…');
     expect(markup).not.toContain('master');

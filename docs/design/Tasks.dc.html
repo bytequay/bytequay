@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+html,body{margin:0;height:100%;background:#ffffff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+button,input,textarea{font-family:inherit}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div data-screen-label="Tasks" style="display:flex;height:100vh;min-height:640px;overflow:hidden">
+  <div style="width:220px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 16px 8px"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span></div>
+    <div style="padding:6px 8px 0;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:#1f2328;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>Home</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;color:#1f2328;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Recent</div>
+    </div>
+    <div style="height:1px;background:#e3e3e6;margin:10px 16px"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 18px 8px;font-size:13.5px;font-weight:600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 7.5v9M18 10.5c0 4-12 2-12 6"></path></svg><span style="width:7px;height:7px;border-radius:50%;background:#1a7f37"></span>trinodb/trino</div>
+    <div style="flex:1;padding:0 8px;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>Workspace home</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:#e4e4e8;font-size:13.5px;font-weight:600"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path></svg>Tasks</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"></path><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"></path></svg>Pull requests</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5" fill="#6e6e76" stroke="none"></circle></svg>Issues</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 7.5v9M18 10.5c0 4-12 2-12 6"></path></svg>Commits</div>
+    </div>
+    <div style="padding:8px;border-top:1px solid #ececef"><div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Workspace settings</div></div>
+  </div>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative">
+    <div style="flex:1;min-height:0;overflow:auto;padding:28px 40px 200px">
+      <div style="display:flex;align-items:center;gap:16px">
+        <h1 style="margin:0;font-size:20px;font-weight:600">Tasks</h1>
+        <div style="flex:1"></div>
+        <div style="display:inline-flex;background:#eceff2;border-radius:8px;padding:2px">
+          <button onClick="{{ showActive }}" style="border:0;border-radius:6px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:{{ activeTabBg }};color:{{ activeTabFg }};box-shadow:{{ activeTabShadow }}">Active<span style="font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:0 6px">{{ activeCount }}</span></button>
+          <button onClick="{{ showArchived }}" style="border:0;border-radius:6px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:{{ archivedTabBg }};color:{{ archivedTabFg }};box-shadow:{{ archivedTabShadow }}">Archived<span style="font-size:11px;font-weight:600;color:#57606a;background:#e4e4e8;border-radius:10px;padding:0 6px">{{ archivedCount }}</span></button>
+        </div>
+      </div>
+
+      <sc-if value="{{ isActive }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:12px;margin-top:28px">
+          <div style="font-size:11.5px;font-weight:600;letter-spacing:.6px;color:#656d76;white-space:nowrap;flex:none">CHERRY-PICK EXECUTIONS</div>
+          <div style="flex:1"></div>
+          <button style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer;white-space:nowrap;flex:none">+ New cherry-pick</button>
+        </div>
+        <div style="font-size:13px;color:#57606a;padding:12px 16px;margin-top:8px;border:1px dashed #d8dee4;border-radius:10px">No cherry-pick tasks yet.</div>
+      </sc-if>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:30px;min-height:30px">
+        <sc-if value="{{ noSelection }}" hint-placeholder-val="{{ true }}">
+          <div style="font-size:11.5px;font-weight:600;letter-spacing:.6px;color:#656d76;white-space:nowrap;flex:none">{{ sectionTitle }}</div>
+          <div style="flex:1"></div>
+          <div style="font-size:12px;color:#8c959f;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sectionHint }}</div>
+        </sc-if>
+        <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;flex:1;background:#ddf4ff;border:1px solid rgba(9,105,218,.25);border-radius:8px;padding:5px 6px 5px 12px;animation:bqfade .15s ease-out">
+            <span style="font-size:12.5px;font-weight:600;color:#0969da">{{ selectedLabel }}</span>
+            <button onClick="{{ selectAllVisible }}" style="border:0;background:transparent;font-size:12.5px;color:#0969da;cursor:pointer;padding:3px 6px">Select all</button>
+            <div style="flex:1"></div>
+            <sc-if value="{{ isActive }}" hint-placeholder-val="{{ true }}"><button onClick="{{ archiveSelected }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Archive</button></sc-if>
+            <sc-if value="{{ isArchived }}" hint-placeholder-val="{{ false }}"><button onClick="{{ unarchiveSelected }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M12 18v-5m-2.5 2.5L12 13l2.5 2.5"></path></svg>Restore</button></sc-if>
+            <button onClick="{{ deleteSelected }}" disabled="{{ deleteSelectedDisabled }}" title="{{ deleteSelectedTitle }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer;opacity:{{ deleteSelectedOpacity }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>Delete</button>
+            <button onClick="{{ clearSelection }}" style="border:0;background:transparent;font-size:12.5px;color:#57606a;cursor:pointer;padding:4px 8px">Cancel</button>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:10px;border:1px dashed #d8dee4;border-radius:10px;padding:36px 20px;text-align:center">
+          <div style="font-size:14px;font-weight:600">{{ emptyTitle }}</div>
+          <div style="font-size:12.5px;color:#57606a;margin-top:4px;text-wrap:pretty">{{ emptyBody }}</div>
+        </div>
+      </sc-if>
+
+      <div style="display:flex;flex-direction:column;gap:16px;margin-top:10px">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <div style="border:1px solid #e3e3e6;border-radius:10px;overflow:hidden;background:#ffffff">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#f7f7f8;border-bottom:1px solid #e3e3e6">
+              <span style="font-size:12px;font-weight:700;color:#57606a;white-space:nowrap;flex:none">{{ g.label }}</span>
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8c959f;white-space:nowrap;flex:none">{{ g.date }}</span>
+              <div style="flex:1"></div>
+              <span style="font-size:11px;color:#8c959f;white-space:nowrap;flex:none">{{ g.countLabel }}</span>
+            </div>
+            <sc-for list="{{ g.rows }}" as="row" hint-placeholder-count="3">
+              <div onMouseEnter="{{ row.onEnter }}" onMouseLeave="{{ row.onLeave }}" onClick="{{ row.onOpen }}" style="display:flex;align-items:center;gap:12px;padding:0 10px 0 12px;height:44px;border-top:1px solid #f0f0f2;cursor:pointer;background:{{ row.bg }}">
+                <div onClick="{{ row.onToggle }}" title="Select" style="width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:5px">
+                  <sc-if value="{{ row.showCheck }}" hint-placeholder-val="{{ false }}"><span style="width:15px;height:15px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;border:1.5px solid {{ row.checkBorder }};background:{{ row.checkBg }}"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></span></sc-if>
+                  <sc-if value="{{ row.showGlyph }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b6bcc4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path></svg></sc-if>
+                </div>
+                <div style="flex:1;min-width:0;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:{{ row.titleColor }}">{{ row.title }}</div>
+                <div style="flex:none;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;white-space:nowrap">{{ row.meta }}</div>
+                <span style="flex:none;font-size:11px;font-weight:600;border-radius:10px;padding:2px 9px;white-space:nowrap;background:{{ row.pillBg }};color:{{ row.pillFg }}">{{ row.status }}</span>
+                <div style="flex:none;width:96px;display:flex;justify-content:flex-end;align-items:center;gap:2px">
+                  <sc-if value="{{ row.showActions }}" hint-placeholder-val="{{ false }}">
+                    <sc-if value="{{ row.canArchive }}" hint-placeholder-val="{{ true }}"><button onClick="{{ row.onArchive }}" title="Archive" style="width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#e4e4e8;color:#1f2328"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg></button></sc-if>
+                    <sc-if value="{{ row.canRestore }}" hint-placeholder-val="{{ false }}"><button onClick="{{ row.onRestore }}" title="Restore to Active" style="width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#e4e4e8;color:#1f2328"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M12 18v-5m-2.5 2.5L12 13l2.5 2.5"></path></svg></button></sc-if>
+                    <button onClick="{{ row.onDelete }}" disabled="{{ row.deleteDisabled }}" title="{{ row.deleteTitle }}" style="width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;opacity:{{ row.deleteOpacity }}" style-hover="background:#ffebe9;color:#cf222e"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+                  </sc-if>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8c959f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:6px"><path d="m9 6 6 6-6 6"></path></svg>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{ isActive }}" hint-placeholder-val="{{ true }}">
+      <div style="position:absolute;left:0;right:0;bottom:0;padding:24px 40px 28px;background:linear-gradient(to bottom,rgba(255,255,255,0),#ffffff 40%);pointer-events:none">
+        <div style="max-width:720px;margin:0 auto;border:1px solid #d0d7de;border-radius:14px;background:#ffffff;box-shadow:0 8px 24px rgba(140,149,159,.18);padding:14px 14px 10px;pointer-events:auto">
+          <div style="font-size:14px;color:#8c959f;padding:2px 4px 26px">Let's ship...</div>
+          <div style="display:flex;align-items:center;gap:14px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+            <span style="font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:4px">Codex<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+            <span style="font-size:13.5px;color:#57606a">Auto</span>
+            <div style="flex:1"></div>
+            <span style="font-size:13.5px;display:inline-flex;align-items:center;gap:6px;color:#1f2328"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>5.6 Sol Medium<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+            <span style="width:30px;height:30px;border-radius:50%;background:#eceff2;display:inline-flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:50%;bottom:150px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:#24292f;color:#ffffff;font-size:13px;border-radius:8px;padding:9px 12px 9px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:bqfade .18s ease-out;z-index:5">
+        <span>{{ toastText }}</span>
+        <sc-if value="{{ hasUndo }}" hint-placeholder-val="{{ false }}"><button onClick="{{ undoToast }}" style="border:0;background:transparent;color:#79c0ff;font-weight:600;font-size:13px;cursor:pointer;padding:0">Undo</button></sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ hasConfirm }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ cancelDelete }}" style="position:absolute;inset:0;background:rgba(31,35,40,.45);display:flex;align-items:center;justify-content:center;z-index:10">
+        <div onClick="{{ stop }}" role="dialog" style="width:440px;background:#ffffff;border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.3);padding:22px 22px 18px;animation:bqfade .16s ease-out">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <span style="width:34px;height:34px;flex:none;border-radius:50%;background:#ffebe9;display:inline-flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cf222e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:15px;font-weight:600">{{ confirmTitle }}</div>
+              <div style="font-size:13px;color:#57606a;margin-top:4px;line-height:1.5;text-wrap:pretty">This permanently removes everything ByteQuay stored for {{ confirmObject }}. Nothing on GitHub is touched.</div>
+            </div>
+          </div>
+          <div style="margin:16px 0 0 46px;border:1px solid #e3e3e6;border-radius:8px;overflow:hidden;font-size:12.5px">
+            <div style="display:flex;gap:10px;padding:8px 12px;color:#1f2328"><span style="color:#8c959f;width:14px">—</span>Transcript, events, approvals and queued inputs</div>
+            <div style="display:flex;gap:10px;padding:8px 12px;border-top:1px solid #f0f0f2;color:#1f2328"><span style="color:#8c959f;width:14px">—</span>Image attachments and runtime logs</div>
+            <div style="display:flex;gap:10px;padding:8px 12px;border-top:1px solid #f0f0f2;color:#1f2328"><span style="color:#8c959f;width:14px">—</span><span>Generated branch <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:#f6f8fa;border-radius:4px;padding:1px 5px">{{ confirmBranch }}</span> and its worktree</span></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+            <button onClick="{{ cancelDelete }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa;font-size:13px;font-weight:600;color:#24292f;cursor:pointer">Cancel</button>
+            <button onClick="{{ confirmDelete }}" style="padding:6px 14px;border:1px solid #cf222e;border-radius:6px;background:#cf222e;font-size:13px;font-weight:600;color:#ffffff;cursor:pointer">{{ confirmButton }}</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;autoArchiveDays&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:7,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:1,&quot;max&quot;:30,&quot;section&quot;:&quot;Behavior&quot;}}">
+const TODAY = new Date('2026-09-06T12:00:00');
+const PILL = {
+  Running: ['#ddf4ff', '#0969da'],
+  'Recovery required': ['#fff8c5', '#9a6700'],
+  Ready: ['#dafbe1', '#1a7f37'],
+  Completed: ['#eceff2', '#57606a'],
+  Failed: ['#ffebe9', '#cf222e'],
+};
+const T = (id, title, status, date, age, archived) => ({ id, title, status, date, age, archived: !!archived, model: 'Codex · 5.6 Sol', branch: 'bq/task-' + id });
+const DATA = [
+  T('a1f3', 'hello', 'Running', '2026-09-06', '8h'),
+  T('b7c2', "What's your model version and effort?", 'Recovery required', '2026-09-06', '8h'),
+  T('c9d1', 'trino issue reading', 'Ready', '2026-09-05', '1d'),
+  T('d2e8', 'The project has 109 Maven modules, defined in the root…', 'Completed', '2026-09-05', '1d'),
+  T('e4a0', 'Desktop journey', 'Completed', '2026-09-04', '2d'),
+  T('f6b5', 'Desktop journey B', 'Completed', '2026-09-04', '2d'),
+  T('g8c3', 'Subagent journey', 'Completed', '2026-09-04', '2d'),
+  T('h1d7', 'Image journey', 'Failed', '2026-09-04', '2d'),
+  T('i3e9', 'Desktop journey', 'Failed', '2026-09-04', '2d'),
+  T('j5f2', 'Desktop journey B', 'Completed', '2026-09-03', '3d'),
+  T('k7a4', 'Desktop journey', 'Failed', '2026-09-03', '3d'),
+  T('l9b6', 'Subagent journey', 'Completed', '2026-09-03', '3d'),
+  T('m2c8', 'Explain the query planner', 'Completed', '2026-08-28', '9d', true),
+  T('n4d0', 'Fix flaky TestHiveConnector', 'Completed', '2026-08-27', '10d', true),
+  T('o6e1', 'Review PR #26111', 'Failed', '2026-08-27', '10d', true),
+];
+function label(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const days = Math.round((TODAY - d) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+}
+function shortDate(dateStr) {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+class Component extends DCLogic {
+  state = { tab: 'active', tasks: DATA, selected: [], hover: null, confirm: null, toast: null };
+  setTab(tab) { this.setState({ tab, selected: [] }); }
+  visible() { return this.state.tasks.filter(t => t.archived === (this.state.tab === 'archived')); }
+  toast(text, undo) {
+    clearTimeout(this._toastTimer);
+    this.setState({ toast: { text, undo } });
+    this._toastTimer = setTimeout(() => this.setState({ toast: null }), 5000);
+  }
+  setArchived(ids, archived) {
+    const prev = this.state.tasks;
+    const next = prev.map(t => ids.includes(t.id) ? { ...t, archived } : t);
+    const n = ids.length;
+    const one = n === 1 ? prev.find(t => t.id === ids[0]) : null;
+    const what = one ? `“${one.title}”` : `${n} tasks`;
+    this.setState({ tasks: next, selected: [], hover: null });
+    this.toast(`${archived ? 'Archived' : 'Restored'} ${what}`, () => this.setState({ tasks: prev, toast: null }));
+  }
+  askDelete(ids) {
+    const items = this.state.tasks.filter(t => ids.includes(t.id) && t.status !== 'Running');
+    if (items.length) this.setState({ confirm: items });
+  }
+  renderVals() {
+    const { tab, tasks, selected, hover, confirm, toast } = this.state;
+    const isActive = tab === 'active';
+    const visible = this.visible();
+    const anySel = selected.length > 0;
+    const byDate = {};
+    visible.forEach(t => { (byDate[t.date] = byDate[t.date] || []).push(t); });
+    const groups = Object.keys(byDate).sort().reverse().map(date => {
+      const rows = byDate[date].map(t => {
+        const sel = selected.includes(t.id);
+        const hov = hover === t.id;
+        const running = t.status === 'Running';
+        const [pillBg, pillFg] = PILL[t.status];
+        return {
+          ...t, isSelected: sel,
+          bg: sel ? '#ddf4ff' : hov ? '#f6f8fa' : '#ffffff',
+          titleColor: t.archived ? '#57606a' : '#1f2328',
+          meta: `${t.model} · ${t.age}`, pillBg, pillFg,
+          showCheck: sel || hov || anySel, showGlyph: !(sel || hov || anySel),
+          checkBorder: sel ? '#0969da' : '#8c959f', checkBg: sel ? '#0969da' : '#ffffff',
+          showActions: !anySel,
+          canArchive: !t.archived, canRestore: t.archived,
+          deleteDisabled: running, deleteOpacity: running ? 0.35 : 1,
+          deleteTitle: running ? 'Stop the task before deleting' : 'Delete permanently',
+          onEnter: () => this.setState({ hover: t.id }),
+          onLeave: () => this.setState(s => s.hover === t.id ? { hover: null } : null),
+          onOpen: () => { if (anySel) this.toggle(t.id); },
+          onToggle: e => { e.stopPropagation(); this.toggle(t.id); },
+          onArchive: e => { e.stopPropagation(); this.setArchived([t.id], true); },
+          onRestore: e => { e.stopPropagation(); this.setArchived([t.id], false); },
+          onDelete: e => { e.stopPropagation(); this.askDelete([t.id]); },
+        };
+      });
+      return { date: shortDate(date), label: label(date), rows, countLabel: rows.length === 1 ? '1 task' : rows.length + ' tasks' };
+    });
+    const selRunning = selected.some(id => tasks.find(t => t.id === id)?.status === 'Running');
+    const tabStyle = on => ({ bg: on ? '#ffffff' : 'transparent', fg: on ? '#1f2328' : '#57606a', sh: on ? '0 1px 2px rgba(31,35,40,.12)' : 'none' });
+    const a = tabStyle(isActive), b = tabStyle(!isActive);
+    const confirmMany = confirm && confirm.length > 1;
+    return {
+      isActive, isArchived: !isActive,
+      activeCount: tasks.filter(t => !t.archived).length, archivedCount: tasks.filter(t => t.archived).length,
+      activeTabBg: a.bg, activeTabFg: a.fg, activeTabShadow: a.sh, archivedTabBg: b.bg, archivedTabFg: b.fg, archivedTabShadow: b.sh,
+      showActive: () => this.setTab('active'), showArchived: () => this.setTab('archived'),
+      sectionTitle: isActive ? 'AGENT TASKS' : 'ARCHIVED TASKS',
+      sectionHint: isActive ? `Completed tasks archive automatically after ${this.props.autoArchiveDays ?? 7} days` : 'Archived tasks keep their transcript and branch until deleted',
+      groups, isEmpty: visible.length === 0,
+      emptyTitle: isActive ? 'No agent tasks yet' : 'Nothing archived',
+      emptyBody: isActive ? 'Send a message below to start one.' : `Archive a task from the Active tab, or wait — completed tasks move here after ${this.props.autoArchiveDays ?? 7} days.`,
+      noSelection: !anySel, hasSelection: anySel,
+      selectedLabel: `${selected.length} selected`,
+      selectAllVisible: () => this.setState({ selected: visible.map(t => t.id) }),
+      clearSelection: () => this.setState({ selected: [] }),
+      archiveSelected: () => this.setArchived(selected, true),
+      unarchiveSelected: () => this.setArchived(selected, false),
+      deleteSelected: () => this.askDelete(selected),
+      deleteSelectedDisabled: selRunning, deleteSelectedOpacity: selRunning ? 0.4 : 1,
+      deleteSelectedTitle: selRunning ? 'Selection includes a running task' : 'Delete permanently',
+      hasToast: !!toast, toastText: toast?.text || '', hasUndo: !!(toast && toast.undo), undoToast: () => toast?.undo && toast.undo(),
+      hasConfirm: !!confirm,
+      confirmTitle: confirmMany ? `Delete ${confirm.length} tasks?` : confirm ? 'Delete this task?' : '',
+      confirmObject: confirmMany ? 'these tasks' : confirm ? `“${confirm[0].title}”` : '',
+      confirmBranch: confirmMany ? `bq/task-… ×${confirm.length}` : confirm ? confirm[0].branch : '',
+      confirmButton: confirmMany ? `Delete ${confirm.length} tasks` : 'Delete task',
+      cancelDelete: () => this.setState({ confirm: null }),
+      stop: e => e.stopPropagation(),
+      confirmDelete: () => {
+        const ids = confirm.map(t => t.id);
+        this.setState(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)), confirm: null, selected: [] }));
+        this.toast(confirmMany ? `Deleted ${ids.length} tasks` : `Deleted “${confirm[0].title}”`, null);
+      },
+    };
+  }
+  toggle(id) {
+    this.setState(s => ({ selected: s.selected.includes(id) ? s.selected.filter(x => x !== id) : [...s.selected, id] }));
+  }
+}
+</script>
+</body>
+</html>

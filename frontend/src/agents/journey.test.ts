@@ -17,6 +17,7 @@ import { createPreviewBridge, type PreviewCommand } from './fixtures/previewBrid
 import {
   agentTaskReducer,
   initialAgentTaskState,
+  pollAgentTask,
   startAgentTaskSession,
   type AgentTaskAction,
   type AgentTaskState,
@@ -54,6 +55,26 @@ describe('a task that has already ended', () => {
     expect(state.events.length).toBeGreaterThan(0);
     // Up to date, and it says so, rather than reconnecting to a stream that only closes again.
     expect(state.connection).toBe('open');
+  });
+});
+
+describe('a task window', () => {
+  it('polls the task and pages every event past what it has shown', async () => {
+    const bridge = createPreviewBridge('workspace-1', { replayThrough: 14 });
+    let state = initialAgentTaskState();
+    const dispatch = (action: AgentTaskAction): void => { state = agentTaskReducer(state, action); };
+    await pollAgentTask(bridge, 'task-1', 'workspace-1', 0, dispatch, () => true, 5);
+
+    expect(state.task?.id).toBe('task-1');
+    expect(state.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    expect(bridge.commands.filter((command) => command.name === 'readAgentEvents').map((command) => command.args))
+      .toEqual([['task-1', 0, 5], ['task-1', 5, 5], ['task-1', 10, 5]]);
+
+    // The next poll resumes after the last sequence shown and reads nothing twice.
+    bridge.commands.length = 0;
+    await pollAgentTask(bridge, 'task-1', 'workspace-1', state.lastSequence, dispatch);
+    expect(names(bridge.commands)).toEqual(['getAgentTask', 'readAgentEvents']);
+    expect(state.events).toHaveLength(14);
   });
 });
 

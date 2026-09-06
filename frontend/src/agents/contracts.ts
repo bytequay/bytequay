@@ -246,6 +246,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     cleanupFailure: optionalText(source.cleanupFailure, `${path}.cleanupFailure`),
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
     codegraphArm: codeGraphArm(source.codegraphArm, `${path}.codegraphArm`),
+    archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
   };
 }
 

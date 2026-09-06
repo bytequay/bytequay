@@ -213,6 +213,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
       onOpenSettings={() => onSelectTab('settings')}
       onShowAll={() => setOverviewOpen(true)}
+      onOpenPullRequests={() => onSelectTab('prs')}
+      onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
+      onOpenIssue={(number) => onSelectIssue(number, 'push')}
     />,
   );
 }

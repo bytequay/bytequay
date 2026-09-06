@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { taskArchived } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
@@ -36,7 +37,7 @@ export default function TaskOverview({
   const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const refresh = useCallback(() => live().listAgentTasks(workspaceId)
-    .then((found) => setTasks(found.filter((task) => task.state === 'OPEN')))
+    .then((found) => setTasks(found.filter((task) => task.state === 'OPEN' && !taskArchived(task))))
     .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure))), [live, workspaceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {

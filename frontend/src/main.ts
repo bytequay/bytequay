@@ -454,6 +454,24 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json', ...agentHeaders() },
       body: JSON.stringify({ expectedVersion, title }),
     }).then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:task:archive', (
+    _event,
+    taskId: string,
+    workspaceId: string,
+    expectedVersion: number,
+    archived: boolean,
+  ) =>
+    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...agentHeaders() },
+      body: JSON.stringify({ expectedVersion, archived }),
+    }).then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
+    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`);
+    url.searchParams.set('workspaceId', workspaceId);
+    return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
+  });
   ipcMain.handle('agent:task:effective-settings', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })

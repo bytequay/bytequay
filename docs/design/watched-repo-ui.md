@@ -9,7 +9,7 @@ browser) plus PNG exports.
 | --- | --- |
 | Watch Repository flow | `watched-repo-ui/Watch Repository.dc.html` · `watch-repository.png` |
 | Workspaces page | `watched-repo-ui/Workspaces.dc.html` · `workspaces.png` |
-| Workspace Home | `watched-repo-ui/Workspace Home.dc.html` · `workspace-home.png` |
+| Workspace Home | `../Workspace Home.dc.html` (current); `watched-repo-ui/Workspace Home.dc.html` · `workspace-home.png` (earlier state board) |
 | Workspace Pull Requests | `watched-repo-ui/Workspace Pull Requests.dc.html` · `workspace-pull-requests.png` |
 
 ## UI principles
@@ -114,6 +114,13 @@ card) routes to `/workspaces/:id`. Retry is a sibling button beside the footer t
 not nested inside the click target.
 
 ### 3. Workspace Home (frames A–D)
+
+The current Workspace Home is [../Workspace Home.dc.html](../Workspace%20Home.dc.html),
+specified in [agent-task-ui.md §2.8](agent-task-ui.md#28-screen-shape-and-navigation):
+repository avatar, composer, starting points, the repository's Needs attention
+rows, and the open tasks as windows. The frames below record the earlier state
+board this page grew from; their routing and status cards were not carried into
+the current page.
 
 | Frame | Topology | States shown |
 | --- | --- | --- |

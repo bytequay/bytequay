@@ -224,6 +224,9 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:pull-requests', taskId, workspaceId),
   renameAgentTask: (taskId, workspaceId, expectedVersion, title) =>
     ipcRenderer.invoke('agent:task:rename', taskId, workspaceId, expectedVersion, title),
+  archiveAgentTask: (taskId, workspaceId, expectedVersion, archived) =>
+    ipcRenderer.invoke('agent:task:archive', taskId, workspaceId, expectedVersion, archived),
+  deleteAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:task:delete', taskId, workspaceId),
   getEffectiveTurnSettings: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:effective-settings', taskId, workspaceId),
   readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),

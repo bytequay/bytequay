@@ -61,6 +61,8 @@ export type AgentBridgePort = Pick<Bridge,
   | 'getModelSettings'
   | 'updateAgentTaskDefaults'
   | 'renameAgentTask'
+  | 'archiveAgentTask'
+  | 'deleteAgentTask'
   | 'listAgentTaskPullRequests'
   | 'getEffectiveTurnSettings'
   | 'refreshAgentProviderReadiness'>;
@@ -326,6 +328,37 @@ export async function startAgentTaskSession(
     return noop;
   }
   return stop;
+}
+
+/** Events a window reads per request; a longer history takes a few requests in one poll. */
+const WINDOW_EVENT_PAGE = 200;
+
+/**
+ * One poll of a task window: the task, whose claim its pill reads, then every event past `after`,
+ * page by page, so the window holds the same history the screen would.
+ *
+ * Windows poll rather than stream because main keeps one stream per renderer and task, and the
+ * overview draws its windows over a screen that may already hold that task's stream.
+ */
+export async function pollAgentTask(
+  bridge: Pick<Bridge, 'getAgentTask' | 'readAgentEvents'>,
+  taskId: string,
+  workspaceId: string,
+  after: number,
+  dispatch: (action: AgentTaskAction) => void,
+  isActive: () => boolean = () => true,
+  pageSize = WINDOW_EVENT_PAGE,
+): Promise<void> {
+  const task = await bridge.getAgentTask(taskId, workspaceId);
+  if (!isActive()) return;
+  dispatch({ type: 'task/loaded', task });
+  for (let cursor = after; ;) {
+    const page = await bridge.readAgentEvents(taskId, cursor, pageSize);
+    if (!isActive() || page.length === 0) return;
+    dispatch({ type: 'events/applied', events: page });
+    if (page.length < pageSize) return;
+    cursor = page[page.length - 1].sequence;
+  }
 }
 
 /**

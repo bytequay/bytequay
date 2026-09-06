@@ -63,7 +63,7 @@
 .agt-tasks-scroll h1 {
   margin: 0;
   font-size: 20px;
-  font-weight: 400;
+  font-weight: 600;
 }
 
 /* Rows as the design draws them: separated by hairlines, not boxed. */
@@ -73,67 +73,10 @@
   margin-top: 2px;
 }
 
-.agt-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 11px 14px;
-  border: 0;
-  border-top: 1px solid #f0f0f2;
-  background: #ffffff;
-  font-size: 13px;
-  color: #1f2328;
-  text-align: left;
-  cursor: pointer;
-}
-
-.agt-row:first-child {
-  border-top: 0;
-}
-
-.agt-row__mark {
-  width: 18px;
-  flex: none;
-  text-align: center;
-  color: #8c959f;
-}
-
-.agt-row:hover {
-  background: #f6f8fa;
-}
-
-.agt-row.is-open {
-  background: #ddf4ff;
-}
-
-.agt-row-title {
-  flex: 1;
-  color: #1f2328;
-}
-
 .agt-row-meta {
   font-size: 11px;
   color: #8c959f;
   white-space: nowrap;
-}
-
-.agt-empty-hero {
-  margin-top: 8px;
-  padding: 28px 20px;
-  text-align: center;
-  font-size: 12.5px;
-}
-
-.agt-empty-hero__mark {
-  font-size: 22px;
-  color: #8c959f;
-}
-
-.agt-empty-hero__title {
-  font-size: 13.5px;
-  color: #1f2328;
-  margin: 10px 0 4px;
 }
 
 /* Task state reads as a pill, matching the colours the cherry-pick task list already uses. */
@@ -2368,62 +2311,6 @@
   margin-top: 5px;
 }
 
-/* The Home hero, and the open tasks as windows beneath it. */
-.agt-hero {
-  max-width: 640px;
-  margin: 44px auto 0;
-  text-align: center;
-}
-
-.agt-hero__mark {
-  font-size: 26px;
-  color: #8c959f;
-}
-
-.agt-hero h1 {
-  margin: 12px 0 0;
-  font-size: 20px;
-  font-weight: 400;
-}
-
-.agt-suggestions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-top: 18px;
-}
-
-.agt-suggestion {
-  width: 190px;
-  text-align: left;
-  border: 1px solid #e3e3e6;
-  border-radius: 10px;
-  background: #ffffff;
-  cursor: pointer;
-  padding: 12px 14px;
-  white-space: normal;
-}
-
-.agt-suggestion:hover {
-  border-color: #b6b6bc;
-}
-
-.agt-suggestion__icon {
-  font-size: 13px;
-}
-
-.agt-suggestion__text {
-  font-size: 12.5px;
-  margin-top: 6px;
-  line-height: 1.35;
-  color: #000000;
-}
-
-.agt-open-tasks {
-  text-align: left;
-  margin-top: 34px;
-}
-
 .agt-open-tasks__head {
   display: flex;
   align-items: center;
@@ -2454,60 +2341,6 @@
   line-height: 15px;
 }
 
-.agt-windows {
-  display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-/*
- * A task window: the 760px task screen scaled to the card's width. The width arrives as a
- * unitless custom property so one rule gives the thumbnail its height and the screen its scale.
- */
-.agt-card {
-  position: relative;
-  flex: none;
-  width: calc(var(--card-w) * 1px);
-  color: #1f2328;
-}
-
-.agt-card__open {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-}
-
-.agt-card__thumb {
-  position: relative;
-  height: calc(var(--card-w) * 0.625px);
-  border-radius: 10px;
-  overflow: hidden;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(27, 31, 36, 0.12), 0 6px 18px rgba(140, 149, 159, 0.22);
-  transition: box-shadow 0.12s;
-}
-
-.agt-card.is-active .agt-card__thumb,
-.agt-card__open:hover .agt-card__thumb {
-  box-shadow: 0 0 0 2px #0969da, 0 8px 22px rgba(140, 149, 159, 0.3);
-}
-
-.agt-card__inner {
-  width: 760px;
-  height: 475px;
-  transform: scale(calc(var(--card-w) / 760));
-  transform-origin: 0 0;
-  background: #ffffff;
-  pointer-events: none;
-  overflow: hidden;
-}
-
 .agt-card__head {
   display: flex;
   align-items: center;
@@ -2531,31 +2364,24 @@
   max-width: 420px;
 }
 
+/*
+ * The body keeps the newest work in view, as the screen does while it follows its bottom: a short
+ * transcript sits under the header, a long one overflows out of the top. The trailing spacer takes
+ * the free space when there is any, so short content is not pushed down.
+ */
 .agt-card__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
   padding: 16px 24px 0;
 }
 
-.agt-card__caption {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 9px;
-  padding: 0 2px;
-}
-
-.agt-card__caption .agt-state {
-  font-size: 10.5px;
-  padding: 1px 8px;
-}
-
-.agt-card__name {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.agt-card__body::after {
+  content: '';
+  flex: 1 1 0;
 }
 
 .agt-card__close {
@@ -2698,6 +2524,617 @@
   gap: 6px;
 }
 
+/* ── Tasks page: header tabs, day groups, rows, selection, deletion ── */
+
+.agt-tasks-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.agt-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: #eceff2;
+}
+
+.agt-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agt-tab.is-active {
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
+}
+
+.agt-tab__count {
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #e4e4e8;
+  color: #57606a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agt-head {
+  min-height: 30px;
+}
+
+.agt-section-hint {
+  min-width: 0;
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes agt-fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Replaces the section header while anything is selected. */
+.agt-selbar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgba(9, 105, 218, 0.25);
+  border-radius: 8px;
+  background: #ddf4ff;
+  animation: agt-fade 0.15s ease-out;
+}
+
+.agt-selbar__count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0969da;
+}
+
+.agt-selbar__link {
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
+  color: #0969da;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.agt-selbar__link.is-muted {
+  padding: 4px 8px;
+  color: #57606a;
+}
+
+.agt-selbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #24292f;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agt-selbar__btn.is-danger {
+  color: #cf222e;
+}
+
+.agt-selbar__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.agt-empty-hero {
+  margin-top: 10px;
+  padding: 36px 20px;
+  border: 1px dashed #d8dee4;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 12.5px;
+}
+
+.agt-empty-hero__title {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+/* Commits-style day groups: a bordered card per day with a grey header row. */
+.agt-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.agt-group {
+  border: 1px solid #e3e3e6;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.agt-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid #e3e3e6;
+  background: #f7f7f8;
+}
+
+.agt-group__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-group__date,
+.agt-group__count {
+  font-size: 11px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-trow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 10px 0 12px;
+  border-top: 1px solid #f0f0f2;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.agt-group__head + .agt-trow {
+  border-top: 0;
+}
+
+.agt-trow:hover {
+  background: #f6f8fa;
+}
+
+.agt-trow.is-selected {
+  background: #ddf4ff;
+}
+
+.agt-trow:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: -2px;
+}
+
+/* The leading slot: a muted check-square at rest, a checkbox on hover and while selecting. */
+.agt-trow__slot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #b6bcc4;
+  cursor: pointer;
+}
+
+.agt-trow__check {
+  width: 15px;
+  height: 15px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1.5px solid #8c959f;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #ffffff;
+}
+
+.agt-trow__check > svg {
+  display: none;
+}
+
+.agt-trow:hover .agt-trow__check,
+.agt-groups.has-selection .agt-trow__check,
+.agt-trow.is-selected .agt-trow__check {
+  display: inline-flex;
+}
+
+.agt-trow:hover .agt-trow__glyph,
+.agt-groups.has-selection .agt-trow__glyph,
+.agt-trow.is-selected .agt-trow__glyph {
+  display: none;
+}
+
+.agt-trow.is-selected .agt-trow__check {
+  border-color: #0969da;
+  background: #0969da;
+}
+
+.agt-trow.is-selected .agt-trow__check > svg {
+  display: block;
+}
+
+.agt-trow__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  color: #1f2328;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-trow__title.is-archived {
+  color: #57606a;
+}
+
+.agt-trow__meta {
+  flex: none;
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-trow__actions {
+  flex: none;
+  width: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.agt-trow__btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-trow__btn:hover:not(:disabled) {
+  background: #e4e4e8;
+  color: #1f2328;
+}
+
+.agt-trow__btn.is-danger:hover:not(:disabled) {
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+.agt-trow__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.agt-trow__chev {
+  flex: none;
+  margin-left: 6px;
+  color: #8c959f;
+}
+
+/* Above the docked composer, where the design floats it. */
+.bq-toast.is-raised {
+  bottom: 150px;
+}
+
+/* What deletion takes with it, listed inside the confirmation. */
+.agt-del-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: #1f2328;
+}
+
+.agt-del-list li {
+  display: flex;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid #f0f0f2;
+}
+
+.agt-del-list li:first-child {
+  border-top: 0;
+}
+
+.agt-del-list li::before {
+  content: '—';
+  width: 14px;
+  flex: none;
+  color: #8c959f;
+}
+
+.agt-del-list code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f6f8fa;
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 11.5px;
+}
+
+/* ── Workspace Home: avatar, composer, starting points, attention, open tasks ── */
+
+.agt-home {
+  height: 100%;
+  overflow: auto;
+}
+
+.agt-home__scroll {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 44px 48px 56px;
+}
+
+.agt-home__avatar {
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(31, 35, 40, 0.18);
+}
+
+.agt-home__repo {
+  margin-top: 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The same composer as the Tasks page, in the flow of the page rather than docked. */
+.agt-home__composer {
+  width: 100%;
+  max-width: 760px;
+  margin-top: 20px;
+}
+
+.agt-home__composer .agt-compose-dock {
+  padding: 0;
+}
+
+.agt-home__composer .agt-compose {
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
+}
+
+.agt-starts {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 760px;
+  margin-top: 12px;
+}
+
+.agt-start {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid #e3e3e6;
+  border-radius: 10px;
+  background: #ffffff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agt-start:hover {
+  border-color: #b6bcc4;
+  background: #f6f8fa;
+}
+
+.agt-start__icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: #f0f1f3;
+  color: #6e6e76;
+}
+
+.agt-start__text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1f2328;
+}
+
+.agt-open-tasks {
+  width: 100%;
+  max-width: 880px;
+  margin-top: 36px;
+  text-align: left;
+}
+
+.agt-windows-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+/* ── Task window card ── */
+
+/*
+ * A task window: the 760px task screen scaled to the card's width. The width arrives as a
+ * unitless custom property so one rule gives the screen its scale and its virtual height: the
+ * thumbnail is a fixed height, so a wider card shows a shorter stretch of the screen.
+ */
+.agt-card {
+  position: relative;
+  width: calc(var(--card-w) * 1px);
+  border: 1px solid #e3e3e6;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+
+.agt-windows-grid .agt-card {
+  width: auto;
+}
+
+.agt-card:hover {
+  border-color: #b6bcc4;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.22);
+}
+
+.agt-card.is-active {
+  box-shadow: 0 0 0 2px #0969da, 0 8px 22px rgba(140, 149, 159, 0.3);
+}
+
+.agt-card__open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agt-card__thumb {
+  position: relative;
+  height: var(--thumb-h, 148px);
+  overflow: hidden;
+  border-bottom: 1px solid #eceff2;
+  background: #f6f8fa;
+}
+
+/* The overview keeps the screen's own proportions; Home's fixed-height thumbnail is set above. */
+.agt-overview__grid .agt-card {
+  --thumb-h: calc(var(--card-w) * 0.625px);
+}
+
+.agt-card__inner {
+  display: flex;
+  flex-direction: column;
+  width: 760px;
+  height: calc(var(--thumb-h, 148px) * 760 / var(--card-w));
+  transform: scale(calc(var(--card-w) / 760));
+  transform-origin: 0 0;
+  background: #ffffff;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Rename and hide, floating over the thumbnail while the pointer is on the card. */
+.agt-card__tools {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(31, 35, 40, 0.1);
+  animation: agt-fade 0.12s ease-out;
+}
+
+.agt-card:hover .agt-card__tools,
+.agt-card:focus-within .agt-card__tools {
+  display: flex;
+}
+
+.agt-card__tool {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-card__tool:hover {
+  background: #e4e4e8;
+  color: #1f2328;
+}
+
+.agt-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 11px 12px 12px;
+}
+
+.agt-card__foot .agt-state {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.agt-card__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-card__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid #0969da;
+  border-radius: 6px;
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+  color: #1f2328;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agt-compose__streamer::after,
   .agt-spin,
@@ -2706,7 +3143,9 @@
   .agt-skeleton__block,
   .agt-cursor,
   .agt-icon.is-outcome > svg,
-  .agt-overview {
+  .agt-overview,
+  .agt-selbar,
+  .agt-card__tools {
     animation: none;
   }
 

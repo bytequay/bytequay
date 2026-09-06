@@ -14,6 +14,8 @@
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   BookOpen,
   Check,
   ChevronsDownUp,
@@ -50,6 +52,7 @@ import {
 } from '../settings/model';
 import { useResizablePane } from '../useResizablePane';
 import { AgentMark } from './AgentMark';
+import { taskArchived } from './AgentTasksView';
 import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
 import { agentProviderUnavailableFrom } from './contracts';
@@ -1325,7 +1328,7 @@ function SidePanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
-  onStopServer, onMarkFailed, onRename, composerRef,
+  onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
   providerStatusFresh = false,
@@ -1385,6 +1388,8 @@ export function AgentTaskBody({
   onMarkFailed: () => void;
   /** A person's name for the task; absent while the task is still loading or in a static render. */
   onRename?: (title: string) => void;
+  /** Shelves the task or brings it back; absent while the task is still loading or in a static render. */
+  onArchive?: (archived: boolean) => void;
   composerRef?: React.Ref<HTMLTextAreaElement>;
   /** The clock reading the elapsed times are drawn against; ticks once a second while a turn runs. */
   now?: number;
@@ -1495,6 +1500,20 @@ export function AgentTaskBody({
           title={connectionText(state)}
           aria-label={connectionText(state)}
         />
+        {state.task !== null && onArchive !== undefined && (
+          <button
+            type="button"
+            className="agt-headbtn is-labelled is-shelf"
+            title={taskArchived(state.task)
+              ? 'Restore this task to the active list'
+              : 'Archive this task; it keeps its transcript and branch'}
+            disabled={state.sending}
+            onClick={() => onArchive(!taskArchived(state.task ?? { archivedAt: null }))}
+          >
+            {taskArchived(state.task) ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}
+            {taskArchived(state.task) ? 'Restore' : 'Archive'}
+          </button>
+        )}
         {!terminal && (
           <button
             type="button"
@@ -2112,6 +2131,12 @@ export default function AgentTaskScreen({
     applyTask(await live().renameAgentTask(taskId, workspaceId, task.version, title));
   }), [applyTask, live, run, state.task, taskId, workspaceId]);
 
+  const archive = useCallback((archived: boolean) => run(async () => {
+    const task = state.task;
+    if (task === null) return;
+    applyTask(await live().archiveAgentTask(taskId, workspaceId, task.version, archived));
+  }), [applyTask, live, run, state.task, taskId, workspaceId]);
+
   const startTurn = useCallback(async (message: string, attachments: string[], idempotencyKey: string, expectedTaskVersion: number) => {
     dispatch({ type: 'composer/sending', sending: true });
     try {
@@ -2420,6 +2445,7 @@ export default function AgentTaskScreen({
       onRetryAuthentication={() => { void retryAuthentication(); }}
       onOpenSettings={onOpenSettings}
       onRename={(title) => { void rename(title); }}
+      onArchive={(archived) => { void archive(archived); }}
       now={now}
       activityChoice={activityChoice}
       turnChoice={turnChoice}

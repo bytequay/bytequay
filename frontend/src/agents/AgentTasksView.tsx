@@ -13,9 +13,11 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Chevron } from '../Chevron';
+import { Archive, ArchiveRestore, Check, ChevronRight, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import Toast from '../Toast';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
@@ -24,10 +26,13 @@ import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type Ta
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
-import { LoaderCircle, X } from 'lucide-react';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
+export type TaskTab = 'active' | 'archived';
+
+/** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
+export const AUTO_ARCHIVE_DAYS = 7;
 
 export interface AgentTasksViewProps {
   workspaceId: string;
@@ -72,6 +77,56 @@ export function taskStatePill(task: AgentTaskDto): { label: string; className: s
     default:
       return { label: task.state, className: '', spinning: false };
   }
+}
+
+/** Archived is a shelf, not a state: the task keeps everything and simply leaves the active list. */
+export function taskArchived(task: Pick<AgentTaskDto, 'archivedAt'>): boolean {
+  return task.archivedAt !== null && task.archivedAt !== undefined;
+}
+
+/** A task something may still be writing to; deleting waits for it to stop. */
+export function taskBusy(task: AgentTaskDto): boolean {
+  return task.state === 'OPEN' && task.mutationClaim !== null && task.mutationClaim !== undefined;
+}
+
+/** The branch the backend derives for a task, named before deletion so the person knows what goes with it. */
+export function taskBranch(task: Pick<AgentTaskDto, 'id'>): string {
+  return `bytequay/task/${task.id}`;
+}
+
+export type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };
+
+function dayStart(at: Date): Date {
+  return new Date(at.getFullYear(), at.getMonth(), at.getDate());
+}
+
+function dayKey(day: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+}
+
+/** Tasks by the local day they last moved, newest day first and newest task first within it. */
+export function groupTasksByDay(tasks: AgentTaskDto[], now: number): TaskGroup[] {
+  const today = dayStart(new Date(now)).getTime();
+  const groups = new Map<string, TaskGroup>();
+  const ordered = [...tasks].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  for (const task of ordered) {
+    const day = dayStart(new Date(task.updatedAt));
+    const key = dayKey(day);
+    let group = groups.get(key);
+    if (group === undefined) {
+      const daysAgo = Math.round((today - day.getTime()) / 86_400_000);
+      group = {
+        key,
+        label: daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : day.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
+        date: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        tasks: [],
+      };
+      groups.set(key, group);
+    }
+    group.tasks.push(task);
+  }
+  return [...groups.values()];
 }
 
 /**
@@ -300,6 +355,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   return {
     tasks,
+    setTasks,
     loading,
     error,
     catalog,
@@ -370,6 +426,10 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
   );
 }
 
+function failureMessage(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure);
+}
+
 export default function AgentTasksView({
   workspaceId,
   children,
@@ -381,6 +441,25 @@ export default function AgentTasksView({
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
+  const { setTasks } = creation;
+  const tasksRef = useRef(creation.tasks);
+  tasksRef.current = creation.tasks;
+  // One task at a time: each answer carries the version the next request must echo, and the list
+  // reflects what actually happened when one of a batch fails.
+  const archive = useCallback(async (ids: string[], archived: boolean) => {
+    for (const id of ids) {
+      const current = tasksRef.current.find((task) => task.id === id);
+      if (current === undefined) continue;
+      const updated = await live().archiveAgentTask(id, workspaceId, current.version, archived);
+      setTasks((list) => list.map((task) => (task.id === id ? updated : task)));
+    }
+  }, [live, setTasks, workspaceId]);
+  const remove = useCallback(async (ids: string[]) => {
+    for (const id of ids) {
+      await live().deleteAgentTask(id, workspaceId);
+      setTasks((list) => list.filter((task) => task.id !== id));
+    }
+  }, [live, setTasks, workspaceId]);
   return (
     <AgentTaskList
       tasks={creation.tasks}
@@ -404,6 +483,8 @@ export default function AgentTasksView({
       onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
+      onArchive={archive}
+      onDelete={remove}
     >
       {children}
     </AgentTaskList>
@@ -513,10 +594,93 @@ export function TaskComposer({
   );
 }
 
+/** One task as a row of a day group: the selection slot, the name, its facts, and what can be done to it. */
+function TaskRow({ task, providers, now, checked, selecting, onOpen, onToggle, onArchive, onDelete }: {
+  task: AgentTaskDto;
+  providers: ModelProviderDto[];
+  now: number;
+  checked: boolean;
+  /** While anything is selected, a click on a row selects it rather than opening it. */
+  selecting: boolean;
+  onOpen: () => void;
+  onToggle: () => void;
+  onArchive: (archived: boolean) => void;
+  onDelete: () => void;
+}): React.JSX.Element {
+  const pill = taskStatePill(task);
+  const provider = providers.find((candidate) => candidate.id === task.laneId);
+  const model = displayModelName(provider?.models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? 'No model');
+  const archived = taskArchived(task);
+  const running = taskBusy(task);
+  const activate = (): void => { if (selecting) onToggle(); else onOpen(); };
+  return (
+    <div
+      className={`agt-trow${checked ? ' is-selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={activate}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        activate();
+      }}
+    >
+      <button
+        type="button"
+        className="agt-trow__slot"
+        aria-label={`${checked ? 'Deselect' : 'Select'} ${task.title}`}
+        aria-pressed={checked}
+        onClick={(event) => { event.stopPropagation(); onToggle(); }}
+      >
+        <span className="agt-trow__check" aria-hidden="true"><Check size={10} strokeWidth={3.2} /></span>
+        <SquareCheck className="agt-trow__glyph" size={14} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      <span className={`agt-trow__title${archived ? ' is-archived' : ''}`}>{task.title}</span>
+      <span className="agt-mono agt-trow__meta">
+        {provider?.label ?? laneLabel(task.laneId)} · {model} · {relativeTime(task.updatedAt, { suffix: false, now })}
+      </span>
+      <span className={`agt-state ${pill.className}`}>
+        {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
+        {pill.label}
+      </span>
+      <span className="agt-trow__actions">
+        {!selecting && (
+          <>
+            <button
+              type="button"
+              className="agt-trow__btn"
+              title={archived ? 'Restore to Active' : 'Archive'}
+              aria-label={`${archived ? 'Restore' : 'Archive'} task: ${task.title}`}
+              onClick={(event) => { event.stopPropagation(); onArchive(!archived); }}
+            >
+              {archived ? <ArchiveRestore size={15} aria-hidden="true" /> : <Archive size={15} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              className="agt-trow__btn is-danger"
+              title={running ? 'Stop the task before deleting' : 'Delete permanently'}
+              aria-label={`Delete task: ${task.title}`}
+              disabled={running}
+              onClick={(event) => { event.stopPropagation(); onDelete(); }}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+            </button>
+          </>
+        )}
+        <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
+      </span>
+    </div>
+  );
+}
+
+type ToastState = { id: number; text: string; undo?: () => void };
+
 export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
+  now = Date.now(), initialTab = 'active',
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -536,87 +700,241 @@ export function AgentTaskList({
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
+  /** Shelves or restores the tasks; the caller updates its list as each answer arrives. */
+  onArchive?: (ids: string[], archived: boolean) => Promise<void>;
+  /** Removes the tasks for good; the caller drops each from its list as it goes. */
+  onDelete?: (ids: string[]) => Promise<void>;
   images?: DraftImage[];
   busy?: boolean;
   attaching?: boolean;
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
+  /** The clock the day groups are drawn against. */
+  now?: number;
+  initialTab?: TaskTab;
 }): React.JSX.Element {
+  const [tab, setTab] = useState<TaskTab>(initialTab);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [confirm, setConfirm] = useState<AgentTaskDto[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastId = useRef(0);
+  const selecting = selected.length > 0;
+
+  useEffect(() => {
+    if (!selecting) return;
+    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') setSelected([]); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selecting]);
+
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
-  const now = Date.now();
+
+  const active = tab === 'active';
+  const visible = tasks.filter((task) => taskArchived(task) === !active);
+  const activeCount = tasks.filter((task) => !taskArchived(task)).length;
+  const groups = groupTasksByDay(visible, now);
+  const selectedTasks = selected.map((id) => visible.find((task) => task.id === id)).filter((task): task is AgentTaskDto => task !== undefined);
+  const selectionRunning = selectedTasks.some(taskBusy);
+
+  const showToast = (text: string, undo?: () => void): void => {
+    toastId.current += 1;
+    setToast({ id: toastId.current, text, undo });
+  };
+  const switchTab = (next: TaskTab): void => {
+    setTab(next);
+    setSelected([]);
+  };
+  const toggle = (id: string): void => {
+    setSelected((current) => (current.includes(id) ? current.filter((other) => other !== id) : [...current, id]));
+  };
+  const describe = (ids: string[]): string => (
+    ids.length === 1 ? `“${tasks.find((task) => task.id === ids[0])?.title ?? ''}”` : `${ids.length} tasks`
+  );
+  const archive = (ids: string[], archived: boolean, undoable = true): void => {
+    if (onArchive === undefined || ids.length === 0) return;
+    const what = describe(ids);
+    setSelected([]);
+    onArchive(ids, archived)
+      .then(() => showToast(`${archived ? 'Archived' : 'Restored'} ${what}`, undoable ? () => archive(ids, !archived, false) : undefined))
+      .catch((failure: unknown) => showToast(`Could not ${archived ? 'archive' : 'restore'} ${what}: ${failureMessage(failure)}`));
+  };
+  const requestDelete = (ids: string[]): void => {
+    const rows = ids
+      .map((id) => tasks.find((task) => task.id === id))
+      .filter((task): task is AgentTaskDto => task !== undefined && !taskBusy(task));
+    if (rows.length > 0) setConfirm(rows);
+  };
+  const confirmDelete = (): void => {
+    if (confirm === null || onDelete === undefined || deleting) return;
+    const ids = confirm.map((task) => task.id);
+    const what = describe(ids);
+    setDeleting(true);
+    onDelete(ids)
+      .then(() => showToast(`Deleted ${what}`))
+      .catch((failure: unknown) => showToast(`Could not delete ${what}: ${failureMessage(failure)}`))
+      .finally(() => {
+        setDeleting(false);
+        setConfirm(null);
+        setSelected([]);
+      });
+  };
+
   return (
     <div className="agt-tasks-page">
       <div className="agt-tasks-scroll">
-        <h1>Tasks</h1>
-        {children}
-        <section className="agt-section" aria-label="Agent tasks">
+        <div className="agt-tasks-head">
+          <h1>Tasks</h1>
+          <span className="agt-spacer" />
+          <div className="agt-tabs" role="tablist" aria-label="Task lists">
+            {([['active', 'Active', activeCount], ['archived', 'Archived', tasks.length - activeCount]] as const).map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={`agt-tab${tab === id ? ' is-active' : ''}`}
+                onClick={() => switchTab(id)}
+              >
+                {label}<span className="agt-tab__count">{count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {active && children}
+        <section className="agt-section" aria-label={active ? 'Agent tasks' : 'Archived tasks'}>
           <div className="agt-head">
-            <span className="agt-section-label">Agent tasks</span>
+            {selecting ? (
+              <div className="agt-selbar">
+                <span className="agt-selbar__count">{selected.length} selected</span>
+                <button type="button" className="agt-selbar__link" onClick={() => setSelected(visible.map((task) => task.id))}>Select all</button>
+                <span className="agt-spacer" />
+                <button type="button" className="agt-selbar__btn" onClick={() => archive(selected, active)}>
+                  {active ? <Archive size={14} aria-hidden="true" /> : <ArchiveRestore size={14} aria-hidden="true" />}
+                  {active ? 'Archive' : 'Restore'}
+                </button>
+                <button
+                  type="button"
+                  className="agt-selbar__btn is-danger"
+                  disabled={selectionRunning}
+                  title={selectionRunning ? 'Selection includes a running task' : 'Delete permanently'}
+                  onClick={() => requestDelete(selected)}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                  Delete
+                </button>
+                <button type="button" className="agt-selbar__link is-muted" onClick={() => setSelected([])}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <span className="agt-section-label">{active ? 'Agent tasks' : 'Archived tasks'}</span>
+                <span className="agt-spacer" />
+                <span className="agt-section-hint">
+                  {active
+                    ? `Completed tasks archive automatically after ${AUTO_ARCHIVE_DAYS} days`
+                    : 'Archived tasks keep their transcript and branch until deleted'}
+                </span>
+              </>
+            )}
           </div>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-          <div className="agt-list">
-            {loading && <div className="agt-loading">Loading agent tasks…</div>}
-            {!loading && tasks.length === 0 && (
-              <div className="agt-empty-hero">
-                <div className="agt-empty-hero__mark" aria-hidden="true">❋</div>
-                <div className="agt-empty-hero__title">No agent tasks yet</div>
-                <div className="agt-muted">
-                  Describe a task below — sending the first message creates it. Every command and file change stays visible.
-                </div>
+          {loading && <div className="agt-loading">Loading agent tasks…</div>}
+          {!loading && visible.length === 0 && (
+            <div className="agt-empty-hero">
+              <div className="agt-empty-hero__title">{active ? 'No agent tasks yet' : 'Nothing archived'}</div>
+              <div className="agt-muted">
+                {active
+                  ? 'Send a message below to start one.'
+                  : `Archive a task from the Active tab, or wait — completed tasks move here after ${AUTO_ARCHIVE_DAYS} days.`}
               </div>
-            )}
-            {tasks.map((task) => {
-              const pill = taskStatePill(task);
-              const taskProvider = providers.find((provider) => provider.id === task.laneId);
-              const taskModels = taskProvider?.models ?? [];
-              const taskModel = displayModelName(taskModels.find((model) => model.id === task.defaults.model)?.name ?? task.defaults.model ?? 'No model');
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  className="agt-row"
-                  onClick={() => onOpenTask(task.id)}
-                >
-                  <span className="agt-row__mark" aria-hidden="true">❋</span>
-                  <span className="agt-row-title agt-ellipsis">{task.title}</span>
-                  <span className="agt-mono agt-row-meta">
-                    {taskProvider?.label ?? laneLabel(task.laneId)} · {taskModel}
-                    {' · '}
-                    {relativeTime(task.updatedAt, { suffix: false, now })}
-                  </span>
-                  <span className={`agt-state ${pill.className}`}>
-                    {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
-                    {pill.label}
-                  </span>
-                  <Chevron />
-                </button>
-              );
-            })}
+            </div>
+          )}
+          <div className={`agt-groups${selecting ? ' has-selection' : ''}`}>
+            {groups.map((group) => (
+              <div className="agt-group" key={group.key}>
+                <div className="agt-group__head">
+                  <span className="agt-group__label">{group.label}</span>
+                  <span className="agt-mono agt-group__date">{group.date}</span>
+                  <span className="agt-spacer" />
+                  <span className="agt-group__count">{group.tasks.length === 1 ? '1 task' : `${group.tasks.length} tasks`}</span>
+                </div>
+                {group.tasks.map((task) => (
+                  <TaskRow
+                    key={task.id}
+                    task={task}
+                    providers={providers}
+                    now={now}
+                    checked={selected.includes(task.id)}
+                    selecting={selecting}
+                    onOpen={() => onOpenTask(task.id)}
+                    onToggle={() => toggle(task.id)}
+                    onArchive={(archived) => archive([task.id], archived)}
+                    onDelete={() => requestDelete([task.id])}
+                  />
+                ))}
+              </div>
+            ))}
           </div>
         </section>
       </div>
 
       {/* Anchored under the list: sending this first message is what creates a task. */}
-      <TaskComposer
-        draft={draft}
-        blocker={blocker}
-        busy={busy}
-        attaching={attaching}
-        images={images}
-        onAttach={onAttach}
-        onPasteImages={onPasteImages}
-        onRemoveImage={onRemoveImage}
-        laneId={laneId}
-        providers={providers}
-        models={models}
-        selection={selection}
-        onDraftChange={onDraftChange}
-        onSelectProvider={onSelectProvider}
-        onSelectModel={onSelectModel}
-        onCreate={onCreate}
-        onOpenSettings={onOpenSettings}
-      />
+      {active && (
+        <TaskComposer
+          draft={draft}
+          blocker={blocker}
+          busy={busy}
+          attaching={attaching}
+          images={images}
+          onAttach={onAttach}
+          onPasteImages={onPasteImages}
+          onRemoveImage={onRemoveImage}
+          laneId={laneId}
+          providers={providers}
+          models={models}
+          selection={selection}
+          onDraftChange={onDraftChange}
+          onSelectProvider={onSelectProvider}
+          onSelectModel={onSelectModel}
+          onCreate={onCreate}
+          onOpenSettings={onOpenSettings}
+        />
+      )}
+      {toast !== null && (
+        <Toast
+          key={toast.id}
+          className={active ? 'is-raised' : ''}
+          durationMs={5000}
+          text={toast.text}
+          onUndo={toast.undo}
+          onDismiss={() => setToast(null)}
+        />
+      )}
+      {confirm !== null && (
+        <ConfirmDialog
+          title={confirm.length === 1 ? 'Delete this task?' : `Delete ${confirm.length} tasks?`}
+          confirmLabel={deleting ? 'Deleting…' : confirm.length === 1 ? 'Delete task' : `Delete ${confirm.length} tasks`}
+          busy={deleting}
+          destructive
+          onConfirm={confirmDelete}
+          onCancel={() => setConfirm(null)}
+        >
+          <p>
+            This permanently removes everything ByteQuay stored for {confirm.length === 1 ? `“${confirm[0].title}”` : 'these tasks'}.
+            Nothing on GitHub is touched.
+          </p>
+          <ul className="agt-del-list">
+            <li>Transcript, events, approvals and queued inputs</li>
+            <li>Image attachments and runtime logs</li>
+            <li>
+              <span>
+                Generated branch <code>{confirm.length === 1 ? taskBranch(confirm[0]) : `bytequay/task/… ×${confirm.length}`}</code> and its worktree
+              </span>
+            </li>
+          </ul>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

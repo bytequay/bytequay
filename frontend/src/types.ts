@@ -574,6 +574,8 @@ export type AgentTaskDto = {
   checkoutRemovedAt: string | null;
   /** ON when the task was given the CodeGraph tool, OFF when not, null for a task older than the arm. */
   codegraphArm: CodeGraphArm | null;
+  /** When the task was shelved. An archived task keeps everything but stays off Home and the overview. */
+  archivedAt: string | null;
 };
 
 /** An image the turn ran with, as the backend names it: an opaque id, its name and type, never bytes or a path. */
@@ -1360,6 +1362,9 @@ export type Bridge = {
   ) => Promise<AgentTaskDto>;
   /** A person's name for the task; final, and version-checked like every other task write. */
   renameAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, title: string) => Promise<AgentTaskDto>;
+  archiveAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, archived: boolean) => Promise<AgentTaskDto>;
+  /** Removes the task, its runtime files, its checkout and its generated branch; a no-op once it is gone. */
+  deleteAgentTask: (taskId: string, workspaceId: string) => Promise<void>;
   /** The pull requests on the task's branch; the branch is derived from the task, so nothing is recorded. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string) => Promise<PullRequestDto[]>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */

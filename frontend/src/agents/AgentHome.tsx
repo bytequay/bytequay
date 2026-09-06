@@ -12,43 +12,140 @@
  * limitations under the License.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { CircleDot, ListChecks, Search, type LucideIcon } from 'lucide-react';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
-import { StartingAgentTask, TaskComposer, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
-import { TaskWindows } from './TaskCard';
+import RepoAvatar from '../RepoAvatar';
+import AttentionList from '../home/AttentionList';
+import {
+  assignedIssues,
+  attentionCandidates,
+  loadHandled,
+  saveHandled,
+  type AttentionItem,
+  type Handled,
+} from '../home/attention';
+import { StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
+import { HOME_WINDOW_MIN, TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
-import type { AgentTaskDto, ModelOptionDto, ModelProviderDto } from '../types';
+import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
-const SUGGESTIONS = [
-  { icon: '⌕', color: '#8250df', title: 'Explore and understand code', prompt: 'Explore the code and explain how a feature is implemented.' },
-  { icon: '◉', color: '#cf222e', title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
-  { icon: '☑', color: '#1a7f37', title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
-] as const;
+const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
+  { icon: Search, title: 'Explore and understand code', prompt: 'Explore the code and explain how a feature is implemented.' },
+  { icon: CircleDot, title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
+  { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
+];
+
+/** Home shows at most this many attention rows; the workspace's Pull requests tab has the rest. */
+const HOME_MAX_ROWS = 3;
+
+/** Windows the user put away, per workspace. Renderer-local: the task itself is untouched. */
+function hiddenTasksKey(workspaceId: string): string {
+  return `bq.home.hiddenTasks.${workspaceId}`;
+}
+
+export function loadHiddenTasks(workspaceId: string): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(hiddenTasksKey(workspaceId)) ?? '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []);
+  }
+  catch {
+    return new Set();
+  }
+}
+
+function saveHiddenTasks(workspaceId: string, hidden: ReadonlySet<string>): void {
+  try {
+    window.localStorage.setItem(hiddenTasksKey(workspaceId), JSON.stringify([...hidden]));
+  }
+  catch { /* A full or disabled store just means the window comes back next time. */ }
+}
+
+/** The workspace's slice of what Home lists: pull requests and issues of its monitored repository. */
+function useWorkspaceAttention(workspaceId: string, repository: string): {
+  candidates: AttentionItem[];
+  handled: Handled;
+  applyHandled: (handled: Handled) => void;
+} {
+  const [prs, setPrs] = useState<PullRequestDto[]>([]);
+  const [issues, setIssues] = useState<AttentionItem[]>([]);
+  const [handled, setHandled] = useState<Handled>(loadHandled);
+  useEffect(() => {
+    let active = true;
+    window.bridge.fetchPrs(workspaceId, 0, 50)
+      .then((page) => { if (active) setPrs(page.pullRequests.filter((pr) => pr.repo === repository)); })
+      .catch(() => {});
+    window.bridge.getUserProfile()
+      .then((profile) => window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
+        .then((snapshot) => { if (active) setIssues(assignedIssues(snapshot, workspaceId, profile.login)); }))
+      .catch(() => {});
+    return () => { active = false; };
+  }, [repository, workspaceId]);
+  const candidates = useMemo(() => attentionCandidates(prs, issues), [issues, prs]);
+  // The same store as Home, so acknowledging here clears the row there too.
+  const applyHandled = useCallback((next: Handled) => {
+    setHandled(next);
+    saveHandled(next);
+  }, []);
+  return { candidates, handled, applyHandled };
+}
 
 export interface AgentHomeProps {
   workspaceId: string;
-  /** "owner/repo", named in the question the hero asks. */
+  /** "owner/repo", the monitored repository the page belongs to. */
   repository: string;
   bridge?: AgentBridgePort;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
   onShowAll: () => void;
+  /** Where "See all" of the attention list goes: the workspace's Pull requests tab. */
+  onOpenPullRequests?: () => void;
+  onOpenPullRequest?: (number: number) => void;
+  onOpenIssue?: (number: number) => void;
   laneId?: string;
 }
 
 export default function AgentHome({
-  workspaceId, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, laneId = INTERACTIVE_LANE_ID,
+  workspaceId, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue,
+  laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
+  const attention = useWorkspaceAttention(workspaceId, repository);
+  const [hidden, setHidden] = useState(() => loadHiddenTasks(workspaceId));
+  const hide = useCallback((task: AgentTaskDto) => setHidden((previous) => {
+    const next = new Set(previous);
+    next.add(task.id);
+    saveHiddenTasks(workspaceId, next);
+    return next;
+  }), [workspaceId]);
+  const reveal = useCallback((task: AgentTaskDto) => setHidden((previous) => {
+    if (!previous.has(task.id)) return previous;
+    const next = new Set(previous);
+    next.delete(task.id);
+    saveHiddenTasks(workspaceId, next);
+    return next;
+  }), [workspaceId]);
+  const openAttention = useCallback((item: AttentionItem) => {
+    if (item.type === 'issue') onOpenIssue?.(item.number);
+    else onOpenPullRequest?.(item.number);
+  }, [onOpenIssue, onOpenPullRequest]);
   return (
     <AgentHomeView
       repository={repository}
       laneId={creation.laneId}
       providers={creation.catalog?.providers ?? []}
       bridge={live}
-      tasks={creation.tasks.filter((task) => task.state === 'OPEN')}
+      tasks={creation.tasks.filter((task) => task.state === 'OPEN' && !taskArchived(task))}
+      hiddenTaskIds={hidden}
+      onHideTask={hide}
+      onRevealTask={reveal}
+      attention={attention.candidates}
+      handled={attention.handled}
+      onHandledChange={attention.applyHandled}
+      onOpenAttention={openAttention}
+      onSeeAllAttention={onOpenPullRequests ?? (() => {})}
       models={creation.models}
       selection={creation.selection}
       draft={creation.draft}
@@ -74,14 +171,25 @@ export default function AgentHome({
 export function AgentHomeView({
   repository, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
+  hiddenTaskIds, onHideTask, onRevealTask,
+  attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null,
 }: {
   repository: string;
   laneId: string;
   providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
-  /** The open tasks, drawn as windows under the hero. */
+  /** The open tasks, drawn as windows under the composer. */
   tasks: AgentTaskDto[];
+  hiddenTaskIds?: ReadonlySet<string>;
+  onHideTask?: (task: AgentTaskDto) => void;
+  onRevealTask?: (task: AgentTaskDto) => void;
+  /** The repository's pull requests and issues that need the user, before ack and snooze are applied. */
+  attention?: AttentionItem[];
+  handled?: Handled;
+  onHandledChange?: (handled: Handled) => void;
+  onOpenAttention?: (item: AttentionItem) => void;
+  onSeeAllAttention?: () => void;
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   draft: string;
@@ -102,54 +210,80 @@ export function AgentHomeView({
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
+  const slash = repository.indexOf('/');
+  const owner = slash < 0 ? repository : repository.slice(0, slash);
+  const repo = slash < 0 ? '' : repository.slice(slash + 1);
   return (
-    <div className="agt-tasks-page">
-      <div className="agt-tasks-scroll">
-        <div className="agt-hero">
-          <div className="agt-hero__mark" aria-hidden="true">❋</div>
-          <h1>What should the agent do in {repository}?</h1>
-          <div className="agt-suggestions">
-            {SUGGESTIONS.map((suggestion) => (
-              <button type="button" className="agt-suggestion" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
-                <div className="agt-suggestion__icon" style={{ color: suggestion.color }} aria-hidden="true">{suggestion.icon}</div>
-                <div className="agt-suggestion__text">{suggestion.title}</div>
-              </button>
-            ))}
-          </div>
-          <div className="agt-open-tasks">
-            <div className="agt-open-tasks__head">
-              <span className="agt-label">Open tasks · {tasks.length}</span>
-              <span className="agt-spacer" />
-              <button type="button" className="agt-link" onClick={onShowAll}>
-                Show all <kbd className="agt-kbd">{'⇧⌘\\'}</kbd>
-              </button>
-            </div>
-            <div className="agt-windows">
-              <TaskWindows tasks={tasks} providers={providers} width={200} bridge={bridge} onOpen={onOpenTask} />
-            </div>
-          </div>
+    <div className="agt-home">
+      <div className="agt-home__scroll">
+        <div className="agt-home__avatar">
+          <RepoAvatar owner={owner} repo={repo} size={64} radius={16} />
         </div>
+        <div className="agt-home__repo">{repository}</div>
+        <div className="agt-home__composer">
+          {error !== null && <div className="cmt-error" role="alert">{error}</div>}
+          <TaskComposer
+            draft={draft}
+            blocker={blocker}
+            busy={busy}
+            attaching={attaching}
+            images={images}
+            onAttach={onAttach}
+            onPasteImages={onPasteImages}
+            onRemoveImage={onRemoveImage}
+            laneId={laneId}
+            providers={providers}
+            models={models}
+            selection={selection}
+            onDraftChange={onDraftChange}
+            onSelectProvider={onSelectProvider}
+            onSelectModel={onSelectModel}
+            onCreate={onCreate}
+            onOpenSettings={onOpenSettings}
+          />
+        </div>
+        <div className="agt-starts">
+          {SUGGESTIONS.map((suggestion) => {
+            const Icon = suggestion.icon;
+            return (
+              <button type="button" className="agt-start" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
+                <span className="agt-start__icon" aria-hidden="true"><Icon size={15} strokeWidth={1.8} /></span>
+                <span className="agt-start__text">{suggestion.title}</span>
+              </button>
+            );
+          })}
+        </div>
+        <AttentionList
+          variant="workspace"
+          maxRows={HOME_MAX_ROWS}
+          candidates={attention}
+          handled={handled}
+          onHandledChange={onHandledChange}
+          onOpen={onOpenAttention}
+          onSeeAll={onSeeAllAttention}
+        />
+        <section className="agt-open-tasks" aria-label="Open tasks">
+          <div className="agt-open-tasks__head">
+            <span className="agt-label">Open tasks · {tasks.length}</span>
+            <span className="agt-spacer" />
+            <button type="button" className="agt-link" onClick={onShowAll}>
+              Show all <kbd className="agt-kbd">{'⇧⌘\\'}</kbd>
+            </button>
+          </div>
+          <TaskWindows
+            fluid
+            renamable
+            tasks={tasks}
+            providers={providers}
+            width={HOME_WINDOW_MIN}
+            bridge={bridge}
+            hiddenTaskIds={hiddenTaskIds}
+            onHide={onHideTask}
+            onAttention={onRevealTask}
+            onOpen={onOpenTask}
+          />
+        </section>
       </div>
-      {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-      <TaskComposer
-        draft={draft}
-        blocker={blocker}
-        busy={busy}
-        attaching={attaching}
-        images={images}
-        onAttach={onAttach}
-        onPasteImages={onPasteImages}
-        onRemoveImage={onRemoveImage}
-        laneId={laneId}
-        providers={providers}
-        models={models}
-        selection={selection}
-        onDraftChange={onDraftChange}
-        onSelectProvider={onSelectProvider}
-        onSelectModel={onSelectModel}
-        onCreate={onCreate}
-        onOpenSettings={onOpenSettings}
-      />
     </div>
   );
 }

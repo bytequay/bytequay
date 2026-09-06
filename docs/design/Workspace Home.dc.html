@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+html,body{margin:0;height:100%;background:#ffffff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+button,input{font-family:inherit}
+@keyframes bqfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+<div data-screen-label="Workspace Home" style="display:flex;height:100vh;min-height:640px;overflow:hidden">
+  <div style="width:220px;flex:none;display:flex;flex-direction:column;background:#f7f7f8;border-right:1px solid #e3e3e6">
+    <div style="display:flex;align-items:center;gap:8px;padding:14px 16px 8px"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span></div>
+    <div style="padding:6px 8px 0;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>Home</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Recent</div>
+    </div>
+    <div style="height:1px;background:#e3e3e6;margin:10px 16px"></div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 18px 8px;font-size:13.5px;font-weight:600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 7.5v9M18 10.5c0 4-12 2-12 6"></path></svg><span style="width:7px;height:7px;border-radius:50%;background:#1a7f37"></span>trinodb/trino</div>
+    <div style="flex:1;padding:0 8px;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;background:#e4e4e8;font-size:13.5px;font-weight:600"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"></path><path d="M5 10v10h14V10"></path></svg>Workspace home</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path></svg>Tasks</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"></path><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"></path></svg>Pull requests</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5" fill="#6e6e76" stroke="none"></circle></svg>Issues</div>
+      <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 7.5v9M18 10.5c0 4-12 2-12 6"></path></svg>Commits</div>
+    </div>
+    <div style="padding:8px;border-top:1px solid #ececef"><div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:13.5px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Workspace settings</div></div>
+  </div>
+
+  <div style="flex:1;min-width:0;overflow:auto;padding:44px 48px 56px;display:flex;flex-direction:column;align-items:center">
+    <div style="width:64px;height:64px;border-radius:16px;background:#1f2328;color:#ffffff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;letter-spacing:-.5px;box-shadow:0 4px 14px rgba(31,35,40,.18)">tr</div>
+    <div style="font-size:15px;font-weight:600;margin-top:12px">trinodb/trino</div>
+
+    <div style="width:100%;max-width:760px;margin-top:20px;border:1px solid #d0d7de;border-radius:14px;background:#ffffff;box-shadow:0 8px 24px rgba(140,149,159,.18);padding:14px 14px 10px">
+      <div style="font-size:14px;color:#8c959f;padding:2px 4px 26px">Let's ship...</div>
+      <div style="display:flex;align-items:center;gap:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+        <span style="font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:4px">Codex<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+        <span style="font-size:13.5px;color:#57606a">Auto</span>
+        <div style="flex:1"></div>
+        <span style="font-size:13.5px;display:inline-flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg>5.6 Sol Medium<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span>
+        <span style="width:30px;height:30px;border-radius:50%;background:#eceff2;display:inline-flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#57606a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5m-6 6 6-6 6 6"></path></svg></span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;width:100%;max-width:760px">
+      <button style="flex:1;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;text-align:left" style-hover="border-color:#b6bcc4;background:#f6f8fa"><span style="width:26px;height:26px;flex:none;border-radius:7px;background:#f0f1f3;display:inline-flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4.3-4.3"></path></svg></span><span style="font-size:12.5px;font-weight:600">Explore and understand code</span></button>
+      <button style="flex:1;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;text-align:left" style-hover="border-color:#b6bcc4;background:#f6f8fa"><span style="width:26px;height:26px;flex:none;border-radius:7px;background:#f0f1f3;display:inline-flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5" fill="#6e6e76" stroke="none"></circle></svg></span><span style="font-size:12.5px;font-weight:600">Fix issues and failures</span></button>
+      <button style="flex:1;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e3e3e6;border-radius:10px;background:#ffffff;cursor:pointer;text-align:left" style-hover="border-color:#b6bcc4;background:#f6f8fa"><span style="width:26px;height:26px;flex:none;border-radius:7px;background:#f0f1f3;display:inline-flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6e6e76" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h12M9 12h12M9 18h12"></path><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"></path></svg></span><span style="font-size:12.5px;font-weight:600">Review code and suggest changes</span></button>
+    </div>
+
+    <sc-if value="{{ hasAlerts }}" hint-placeholder-val="{{ true }}">
+      <div style="width:100%;max-width:880px;margin-top:40px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11.5px;font-weight:700;letter-spacing:.6px;color:#656d76;white-space:nowrap">NEEDS ATTENTION</span>
+          <span style="font-size:11.5px;color:#8c959f;white-space:nowrap">{{ alertCountLabel }}</span>
+          <div style="flex:1"></div>
+          <a href="#" style="font-size:12.5px;font-weight:600;white-space:nowrap">See all</a>
+        </div>
+        <div style="border:1px solid #e3e3e6;border-radius:12px;overflow:hidden;background:#ffffff;margin-top:12px">
+          <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="3">
+            <div onMouseEnter="{{ a.onEnter }}" onMouseLeave="{{ a.onLeave }}" style="display:flex;align-items:center;gap:12px;padding:0 10px 0 14px;height:52px;border-top:1px solid #f0f0f2;cursor:pointer;background:{{ a.bg }};animation:bqfade .18s ease-out">
+              <span style="width:34px;height:34px;flex:none;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:{{ a.iconBg }};color:{{ a.iconFg }}">{{ a.icon }}</span>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px;min-width:0"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.title }}</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;flex:none">#{{ a.number }}</span></div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:2px;font-size:12px;color:#57606a"><span style="font-weight:600;color:{{ a.iconFg }}">{{ a.kind }}</span><span style="color:#b6bcc4">·</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.detail }}</span></div>
+              </div>
+              <span style="width:22px;height:22px;flex:none;border-radius:50%;background:{{ a.avatarBg }};color:#ffffff;font-size:9.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;letter-spacing:.2px">{{ a.author }}</span>
+              <span style="flex:none;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#8c959f;width:28px;text-align:right">{{ a.age }}</span>
+              <div style="flex:none;width:72px;display:flex;justify-content:flex-end;gap:2px">
+                <sc-if value="{{ true }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ a.onAck }}" title="Acknowledge" style="width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#dafbe1;color:#1a7f37"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></button>
+                  <button onClick="{{ a.onSnooze }}" title="Snooze until tomorrow" style="width:28px;height:28px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#e4e4e8;color:#1f2328"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></button>
+                </sc-if>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8c959f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin:7px 0 0 4px"><path d="m9 6 6 6-6 6"></path></svg>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <div style="width:100%;max-width:880px;margin-top:36px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:11.5px;font-weight:700;letter-spacing:.6px;color:#656d76;white-space:nowrap">OPEN TASKS · {{ openCount }}</span>
+        <div style="flex:1"></div>
+        <a href="#" style="font-size:12.5px;font-weight:600;white-space:nowrap">Show all</a><span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#57606a;border:1px solid #d0d7de;border-radius:4px;padding:0 5px;white-space:nowrap">⇧⌘\</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;margin-top:12px">
+        <sc-for list="{{ tasks }}" as="t" hint-placeholder-count="3">
+          <div onMouseEnter="{{ t.onEnter }}" onMouseLeave="{{ t.onLeave }}" style="position:relative;border:1px solid #e3e3e6;border-radius:12px;overflow:hidden;background:#ffffff;cursor:pointer;box-shadow:0 1px 2px rgba(31,35,40,.05)" style-hover="border-color:#b6bcc4;box-shadow:0 8px 24px rgba(140,149,159,.22)">
+            <sc-if value="{{ t.showActions }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:8px;right:8px;display:flex;gap:2px;background:#ffffff;border:1px solid #e3e3e6;border-radius:8px;padding:2px;box-shadow:0 2px 6px rgba(31,35,40,.1);animation:bqfade .12s ease-out;z-index:2">
+                <button onClick="{{ t.onRename }}" title="Rename" style="width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#e4e4e8;color:#1f2328"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z"></path><path d="m13.5 6.5 3 3"></path></svg></button>
+                <button onClick="{{ t.onHide }}" title="Hide from Home (task stays in Tasks)" style="width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center" style-hover="background:#e4e4e8;color:#1f2328"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M6.7 6.7C4.6 8 3 10 2 12c2 4 6 7 10 7 1.8 0 3.5-.5 5-1.3M9.9 5.2C10.6 5.1 11.3 5 12 5c4 0 8 3 10 7-.6 1.2-1.4 2.3-2.3 3.2"></path></svg></button>
+              </div>
+            </sc-if>
+            <div style="height:148px;background:#f6f8fa;border-bottom:1px solid #eceff2;padding:10px 12px 0;position:relative;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:5px;font-size:8px;color:#8c959f"><span style="color:#0969da">‹ Tasks</span><span style="color:#1f2328;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px">{{ t.title }}</span><span style="font-size:7px;font-weight:600;border-radius:6px;padding:1px 5px;background:{{ t.pillBg }};color:{{ t.pillFg }}">{{ t.status }}</span><span>Codex · 5.6 Sol</span></div>
+              <div style="display:flex;justify-content:flex-end;margin-top:12px"><span style="font-size:8px;background:#e4e4e8;border-radius:6px;padding:4px 7px;max-width:70%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.prompt }}</span></div>
+              <div style="font-size:8px;color:#57606a;margin-top:10px;display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border:1.2px solid #b6bcc4;border-top-color:#57606a;border-radius:50%;display:inline-block"></span>{{ t.turn }}</div>
+              <div style="font-size:8px;color:#1f2328;margin-top:6px;line-height:1.4">{{ t.reply }}</div>
+              <div style="position:absolute;left:0;right:0;bottom:0;height:40px;background:linear-gradient(to bottom,rgba(246,248,250,0),#f6f8fa)"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:11px 12px 12px;min-height:44px">
+              <sc-if value="{{ t.isEditing }}" hint-placeholder-val="{{ false }}"><input autoFocus="{{ true }}" value="{{ t.draft }}" onChange="{{ t.onDraft }}" onKeyDown="{{ t.onKey }}" onBlur="{{ t.onCommit }}" onClick="{{ t.stop }}" style="flex:1;min-width:0;font-size:13px;font-weight:600;color:#1f2328;border:1px solid #0969da;border-radius:6px;padding:2px 6px;outline:none;box-shadow:0 0 0 3px rgba(9,105,218,.15);background:#ffffff"></input></sc-if>
+              <sc-if value="{{ t.notEditing }}" hint-placeholder-val="{{ true }}"><span onDoubleClick="{{ t.onRename }}" title="Double-click to rename" style="flex:1;min-width:0;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.title }}</span></sc-if>
+              <span style="font-size:11px;font-weight:600;border-radius:10px;padding:2px 8px;white-space:nowrap;background:{{ t.pillBg }};color:{{ t.pillFg }}">{{ t.status }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;maxAlerts&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:1,&quot;max&quot;:6,&quot;section&quot;:&quot;Needs attention&quot;}}">
+const icon = (paths, extra) => React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round' },
+  React.createElement('path', { d: paths }), extra || null);
+const KIND = {
+  'Review requested': { icon: icon('M9 6h12M9 12h12M9 18h12M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17'), bg: '#ddf4ff', fg: '#0969da' },
+  'Changes requested': { icon: icon('M12 8v5M12 16.5v.5', React.createElement('circle', { cx: 12, cy: 12, r: 9 })), bg: '#ffebe9', fg: '#cf222e' },
+  'CI failing': { icon: icon('m8 8 8 8M16 8l-8 8', React.createElement('circle', { cx: 12, cy: 12, r: 9 })), bg: '#fff1e5', fg: '#bc4c00' },
+  'Ready to merge': { icon: icon('M6 21V7M6 7a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM18 11a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM6 21a2.5 2.5 0 1 0 0-5M18 11c0 4-12 3-12 5'), bg: '#dafbe1', fg: '#1a7f37' },
+};
+const AVATAR = ['#0969da', '#8250df', '#bf3989', '#1a7f37', '#9a6700'];
+const ALERTS = [
+  { id: 1, kind: 'Review requested', title: 'Backport ORC dictionary writer memory accounting fixes', number: 4494, author: 'PR', detail: 'wren-d asked for your review', age: '21h' },
+  { id: 2, kind: 'Changes requested', title: 'Update to Trino 482-07d78d8fb41', number: 4474, author: 'MK', detail: 'marlo-t left 3 comments', age: '19h' },
+  { id: 3, kind: 'CI failing', title: 'Skip unselected values in Parquet projections', number: 30303, author: 'RA', detail: 'ci · test (plugin/trino-hive) failed', age: '16h' },
+  { id: 4, kind: 'CI failing', title: 'Fail product tests on unpinned container images', number: 31005, author: 'EB', detail: 'ci · pt (default) failed', age: '1d' },
+  { id: 5, kind: 'Ready to merge', title: 'Cache Iceberg REST catalog metadata', number: 4365, author: 'DA', detail: 'approved by 2 · checks green', age: '1d' },
+];
+const PILL = { Running: ['#ddf4ff', '#0969da'], 'Recovery required': ['#fff8c5', '#9a6700'], Ready: ['#dafbe1', '#1a7f37'] };
+const TASKS = [
+  { title: 'hello', status: 'Running', prompt: 'hello', turn: 'Turn 1 · Worked for 4s', reply: 'Hello! What can I help you with?' },
+  { title: "What's your model version and…", status: 'Recovery required', prompt: "What's your model version and effort?", turn: 'Turn 1 · Interrupted', reply: "I'm using the OpenAI docs skill because this question is about Codex's own model and reasoning configuration." },
+  { title: 'trino issue reading', status: 'Ready', prompt: 'any new issues created today?', turn: 'Turn 1 · Worked for 20s', reply: "I'll identify the repository and check its issue tracker for issues created today (September 4, 2026)." },
+  { title: 'Explain the planner', status: 'Ready', prompt: 'how does the cost-based optimizer pick join order?', turn: 'Turn 2 · Worked for 1m 12s', reply: 'The join reordering is driven by ReorderJoins with statistics from the connector…' },
+  { title: 'Fix flaky TestHiveConnector', status: 'Running', prompt: 'TestHiveConnector.testPartitionPruning is flaky', turn: 'Turn 1 · Working for 3m', reply: 'Reading the test and the last five CI failures to find the shared cause…' },
+].map(t => ({ ...t, pillBg: PILL[t.status][0], pillFg: PILL[t.status][1] }));
+class Component extends DCLogic {
+  state = { dismissed: [], hover: null, hidden: [], names: {}, editing: null, draft: '', taskHover: null };
+  visibleTasks() {
+    const { hidden, names, editing, draft, taskHover } = this.state;
+    const commit = i => this.setState(s => {
+      const v = s.draft.trim();
+      return { editing: null, draft: '', names: v ? { ...s.names, [i]: v } : s.names };
+    });
+    return TASKS.map((t, i) => ({ ...t, i })).filter(t => !hidden.includes(t.i)).map(t => {
+      const isEditing = editing === t.i;
+      return { ...t, title: names[t.i] ?? t.title, isEditing, notEditing: !isEditing, draft,
+        showActions: taskHover === t.i && !isEditing,
+        onEnter: () => this.setState({ taskHover: t.i }),
+        onLeave: () => this.setState(s => s.taskHover === t.i ? { taskHover: null } : null),
+        onRename: e => { e.stopPropagation(); this.setState({ editing: t.i, draft: names[t.i] ?? t.title }); },
+        onHide: e => { e.stopPropagation(); this.setState(s => ({ hidden: [...s.hidden, t.i], taskHover: null })); },
+        onDraft: e => this.setState({ draft: e.target.value }),
+        onKey: e => { if (e.key === 'Enter') commit(t.i); if (e.key === 'Escape') this.setState({ editing: null, draft: '' }); },
+        onCommit: () => commit(t.i),
+        stop: e => e.stopPropagation(),
+      };
+    });
+  }
+  renderVals() {
+    const max = this.props.maxAlerts ?? 3;
+    const live = ALERTS.filter(a => !this.state.dismissed.includes(a.id));
+    const shown = live.slice(0, max);
+    const dismiss = id => this.setState(s => ({ dismissed: [...s.dismissed, id], hover: null }));
+    return {
+      hasAlerts: shown.length > 0,
+      alertCountLabel: live.length > shown.length ? `${shown.length} of ${live.length}` : `${live.length}`,
+      alerts: shown.map((a, i) => {
+        const k = KIND[a.kind];
+        const hover = this.state.hover === a.id;
+        return { ...a, icon: k.icon, iconBg: k.bg, iconFg: k.fg, avatarBg: AVATAR[a.id % AVATAR.length], hover,
+          bg: hover ? '#f6f8fa' : '#ffffff',
+          onEnter: () => this.setState({ hover: a.id }), onLeave: () => this.setState(s => s.hover === a.id ? { hover: null } : null),
+          onAck: e => { e.stopPropagation(); dismiss(a.id); }, onSnooze: e => { e.stopPropagation(); dismiss(a.id); } };
+      }),
+      tasks: this.visibleTasks(), openCount: TASKS.length,
+    };
+  }
+}
+</script>
+</body>
+</html>

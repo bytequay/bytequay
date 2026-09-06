@@ -17,6 +17,7 @@ import {
   anchorPanel,
   assignedIssues,
   attentionCandidates,
+  attentionDetail,
   attentionKind,
   handledSummary,
   previewMarkdown,
@@ -237,3 +238,20 @@ function snapshot(): RepositoryIssueSnapshotDto {
     }],
   };
 }
+
+describe('attentionDetail', () => {
+  const base: Omit<AttentionItem, 'kind'> = {
+    key: 'o/r#1', type: 'pr', repo: 'o/r', number: 1, title: 't', author: 'alice', authorAvatarUrl: null,
+    createdAt: null, updatedAt: '2026-08-28T00:00:00Z', labels: [], pr: null, body: '', commentCount: 3, workspaceId: null,
+  };
+
+  it('says what happened in words the list payload can back up', () => {
+    expect(attentionDetail({ ...base, kind: 'review' })).toBe('alice asked for your review');
+    expect(attentionDetail({ ...base, kind: 'review', author: null })).toBe('your review was requested');
+    expect(attentionDetail({ ...base, kind: 'assigned', type: 'issue', commentCount: 1 })).toBe('opened by alice · 1 comment');
+    expect(attentionDetail({ ...base, kind: 'changes' })).toBe('review blocks merging · 3 comments');
+    expect(attentionDetail({ ...base, kind: 'ci' })).toBe('ci · checks failed');
+    expect(attentionDetail({ ...base, kind: 'commits' })).toBe('new commits since your review');
+    expect(attentionDetail({ ...base, kind: 'merge' })).toBe('checks green · mergeable');
+  });
+});

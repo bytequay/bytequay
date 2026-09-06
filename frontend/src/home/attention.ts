@@ -142,6 +142,19 @@ export function attentionCandidates(
     || Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 }
 
+/** The row's second line: what happened, in words the list payload can back up. */
+export function attentionDetail(item: AttentionItem): string {
+  const comments = item.commentCount === 1 ? '1 comment' : `${item.commentCount} comments`;
+  switch (item.kind) {
+    case 'review': return item.author ? `${item.author} asked for your review` : 'your review was requested';
+    case 'assigned': return item.author ? `opened by ${item.author} · ${comments}` : comments;
+    case 'changes': return `review blocks merging · ${comments}`;
+    case 'ci': return 'ci · checks failed';
+    case 'commits': return 'new commits since your review';
+    case 'merge': return 'checks green · mergeable';
+  }
+}
+
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */
 
 export type HandledEntry = {

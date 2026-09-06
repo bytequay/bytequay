@@ -191,6 +191,17 @@ export function createPreviewBridge(
       previewVersion += 1;
       return { ...previewTask(id, taskId), title, titleSource: 'USER', defaults: previewDefaults, version: previewVersion };
     },
+    archiveAgentTask: async (taskId, id, expectedVersion, archived) => {
+      record('archiveAgentTask', taskId, id, expectedVersion, archived);
+      if (expectedVersion !== previewVersion) {
+        throw new Error(`Task version changed: ${taskId}`);
+      }
+      previewVersion += 1;
+      return { ...previewTask(id, taskId), defaults: previewDefaults, version: previewVersion, archivedAt: archived ? '2026-08-20T10:12:00Z' : null };
+    },
+    deleteAgentTask: async (taskId, id) => {
+      record('deleteAgentTask', taskId, id);
+    },
     getEffectiveTurnSettings: async (taskId, id) => {
       record('getEffectiveTurnSettings', taskId, id);
       return {
@@ -205,9 +216,10 @@ export function createPreviewBridge(
     },
     readAgentEvents: async (taskId, after = 0, limit) => {
       record('readAgentEvents', taskId, after, limit);
-      return FIXTURE_EVENTS.filter(
+      const page = FIXTURE_EVENTS.filter(
         (event) => event.sequence > after && event.sequence <= replayThrough,
       );
+      return limit === undefined ? page : page.slice(0, limit);
     },
     startAgentTurn: async (request) => {
       record('startAgentTurn', request);

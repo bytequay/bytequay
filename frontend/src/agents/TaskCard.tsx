@@ -12,24 +12,44 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useReducer, useRef, useState } from 'react';
+import { EyeOff, Pencil } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
-import type { AgentBridgePort } from './model';
+import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort } from './model';
 import { projectTranscript, settleFinalTurn } from './transcript';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
 
-/** How many of a task's first events a window shows; enough for its opening exchange. */
-export const WINDOW_EVENT_LIMIT = 24;
+/** How often a window re-reads its task and the events it has not shown yet. */
+const WINDOW_POLL_MS = 2000;
+/** The narrowest Home window; the grid packs as many as fit and stretches them to the row. */
+export const HOME_WINDOW_MIN = 250;
+const HOME_WINDOW_GAP = 16;
+
+/** One column of a `repeat(auto-fill, minmax(min, 1fr))` grid, so a window can scale its screen to it. */
+export function gridColumnWidth(containerWidth: number, min = HOME_WINDOW_MIN, gap = HOME_WINDOW_GAP): number {
+  if (containerWidth <= 0) return min;
+  const columns = Math.max(1, Math.floor((containerWidth + gap) / (min + gap)));
+  return Math.floor((containerWidth - gap * (columns - 1)) / columns);
+}
+
+/** Whether a put-away window must come back: the task is stuck, or waiting on the user. */
+export function needsAttention(task: AgentTaskDto, events: AgentEventEnvelope[]): boolean {
+  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') return true;
+  return projectTranscript(events).some((turn) => turn.blocks.some(
+    (block) => block.kind === 'approval' && block.actionable && block.outcome === null,
+  ));
+}
 
 /**
- * One task as the design's "task window": its own screen, scaled to fit, with a caption below.
- * Nothing inside the thumbnail is interactive — the whole card opens the task.
+ * One task as the design's "task window": its own screen, scaled to fit, with a footer that names
+ * it. Nothing inside the thumbnail is interactive — the thumbnail opens the task, and the footer
+ * name is where a rename happens.
  */
-export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose }: {
+export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, onRename, onHide }: {
   task: AgentTaskDto;
   events: AgentEventEnvelope[];
   providers: ModelProviderDto[];
@@ -39,6 +59,10 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   onOpen: () => void;
   /** Present only where a card may close its task; the overview offers it, Home does not. */
   onClose?: () => void;
+  /** Present where a card may be renamed in place; Home offers it, the overview does not. */
+  onRename?: (title: string) => void;
+  /** Present where a card may be put away from view; Home offers it. */
+  onHide?: () => void;
 }): React.JSX.Element {
   const pill = taskStatePill(task);
   const projectedTurns = projectTranscript(events);
@@ -51,7 +75,22 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   const models = provider?.models ?? [];
   const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
   const providerName = provider?.label ?? laneLabel(task.laneId);
-  const meta = `${providerName}${model === '' ? '' : ` · ${model}`} · ${relativeTime(task.updatedAt, { suffix: false, now })}`;
+  const meta = `${providerName}${model === '' ? '' : ` · ${model}`}`;
+  const [draft, setDraft] = useState<string | null>(null);
+  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
+  const committed = useRef(false);
+  const startRename = (): void => {
+    if (onRename === undefined) return;
+    committed.current = false;
+    setDraft(task.title);
+  };
+  const commit = (): void => {
+    if (committed.current || draft === null) return;
+    committed.current = true;
+    const next = draft.trim();
+    setDraft(null);
+    if (next !== '' && next !== task.title) onRename?.(next);
+  };
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
       {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
@@ -76,7 +115,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
                   key={turn.turnId ?? `turn-${turn.ordinal}`}
                   turn={turn}
                   first={index === 0}
-                  open
+                  open={turn.endedAt === null}
                   now={now}
                   models={models}
                   durableTurns={{}}
@@ -91,9 +130,40 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
           </div>
         </div>
       </button>
-      <div className="agt-card__caption">
-        <span className="agt-row__mark" aria-hidden="true">❋</span>
-        <span className="agt-card__name">{task.title}</span>
+      {(onRename !== undefined || onHide !== undefined) && draft === null && (
+        <div className="agt-card__tools">
+          {onRename !== undefined && (
+            <button type="button" className="agt-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`} onClick={startRename}>
+              <Pencil size={14} aria-hidden="true" />
+            </button>
+          )}
+          {onHide !== undefined && (
+            <button type="button" className="agt-card__tool" title="Hide from Home (task stays in Tasks)" aria-label={`Hide task from Home: ${task.title}`} onClick={onHide}>
+              <EyeOff size={14} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      )}
+      <div className="agt-card__foot">
+        {draft === null ? (
+          <span className="agt-card__name" title={onRename === undefined ? undefined : 'Double-click to rename'} onDoubleClick={startRename}>
+            {task.title}
+          </span>
+        ) : (
+          <input
+            className="agt-card__rename"
+            type="text"
+            aria-label="Task name"
+            value={draft}
+            autoFocus
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit();
+              if (event.key === 'Escape') { committed.current = true; setDraft(null); }
+            }}
+          />
+        )}
         {pillNode}
       </div>
       {onClose !== undefined && (
@@ -113,10 +183,61 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
 }
 
 /**
- * The windows for a set of tasks. Each shows its task's first events, read once and bounded, so
- * a Home or overview full of tasks costs one small read per task rather than a subscription.
+ * One task's window kept current: each tick re-reads the task, whose claim the pill shows, and the
+ * events it has not shown yet. A poll still in flight when the next tick lands is dropped; what it
+ * applied stays, and the next one resumes after it.
+ *
+ * A hidden window keeps polling and draws nothing, so the task can ask to be shown again the
+ * moment it needs the user.
  */
-export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose }: {
+function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = false, onAttention, onHide, ...card }: {
+  task: AgentTaskDto;
+  tick: number;
+  bridge: () => AgentBridgePort;
+  hidden?: boolean;
+  renamable?: boolean;
+  onAttention?: () => void;
+  onHide?: () => void;
+  providers: ModelProviderDto[];
+  width: number;
+  active: boolean;
+  now: number;
+  onOpen: () => void;
+  onClose?: () => void;
+}): React.JSX.Element | null {
+  const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
+  const after = useRef(0);
+  after.current = state.lastSequence;
+  useEffect(() => {
+    let active = true;
+    void pollAgentTask(bridge(), listed.id, listed.workspaceId, after.current, dispatch, () => active).catch(() => {});
+    return () => { active = false; };
+  }, [bridge, listed.id, listed.workspaceId, tick]);
+  const task = state.task ?? listed;
+  const attention = hidden && needsAttention(task, state.events);
+  useEffect(() => {
+    if (attention) onAttention?.();
+  }, [attention, onAttention]);
+  if (hidden) return null;
+  const rename = renamable
+    ? (title: string) => {
+      void bridge().renameAgentTask(task.id, task.workspaceId, task.version, title)
+        .then((renamed) => dispatch({ type: 'task/loaded', task: renamed }))
+        .catch(() => {});
+    }
+    : undefined;
+  return <TaskCard task={task} events={state.events} onRename={rename} onHide={onHide} {...card} />;
+}
+
+/**
+ * The windows for a set of tasks, each polling its own task on one shared tick.
+ *
+ * Fluid windows fill a responsive grid: the grid's column width is measured so each window can
+ * scale its screen to exactly the column, and `width` is the narrowest column allowed.
+ */
+export function TaskWindows({
+  tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose, fluid = false, renamable = false, hiddenTaskIds, onHide, onAttention,
+}: {
   tasks: AgentTaskDto[];
   providers: ModelProviderDto[];
   width: number;
@@ -124,37 +245,48 @@ export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = nu
   activeTaskId?: string | null;
   onOpen: (taskId: string) => void;
   onClose?: (task: AgentTaskDto) => void;
+  fluid?: boolean;
+  renamable?: boolean;
+  /** Windows put away by the user; they keep polling so a task can come back when it needs attention. */
+  hiddenTaskIds?: ReadonlySet<string>;
+  onHide?: (task: AgentTaskDto) => void;
+  onAttention?: (task: AgentTaskDto) => void;
 }): React.JSX.Element {
-  const [events, setEvents] = useState<Record<string, AgentEventEnvelope[]>>({});
-  const wanted = tasks.map((task) => task.id).filter((id) => events[id] === undefined).join(',');
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    if (wanted === '') return;
-    let active = true;
-    for (const taskId of wanted.split(',')) {
-      void bridge().readAgentEvents(taskId, 0, WINDOW_EVENT_LIMIT).then(
-        (found) => { if (active) setEvents((current) => ({ ...current, [taskId]: found })); },
-        () => { if (active) setEvents((current) => ({ ...current, [taskId]: [] })); },
-      );
-    }
-    return () => { active = false; };
-  }, [bridge, wanted]);
-  // ponytail: one clock reading per render; a shared ticker if windows stay open long enough to drift
+    const timer = setInterval(() => setTick((count) => count + 1), WINDOW_POLL_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [columnWidth, setColumnWidth] = useState(width);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!fluid || grid === null || typeof ResizeObserver === 'undefined') return;
+    const measure = (): void => setColumnWidth(gridColumnWidth(grid.clientWidth, width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [fluid, width]);
+  // One clock reading per tick, shared by every window.
   const now = Date.now();
-  return (
-    <>
-      {tasks.map((task) => (
-        <TaskCard
-          key={task.id}
-          task={task}
-          events={events[task.id] ?? []}
-          providers={providers}
-          width={width}
-          active={task.id === activeTaskId}
-          now={now}
-          onOpen={() => onOpen(task.id)}
-          onClose={onClose === undefined ? undefined : () => onClose(task)}
-        />
-      ))}
-    </>
-  );
+  const windows = tasks.map((task) => (
+    <TaskWindow
+      key={task.id}
+      task={task}
+      tick={tick}
+      bridge={bridge}
+      providers={providers}
+      width={fluid ? columnWidth : width}
+      active={task.id === activeTaskId}
+      now={now}
+      hidden={hiddenTaskIds?.has(task.id) ?? false}
+      renamable={renamable}
+      onOpen={() => onOpen(task.id)}
+      onClose={onClose === undefined ? undefined : () => onClose(task)}
+      onHide={onHide === undefined ? undefined : () => onHide(task)}
+      onAttention={onAttention === undefined ? undefined : () => onAttention(task)}
+    />
+  ));
+  return fluid ? <div className="agt-windows-grid" ref={gridRef}>{windows}</div> : <>{windows}</>;
 }

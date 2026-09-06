@@ -25,8 +25,17 @@ unparseable version text is left alone and never makes the lane unavailable.
 ByteQuay uses documented stdio and does not adopt the experimental WebSocket
 transport.
 
-Two HTML design files accompany this document as the presentation references
+Four HTML design files accompany this document as the presentation references
 for reviewing or changing how the implemented screens look and respond:
+
+- [Tasks.dc.html](Tasks.dc.html) is the Tasks tab: Active and Archived tabs,
+  day-grouped rows with archive, restore and delete, multi-select, the undo
+  toast, and the delete confirmation. Open it in a browser beside
+  `support.js`; it is interactive.
+- [Workspace Home.dc.html](Workspace%20Home.dc.html) is the workspace Home:
+  repository avatar, composer, starting points, the repository's own Needs
+  attention rows, and the open tasks as a grid of windows with rename and hide.
+
 
 - [Agent Task UI.html](Agent%20Task%20UI.html) is the user-facing
   prototype: the accepted visual reference (commit
@@ -432,14 +441,54 @@ Server stores a name only after a client sets one, while Claude's one-way
 print stream does not expose its internal session title. ByteQuay therefore
 owns the same fallback-plus-background-generation lifecycle itself.
 
-The workspace Home is the design's idle screen: the question "What should the
-agent do in {repo}?", three starting points that fill the composer, the same
-composer, and the open tasks drawn as windows — each a scaled copy of its own
-screen showing the task's first events, read once and bounded. A Tab Overview
-lays every open task out as such a window over whichever agent screen is
-showing; `⇧⌘\` or its pinned control opens it, Escape closes it, a window
-opens its task, its ✕ completes an idle task after confirmation, and a dashed
-card starts a new one. Nothing in a window is interactive but the window.
+The Tasks tab is [Tasks.dc.html](Tasks.dc.html). Its heading carries an
+**Active** / **Archived** segmented control with counts; Active shows the
+cherry-pick executions and then the agent tasks with the composer anchored
+beneath, Archived shows only shelved tasks and no composer. Tasks are grouped
+into Commits-style day cards by the local calendar day of `updatedAt`
+(**Today**, **Yesterday**, then the weekday and date), newest first. A row is a
+selection slot, the title, mono `lane · model · age`, the state pill, always
+visible icon actions and a chevron. Archive is a backend-persisted `archivedAt`
+flag on the task, toggled through `PATCH /agent/tasks/{taskId}` with
+`{ archived, expectedVersion }`; it never changes task state, checkout, branch or
+provider session, an archived task leaves Home and the Tab Overview, and a
+scheduled sweep archives **Completed** tasks whose `terminalAt` is older than
+`bytequay.agent.auto-archive-days` (default 7). Failed and open tasks are never
+archived automatically. The task header offers the same Archive/Restore beside
+Complete. Delete is refused, in the row and by the API, while a turn runs or
+the worktree is claimed; otherwise an app-styled confirmation names what goes:
+transcript, events, approvals and queued inputs; attachments and runtime logs;
+the generated branch and its worktree. `DELETE /agent/tasks/{taskId}` is the one
+place ByteQuay destroys a generated branch: it stops the provider runtime,
+removes the worktree and branch first (a refusal leaves the task whole and
+visible), then the runtime files, then the rows, and a repeated delete is a
+no-op. Clicking the slot selects a row; while anything is selected every row
+shows its checkbox, clicking a row toggles it, the section header becomes a
+selection bar (`N selected · Select all · Archive|Restore · Delete · Cancel`,
+Delete disabled when the selection holds a running task) and Escape clears it.
+Archive and restore, single or bulk, show a five-second toast with Undo; delete
+shows the same toast without it.
+
+The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): the
+repository avatar and name, the same composer in the flow of the page, three
+starting points that fill it, the repository's own **Needs attention** rows
+(at most three, drawn from the same candidates and ack/snooze store as the
+application Home, hidden entirely when nothing needs the user, **See all**
+opening the workspace Pull requests tab), and the open tasks as a responsive
+grid of windows — each a scaled copy of its own screen, anchored to its newest
+work like the screen following its bottom, with finished turns folded. A
+window's footer is its name and state; hovering it shows Rename, which edits
+the name in place through the ordinary rename, and Hide from Home, which keeps
+a renderer-local per-workspace set (`bq.home.hiddenTasks.{workspaceId}`) and
+leaves the task in Tasks and the overview. A hidden window keeps polling and
+comes back on its own when its task needs recovery or an approval. A window
+polls its task and any events it has not shown yet on a shared tick instead of
+streaming, because main keeps one stream per renderer and task and the overview
+draws over a screen that may hold it. A Tab Overview lays every open task out
+as such a window over whichever agent screen is showing; `⇧⌘\` or its pinned
+control opens it, Escape closes it, a window opens its task, its ✕ completes an
+idle task after confirmation, and a dashed card starts a new one. Nothing in a
+window is interactive but the window, its name and its toolbar.
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AgentTaskList, creationBlocker } from './AgentTasksView';
+import { AgentTaskList, creationBlocker, groupTasksByDay } from './AgentTasksView';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
@@ -1327,5 +1327,92 @@ describe('agent task detail', () => {
     const errored = body({ events, connection: 'open' });
     expect(errored).toContain('agt-error');
     expect(errored).toContain('role="alert"');
+  });
+});
+
+describe('task list tabs, day groups and row actions', () => {
+  const noon = new Date(2026, 8, 6, 12).getTime();
+  const at = (daysAgo: number, hour = 9): string => new Date(2026, 8, 6 - daysAgo, hour).toISOString();
+  const rows: AgentTaskDto[] = [
+    { ...task('t-today', 'OPEN', 'hello'), updatedAt: at(0, 10), mutationClaim: { kind: 'TURN', ownerId: 'turn-1', acquiredAt: at(0, 10) } },
+    { ...task('t-today-2', 'OPEN', 'Ask about the model'), updatedAt: at(0, 8) },
+    { ...task('t-yesterday', 'COMPLETED', 'trino issue reading'), updatedAt: at(1), terminalAt: at(1) },
+    { ...task('t-wed', 'FAILED', 'Image journey'), updatedAt: at(3), terminalAt: at(3), terminalReason: 'gave up' },
+    { ...task('t-shelved', 'COMPLETED', 'Explain the query planner'), updatedAt: at(9), terminalAt: at(9), archivedAt: at(2) },
+  ];
+
+  it('groups by the local day a task last moved, newest first', () => {
+    const groups = groupTasksByDay(rows.filter((row) => row.archivedAt === null), noon);
+    expect(groups.map((group) => [group.label, group.date, group.tasks.map((row) => row.id)])).toEqual([
+      ['Today', 'Sep 6', ['t-today', 't-today-2']],
+      ['Yesterday', 'Sep 5', ['t-yesterday']],
+      ['Thursday, September 3', 'Sep 3', ['t-wed']],
+    ]);
+  });
+
+  it('shows active tasks under the day groups with archive and delete, and refuses to delete a running one', () => {
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} />);
+
+    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]*>Active<span class="agt-tab__count">4</);
+    expect(markup).toMatch(/role="tab" aria-selected="false"[^>]*>Archived<span class="agt-tab__count">1</);
+    expect(markup).toContain('Completed tasks archive automatically after 7 days');
+    expect(markup.match(/class="agt-group"/g)).toHaveLength(3);
+    expect(markup).toContain('class="agt-group__label">Today<');
+    expect(markup).toContain('class="agt-group__count">2 tasks<');
+    expect(markup).toContain('class="agt-group__count">1 task<');
+    // The shelved task waits on the other tab; nothing here is a glyph.
+    expect(markup).not.toContain('Explain the query planner');
+    expect(markup).not.toContain('❋');
+    // Row anatomy: selection slot, title, mono facts, pill, actions, chevron.
+    expect(markup).toMatch(/aria-label="Select hello"[^>]*aria-pressed="false"/);
+    expect(markup).toContain('Codex · test-model · 2h');
+    expect(markup).toContain('aria-label="Archive task: hello"');
+    expect(markup).toMatch(/<button[^>]*class="agt-trow__btn is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
+    expect(markup).toMatch(/<button[^>]*class="agt-trow__btn is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
+    expect(markup).toContain('lucide-chevron-right');
+    // The composer stays anchored under the active list.
+    expect(markup).toContain('aria-label="Describe a task"');
+  });
+
+  it('shows only shelved tasks on the archived tab, with restore and no composer', () => {
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} initialTab="archived" />);
+
+    expect(markup).toContain('Archived tasks keep their transcript and branch until deleted');
+    expect(markup).toContain('Explain the query planner');
+    expect(markup).not.toContain('trino issue reading');
+    expect(markup).toContain('aria-label="Restore task: Explain the query planner"');
+    expect(markup).toContain('class="agt-trow__title is-archived"');
+    expect(markup).not.toContain('aria-label="Describe a task"');
+
+    const empty = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows.slice(0, 2)} loading={false} error={null} now={noon} initialTab="archived" />);
+    expect(empty).toContain('Nothing archived');
+    expect(empty).toContain('completed tasks move here after 7 days');
+  });
+
+  it('offers Archive or Restore in the task header beside Complete', () => {
+    const render = (open: AgentTaskDto) => renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, task: open, connection: 'open' }}
+        models={MODELS}
+        onSelectModel={() => {}}
+        onBack={() => {}}
+        onSend={() => {}}
+        onCancel={() => {}}
+        onComplete={() => {}}
+        onDecide={() => {}}
+        onCompose={() => {}}
+        onStopServer={() => {}}
+        onMarkFailed={() => {}}
+        onArchive={() => {}}
+      />);
+
+    const active = render(task('t-1', 'OPEN', 'x'));
+    expect(active).toMatch(/<button[^>]*class="agt-headbtn is-labelled is-shelf"[^>]*title="Archive this task; it keeps its transcript and branch"[^>]*>[^]*?Archive<\/button>/);
+    expect(active).toContain('lucide-archive"');
+    const shelved = render({ ...task('t-1', 'COMPLETED', 'x'), terminalAt: '2026-08-20T10:05:00Z', archivedAt: '2026-08-21T10:05:00Z' });
+    expect(shelved).toMatch(/is-shelf"[^>]*title="Restore this task to the active list"[^>]*>[^]*?Restore<\/button>/);
+    expect(shelved).toContain('lucide-archive-restore');
+    // Without a handler the header offers nothing, as the static states are rendered.
+    expect(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open' })).not.toContain('is-shelf');
   });
 });

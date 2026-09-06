@@ -29,7 +29,8 @@
     "cleanupState": "RETAINED",
     "deleteAfter": null,
     "cleanupFailure": null,
-    "checkoutRemovedAt": null
+    "checkoutRemovedAt": null,
+    "archivedAt": null
   },
   "turn": {
     "id": "<turn-1>",
@@ -125,6 +126,7 @@
     "cleanupState": "RETAINED",
     "deleteAfter": "<timestamp>",
     "cleanupFailure": null,
-    "checkoutRemovedAt": "<timestamp>"
+    "checkoutRemovedAt": "<timestamp>",
+    "archivedAt": null
   }
 }

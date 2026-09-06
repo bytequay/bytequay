@@ -181,10 +181,7 @@ public class GitHubRepoClient
                         Optional.ofNullable(value.user()).map(IssueUser::login).orElse("unknown"),
                         Optional.ofNullable(value.user()).map(IssueUser::avatarUrl).orElse(""),
                         Optional.ofNullable(value.htmlUrl()).orElse(""),
-                        Optional.ofNullable(value.labels()).orElse(ImmutableList.of()).stream()
-                                .map(IssueLabel::name)
-                                .filter(Objects::nonNull)
-                                .collect(toImmutableList()),
+                        issueLabels(value),
                         Optional.ofNullable(value.assignees()).orElse(ImmutableList.of()).stream()
                                 .map(IssueUser::login)
                                 .filter(Objects::nonNull)
@@ -194,6 +191,37 @@ public class GitHubRepoClient
                         value.updatedAt()))
                 .collect(toImmutableList());
         return new IssuePage(issues, response.size() == GitHubPaginator.PAGE_SIZE);
+    }
+
+    public GitHubIssuePreview fetchIssuePreview(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return translating(() -> {
+            IssueResponse issue = Optional.ofNullable(gitHubRestClient.get()
+                            .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                            .header("Authorization", authorization(pat))
+                            .retrieve()
+                            .body(IssueResponse.class))
+                    .filter(value -> value.title() != null && value.updatedAt() != null)
+                    .filter(value -> "open".equals(value.state()) || "closed".equals(value.state()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(502), "Incomplete issue response from GitHub"));
+            return new GitHubIssuePreview(
+                    issue.title(),
+                    Optional.ofNullable(issue.body()).orElse(""),
+                    Optional.ofNullable(issue.user()).map(IssueUser::login).orElse("unknown"),
+                    issueLabels(issue),
+                    issue.updatedAt(),
+                    issue.state(),
+                    issue.pullRequest() != null);
+        });
+    }
+
+    private static List<String> issueLabels(IssueResponse issue)
+    {
+        return Optional.ofNullable(issue.labels()).orElse(ImmutableList.of()).stream()
+                .map(IssueLabel::name)
+                .filter(Objects::nonNull)
+                .collect(toImmutableList());
     }
 
     public String fetchIssueType(String pat, RepoRef repo, int issueNumber)
@@ -300,6 +328,7 @@ public class GitHubRepoClient
             int number,
             String title,
             String body,
+            String state,
             IssueUser user,
             @JsonProperty("html_url") String htmlUrl,
             List<IssueLabel> labels,

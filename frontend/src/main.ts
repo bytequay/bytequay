@@ -1312,6 +1312,10 @@ function registerIpc(): void {
     backendJson(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
     ));
+  ipcMain.handle('repos:issue-preview', (_event, owner: string, repo: string, number: number) =>
+    backendJson(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/preview`,
+    ));
   ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) => {
     const url = new URL(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet`,

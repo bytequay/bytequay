@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
+import type { GitHubIssuePreviewDto, PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
 import { workspaceIssueRoute } from './workspaces/model';
 
 export type GitHubReference = {
@@ -22,9 +22,9 @@ export type GitHubReference = {
   href: string;
 };
 
-export type LocalGitHubReference =
+export type GitHubReferencePreview =
   | { kind: 'pull'; detail: PullRequestDetailDto }
-  | { kind: 'issue'; workspaceId: string; issue: RepositoryIssueSnapshotDto['issues'][number] };
+  | { kind: 'issue'; workspaceId: string | null; issue: Omit<GitHubIssuePreviewDto, 'pullRequest'> };
 
 export function parseGitHubReference(href: string): GitHubReference | null {
   try {
@@ -80,10 +80,17 @@ export async function findLocalIssue(reference: GitHubReference): Promise<{
   }
 }
 
-export async function resolveLocalGitHubReference(reference: GitHubReference): Promise<LocalGitHubReference | null> {
+export async function resolveGitHubReference(reference: GitHubReference): Promise<GitHubReferencePreview | null> {
   if (reference.kind === 'issue') {
-    const localIssue = await findLocalIssue(reference);
-    if (localIssue) return { kind: 'issue', ...localIssue };
+    const localIssue = await findLocalIssue(reference).catch((): null => null);
+    if (localIssue) return { kind: 'issue', workspaceId: localIssue.workspaceId, issue: { ...localIssue.issue, state: 'open' } };
+    try {
+      const issue = await window.bridge.fetchGitHubIssuePreview(reference.owner, reference.repo, reference.number);
+      if (!issue.pullRequest) return { kind: 'issue', workspaceId: null, issue };
+    }
+    catch {
+      // An issue-form URL can still refer to a cached pull request when GitHub is unavailable.
+    }
   }
   try {
     return {
@@ -101,13 +108,13 @@ export async function openGitHubReference(reference: GitHubReference): Promise<v
     window.location.hash = pullRequestRoute(reference);
     return;
   }
-  const local = await resolveLocalGitHubReference(reference).catch((): null => null);
-  if (local?.kind === 'pull') {
+  const resolved = await resolveGitHubReference(reference).catch((): null => null);
+  if (resolved?.kind === 'pull') {
     window.location.hash = pullRequestRoute(reference);
     return;
   }
-  if (local?.kind === 'issue') {
-    window.location.hash = workspaceIssueRoute(local.workspaceId, reference.number);
+  if (resolved?.kind === 'issue' && resolved.workspaceId) {
+    window.location.hash = workspaceIssueRoute(resolved.workspaceId, reference.number);
     return;
   }
   await window.bridge.openInAppBrowser(reference.href);

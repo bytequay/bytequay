@@ -87,6 +87,16 @@ export type GitHubCodeSnippetDto = {
   lines: Array<{ number: number; content: string }>;
 };
 
+export type GitHubIssuePreviewDto = {
+  title: string;
+  body: string;
+  author: string;
+  labels: string[];
+  updatedAt: string;
+  state: string;
+  pullRequest: boolean;
+};
+
 export type InlineReviewCommentDto = {
   path: string;
   body: string;
@@ -1245,6 +1255,7 @@ export type Bridge = {
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
+  fetchGitHubIssuePreview: (owner: string, repo: string, number: number) => Promise<GitHubIssuePreviewDto>;
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;

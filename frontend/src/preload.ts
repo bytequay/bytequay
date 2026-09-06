@@ -95,6 +95,7 @@ const bridge: Bridge = {
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),
   getUserCommitsOnDate: (login, date) => ipcRenderer.invoke('repos:contribution-day', login, date),
   getRepoPull: (owner, repo, number) => ipcRenderer.invoke('repos:pull', owner, repo, number),
+  fetchGitHubIssuePreview: (owner, repo, number) => ipcRenderer.invoke('repos:issue-preview', owner, repo, number),
   fetchGitHubCodeSnippet: request => ipcRenderer.invoke('repos:code-snippet', request),
   getRecentActivity: login => ipcRenderer.invoke('repos:activity', login),
   getFollowingActivity: login => ipcRenderer.invoke('repos:following', login),

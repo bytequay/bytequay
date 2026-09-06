@@ -15,6 +15,7 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PrViewStateStore;
@@ -50,6 +51,7 @@ class TestRepoServiceCodeSnippet
                 pullRequests,
                 mock(PullRequestStore.class),
                 mock(GitHubAccountClient.class),
+                mock(GitHubRepoClient.class),
                 mock(PrViewStateStore.class),
                 credentials);
     }

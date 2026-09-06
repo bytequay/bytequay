@@ -15,6 +15,7 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.ContributionCalendar;
@@ -80,7 +81,7 @@ class TestRepoServiceContributionCalendar
         when(viewStates.findByPrIds(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of());
 
         RepoService service = new RepoService(
-                pullRequests, store, mock(GitHubAccountClient.class), viewStates, credentialService);
+                pullRequests, store, mock(GitHubAccountClient.class), mock(GitHubRepoClient.class), viewStates, credentialService);
 
         assertThat(service.getRepoPullRequest("trinodb", "trino", 30835).id()).isEqualTo(7L);
         ArgumentCaptor<FetchedPullRequest> observed = ArgumentCaptor.forClass(FetchedPullRequest.class);
@@ -110,6 +111,7 @@ class TestRepoServiceContributionCalendar
                 mock(GitHubPullRequestReadClient.class),
                 mock(PullRequestStore.class),
                 gitHub,
+                mock(GitHubRepoClient.class),
                 mock(PrViewStateStore.class),
                 credentialService);
     }

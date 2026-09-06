@@ -13,9 +13,39 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownBody, { CodeReferenceCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
+import MarkdownBody, { CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
 
 describe('MarkdownBody', () => {
+  it.each(['open', 'closed'])('renders an %s issue preview with its details and actual state', state => {
+    const html = renderToStaticMarkup(<ReferencePreviewCard
+      id="issue-preview"
+      reference={{ kind: 'issue', owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/issues/30611' }}
+      preview={{
+        kind: 'issue',
+        workspaceId: null,
+        issue: {
+          title: 'Kerberos Hive container startup times out',
+          body: 'The **container** never starts.',
+          author: 'octocat',
+          labels: ['bug'],
+          updatedAt: '2026-09-05T12:00:00Z',
+          state,
+        },
+      }}
+      style={{}}
+      onEnter={() => {}}
+      onLeave={() => {}}
+    />);
+
+    expect(html).toContain('aria-label="Issue preview"');
+    expect(html).toContain('<h3>Kerberos Hive container startup times out</h3>');
+    expect(html).toContain('<strong>octocat</strong>');
+    expect(html).toContain(`<span>${state}</span>`);
+    expect(html).toContain('<span>bug</span>');
+    expect(html).toContain('The <strong>container</strong> never starts.');
+    expect(html).not.toContain('Details are unavailable');
+  });
+
   it('renders checkbox and unordered-list markers', () => {
     const body = '( ) Parenthesized unchecked\n'
       + '(*) Parenthesized asterisk checked\n'

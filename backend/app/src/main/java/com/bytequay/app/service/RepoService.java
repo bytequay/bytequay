@@ -14,7 +14,9 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.ContributionCalendar;
@@ -53,6 +55,7 @@ public class RepoService
 
     private final GitHubPullRequestReadClient pullRequests;
     private final GitHubAccountClient accounts;
+    private final GitHubRepoClient repositories;
     private final PrViewStateStore viewStateStore;
     private final PullRequestStore pullRequestStore;
     private final CredentialService credentialService;
@@ -61,12 +64,14 @@ public class RepoService
             GitHubPullRequestReadClient pullRequests,
             PullRequestStore pullRequestStore,
             GitHubAccountClient accounts,
+            GitHubRepoClient repositories,
             PrViewStateStore viewStateStore,
             CredentialService credentialService)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
+        this.repositories = requireNonNull(repositories, "repositories is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
     }
@@ -115,6 +120,16 @@ public class RepoService
         PullRequest stored = pullRequestStore.saveObserved(
                 pullRequests.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login()));
         return stored.withViewState(viewStateStore.findByPrIds(ImmutableSet.of(stored.id())).get(stored.id()));
+    }
+
+    public GitHubIssuePreview getIssuePreview(String owner, String repo, int number)
+    {
+        requireNotBlank(owner, "owner must not be blank");
+        requireNotBlank(repo, "repo must not be blank");
+        if (!GITHUB_NAME.matcher(owner).matches() || !GITHUB_NAME.matcher(repo).matches() || number <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid GitHub issue reference");
+        }
+        return repositories.fetchIssuePreview(credentialService.resolveGitHubToken(), RepoRef.of(owner, repo), number);
     }
 
     public List<String> getCodeSnippet(

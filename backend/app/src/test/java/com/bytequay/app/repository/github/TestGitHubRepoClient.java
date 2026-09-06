@@ -17,16 +17,21 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubRepoClient
@@ -98,6 +103,76 @@ class TestGitHubRepoClient
                     assertThat(issue.labels()).containsExactly("bug");
                     assertThat(issue.assignees()).containsExactly("bob");
                 });
+        fixture.server().verify();
+    }
+
+    @Test
+    void previewsAClosedIssueDirectlyByNumber()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/30611"))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andRespond(withSuccess("""
+                        {"id":10,"number":30611,"title":"Kerberos container times out","body":"Issue details",
+                         "state":"closed","user":{"login":"alice"},"labels":[{"name":"bug"}],
+                         "updated_at":"2026-08-21T00:00:00Z"}
+                        """, MediaType.APPLICATION_JSON));
+
+        GitHubIssuePreview preview = fixture.client().fetchIssuePreview("pat", REPOSITORY, 30611);
+
+        assertThat(preview.title()).isEqualTo("Kerberos container times out");
+        assertThat(preview.body()).isEqualTo("Issue details");
+        assertThat(preview.author()).isEqualTo("alice");
+        assertThat(preview.labels()).containsExactly("bug");
+        assertThat(preview.updatedAt()).isEqualTo(Instant.parse("2026-08-21T00:00:00Z"));
+        assertThat(preview.state()).isEqualTo("closed");
+        assertThat(preview.pullRequest()).isFalse();
+        fixture.server().verify();
+    }
+
+    @Test
+    void identifiesPullRequestsReturnedByTheIssuesEndpoint()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/8"))
+                .andRespond(withSuccess("""
+                        {"title":"Pull request","state":"open","updated_at":"2026-08-21T00:00:00Z",
+                         "pull_request":{"url":"https://api.github.test/repos/owner/repo/pulls/8"}}
+                        """, MediaType.APPLICATION_JSON));
+
+        GitHubIssuePreview preview = fixture.client().fetchIssuePreview("pat", REPOSITORY, 8);
+
+        assertThat(preview.pullRequest()).isTrue();
+        assertThat(preview.state()).isEqualTo("open");
+        assertThat(preview.body()).isEmpty();
+        assertThat(preview.author()).isEqualTo("unknown");
+        assertThat(preview.labels()).isEmpty();
+        fixture.server().verify();
+    }
+
+    @Test
+    void preservesGitHubNotFoundForIssuePreviews()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client().fetchIssuePreview("pat", REPOSITORY, 7))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+        fixture.server().verify();
+    }
+
+    @Test
+    void rejectsIncompleteIssuePreviews()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().fetchIssuePreview("pat", REPOSITORY, 7))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
         fixture.server().verify();
     }
 

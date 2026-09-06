@@ -19,8 +19,8 @@ import {
   openGitHubReference,
   parseGitHubReference,
   type GitHubReference,
-  type LocalGitHubReference,
-  resolveLocalGitHubReference,
+  type GitHubReferencePreview,
+  resolveGitHubReference,
 } from '../githubReference';
 import { relativeTime } from '../relativeTime';
 import type { GitHubCodeSnippetDto } from '../types';
@@ -626,7 +626,7 @@ export function CodeReferenceCard({ reference, snippet }: {
   );
 }
 
-type ReferencePreview = LocalGitHubReference;
+type ReferencePreview = GitHubReferencePreview;
 
 const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
 
@@ -641,7 +641,7 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
   const existing = previewRequests.get(key);
   if (existing) return existing;
-  const request = resolveLocalGitHubReference(reference).catch((): null => null);
+  const request = resolveGitHubReference(reference).catch((): null => null);
   previewRequests.set(key, request);
   void request.then(value => {
     if (value === null) previewRequests.delete(key);
@@ -748,7 +748,7 @@ function ReferenceLink({ reference, showTitle = false, children }: {
   </>;
 }
 
-function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave }: {
+export function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave }: {
   id: string;
   reference: GitHubReference;
   preview: ReferencePreview | null | undefined;
@@ -779,9 +779,9 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
         <span><ReferenceIcon pull={kind === 'pull'} /> {kind === 'pull' ? 'Pull request' : 'Issue'}</span>
         <small>{reference.owner}/{reference.repo} #{reference.number}</small>
       </header>
-      {preview === undefined && <div className="md-reference-preview__status">Loading local details…</div>}
+      {preview === undefined && <div className="md-reference-preview__status">Loading details…</div>}
       {preview === null && (
-        <div className="md-reference-preview__status">No local details are available. Click to open on GitHub.</div>
+        <div className="md-reference-preview__status">Details are unavailable. Click to open on GitHub.</div>
       )}
       {item && <>
         <h3>{item.title ?? `${reference.owner}/${reference.repo} #${reference.number}`}</h3>
@@ -789,7 +789,7 @@ function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave 
           {author && <span>by <strong>{author}</strong></span>}
           {updatedAt && <span>updated {relativeTime(updatedAt)}</span>}
           {preview.kind === 'pull' && preview.detail.state && <span>{preview.detail.state.toLowerCase()}</span>}
-          {preview.kind === 'issue' && <span>open</span>}
+          {preview.kind === 'issue' && <span>{preview.issue.state}</span>}
         </div>
         {labels.length > 0 && <div className="md-reference-preview__labels">
           {labels.map(label => <span key={label}>{label}</span>)}

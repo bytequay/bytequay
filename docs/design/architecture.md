@@ -335,6 +335,11 @@ Issue display and refresh use the same local-first boundary:
 4. Direct comment, close, type, assignee, and label writes update the affected local projection so
    later display requests still read SQLite. Closing removes the issue from the open-only projection.
 
+Markdown reference previews use the cached workspace issue when available. On a cache miss,
+the exact repository-and-number preview endpoint reads GitHub directly, including closed issues
+and repositories without a workspace, without changing the open-only issue projection. The preview
+preserves GitHub's issue state and identifies issue-form URLs that actually refer to pull requests.
+
 ### 6.3 Agent task flow
 
 The Codex/Claude adapters, backend task/event services, Electron bridge, and

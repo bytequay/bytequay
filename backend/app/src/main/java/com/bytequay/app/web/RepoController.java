@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.workspace.RepositorySearchResult;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -80,6 +81,15 @@ public class RepoController
             @PathVariable int number)
     {
         return repos.getRepoPullRequest(owner, repo, number);
+    }
+
+    @GetMapping("/repos/{owner}/{repo}/issues/{number}/preview")
+    public GitHubIssuePreview getIssuePreview(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable int number)
+    {
+        return repos.getIssuePreview(owner, repo, number);
     }
 
     @GetMapping("/repos/{owner}/{repo}/code-snippet")

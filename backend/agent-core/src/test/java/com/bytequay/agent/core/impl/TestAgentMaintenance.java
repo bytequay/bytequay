@@ -625,6 +625,12 @@ class TestAgentMaintenance
         private boolean recoveredAll;
 
         @Override
+        public List<ApprovalRequest> listPending(TurnId turnId)
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
         public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
         {
             throw new UnsupportedOperationException();

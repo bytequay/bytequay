@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.Flow;
 
 /**
@@ -59,6 +60,17 @@ public interface AgentEventService
      * @throws InvalidAgentRequestException when sequence or limit is invalid
      */
     List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit);
+
+    /**
+     * Reads a bounded display page, with no cursor selecting the latest events.
+     *
+     * @param taskId task whose history is requested
+     * @param before exclusive byte cursor for an older page
+     * @param after exclusive byte cursor for a newer page
+     * @return ascending events, adjacent cursors, and the latest persisted sequence
+     * @throws InvalidAgentRequestException when both cursors are present or a cursor is invalid
+     */
+    AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after);
 
     /**
      * Opens a gap-free replay followed by a live event stream.

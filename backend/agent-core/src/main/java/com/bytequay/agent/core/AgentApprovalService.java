@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -51,6 +52,9 @@ public interface AgentApprovalService
      * @throws AgentConflictException when a different decision was already recorded
      */
     ApprovalDecision resolve(ResolveApprovalCommand command);
+
+    /** Reads current requests independently of the displayed transcript window. */
+    List<ApprovalRequest> listPending(TurnId turnId);
 
     /**
      * Denies every unresolved approval owned by a terminal or cancelled turn.

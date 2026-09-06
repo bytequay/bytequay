@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -42,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Flow;
@@ -51,7 +53,7 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentEventService
         implements AgentEventService
 {
-    private static final int REPLAY_PAGE_SIZE = 1000;
+    private static final int REPLAY_PAGE_SIZE = 8;
 
     private final TaskLogStore logStore;
     private final AgentEventOutboxStore outboxStore;
@@ -80,6 +82,7 @@ public final class DefaultAgentEventService
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
         synchronized (channel) {
+            initializeForWrite(event.taskId(), channel);
             Optional<Long> existingSequence = channel.sequenceOf(event.eventId());
             if (existingSequence.isPresent()) {
                 // Appended earlier, so its subscribers already have it; a repeat must not reach them twice.
@@ -114,6 +117,7 @@ public final class DefaultAgentEventService
         List<EventSubscription> subscriptions;
         RuntimeException deferred = null;
         synchronized (channel) {
+            initializeForWrite(discovered.taskId(), channel);
             AgentEventOutboxEntry entry = requireOutboxEntry(eventId);
             if (!entry.taskId().equals(discovered.taskId())) {
                 throw new AgentStorageException("Event outbox task identity changed: " + eventId);
@@ -162,10 +166,7 @@ public final class DefaultAgentEventService
         requireNonNull(taskId, "taskId is null");
         validateCursor(afterSequence, limit);
         requireTask(taskId);
-        TaskChannel channel = channel(taskId);
-        synchronized (channel) {
-            return logStore.readAfter(taskId, afterSequence, limit);
-        }
+        return logStore.readAfter(taskId, afterSequence, limit);
     }
 
     @Override
@@ -182,25 +183,53 @@ public final class DefaultAgentEventService
             TaskChannel channel = channel(taskId);
             EventSubscription subscription;
             synchronized (channel) {
-                List<AgentEventEnvelope> replay = readReplay(taskId, afterSequence);
-                subscription = new EventSubscription(subscriber, channel, replay, shouldComplete(task));
+                subscription = new EventSubscription(subscriber, channel, taskId, afterSequence, channel.lastSequence, shouldComplete(task));
                 channel.subscriptions.add(subscription);
             }
             subscriber.onSubscribe(subscription);
-            subscription.drain();
+            subscription.start();
         };
+    }
+
+    @Override
+    public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(before, "before is null");
+        requireNonNull(after, "after is null");
+        if ((before.isPresent() && after.isPresent()) || before.orElse(0) < 0 || after.orElse(0) < 0) {
+            throw new InvalidAgentRequestException("Provide at most one non-negative history cursor");
+        }
+        requireTask(taskId);
+        return logStore.readHistory(taskId, before, after);
     }
 
     private TaskChannel channel(TaskId taskId)
     {
-        // ponytail: one identity map per task touched since start, never evicted; evict idle channels if memory matters.
-        return channels.computeIfAbsent(taskId, id -> {
-            // lastSequence first: it repairs a torn tail, which readAfter only skips.
-            long lastSequence = logStore.lastSequence(id);
-            Map<EventId, Long> sequences = new HashMap<>();
-            readReplay(id, 0).forEach(envelope -> sequences.put(envelope.eventId(), envelope.sequence()));
-            return new TaskChannel(lastSequence, sequences);
-        });
+        return channels.computeIfAbsent(taskId, id -> new TaskChannel(
+                logStore.readHistory(id, OptionalLong.empty(), OptionalLong.empty()).latestSequence()));
+    }
+
+    /** Reading a task must not scan old history; only a writer needs full validation and the deduplication index. */
+    private void initializeForWrite(TaskId taskId, TaskChannel channel)
+    {
+        if (channel.writerInitialized) {
+            return;
+        }
+        // lastSequence first: it validates the prefix and repairs a torn tail before anything new can be appended.
+        long lastSequence = logStore.lastSequence(taskId);
+        channel.sequences.clear();
+        long cursor = 0;
+        while (cursor < lastSequence) {
+            List<AgentEventEnvelope> page = logStore.readAfter(taskId, cursor, REPLAY_PAGE_SIZE);
+            if (page.isEmpty()) {
+                throw new AgentStorageException("Task log ended before its last sequence: " + taskId);
+            }
+            page.forEach(envelope -> channel.sequences.put(envelope.eventId(), envelope.sequence()));
+            cursor = page.getLast().sequence();
+        }
+        channel.lastSequence = lastSequence;
+        channel.writerInitialized = true;
     }
 
     private AgentTask requireTask(TaskId taskId)
@@ -279,20 +308,6 @@ public final class DefaultAgentEventService
         return envelope;
     }
 
-    private List<AgentEventEnvelope> readReplay(TaskId taskId, long afterSequence)
-    {
-        ImmutableList.Builder<AgentEventEnvelope> replay = ImmutableList.builder();
-        long cursor = afterSequence;
-        while (true) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, cursor, REPLAY_PAGE_SIZE);
-            replay.addAll(page);
-            if (page.size() < REPLAY_PAGE_SIZE) {
-                return replay.build();
-            }
-            cursor = page.getLast().sequence();
-        }
-    }
-
     private boolean shouldComplete(AgentTask task)
     {
         // The terminal event is committed with the terminal state, so a terminal task with nothing
@@ -300,11 +315,11 @@ public final class DefaultAgentEventService
         return task.state().terminal() && !outboxStore.hasPending(task.id());
     }
 
-    /** Queues a freshly appended event for every current subscriber; nothing here can fail once the log has it. */
+    /** Advances each subscriber's durable watermark without retaining live payloads. */
     private static List<EventSubscription> handOver(TaskChannel channel, AgentEventEnvelope envelope)
     {
         List<EventSubscription> subscriptions = ImmutableList.copyOf(channel.subscriptions);
-        subscriptions.forEach(subscription -> subscription.enqueue(envelope));
+        subscriptions.forEach(subscription -> subscription.availableThrough(envelope.sequence()));
         return subscriptions;
     }
 
@@ -330,15 +345,15 @@ public final class DefaultAgentEventService
     private static final class TaskChannel
     {
         private final List<EventSubscription> subscriptions = new ArrayList<>();
-        /** Identity to sequence for every appended record, so an idempotent append or drain is a lookup, not a log scan. */
-        private final Map<EventId, Long> sequences;
+        // ponytail: writer-only identity metadata gives O(1) retries; a persistent ID index can bound it if material.
+        private final Map<EventId, Long> sequences = new HashMap<>();
         /** Every sequence up to this one is in the log and was handed to the subscribers of its time. */
         private long lastSequence;
+        private boolean writerInitialized;
 
-        private TaskChannel(long lastSequence, Map<EventId, Long> sequences)
+        private TaskChannel(long lastSequence)
         {
             this.lastSequence = lastSequence;
-            this.sequences = sequences;
         }
 
         private Optional<Long> sequenceOf(EventId eventId)
@@ -358,13 +373,17 @@ public final class DefaultAgentEventService
         }
     }
 
-    private static final class EventSubscription
+    private final class EventSubscription
             implements Flow.Subscription
     {
         private final Flow.Subscriber<? super AgentEventEnvelope> subscriber;
         private final TaskChannel channel;
-        private final ArrayDeque<AgentEventEnvelope> pending;
+        private final TaskId taskId;
+        private final ArrayDeque<AgentEventEnvelope> pending = new ArrayDeque<>();
+        private long cursor;
+        private long availableThrough;
         private long demand;
+        private boolean started;
         private boolean terminal;
         private boolean cancelled;
         private boolean draining;
@@ -372,13 +391,25 @@ public final class DefaultAgentEventService
         private EventSubscription(
                 Flow.Subscriber<? super AgentEventEnvelope> subscriber,
                 TaskChannel channel,
-                List<AgentEventEnvelope> replay,
+                TaskId taskId,
+                long cursor,
+                long availableThrough,
                 boolean terminal)
         {
             this.subscriber = subscriber;
             this.channel = channel;
-            this.pending = new ArrayDeque<>(replay);
+            this.taskId = taskId;
+            this.cursor = cursor;
+            this.availableThrough = availableThrough;
             this.terminal = terminal;
+        }
+
+        private void start()
+        {
+            synchronized (this) {
+                started = true;
+            }
+            drain();
         }
 
         @Override
@@ -408,14 +439,14 @@ public final class DefaultAgentEventService
             channel.remove(this);
         }
 
-        private synchronized void enqueue(AgentEventEnvelope envelope)
+        private synchronized void availableThrough(long sequence)
         {
             if (!cancelled) {
-                pending.add(envelope);
+                availableThrough = sequence;
             }
         }
 
-        /** Ends the subscription once everything already queued has been delivered. */
+        /** Ends the subscription once its durable watermark has been delivered. */
         private synchronized void complete()
         {
             terminal = true;
@@ -424,32 +455,57 @@ public final class DefaultAgentEventService
         private void drain()
         {
             synchronized (this) {
-                if (draining || cancelled) {
+                if (!started || draining || cancelled) {
                     return;
                 }
                 draining = true;
             }
             while (true) {
-                AgentEventEnvelope next;
-                boolean complete;
+                AgentEventEnvelope next = null;
+                boolean complete = false;
+                RuntimeException failure = null;
                 synchronized (this) {
                     if (cancelled) {
                         draining = false;
                         return;
                     }
-                    if (demand > 0 && !pending.isEmpty()) {
-                        demand--;
-                        next = pending.remove();
-                        complete = false;
+                    if (demand > 0 && cursor < availableThrough) {
+                        try {
+                            if (pending.isEmpty()) {
+                                int limit = (int) Math.min(REPLAY_PAGE_SIZE, Math.min(demand, availableThrough - cursor));
+                                pending.addAll(logStore.readAfter(taskId, cursor, limit));
+                            }
+                            if (pending.isEmpty() || pending.getFirst().sequence() != cursor + 1) {
+                                throw new AgentStorageException("Task log has a gap after sequence " + cursor + ": " + taskId);
+                            }
+                            next = pending.remove();
+                            cursor = next.sequence();
+                            demand--;
+                        }
+                        catch (RuntimeException readFailure) {
+                            failure = readFailure;
+                            cancelled = true;
+                            draining = false;
+                            pending.clear();
+                        }
                     }
                     else {
-                        next = null;
-                        complete = terminal && pending.isEmpty();
+                        complete = terminal && cursor >= availableThrough;
                         draining = false;
                         if (complete) {
                             cancelled = true;
                         }
                     }
+                }
+                if (failure != null) {
+                    channel.remove(this);
+                    try {
+                        subscriber.onError(failure);
+                    }
+                    catch (RuntimeException ignored) {
+                        // A broken subscriber must not make a persisted append fail.
+                    }
+                    return;
                 }
                 if (next != null) {
                     try {

@@ -28,6 +28,7 @@ import {
   projectTranscript,
   turnElapsedMs,
   turnLabel,
+  withApprovalAuthority,
   type ActivityBlock,
 } from './transcript';
 
@@ -116,7 +117,7 @@ describe('projecting the transcript', () => {
       event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'I am tracing the call.' }, { itemId: 'm-1' }),
     ]);
     expect(turns[0].blocks).toEqual([
-      { kind: 'text', id: 'event-1', role: 'commentary', text: 'I am tracing the call.', complete: true },
+      { kind: 'text', anchorId: '["thread-1","turn-1","codex-turn-1","m-1"]', id: 'event-1', role: 'commentary', text: 'I am tracing the call.', complete: true },
     ]);
   });
 
@@ -127,7 +128,7 @@ describe('projecting the transcript', () => {
       event('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: 'Root cause found.' }, { itemId: 'm-2' }),
     ]);
     expect(turns[0].blocks).toEqual([]);
-    expect(turns[0].answer).toEqual({ id: 'event-1', text: 'Root cause found.', complete: true });
+    expect(turns[0].answer).toEqual({ id: 'event-1', anchorId: '["thread-1","turn-1","codex-turn-1","m-2"]', text: 'Root cause found.', complete: true });
   });
 
   it('preserves earlier completed commentary when the latest item becomes the terminal answer', () => {
@@ -139,9 +140,9 @@ describe('projecting the transcript', () => {
     ]);
 
     expect(turns[0].blocks).toEqual([
-      { kind: 'text', id: 'event-1', role: 'commentary', text: 'I will inspect the tests.', complete: true },
+      { kind: 'text', anchorId: '["thread-1","turn-1","codex-turn-1","m-1"]', id: 'event-1', role: 'commentary', text: 'I will inspect the tests.', complete: true },
     ]);
-    expect(turns[0].answer).toEqual({ id: 'event-2', text: 'The fix is ready and verified.', complete: true });
+    expect(turns[0].answer).toEqual({ id: 'event-2', anchorId: '["thread-1","turn-1","codex-turn-1","m-2"]', text: 'The fix is ready and verified.', complete: true });
   });
 
   it('keeps reasoning summaries and plan text as their own readable blocks', () => {
@@ -368,5 +369,47 @@ describe('projecting the transcript', () => {
       ['Also check the tests', 'STEER'],
       ['And the docs', 'STEER'],
     ]);
+  });
+});
+
+
+describe('bounded transcript windows', () => {
+  it('omits invented turn numbers and keeps item anchors stable when older deltas arrive', () => {
+    const first = event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'Earlier ' }, { itemId: 'streamed', complete: false });
+    const later = event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'later' }, { itemId: 'streamed', complete: false });
+    const tail = projectTranscript([later], null, {}, false)[0];
+    const expanded = projectTranscript([first, later], null, {}, false)[0];
+    expect(tail.ordinal).toBe(0);
+    expect(turnLabel(tail, 0, false)).toBe('Turn');
+    expect(tail.blocks[0]).toMatchObject({ anchorId: '["thread-1","turn-1","codex-turn-1","streamed"]', text: 'later' });
+    expect(expanded.blocks[0]).toMatchObject({ anchorId: '["thread-1","turn-1","codex-turn-1","streamed"]', text: 'Earlier later' });
+  });
+
+  it('keeps the final answer anchor when an older partial for the same item loads', () => {
+    const partial = event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'Partial' }, { itemId: 'answer', complete: false });
+    const final = event('assistant_message', { messageKind: 'ANSWER', phase: 'FINAL', text: 'Final answer' }, { itemId: 'answer' });
+    const tail = projectTranscript([final])[0].answer;
+    const expanded = projectTranscript([partial, final])[0].answer;
+    expect(tail?.id).not.toBe(expanded?.id);
+    expect(tail?.anchorId).toBe('["thread-1","turn-1","codex-turn-1","answer"]');
+    expect(tail?.anchorId).toBe(expanded?.anchorId);
+  });
+
+  it('never enables a historical root or child approval whose resolution is outside the page', () => {
+    const request = fixtureEvents.find((entry) => entry.type === 'approval_requested');
+    if (request === undefined) throw new Error('missing approval fixture');
+    const child = { ...request, source: { ...request.source, providerThreadId: 'child', parentProviderThreadId: 'root' } };
+    const root = withApprovalAuthority(projectTranscript([request]), new Set());
+    const nested = withApprovalAuthority(projectTranscript([child], 'child'), new Set());
+    for (const turns of [root, nested]) expect(turns[0].blocks[0]).toMatchObject({ kind: 'approval', actionable: false, outcome: 'Resolution outside this history window' });
+    expect(withApprovalAuthority(projectTranscript([request]), new Set([request.payload.approvalId]))[0].blocks[0])
+      .toMatchObject({ actionable: true, outcome: null });
+  });
+
+  it('does not infer a running child from an incomplete historical window', () => {
+    const sample = fixtureEvents[0];
+    const child = { ...sample, turnId: 'old-turn', source: { ...sample.source, providerThreadId: 'child', parentProviderThreadId: 'root' } };
+    expect(projectAgents([child], 'current-turn', false)[0].status).toBe('unknown');
+    expect(activeAgents(projectAgents([child], 'current-turn', false))).toEqual([]);
   });
 });

@@ -744,7 +744,30 @@ export type AgentStreamConnectionState = 'connecting' | 'open' | 'reconnecting' 
  */
 export type AgentStreamPayload =
   | { kind: 'events'; events: AgentEventEnvelope[] }
+  | { kind: 'changed'; sequence: number; turnId: string | null }
   | { kind: 'state'; state: AgentStreamConnectionState; detail?: string };
+
+/** A bounded, contiguous slice of ByteQuay's event log, with opaque adjacent-page cursors. */
+export type AgentHistoryPageDto = {
+  events: AgentEventEnvelope[];
+  beforeCursor: string | null;
+  afterCursor: string | null;
+  latestSequence: number;
+};
+
+export type AgentPendingApprovalDto = {
+  approvalId: string;
+  taskId: string;
+  turnId: string;
+  source: AgentEventEnvelope['source'];
+  occurredAt: string;
+  title: string;
+  detail: string;
+  approvalKind: string;
+  scope: string[];
+  availableDecisions: string[];
+  actionable: boolean;
+};
 
 export type AgentStreamMessage = {
   subscriptionId: string;
@@ -1370,6 +1393,8 @@ export type Bridge = {
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
+  readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
+  readAgentPendingApprovals: (taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
   startAgentTurn: (request: StartAgentTurnRequest) => Promise<AgentTurnDto>;
   /** Adds input to the running turn; the reply says whether it arrived, and UNKNOWN is never retried. */
   steerAgentTurn: (request: SteerAgentTurnRequest) => Promise<AgentInputDeliveryDto>;
@@ -1409,6 +1434,7 @@ export type Bridge = {
     taskId: string,
     after: number,
     listener: (message: AgentStreamMessage) => void,
+    statusOnly?: boolean,
   ) => Promise<() => void>;
 };
 

@@ -28,6 +28,8 @@ import {
   createTaskCreationTracker,
   deliveryUncertain,
   initialAgentTaskState,
+  historyBefore,
+  historyAfter,
   isIdle,
   retryableInput,
   runtimeStatus,
@@ -36,7 +38,7 @@ import {
 } from './model';
 import { projectTranscript, type ApprovalBlock } from './transcript';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
-import type { AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
+import type { AgentHistoryPageDto, AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 
 const all = parseAgentEventSequence(fixture.events);
 
@@ -628,5 +630,73 @@ describe('steering and queueing', () => {
     const unnecessary = vi.fn(() => false);
     expect(confirmCompletion([], unnecessary)).toBe(true);
     expect(unnecessary).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('bounded history pages', () => {
+  function page(start: number, end: number, watermark = 1000): AgentHistoryPageDto {
+    return {
+      events: Array.from({ length: end - start + 1 }, (_, index) => ({ ...all[0], sequence: start + index, eventId: `event-${start + index}`, turnId: `turn-${start}` })),
+      beforeCursor: start > 1 ? `byte-${start}` : null,
+      afterCursor: end < watermark ? `byte-${end + 1}` : null,
+      latestSequence: watermark,
+    };
+  }
+
+  it('opens a tail above sequence one and retains only three adjacent pages while browsing', () => {
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(801, 1000), direction: 'latest' });
+    expect(state.gap).toBe(false);
+    expect(state.lastSequence).toBe(1000);
+    expect(state.latestTurnId).toBe('turn-801');
+    for (const start of [601, 401, 201, 1]) {
+      state = agentTaskReducer(state, { type: 'history/loaded', page: page(start, start + 199), direction: 'older' });
+      expect(state.historyPages.length).toBeLessThanOrEqual(3);
+      expect(state.events.length).toBeLessThanOrEqual(600);
+      expect(state.lastSequence).toBe(1000);
+      expect(state.latestTurnId).toBe('turn-801');
+    }
+    expect(state.events[0].sequence).toBe(1);
+    expect(state.events.at(-1)?.sequence).toBe(600);
+    expect(historyBefore(state)).toBeNull();
+    expect(historyAfter(state)).toBe('byte-601');
+    state = agentTaskReducer(state, { type: 'history/loaded', page: page(601, 800), direction: 'newer' });
+    expect(state.events[0].sequence).toBe(201);
+    expect(state.events.at(-1)?.sequence).toBe(800);
+    expect(state.events).toHaveLength(600);
+  });
+
+  it('observes live changes while old pages remain unchanged and rejects stale latest responses', () => {
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(801, 1000), direction: 'latest' });
+    const displayed = state.events;
+    state = { ...state, latestTurnSettled: true };
+    state = agentTaskReducer(state, { type: 'live/changed', sequence: 1001, turnId: 'new-turn' });
+    expect(state.events).toBe(displayed);
+    expect(state.latestTurnId).toBe('new-turn');
+    expect(state.latestTurnSettled).toBe(false);
+    state = agentTaskReducer(state, { type: 'history/loaded', page: page(802, 1001, 1001), direction: 'latest' });
+    const current = state;
+    state = agentTaskReducer(state, { type: 'history/loaded', page: page(801, 1000), direction: 'latest' });
+    expect(state).toBe(current);
+  });
+
+  it('does not accumulate live turn metadata while the user keeps an old window open', () => {
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(1, 200), direction: 'latest' });
+    state = agentTaskReducer(state, { type: 'turn/loaded', turn: turn('COMPLETED', { id: 'turn-1' }) });
+    for (let index = 0; index < 1000; index++) state = agentTaskReducer(state, { type: 'turn/changed', turn: turn('RUNNING', { id: `live-${index}` }) });
+    expect(Object.keys(state.turns)).toEqual(['turn-1', 'live-999']);
+    expect(state.events).toHaveLength(200);
+  });
+
+  it('loads durable facts for activity-only turns and prunes facts when their pages are evicted', () => {
+    const tail = page(801, 1000);
+    const command = all.find((item) => item.type === 'command');
+    if (command === undefined) throw new Error('missing command fixture');
+    tail.events = tail.events.map((entry) => ({ ...command, sequence: entry.sequence, eventId: entry.eventId, turnId: 'turn-801' }));
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: tail, direction: 'latest' });
+    expect(unloadedTurnIds(state)).toEqual(['turn-801']);
+    state = agentTaskReducer(state, { type: 'turn/loaded', turn: turn('COMPLETED', { id: 'turn-801' }) });
+    state = agentTaskReducer(state, { type: 'history/loaded', page: page(1, 200), direction: 'latest' });
+    expect(state.turns['turn-801']).toBeUndefined();
   });
 });

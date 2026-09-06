@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { AgentEventEnvelope } from './events';
+import type { AgentTurnDto } from '../types';
 
 /**
  * The transcript as the screen draws it: turns, each with the user's message, the agent's
@@ -58,6 +59,7 @@ export type ToolMember = {
 export type ActivityMember = CommandMember | FileMember | ToolMember;
 
 export type TextBlock = {
+  anchorId?: string;
   kind: 'text';
   id: string;
   role: 'commentary' | 'reasoning' | 'planText';
@@ -71,6 +73,7 @@ export type PlanStep = { text: string; state: 'PENDING' | 'IN_PROGRESS' | 'COMPL
 export type PlanBlock = { kind: 'plan'; id: string; steps: PlanStep[] };
 
 export type ActivityBlock = {
+  anchorId?: string;
   kind: 'activity';
   id: string;
   members: ActivityMember[];
@@ -111,7 +114,7 @@ export type AgentNode = {
   label: string;
   /** What its parent asked it to do, when the provider recorded the prompt it was spawned with. */
   purpose: string | null;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'failed' | 'unknown';
   result: string | null;
   startedAt: string | null;
   endedAt: string | null;
@@ -140,7 +143,7 @@ export type TranscriptTurn = {
   ordinal: number;
   users: UserBlock[];
   blocks: TurnBlock[];
-  answer: { id: string; text: string; complete: boolean } | null;
+  answer: { id: string; anchorId?: string; text: string; complete: boolean } | null;
   startedAt: string | null;
   endedAt: string | null;
   outcome: 'completed' | 'interrupted' | null;
@@ -151,6 +154,10 @@ type Message = AgentEventEnvelope & { type: 'assistant_message' };
 
 function itemKey(event: AgentEventEnvelope): string {
   return event.source.providerItemId ?? event.eventId;
+}
+
+function itemAnchor(event: AgentEventEnvelope): string {
+  return JSON.stringify([event.source.providerThreadId, event.turnId, event.source.providerTurnId, itemKey(event)]);
 }
 
 /** The thread an event came from: null for the task's own root thread. */
@@ -172,7 +179,7 @@ function agentPhase(event: AgentEventEnvelope): typeof AGENT_PHASES[number] | nu
  * Derived on every render from the one task event stream; there is no second transcript and no
  * child table. A child with no terminal event of its own is still running as far as this knows.
  */
-export function projectAgents(events: AgentEventEnvelope[]): AgentNode[] {
+export function projectAgents(events: AgentEventEnvelope[], activeTurnId?: string | null, atLatest = true): AgentNode[] {
   const agents = new Map<string, AgentNode>();
   const upsert = (event: AgentEventEnvelope): AgentNode | null => {
     const threadId = agentThreadOf(event);
@@ -184,7 +191,7 @@ export function projectAgents(events: AgentEventEnvelope[]): AgentNode[] {
         parentThreadId: event.source.parentProviderThreadId,
         label: event.source.logicalAgentPath ?? 'Agent',
         purpose: null,
-        status: 'running',
+        status: activeTurnId === undefined || (atLatest && event.turnId === activeTurnId) ? 'running' : 'unknown',
         result: null,
         startedAt: null,
         endedAt: null,
@@ -201,6 +208,7 @@ export function projectAgents(events: AgentEventEnvelope[]): AgentNode[] {
     if (event.type === 'lifecycle') {
       switch (event.payload.phase) {
         case 'AGENT_STARTED':
+          node.status = activeTurnId === undefined || (atLatest && event.turnId === activeTurnId) ? 'running' : 'unknown';
           node.startedAt = event.occurredAt;
           break;
         case 'AGENT_COMPLETED':
@@ -426,7 +434,7 @@ class TurnBuilder {
         this.turn.blocks = this.turn.blocks.filter((block) => block !== streamed);
         this.texts.delete(key);
       }
-      this.turn.answer = { id: streamed?.id ?? event.eventId, text: event.payload.text, complete: true };
+      this.turn.answer = { id: streamed?.id ?? event.eventId, anchorId: itemAnchor(event), text: event.payload.text, complete: true };
       return;
     }
     const role = event.payload.messageKind === 'REASONING_SUMMARY'
@@ -434,7 +442,7 @@ class TurnBuilder {
       : event.payload.messageKind === 'PLAN_TEXT' ? 'planText' : 'commentary';
     const existing = this.texts.get(key);
     if (existing === undefined) {
-      const block: TextBlock = { kind: 'text', id: event.eventId, role, text: event.payload.text, complete };
+      const block: TextBlock = { kind: 'text', anchorId: itemAnchor(event), id: event.eventId, role, text: event.payload.text, complete };
       this.texts.set(key, block);
       this.turn.blocks.push(block);
       return;
@@ -465,7 +473,7 @@ class TurnBuilder {
     // Activity that follows activity joins its group; anything else in between starts a new one.
     const block: ActivityBlock = last !== undefined && last.kind === 'activity'
       ? last
-      : { kind: 'activity', id: event.eventId, members: [], startedAt: event.occurredAt, endedAt: null };
+      : { kind: 'activity', anchorId: itemAnchor(event), id: event.eventId, members: [], startedAt: event.occurredAt, endedAt: null };
     if (block !== last) this.turn.blocks.push(block);
     const member = build(null);
     block.members = [...block.members, member];
@@ -513,6 +521,8 @@ class TurnBuilder {
 export function projectTranscript(
   events: AgentEventEnvelope[],
   agentThread: string | null = null,
+  durableTurns: Record<string, AgentTurnDto> = {},
+  completeHistory = true,
 ): TranscriptTurn[] {
   const builders = new Map<string | null, TurnBuilder>();
   const order: TurnBuilder[] = [];
@@ -545,7 +555,25 @@ export function projectTranscript(
     if (phase === 'AGENT_STARTED') builderFor(event.turnId).applyAgent(event, 'started');
     else if (phase !== null) builderFor(event.turnId).applyAgent(event, 'finished');
   }
-  return order.map((builder) => builder.turn);
+  return order.map((builder) => {
+    const turn = builder.turn;
+    const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
+    if (!completeHistory) turn.ordinal = 0;
+    if (durable !== undefined && agentThread === null) {
+      turn.startedAt = durable.startedAt ?? turn.startedAt;
+      turn.endedAt = durable.endedAt ?? turn.endedAt;
+      if (durable.endedAt !== null) turn.outcome = durable.state === 'COMPLETED' ? 'completed' : 'interrupted';
+    }
+    return turn;
+  });
+}
+
+/** A loaded request is actionable only while the current durable approval read still names it. */
+export function withApprovalAuthority(turns: TranscriptTurn[], pending: ReadonlySet<string>): TranscriptTurn[] {
+  return turns.map((turn) => ({ ...turn, blocks: turn.blocks.map((block) =>
+    block.kind !== 'approval' || block.outcome !== null || pending.has(block.approvalId) ? block
+      : { ...block, actionable: false, outcome: 'Resolution outside this history window' },
+  ) }));
 }
 
 function count(amount: number, singular: string, plural = `${singular}s`): string {
@@ -649,16 +677,17 @@ export function settleFinalTurn(turn: TranscriptTurn, terminalAt: string | null,
 
 /** "Turn 1 · Working for 38s", "Turn 1 · Worked for 4m 51s", "Turn 2 · Interrupted after 12s". */
 export function turnLabel(turn: TranscriptTurn, now: number, waitingOnUser: boolean): string {
+  const label = turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn';
   const elapsed = turnElapsedMs(turn, now);
   const duration = elapsed === null ? null : formatDuration(elapsed);
   if (turn.endedAt === null) {
-    if (waitingOnUser) return `Turn ${turn.ordinal} · Waiting on you`;
-    return duration === null ? `Turn ${turn.ordinal}` : `Turn ${turn.ordinal} · Working for ${duration}`;
+    if (waitingOnUser) return `${label} · Waiting on you`;
+    return duration === null ? `${label}` : `${label} · Working for ${duration}`;
   }
   if (turn.outcome === 'interrupted') {
-    return duration === null ? `Turn ${turn.ordinal} · Interrupted` : `Turn ${turn.ordinal} · Interrupted after ${duration}`;
+    return duration === null ? `${label} · Interrupted` : `${label} · Interrupted after ${duration}`;
   }
-  return duration === null ? `Turn ${turn.ordinal} · Done` : `Turn ${turn.ordinal} · Worked for ${duration}`;
+  return duration === null ? `${label} · Done` : `${label} · Worked for ${duration}`;
 }
 
 export function planCounts(steps: PlanStep[]): { completed: number; inProgress: number; pending: number } {

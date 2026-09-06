@@ -1,5 +1,46 @@
 # Agent Service Design
 
+## Bounded history correction (2026-09-06)
+
+The task window reads bounded event pages rather than subscribing from sequence
+zero to reconstruct every message. `readHistory(taskId, before, after)` uses
+exclusive, opaque byte-offset cursors into the task's append-only JSONL file.
+No cursor selects the latest page; `before` and `after` select adjacent older
+and newer pages. Exactly one cursor or neither is accepted. Pages contain at
+most 200 events and 2 MiB of stored JSON, ascending events, older/newer
+cursors, and the log's latest sequence at the read snapshot. Reads validate
+cursor boundaries, skip an incomplete final line, and allocate only bounded
+record/page buffers. A page validates its selected records and adjacent sequence
+boundaries; it does not scan unrelated older content. No SQLite transcript copy
+or new durable lifecycle is added.
+
+HTTP normalization can add defaulted fields to older records. A separate
+12 MiB limit applies to each page's normalized event JSON, allowing an existing
+2 MiB record to remain readable without splitting or truncating it. The largest
+measured expansion from the accepted DTO defaults is 11,247,337 bytes. Three
+retained pages represent at most 6 MiB of stored JSON and 36 MiB of normalized
+event JSON; JavaScript objects, DOM nodes, and image buffers have additional
+memory costs and their own retention limits.
+
+SSE resumes from the latest page's sequence and reads catch-up from the durable
+log under subscriber demand. It must not materialize an entire replay list or
+retain an unbounded queue of live payloads. Read-only channel initialization
+uses the latest bounded page. The first write validates the full log using a
+streaming reader and builds the existing event-ID deduplication index; that
+writer-only metadata index can still grow with the event count. Task
+status and approval authority remain independent of the displayed history
+window. Frontend paging, eviction, and scroll anchoring are specified in
+[Agent Task UI Design](agent-task-ui.md#bounded-history-correction-2026-09-06).
+
+Backend verification on 2026-09-06: full `mvn verify` passed 1,283 tests with
+Checkstyle and license checks. Storage regressions cover count and byte caps,
+bidirectional and append-stable cursors, exact-limit records, and torn tails.
+A 1 GiB sparse-file fixture with an unreadable unloaded prefix verifies that
+latest-page reads do not parse the prefix; it is not a full-browser 1 GiB heap
+benchmark. A separate 5,000-event test confirms that opening history and
+subscribing at its watermark performs no prefix scan, including after demand.
+HTTP tests cover page cursors and current approvals independently of history.
+
 This document specifies local, worktree-scoped development tasks driven by
 Codex App Server launched through the Codex CLI or by Claude Code CLI. The
 whole-system shape and Maven module boundaries are defined in
@@ -41,7 +82,8 @@ surface as future work.
 - The Claude lane is a separate `stream-json` adapter. Both adapters feed the
   ByteQuay-owned task, turn, approval, metrics, retention, and event services.
 - ByteQuay persists normalized user-visible events in the task JSONL log and
-  exposes replay through `GET /agent/tasks/{taskId}/events` and SSE through
+  exposes bounded window history through `GET /agent/tasks/{taskId}/history`,
+  sequence replay through `GET /agent/tasks/{taskId}/events`, and SSE through
   `GET /agent/tasks/{taskId}/stream`. The stream commits its response with an
   SSE comment as soon as a client subscribes, so an idle task that has no
   event yet still reads as an open stream rather than a hanging request. Raw
@@ -763,6 +805,7 @@ transport state, not a second retained transcript.
 package com.bytequay.agent.core;
 
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.Flow;
 
 public interface AgentEventService
@@ -803,6 +846,9 @@ public interface AgentEventService
      * @throws InvalidAgentRequestException when the sequence or limit is invalid
      */
     List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit);
+
+    /** Reads a recent or adjacent page, bounded by event count and serialized bytes. */
+    AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after);
 
     /**
      * Opens a gap-free replay-and-live stream after a sequence number.
@@ -877,6 +923,7 @@ request fails closed.
 package com.bytequay.agent.core;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletionStage;
 
 public interface AgentApprovalService
@@ -912,6 +959,9 @@ public interface AgentApprovalService
      * @throws AgentConflictException when a different decision was already recorded
      */
     ApprovalResolution resolve(ResolveApprovalCommand command);
+
+    /** Reads current requests independently of the displayed transcript window. */
+    List<ApprovalRequest> listPending(TurnId turnId);
 
     /**
      * Denies all unresolved approvals owned by a terminal or cancelled turn.
@@ -2161,7 +2211,7 @@ coordinates the narrower interfaces shown in the last column.
 | --- | --- | --- | --- |
 | 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)`, `AgentTurnService.start(...)`, then `AgentTaskTitleService.generate(...)` | `app` resolves the workspace/repository and exact starting commit; core verifies readiness before provisioning and persists `OPEN` with a 36-character first-message fallback marked `PROVISIONAL`. The controller starts the idempotent initial turn, captures the response, and only for a new turn schedules best-effort naming. That disposable text-only session uses the same lane outside the task conversation; it may atomically replace only a still-provisional title and insert `TITLE_UPDATED`. Failure leaves the fallback, and a user rename always wins |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
-| 3. Observe | Open task window or reconnect SSE | `AgentEventService.subscribe(TaskId, afterSequence)` | Replays persisted root and child events and then publishes live events without a gap |
+| 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
 | 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while recursive item/background reconciliation runs. Because item history has no descendant turn status, the per-turn App Server then closes and its owned tree must be `VERIFIED_STOPPED` before core releases the worktree claim. Reconciliation failure records a failed turn; verified stop still permits safe release, while an unverifiable stop retains the claim. Core atomically finalizes metrics/state and inserts terminal events, and only a quiescent success may claim the FIFO head |
@@ -2237,9 +2287,12 @@ sequenceDiagram
     end
 
     User->>Desktop: Open task
-    Desktop->>Web: GET /agent/tasks/{taskId}/stream?after=0
-    Web->>Events: subscribe(taskId, 0)
-    Events-->>Web: replay followed by live events
+    Desktop->>Web: GET /agent/tasks/{taskId}/history
+    Web->>Events: readHistory(taskId, empty, empty)
+    Events-->>Desktop: recent bounded page and latest sequence
+    Desktop->>Web: GET /agent/tasks/{taskId}/stream?after=latestSequence
+    Web->>Events: subscribe(taskId, latestSequence)
+    Events-->>Web: later events read under demand
 
     loop Each user turn in the same task
         User->>Desktop: Send message
@@ -3093,6 +3146,8 @@ POST /agent/tasks/{taskId}/mark-failed
 POST /agent/tasks/{taskId}/complete?workspaceId=...
 POST /agent/tasks/{taskId}/cleanup?workspaceId=...
 GET  /agent/tasks/{taskId}/events?after=...&limit=...
+GET  /agent/tasks/{taskId}/history[?before=...|after=...]
+GET  /agent/tasks/{taskId}/pending-approvals?turnId=...
 GET  /agent/tasks/{taskId}/stream?after=...
 GET  /agent/providers/status
 GET  /api/settings/models

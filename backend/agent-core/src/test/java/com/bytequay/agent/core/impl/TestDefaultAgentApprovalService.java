@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
@@ -32,14 +33,18 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -47,6 +52,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -156,6 +162,62 @@ class TestDefaultAgentApprovalService
                 Optional.empty(),
                 false)))
                 .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void listsOnlyTheRequestedTurnsDurableUnresolvedApprovals()
+    {
+        ApprovalRequest first = request(TurnId.random());
+        ApprovalRequest second = request(first.turnId());
+        ApprovalRequest other = request(TurnId.random());
+        service.request(first, Duration.ofMinutes(1));
+        service.request(second, Duration.ofMinutes(1));
+        service.request(other, Duration.ofMinutes(1));
+
+        assertThat(service.listPending(first.turnId())).containsExactlyInAnyOrder(first, second);
+        assertThat(service.listPending(other.turnId())).containsExactly(other);
+        assertThat(service.listPending(TurnId.random())).isEmpty();
+
+        service.resolve(new ResolveApprovalCommand(first.id(), ApprovalDecision.Decision.DENY, Optional.empty(), false));
+
+        assertThat(service.listPending(first.turnId())).containsExactly(second);
+        assertThat(stores.find(first.id()).orElseThrow().decision()).isPresent();
+        assertThat(service.listPending(other.turnId())).containsExactly(other);
+
+        service.resolve(new ResolveApprovalCommand(second.id(), ApprovalDecision.Decision.DENY, Optional.empty(), false));
+        assertThat(service.listPending(first.turnId())).isEmpty();
+    }
+
+    @Test
+    void hidesPendingApprovalsAsSoonAsCancellationIsRequested()
+    {
+        ApprovalRequest request = request(TurnId.random());
+        service.request(request, Duration.ofMinutes(1));
+        assertThat(service.listPending(request.turnId())).containsExactly(request);
+
+        stores.update(stores.find(request.turnId()).orElseThrow().requestCancellation(NOW));
+
+        assertThat(service.listPending(request.turnId())).isEmpty();
+        assertThat(stores.find(request.id()).orElseThrow().pending()).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TurnState.class, names = {"COMPLETED", "FAILED", "CANCELLED", "INTERRUPTED"})
+    void hidesUnresolvedApprovalsFromEveryTerminalTurn(TurnState state)
+    {
+        ApprovalRequest request = request(TurnId.random());
+        service.request(request, Duration.ofMinutes(1));
+        AgentTurn running = stores.find(request.turnId()).orElseThrow()
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        stores.update(running);
+        assertThat(service.listPending(request.turnId())).containsExactly(request);
+
+        stores.update(stores.find(request.turnId()).orElseThrow().finish(
+                state, running.metrics(), state == TurnState.COMPLETED ? Optional.empty() : Optional.of("turn ended"), NOW));
+
+        assertThat(service.listPending(request.turnId())).isEmpty();
+        assertThat(stores.find(request.id()).orElseThrow().pending()).isTrue();
     }
 
     @Test
@@ -718,6 +780,12 @@ class TestDefaultAgentApprovalService
         public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
         {
             return ImmutableList.of();
+        }
+
+        @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            throw new UnsupportedOperationException("history is not part of this test");
         }
 
         @Override

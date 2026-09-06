@@ -45,7 +45,7 @@ export class AgentSubscriptions {
     private readonly request: (taskId: string, after: number, signal: AbortSignal) => Promise<Response>,
   ) {}
 
-  start(sender: StreamSender, taskId: string, after: number): string {
+  start(sender: StreamSender, taskId: string, after: number, statusOnly = false): string {
     // Re-subscribing replaces: two readers on one task would push the same events twice into the
     // same screen and both would hold a connection open.
     for (const [id, existing] of this.subscriptions) {
@@ -64,13 +64,28 @@ export class AgentSubscriptions {
       }
       sender.send('agent:stream:message', { subscriptionId, taskId, ...message });
     };
+    let changed: { kind: 'changed'; sequence: number; turnId: string | null } | null = null;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = (): void => {
+      if (flushTimer !== null) clearTimeout(flushTimer);
+      flushTimer = null;
+      if (changed !== null) push(changed);
+      changed = null;
+    };
     void readAgentStream({
       after,
       signal: controller.signal,
       request: (cursor, signal) => this.request(taskId, cursor, signal),
-      onStatus: (state, detail) => push({ kind: 'state', state, detail }),
-      onEvents: (events) => push({ kind: 'events', events }),
-    }).finally(() => this.subscriptions.delete(subscriptionId));
+      onStatus: (state, detail) => { flush(); push({ kind: 'state', state, detail }); },
+      onEvents: (events) => {
+        if (!statusOnly) { push({ kind: 'events', events }); return; }
+        for (const event of events) {
+          changed = { kind: 'changed', sequence: event.sequence, turnId: event.turnId ?? changed?.turnId ?? null };
+        }
+        // History windows refresh bounded pages. Never enqueue transcript payloads in renderer IPC.
+        if (flushTimer === null && changed !== null) flushTimer = setTimeout(flush, 100);
+      },
+    }).finally(() => { flush(); this.subscriptions.delete(subscriptionId); });
     return subscriptionId;
   }
 

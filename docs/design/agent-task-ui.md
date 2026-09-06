@@ -1,5 +1,55 @@
 # Agent Task UI Design
 
+## Bounded history correction (2026-09-06)
+
+Opening a task shows a bounded recent window, not a replay of its whole log.
+The same rule applies to open, completed, and failed tasks and to task cards.
+History comes from ByteQuay's JSONL event store, never provider transcript reads.
+
+Each history page contains at most 200 events and 2 MiB of stored event JSON.
+Normalizing defaulted fields in old records can expand the response, so the
+renderer separately enforces a 12 MiB cap on each page's normalized event JSON.
+Opaque byte cursors load adjacent older or newer pages. Scrolling near
+the top loads one older page and preserves the visible scroll anchor. The
+renderer retains at most three pages (600 events, 6 MiB of stored JSON, and
+36 MiB of normalized event JSON),
+evicts content away from the viewport, and can reload evicted pages. Returning
+to the latest view requests a fresh bounded page. Live updates keep their own
+sequence cursor; browsing older pages never rewinds current task state or
+replays all intervening messages into memory.
+
+These JSON budgets do not include JavaScript object, DOM, or decoded-image
+overhead; attachment and UI caches must also remain bounded.
+
+A page can cut through a turn or a streamed item. The UI identifies unloaded
+earlier content, uses durable turn facts for controls and headers, and never
+calls unloaded subagent activity expired. Historical approval cards cannot
+become actionable because their resolution lies outside the window. Attachment
+previews and fold/turn caches follow the retained window and have explicit
+memory bounds. Cards replace their recent page instead of accumulating events.
+Retained image previews are limited to sixteen thumbnails of at most 512 pixels
+per side. Opening the image viewer fetches its original separately and releases
+that object URL when closed. While the user reads above the bottom, completion
+keeps an already-open running log open; normal default folding resumes on return
+to the latest view. Explicit fold choices always win.
+
+Backend replay also reads bounded pages on demand and does not prebuild the
+whole subscriber backlog. Large-log verification must cover page byte limits,
+scroll anchoring, eviction/reload, live updates while reading old history,
+terminal tasks, and reconnect without lost or duplicated events.
+
+Verification on 2026-09-06: 498 frontend tests, full lint and TypeScript checks,
+and desktop packaging passed. Hidden Electron tests exercised the production
+task body and screen wrapper: initial and short pages did not load older history
+automatically, paging stayed within 600 events, and ten visible-passage checks
+measured zero vertical movement through prepend/eviction, including one streamed
+item spanning pages. In the unpinned live case, completion preserved the reading
+line and performed no history fetch until the user returned to the bottom;
+that return fetched the final answer once without another stream notification.
+Image-viewer checks verified original resolution and URL cleanup on close,
+unmount, and late responses. These checks complement the bounded-storage tests;
+they are not a full-browser 1 GiB heap benchmark.
+
 This document defines the implemented rich, worktree-scoped agent task surface
 over the existing agent service. It defines the product interaction, frontend
 projection, Electron transport, and service capabilities used by that UI.

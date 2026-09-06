@@ -30,6 +30,7 @@ async function open(bridge: ReturnType<typeof createPreviewBridge>, taskId: stri
   const stop = await startAgentTaskSession(bridge, taskId, 'workspace-1', (action: AgentTaskAction) => {
     state = agentTaskReducer(state, action);
   });
+  await vi.waitFor(() => expect(state.events.at(-1)?.sequence ?? 0).toBe(state.lastSequence));
   return { stop, state: (): AgentTaskState => state };
 }
 
@@ -59,22 +60,19 @@ describe('a task that has already ended', () => {
 });
 
 describe('a task window', () => {
-  it('polls the task and pages every event past what it has shown', async () => {
+  it('replaces one recent page on every poll instead of accumulating history', async () => {
     const bridge = createPreviewBridge('workspace-1', { replayThrough: 14 });
     let state = initialAgentTaskState();
     const dispatch = (action: AgentTaskAction): void => { state = agentTaskReducer(state, action); };
-    await pollAgentTask(bridge, 'task-1', 'workspace-1', 0, dispatch, () => true, 5);
-
-    expect(state.task?.id).toBe('task-1');
-    expect(state.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-    expect(bridge.commands.filter((command) => command.name === 'readAgentEvents').map((command) => command.args))
-      .toEqual([['task-1', 0, 5], ['task-1', 5, 5], ['task-1', 10, 5]]);
-
-    // The next poll resumes after the last sequence shown and reads nothing twice.
-    bridge.commands.length = 0;
-    await pollAgentTask(bridge, 'task-1', 'workspace-1', state.lastSequence, dispatch);
-    expect(names(bridge.commands)).toEqual(['getAgentTask', 'readAgentEvents']);
+    await pollAgentTask(bridge, 'task-1', 'workspace-1', dispatch);
     expect(state.events).toHaveLength(14);
+    expect(state.historyPages).toHaveLength(1);
+    expect(names(bridge.commands)).toEqual(['getAgentTask', 'readAgentHistory']);
+    bridge.commands.length = 0;
+    await pollAgentTask(bridge, 'task-1', 'workspace-1', dispatch);
+    expect(names(bridge.commands)).toEqual(['getAgentTask', 'readAgentHistory']);
+    expect(state.events).toHaveLength(14);
+    expect(state.historyPages).toHaveLength(1);
   });
 });
 
@@ -149,8 +147,9 @@ describe('preview journey', () => {
       'getModelSettings',
       'createAgentTask',
       'getAgentTask',
-      'readAgentEvents',
+      'readAgentHistory',
       'subscribeAgentTask',
+      'readAgentHistory',
       'startAgentTurn',
       'cancelAgentTurn',
       'completeAgentTask',
@@ -265,7 +264,7 @@ describe('steering and queueing through the bridge', () => {
     expect(steered.state).toBe('DELIVERED');
     session.stop();
 
-    expect(names(bridge.commands).filter((name) => !['getAgentTask', 'readAgentEvents', 'subscribeAgentTask', 'unsubscribeAgentTask'].includes(name)))
+    expect(names(bridge.commands).filter((name) => !['getAgentTask', 'readAgentHistory', 'subscribeAgentTask', 'unsubscribeAgentTask'].includes(name)))
       .toEqual(['queueAgentInput', 'queueAgentInput', 'listAgentQueue', 'removeAgentQueuedInput', 'listAgentQueue', 'steerAgentTurn']);
   });
 });

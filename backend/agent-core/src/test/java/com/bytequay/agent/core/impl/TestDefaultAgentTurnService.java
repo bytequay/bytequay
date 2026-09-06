@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentSandboxPolicy;
@@ -97,6 +98,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -2087,6 +2089,12 @@ class TestDefaultAgentTurnService
         private RuntimeException denyFailure;
 
         @Override
+        public List<ApprovalRequest> listPending(TurnId turnId)
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
         public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
         {
             requests.add(request);
@@ -2175,6 +2183,12 @@ class TestDefaultAgentTurnService
         }
 
         @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            return delegate.readHistory(taskId, before, after);
+        }
+
+        @Override
         public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
         {
             return delegate.subscribe(taskId, afterSequence);
@@ -2246,6 +2260,12 @@ class TestDefaultAgentTurnService
         }
 
         @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            return delegate.readHistory(taskId, before, after);
+        }
+
+        @Override
         public Flow.Publisher<AgentEventEnvelope> subscribe(TaskId taskId, long afterSequence)
         {
             return delegate.subscribe(taskId, afterSequence);
@@ -2294,6 +2314,12 @@ class TestDefaultAgentTurnService
         public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
         {
             return delegate.readAfter(taskId, afterSequence, limit);
+        }
+
+        @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            return delegate.readHistory(taskId, before, after);
         }
 
         @Override

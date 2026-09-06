@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentSandboxPolicy;
@@ -72,6 +73,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -563,6 +565,13 @@ class TestDefaultAgentCompletionService
                     .filter(event -> event.sequence() > afterSequence)
                     .limit(limit)
                     .collect(toImmutableList());
+        }
+
+        @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            long latest = lastSequence(taskId);
+            return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 200), 200), OptionalLong.empty(), OptionalLong.empty(), latest);
         }
 
         @Override

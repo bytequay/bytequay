@@ -13,21 +13,32 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
@@ -172,6 +183,12 @@ class TestAgentHttpApi
 
     @Autowired
     private AgentTurnService turns;
+
+    @Autowired
+    private AgentEventService events;
+
+    @Autowired
+    private AgentApprovalService approvals;
 
     @Autowired
     private AgentResourceService resources;
@@ -564,6 +581,108 @@ class TestAgentHttpApi
         assertThat(stopped.getBody().get("state").asText()).isEqualTo("OPEN");
         assertThat(stopped.getBody().get("mutationClaim").isNull()).isTrue();
         assertThat(get(impactPath).getBody().get("liveProcess").asBoolean()).isFalse();
+    }
+
+    @Test
+    void mapsBoundedHistoryPagesAndOpaqueCursorsInBothDirections()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId)
+                .getBody().required("titleSource").asText().equals("AGENT"));
+        long latestSequence = 0;
+        for (int index = 0; index < 401; index++) {
+            latestSequence = events.append(new UnsequencedAgentEvent(
+                    EventId.random(), TaskId.valueOf(taskId), Optional.empty(), AgentEventSource.root(),
+                    new AgentEventPayload.AssistantMessage(
+                            AgentEventPayload.MessageKind.ANSWER, AgentEventPayload.MessagePhase.FINAL, "history " + index))).sequence();
+        }
+        String historyPath = "/agent/tasks/" + taskId + "/history";
+
+        ResponseEntity<JsonNode> response = get(historyPath + "?limit=1000000");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        JsonNode latest = response.getBody();
+        assertThat(latest.required("events")).hasSize(200);
+        assertThat(latest.required("latestSequence").asLong()).isEqualTo(latestSequence);
+        assertThat(latest.required("beforeCursor").isTextual()).isTrue();
+        assertThat(latest.required("afterCursor").isNull()).isTrue();
+        assertThat(latest.required("events").get(0).required("sequence").asLong()).isEqualTo(latestSequence - 199);
+        assertThat(latest.required("events").get(199).required("sequence").asLong()).isEqualTo(latestSequence);
+        assertThat(latest.required("events").get(199).required("type").asText()).isEqualTo("assistant_message");
+        assertThat(latest.required("events").get(199).required("payload").required("text").asText()).isEqualTo("history 400");
+
+        JsonNode older = get(historyPath + "?before=" + latest.required("beforeCursor").asText()).getBody();
+        assertThat(older.required("events")).hasSize(200);
+        assertThat(older.required("events").get(199).required("sequence").asLong()).isEqualTo(latestSequence - 200);
+        assertThat(older.required("latestSequence").asLong()).isEqualTo(latestSequence);
+        assertThat(older.required("afterCursor").isTextual()).isTrue();
+        JsonNode forward = get(historyPath + "?after=" + older.required("afterCursor").asText()).getBody();
+        assertThat(forward).isEqualTo(latest);
+
+        JsonNode oldest = get(historyPath + "?before=" + older.required("beforeCursor").asText()).getBody();
+        assertThat(oldest.required("beforeCursor").isNull()).isTrue();
+        assertThat(oldest.required("events").get(0).required("sequence").asLong()).isEqualTo(1);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=2").getBody()).hasSize(2);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=0").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void rejectsInvalidHistoryCursorsAtTheHttpBoundary()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String historyPath = "/agent/tasks/" + taskId + "/history";
+
+        for (String query : ImmutableList.of("before=-1", "after=-1", "before=0&after=0", "before=not-a-cursor", "after=1", "after=" + Long.MAX_VALUE)) {
+            assertThat(get(historyPath + "?" + query).getStatusCode()).as(query).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        assertThat(get("/agent/tasks/" + TaskId.random() + "/history").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void exposesDurablePendingApprovalsOnlyUnderTheirOwningTaskAndRemovesResolvedRequests()
+            throws Exception
+    {
+        String ownerTaskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String otherTaskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        driver.holdNextTurn();
+        String turnId = startTurn(ownerTaskId, "wait for approval", "approval-turn").required("id").asText();
+        Instant requestedAt = Instant.now();
+        ApprovalRequest request = new ApprovalRequest(
+                ApprovalId.random(), TaskId.valueOf(ownerTaskId), TurnId.valueOf(turnId),
+                new ProviderApprovalRequest(
+                        "http-approval", ProviderApprovalRequest.Kind.COMMAND, "Run command", "git status",
+                        ImmutableList.of("command:git status"), ImmutableList.of(ProviderApprovalRequest.Decision.DENY),
+                        new ProviderAgentEventSource(Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("root/child"),
+                                Optional.of("provider-turn"), Optional.of("provider-item")), requestedAt),
+                requestedAt);
+        try {
+            approvals.request(request, Duration.ofMinutes(1));
+            String path = "/agent/tasks/" + ownerTaskId + "/pending-approvals?turnId=" + turnId;
+
+            JsonNode pending = get(path).getBody();
+
+            assertThat(pending).hasSize(1);
+            JsonNode approval = pending.get(0);
+            assertThat(approval.required("approvalId").asText()).isEqualTo(request.id().toString());
+            assertThat(approval.required("taskId").asText()).isEqualTo(ownerTaskId);
+            assertThat(approval.required("turnId").asText()).isEqualTo(turnId);
+            assertThat(approval.required("source").required("providerThreadId").asText()).isEqualTo("child-thread");
+            assertThat(approval.required("title").asText()).isEqualTo("Run command");
+            assertThat(approval.required("approvalKind").asText()).isEqualTo("COMMAND");
+            assertThat(approval.required("availableDecisions").get(0).asText()).isEqualTo("DENY");
+            assertThat(approval.required("actionable").asBoolean()).isTrue();
+            assertThat(get("/agent/tasks/" + otherTaskId + "/pending-approvals?turnId=" + turnId).getStatusCode())
+                    .isEqualTo(HttpStatus.BAD_REQUEST);
+
+            assertThat(post("/agent/approvals/" + request.id(), ImmutableMap.of("decision", "DENY"), null).getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(get(path).getBody()).isEmpty();
+        }
+        finally {
+            approvals.denyPending(TurnId.valueOf(turnId));
+            driver.completeHeldTurn();
+        }
     }
 
     @Test

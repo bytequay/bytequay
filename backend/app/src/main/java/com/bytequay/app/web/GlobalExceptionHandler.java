@@ -44,6 +44,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -96,7 +97,8 @@ public class GlobalExceptionHandler
     @ExceptionHandler({
             InvalidAgentRequestException.class,
             CherryPickInvalidRequestException.class,
-            HttpMessageNotReadableException.class})
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(
             Exception exception, HttpServletRequest request)
     {

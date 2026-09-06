@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import type { AgentHistoryPageDto, AgentPendingApprovalDto } from '../types';
+
 type JsonObject = Record<string, unknown>;
 
 const EVENT_TYPES = [
@@ -189,6 +191,42 @@ export function parseAgentEventSequence(value: unknown, afterSequence = 0): Agen
     validatePayload(type, event.payload, index);
     expectedSequence++;
     return candidate as AgentEventEnvelope;
+  });
+}
+
+export function parseAgentHistoryPage(value: unknown, expectedTaskId: string): AgentHistoryPageDto {
+  const page = objectValue(value, 'history');
+  const rawEvents = arrayValue(page.events, 'history.events');
+  // The store caps original JSON at 2 MiB. Defaulted legacy action fields can expand
+  // it to 11,247,337 bytes (measured with accepted numeric enum ordinals), so wire
+  // JSON has its own fixed 12 MiB cap; the 200-event and three-page limits still apply.
+  if (rawEvents.length > 200
+    || new TextEncoder().encode(JSON.stringify(rawEvents)).byteLength > 12 * 1024 * 1024) {
+    throw new Error('History page exceeds its count or byte limit');
+  }
+  const first = rawEvents.length === 0 ? 1 : integerValue(objectValue(rawEvents[0], 'first event').sequence, 'first sequence');
+  const events = parseAgentEventSequence(rawEvents, first - 1);
+  if (events.some((event) => event.taskId !== expectedTaskId)) throw new Error('History belongs to another task');
+  const latestSequence = integerValue(page.latestSequence, 'history.latestSequence');
+  if (latestSequence < 0 || (events.at(-1)?.sequence ?? 0) > latestSequence) throw new Error('Invalid history watermark');
+  const cursor = (value: unknown): string | null => {
+    const text = nullableString(value, 'history cursor');
+    if (text !== null && (!/^(0|[1-9]\d{0,18})$/.test(text) || BigInt(text) > 9223372036854775807n)) {
+      throw new Error('Invalid history cursor');
+    }
+    return text;
+  };
+  return { events, latestSequence, beforeCursor: cursor(page.beforeCursor), afterCursor: cursor(page.afterCursor) };
+}
+
+export function parseAgentPendingApprovals(value: unknown, taskId: string, turnId: string): AgentPendingApprovalDto[] {
+  return arrayValue(value, 'pending approvals').map((entry, index) => {
+    const approval = objectValue(entry, 'pending approval');
+    if (approval.taskId !== taskId || approval.turnId !== turnId) throw new Error('Approval belongs to another task or turn');
+    validateSource(approval.source, index);
+    stringValue(approval.occurredAt, 'approval.occurredAt');
+    validatePayload('approval_requested', approval, index);
+    return entry as AgentPendingApprovalDto;
   });
 }
 

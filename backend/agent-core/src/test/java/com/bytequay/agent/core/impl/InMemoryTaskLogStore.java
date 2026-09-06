@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -22,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalLong;
 
 /** A task log that keeps envelopes in memory, enough for tests that fold metrics from persisted events. */
 final class InMemoryTaskLogStore
@@ -39,6 +41,13 @@ final class InMemoryTaskLogStore
     public synchronized List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
     {
         return events.stream().filter(event -> event.taskId().equals(taskId) && event.sequence() > afterSequence).limit(limit).collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public synchronized AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+    {
+        long latest = lastSequence(taskId);
+        return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 200), 200), OptionalLong.empty(), OptionalLong.empty(), latest);
     }
 
     @Override

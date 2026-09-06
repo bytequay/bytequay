@@ -146,6 +146,22 @@ class TestDefaultAgentMetricsService
         assertThat(stores.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
     }
 
+    @Test
+    void foldsPersistedCountersAcrossPagesWithoutCountingOtherTurns()
+    {
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
+        stores.insert(turn);
+        TurnId otherTurn = TurnId.random();
+        for (int sequence = 1; sequence <= 24; sequence++) {
+            logStore.append(event(sequence, sequence % 2 == 0 ? turn.id() : otherTurn,
+                    new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.COMPLETED, "read")));
+        }
+
+        TurnMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
+
+        assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12, 0, 0, 0));
+    }
+
     private static AgentTurnSettings turnSettings()
     {
         return new AgentTurnSettings(

@@ -230,6 +230,8 @@ const bridge: Bridge = {
   getEffectiveTurnSettings: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:effective-settings', taskId, workspaceId),
   readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),
+  readAgentHistory: (taskId, before, after) => ipcRenderer.invoke('agent:history:read', taskId, before, after),
+  readAgentPendingApprovals: (taskId, turnId) => ipcRenderer.invoke('agent:approvals:pending', taskId, turnId),
   startAgentTurn: request => ipcRenderer.invoke('agent:turns:start', request),
   steerAgentTurn: request => ipcRenderer.invoke('agent:turns:steer', request),
   queueAgentInput: request => ipcRenderer.invoke('agent:queue:add', request),
@@ -260,14 +262,14 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:stop-impact', taskId, workspaceId),
   stopAgentRuntime: (taskId, workspaceId, generation) =>
     ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
-  subscribeAgentTask: async (taskId, after, listener) => {
+  subscribeAgentTask: async (taskId, after, listener, statusOnly) => {
     // Main pushes every task on one channel, so each listener keeps only what it asked for.
     const receiver = createAgentStreamReceiver(listener);
     const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
     ipcRenderer.on('agent:stream:message', receive);
     let subscriptionId: string | null = null;
     try {
-      subscriptionId = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after);
+      subscriptionId = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after, statusOnly);
       receiver.activate(subscriptionId);
     }
     catch (failure) {

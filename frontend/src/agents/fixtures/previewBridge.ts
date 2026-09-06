@@ -105,7 +105,7 @@ export function createPreviewBridge(
   const record = (name: string, ...args: unknown[]): void => {
     commands.push({ name, args });
   };
-  const replayThrough = options.replayThrough ?? 2;
+  let replayThrough = options.replayThrough ?? 2;
   const delivery = options.delivery ?? 'ordered';
   let turnState = 'COMPLETED';
   let previewVersion = 0;
@@ -213,6 +213,20 @@ export function createPreviewBridge(
         maximumRuntimeMillis: 3600000,
         attachments: [],
       };
+    },
+    readAgentHistory: async (taskId, before, after) => {
+      record('readAgentHistory', taskId, before, after);
+      const all = FIXTURE_EVENTS.filter((event) => event.sequence <= replayThrough);
+      const start = after === undefined ? Math.max(0, (before === undefined ? all.length : Number(before)) - 200) : Number(after);
+      const end = before === undefined ? Math.min(all.length, start + 200) : Number(before);
+      return { events: all.slice(start, end), beforeCursor: start > 0 ? String(start) : null, afterCursor: end < all.length ? String(end) : null, latestSequence: all.at(-1)?.sequence ?? 0 };
+    },
+    readAgentPendingApprovals: async (taskId, turnId) => {
+      record('readAgentPendingApprovals', taskId, turnId);
+      const resolved = new Set(FIXTURE_EVENTS.filter((event) => event.type === 'approval_resolved').map((event) => event.payload.approvalId));
+      return FIXTURE_EVENTS.flatMap((event) => event.type !== 'approval_requested' || event.turnId !== turnId || resolved.has(event.payload.approvalId) ? [] : [{
+        ...event.payload, taskId, turnId, source: event.source, occurredAt: event.occurredAt,
+      }]);
     },
     readAgentEvents: async (taskId, after = 0, limit) => {
       record('readAgentEvents', taskId, after, limit);
@@ -360,7 +374,7 @@ export function createPreviewBridge(
       if (turnState === 'RUNNING') turnState = 'INTERRUPTED';
       return { ...previewTask(id, taskId), defaults: previewDefaults, version: previewVersion };
     },
-    subscribeAgentTask: async (taskId, after, listener) => {
+    subscribeAgentTask: async (taskId, after, listener, statusOnly = false) => {
       record('subscribeAgentTask', taskId, after);
       let stopped = false;
       const push = (message: AgentStreamMessage): void => {
@@ -372,7 +386,10 @@ export function createPreviewBridge(
       }
       push({ subscriptionId: 'preview', taskId, kind: 'state', state: 'open' });
       for (const event of liveEvents()) {
-        push({ subscriptionId: 'preview', taskId, kind: 'events', events: [event] });
+        replayThrough = Math.max(replayThrough, event.sequence);
+        push(statusOnly
+          ? { subscriptionId: 'preview', taskId, kind: 'changed', sequence: event.sequence, turnId: event.turnId }
+          : { subscriptionId: 'preview', taskId, kind: 'events', events: [event] });
       }
       return () => {
         stopped = true;

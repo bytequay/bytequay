@@ -14,11 +14,13 @@
 package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.OptionalLong;
 
 /**
  * Persistence port for append-only task event history and external payloads.
@@ -40,8 +42,8 @@ public interface TaskLogStore
     /**
      * Reads a bounded page in ascending sequence order.
      *
-     * <p>A partial final line left by a crash is ignored; corruption before the
-     * final line is an error.
+     * <p>A partial final line left by a crash is ignored. Visited records are
+     * validated; full-log validation is performed by {@link #lastSequence(TaskId)}.
      *
      * @param taskId task whose log is read
      * @param afterSequence exclusive lower sequence
@@ -50,6 +52,21 @@ public interface TaskLogStore
      * @throws com.bytequay.agent.core.AgentStorageException on non-tail corruption
      */
     List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit);
+
+    /**
+     * Reads at most 200 events and 2 MiB of serialized JSON in ascending order.
+     *
+     * <p>No cursor reads the latest page. A before or after cursor reads the adjacent
+     * older or newer page. Cursors are committed JSONL byte boundaries; incomplete
+     * tail bytes are ignored without modifying the file. Only visited records are validated.
+     *
+     * @param taskId task whose history is read
+     * @param before exclusive end boundary for an older page
+     * @param after inclusive start boundary for a newer page
+     * @return bounded history and adjacent cursors
+     * @throws com.bytequay.agent.core.InvalidAgentRequestException when both cursors are supplied or a boundary is invalid
+     */
+    AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after);
 
     /**
      * Returns the final complete record's sequence for restart recovery.

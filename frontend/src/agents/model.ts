@@ -16,6 +16,7 @@ import type { AgentEventEnvelope } from './events';
 import type { ApprovalBlock } from './transcript';
 import type {
   AgentCapabilitiesDto,
+  AgentHistoryPageDto,
   AgentAttachmentReferenceDto,
   AgentApprovalDecision,
   AgentAttachmentDto,
@@ -36,6 +37,8 @@ export type AgentBridgePort = Pick<Bridge,
   | 'createAgentTask'
   | 'getAgentTask'
   | 'readAgentEvents'
+  | 'readAgentHistory'
+  | 'readAgentPendingApprovals'
   | 'startAgentTurn'
   | 'steerAgentTurn'
   | 'queueAgentInput'
@@ -75,6 +78,8 @@ export interface AgentTaskState {
   turns: Record<string, AgentTurnDto>;
   /** Applied events in sequence order. */
   events: AgentEventEnvelope[];
+  /** Only these bounded pages own transcript payloads. Live notifications never accumulate here. */
+  historyPages: AgentHistoryPageDto[];
   /** Highest sequence applied; what a subscription resumes from. */
   lastSequence: number;
   /** Events past a gap, held until the missing ones arrive. */
@@ -107,6 +112,9 @@ export type AgentTaskAction =
   | { type: 'turn/changed'; turn: AgentTurnDto }
   | { type: 'turn/loaded'; turn: AgentTurnDto }
   | { type: 'events/applied'; events: AgentEventEnvelope[] }
+  | { type: 'events/observed'; events: AgentEventEnvelope[] }
+  | { type: 'live/changed'; sequence: number; turnId: string | null }
+  | { type: 'history/loaded'; page: AgentHistoryPageDto; direction: 'latest' | 'older' | 'newer' }
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
   | { type: 'attachments/added'; attachments: AgentAttachmentDto[] }
@@ -126,6 +134,7 @@ export function initialAgentTaskState(): AgentTaskState {
     turn: null,
     turns: {},
     events: [],
+    historyPages: [],
     lastSequence: 0,
     pending: [],
     gap: false,
@@ -154,7 +163,14 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, effective: action.settings };
     case 'turn/changed':
       if (state.turn?.id === action.turn.id && action.turn.version < state.turn.version) return state;
-      return { ...state, turn: action.turn, turns: { ...state.turns, [action.turn.id]: action.turn } };
+      return {
+        ...state,
+        turn: action.turn,
+        turns: {
+          ...Object.fromEntries(Object.entries(state.turns).filter(([id]) => state.events.some((event) => event.turnId === id))),
+          [action.turn.id]: action.turn,
+        },
+      };
     case 'turn/loaded':
       // An older turn's durable facts; the latest turn is only ever set through turn/changed.
       if (state.turns[action.turn.id]?.version > action.turn.version) return state;
@@ -187,9 +203,58 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, capabilities: action.capabilities };
     case 'events/applied':
       return applyEvents(state, action.events);
+    case 'events/observed':
+      return observeEvents(state, action.events);
+    case 'live/changed':
+      return action.sequence <= state.lastSequence ? state : { ...state, lastSequence: action.sequence, latestTurnId: action.turnId ?? state.latestTurnId, latestTurnSettled: action.turnId !== null && action.turnId !== state.latestTurnId ? false : state.latestTurnSettled, lifecycleEpoch: state.lifecycleEpoch + 1 };
+    case 'history/loaded':
+      return applyHistoryPage(state, action.page, action.direction);
     default:
       return state;
   }
+}
+
+/** The live cursor and current turn are independent of the part of history being inspected. */
+function observeEvents(state: AgentTaskState, events: AgentEventEnvelope[]): AgentTaskState {
+  let { lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch } = state;
+  for (const event of events) {
+    if (event.sequence <= lastSequence) continue;
+    lastSequence = event.sequence;
+    if (event.turnId !== null && event.turnId !== latestTurnId) {
+      latestTurnId = event.turnId;
+      latestTurnSettled = false;
+    }
+    if (event.type === 'lifecycle') {
+      lifecycleEpoch++;
+      if (event.turnId === latestTurnId && ['TURN_COMPLETED', 'INTERRUPTED'].includes(event.payload.phase)) latestTurnSettled = true;
+    }
+  }
+  return { ...state, lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch };
+}
+
+/** Three pages retain at most 600 events: 6 MiB stored JSON and 36 MiB normalized JSON. */
+function applyHistoryPage(state: AgentTaskState, page: AgentHistoryPageDto, direction: 'latest' | 'older' | 'newer'): AgentTaskState {
+  if (direction === 'latest' && historyAfter(state) === null && page.latestSequence < (state.historyPages.at(-1)?.latestSequence ?? 0)) return state;
+  const pages = direction === 'latest' ? [page]
+    : direction === 'older' ? [page, ...state.historyPages].slice(0, 3)
+    : [...state.historyPages, page].slice(-3);
+  const events = pages.flatMap((entry) => entry.events);
+  const retainedTurns = new Set(events.flatMap((event) => event.turnId === null ? [] : [event.turnId]));
+  if (state.turn !== null) retainedTurns.add(state.turn.id);
+  const turns = Object.fromEntries(Object.entries(state.turns).filter(([id]) => retainedTurns.has(id)));
+  const next: AgentTaskState = { ...state, historyPages: pages, events, turns, pending: [], gap: false };
+  if (direction !== 'latest') return next;
+  // A fresh slice may start in the middle of a turn; its first sequence is not a missing event.
+  const observed = observeEvents(next, events);
+  return { ...observed, lastSequence: Math.max(state.lastSequence, page.latestSequence) };
+}
+
+export function historyBefore(state: AgentTaskState): string | null {
+  return state.historyPages[0]?.beforeCursor ?? null;
+}
+
+export function historyAfter(state: AgentTaskState): string | null {
+  return state.historyPages[state.historyPages.length - 1]?.afterCursor ?? null;
 }
 
 /**
@@ -282,83 +347,80 @@ export function approvalDecisions(row: Pick<ApprovalBlock, 'actionable' | 'outco
   });
 }
 
-type AgentTaskSessionBridge = Pick<Bridge, 'getAgentTask' | 'readAgentEvents' | 'subscribeAgentTask'>;
+type AgentTaskSessionBridge = Pick<Bridge, 'getAgentTask' | 'readAgentHistory' | 'subscribeAgentTask'>;
 
-/**
- * Loads a task, replays its history, then subscribes past the highest sequence replay delivered.
- *
- * Replaying before subscribing is the only ordering that cannot lose an event, because the
- * subscription resumes from what replay actually delivered rather than from a guess. `isActive`
- * exists because the screen can be closed while a request is still in flight, and a stream nobody
- * is reading has to be stopped rather than left running.
- */
+/** Opens only the latest page, then observes live events without retaining their payloads. */
 export async function startAgentTaskSession(
   bridge: AgentTaskSessionBridge,
   taskId: string,
   workspaceId: string,
   dispatch: (action: AgentTaskAction) => void,
   isActive: () => boolean = () => true,
+  isFollowing: () => boolean = () => true,
 ): Promise<() => void> {
   const noop = (): void => {};
   const task = await bridge.getAgentTask(taskId, workspaceId);
   if (!isActive()) return noop;
   dispatch({ type: 'task/loaded', task });
-
-  const replayed = await bridge.readAgentEvents(taskId, 0);
+  const page = await bridge.readAgentHistory(taskId);
   if (!isActive()) return noop;
-  dispatch({ type: 'events/applied', events: replayed });
+  dispatch({ type: 'history/loaded', page, direction: 'latest' });
   if (task.state !== 'OPEN') {
-    // The backend would only replay and close; the history just read is everything there is.
     dispatch({ type: 'connection/changed', state: 'open' });
     return noop;
   }
-
-  const after = replayed.length === 0 ? 0 : replayed[replayed.length - 1].sequence;
-  const stop = await bridge.subscribeAgentTask(taskId, after, (message) => {
-    if (!isActive()) return;
-    if (message.kind === 'events') {
-      dispatch({ type: 'events/applied', events: message.events });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let reading = false;
+  let dirty = false;
+  let stopped = false;
+  const refresh = async (): Promise<void> => {
+    timer = undefined;
+    if (stopped || !isActive() || !isFollowing() || reading) return;
+    reading = true;
+    dirty = false;
+    try {
+      const latest = await bridge.readAgentHistory(taskId);
+      if (!stopped && isActive() && isFollowing()) dispatch({ type: 'history/loaded', page: latest, direction: 'latest' });
     }
-    else {
-      dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
+    catch (failure) {
+      if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: failure instanceof Error ? failure.message : String(failure) });
     }
-  });
-  if (!isActive()) {
+    finally {
+      reading = false;
+      if (dirty && !stopped) timer = setTimeout(() => { void refresh(); }, 200);
+    }
+  };
+  const stop = await bridge.subscribeAgentTask(taskId, page.latestSequence, (message) => {
+    if (!isActive() || stopped) return;
+    if (message.kind === 'events' || message.kind === 'changed') {
+      if (message.kind === 'events') dispatch({ type: 'events/observed', events: message.events });
+      else dispatch({ type: 'live/changed', sequence: message.sequence, turnId: message.turnId });
+      dirty = true;
+      if (timer === undefined && !reading && isFollowing()) timer = setTimeout(() => { void refresh(); }, 200);
+    }
+    else dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
+  }, true);
+  const close = (): void => {
+    stopped = true;
+    if (timer !== undefined) clearTimeout(timer);
     stop();
-    return noop;
-  }
-  return stop;
+  };
+  if (!isActive()) { close(); return noop; }
+  return close;
 }
 
-/** Events a window reads per request; a longer history takes a few requests in one poll. */
-const WINDOW_EVENT_PAGE = 200;
-
-/**
- * One poll of a task window: the task, whose claim its pill reads, then every event past `after`,
- * page by page, so the window holds the same history the screen would.
- *
- * Windows poll rather than stream because main keeps one stream per renderer and task, and the
- * overview draws its windows over a screen that may already hold that task's stream.
- */
+/** Cards replace one recent page on each poll, including when the card is hidden. */
 export async function pollAgentTask(
-  bridge: Pick<Bridge, 'getAgentTask' | 'readAgentEvents'>,
+  bridge: Pick<Bridge, 'getAgentTask' | 'readAgentHistory'>,
   taskId: string,
   workspaceId: string,
-  after: number,
   dispatch: (action: AgentTaskAction) => void,
   isActive: () => boolean = () => true,
-  pageSize = WINDOW_EVENT_PAGE,
 ): Promise<void> {
-  const task = await bridge.getAgentTask(taskId, workspaceId);
+  const [task, page] = await Promise.all([bridge.getAgentTask(taskId, workspaceId), bridge.readAgentHistory(taskId)]);
   if (!isActive()) return;
   dispatch({ type: 'task/loaded', task });
-  for (let cursor = after; ;) {
-    const page = await bridge.readAgentEvents(taskId, cursor, pageSize);
-    if (!isActive() || page.length === 0) return;
-    dispatch({ type: 'events/applied', events: page });
-    if (page.length < pageSize) return;
-    cursor = page[page.length - 1].sequence;
-  }
+  dispatch({ type: 'history/loaded', page, direction: 'latest' });
 }
 
 /**
@@ -559,7 +621,7 @@ export function deliveryUncertain(turn: AgentTurnDto): boolean {
 export function unloadedTurnIds(state: AgentTaskState): string[] {
   const ids: string[] = [];
   for (const event of state.events) {
-    if (event.type === 'user_message' && event.turnId !== null && !(event.turnId in state.turns) && !ids.includes(event.turnId)) {
+    if (event.turnId !== null && !(event.turnId in state.turns) && !ids.includes(event.turnId)) {
       ids.push(event.turnId);
     }
   }

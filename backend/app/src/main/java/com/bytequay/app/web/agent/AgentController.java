@@ -85,6 +85,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -622,6 +623,30 @@ public class AgentController
         eventService.subscribe(TaskId.valueOf(taskId), after)
                 .subscribe(new AgentSseSubscriber(emitter));
         return emitter;
+    }
+
+    @GetMapping("/tasks/{taskId}/history")
+    public AgentHttpModels.HistoryResponse history(
+            @PathVariable String taskId,
+            @RequestParam(required = false) Long before,
+            @RequestParam(required = false) Long after)
+    {
+        return AgentHttpModels.history(eventService.readHistory(
+                TaskId.valueOf(taskId),
+                before == null ? OptionalLong.empty() : OptionalLong.of(before),
+                after == null ? OptionalLong.empty() : OptionalLong.of(after)));
+    }
+
+    @GetMapping("/tasks/{taskId}/pending-approvals")
+    public List<AgentHttpModels.PendingApprovalResponse> pendingApprovals(
+            @PathVariable String taskId,
+            @RequestParam String turnId)
+    {
+        AgentTurn turn = turnService.get(TurnId.valueOf(turnId));
+        checkArgument(turn.taskId().equals(TaskId.valueOf(taskId)), "Turn does not belong to this task");
+        return approvalService.listPending(turn.id()).stream()
+                .map(AgentHttpModels::pendingApproval)
+                .collect(toImmutableList());
     }
 
     @PostMapping("/approvals/{approvalId}")

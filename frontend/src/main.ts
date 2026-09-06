@@ -31,7 +31,7 @@ import {
   parseAgentTurnSettings,
   parseModelSettings,
 } from './agents/contracts';
-import { parseAgentEventSequence } from './agents/events';
+import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import { AgentSubscriptions } from './agents/subscriptions';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
@@ -487,6 +487,23 @@ function registerIpc(): void {
     // Validated in main so a payload the renderer cannot represent never reaches it.
     return parseAgentEventSequence(page, after ?? 0);
   });
+  ipcMain.handle('agent:history:read', async (_event, taskId: string, before?: string, after?: string) => {
+    const query = new URLSearchParams();
+    if (before !== undefined) query.set('before', before);
+    if (after !== undefined) query.set('after', after);
+    const page = await backendJson<unknown>(
+      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/history?${query}`,
+      { headers: agentHeaders() },
+    );
+    return parseAgentHistoryPage(page, taskId);
+  });
+  ipcMain.handle('agent:approvals:pending', async (_event, taskId: string, turnId: string) => {
+    const approvals = await backendJson<unknown>(
+      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/pending-approvals?${new URLSearchParams({ turnId })}`,
+      { headers: agentHeaders() },
+    );
+    return parseAgentPendingApprovals(approvals, taskId, turnId);
+  });
   ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
       method: 'POST',
@@ -647,8 +664,8 @@ function registerIpc(): void {
       // Stopping waits for the process tree to be verified gone, which can take a while.
       signal: AbortSignal.timeout(90_000),
     }).then((task) => parseAgentTask(task)));
-  ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number) =>
-    agentSubscriptions.start(event.sender, taskId, after));
+  ipcMain.handle('agent:stream:subscribe', (event, taskId: string, after: number, statusOnly?: boolean) =>
+    agentSubscriptions.start(event.sender, taskId, after, statusOnly === true));
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
     agentSubscriptions.stop(subscriptionId);
   });

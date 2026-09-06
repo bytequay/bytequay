@@ -49,9 +49,10 @@ export function needsAttention(task: AgentTaskDto, events: AgentEventEnvelope[])
  * it. Nothing inside the thumbnail is interactive — the thumbnail opens the task, and the footer
  * name is where a rename happens.
  */
-export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, onRename, onHide }: {
+export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, onRename, onHide, historyIncomplete = false }: {
   task: AgentTaskDto;
   events: AgentEventEnvelope[];
+  historyIncomplete?: boolean;
   providers: ModelProviderDto[];
   width: number;
   active?: boolean;
@@ -65,7 +66,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   onHide?: () => void;
 }): React.JSX.Element {
   const pill = taskStatePill(task);
-  const projectedTurns = projectTranscript(events);
+  const projectedTurns = projectTranscript(events, null, {}, !historyIncomplete);
   const turns = projectedTurns.map((turn, index) => (
     task.state !== 'OPEN' && index === projectedTurns.length - 1
       ? settleFinalTurn(turn, task.terminalAt, task.state === 'COMPLETED')
@@ -183,9 +184,8 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
 }
 
 /**
- * One task's window kept current: each tick re-reads the task, whose claim the pill shows, and the
- * events it has not shown yet. A poll still in flight when the next tick lands is dropped; what it
- * applied stays, and the next one resumes after it.
+ * Each tick replaces the card's single recent history page and reads current task facts.
+ * A superseded poll is discarded, so hidden cards never accumulate an unseen transcript.
  *
  * A hidden window keeps polling and draws nothing, so the task can ask to be shown again the
  * moment it needs the user.
@@ -206,15 +206,23 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
   onClose?: () => void;
 }): React.JSX.Element | null {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
-  const after = useRef(0);
-  after.current = state.lastSequence;
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   useEffect(() => {
     let active = true;
-    void pollAgentTask(bridge(), listed.id, listed.workspaceId, after.current, dispatch, () => active).catch(() => {});
+    void pollAgentTask(bridge(), listed.id, listed.workspaceId, dispatch, () => active).catch(() => {});
     return () => { active = false; };
   }, [bridge, listed.id, listed.workspaceId, tick]);
   const task = state.task ?? listed;
-  const attention = hidden && needsAttention(task, state.events);
+  const latestTurnId = task.mutationClaim?.kind === 'TURN' ? task.mutationClaim.ownerId : state.latestTurnId;
+  useEffect(() => {
+    let active = true;
+    if (latestTurnId === null || task.state !== 'OPEN') { setPendingApprovalCount(0); return; }
+    void bridge().readAgentPendingApprovals(task.id, latestTurnId).then((pending) => {
+      if (active) setPendingApprovalCount(pending.length);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [bridge, task.id, task.state, latestTurnId, tick]);
+  const attention = hidden && ((task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') || pendingApprovalCount > 0);
   useEffect(() => {
     if (attention) onAttention?.();
   }, [attention, onAttention]);
@@ -226,7 +234,7 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
         .catch(() => {});
     }
     : undefined;
-  return <TaskCard task={task} events={state.events} onRename={rename} onHide={onHide} {...card} />;
+  return <TaskCard task={task} events={state.events} historyIncomplete={(state.historyPages[0]?.beforeCursor ?? null) !== null} onRename={rename} onHide={onHide} {...card} />;
 }
 
 /**

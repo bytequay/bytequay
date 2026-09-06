@@ -16,10 +16,12 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
@@ -44,9 +46,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -61,6 +65,9 @@ public final class FileTaskLogStore
         implements TaskLogStore
 {
     private static final int DEFAULT_MAX_BLOB_BYTES = 10 * 1024 * 1024;
+    private static final int HISTORY_MAX_EVENTS = 200;
+    private static final int HISTORY_MAX_BYTES = AgentEventEnvelope.MAX_SERIALIZED_BYTES;
+    private static final int READ_BLOCK_BYTES = 8192;
 
     private final AgentResourceService resourceService;
     private final int maxEventBytes;
@@ -140,6 +147,64 @@ public final class FileTaskLogStore
         checkArgument(afterSequence >= 0 && limit > 0, "afterSequence must be non-negative and limit must be positive");
         synchronized (lock(taskId)) {
             return readCompleteRecords(taskId, afterSequence, limit);
+        }
+    }
+
+    @Override
+    public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(before, "before is null");
+        requireNonNull(after, "after is null");
+        if (before.isPresent() && after.isPresent()) {
+            throw new InvalidAgentRequestException("Use either before or after, not both");
+        }
+        synchronized (lock(taskId)) {
+            Path eventsFile = resourceService.require(taskId).eventsFile();
+            try (FileChannel channel = FileChannel.open(eventsFile, StandardOpenOption.READ)) {
+                long completeEnd = completeEnd(channel);
+                long cursor = before.orElse(after.orElse(completeEnd));
+                validateHistoryCursor(channel, cursor, completeEnd);
+                long latestSequence = completeEnd == 0 ? 0 : previousRecord(channel, taskId, completeEnd).envelope().sequence();
+                ArrayDeque<AgentEventEnvelope> events = new ArrayDeque<>();
+                long start = cursor;
+                long end = cursor;
+                int bytes = 0;
+                long expected = after.isPresent() && cursor > 0 ? previousRecord(channel, taskId, cursor).envelope().sequence() + 1 : 1;
+                while (events.size() < HISTORY_MAX_EVENTS && (after.isPresent() ? end < completeEnd : start > 0)) {
+                    StoredRecord record = after.isPresent() ? nextRecord(channel, taskId, end, completeEnd) : previousRecord(channel, taskId, start);
+                    if (record.byteSize() > HISTORY_MAX_BYTES) {
+                        throw new AgentStorageException("Task log record exceeds the history page size limit");
+                    }
+                    if (bytes + record.byteSize() > HISTORY_MAX_BYTES) {
+                        break;
+                    }
+                    if (after.isPresent()) {
+                        validateSequence(taskId, record.envelope(), expected++);
+                        events.addLast(record.envelope());
+                        end = record.end();
+                    }
+                    else {
+                        if (!events.isEmpty()) {
+                            validateSequence(taskId, record.envelope(), events.getFirst().sequence() - 1);
+                        }
+                        if (record.start() == 0) {
+                            validateSequence(taskId, record.envelope(), 1);
+                        }
+                        events.addFirst(record.envelope());
+                        start = record.start();
+                    }
+                    bytes += record.byteSize();
+                }
+                return new AgentHistoryPage(
+                        ImmutableList.copyOf(events),
+                        start > 0 ? OptionalLong.of(start) : OptionalLong.empty(),
+                        end < completeEnd ? OptionalLong.of(end) : OptionalLong.empty(),
+                        latestSequence);
+            }
+            catch (IOException e) {
+                throw new AgentStorageException("Cannot read task history", e);
+            }
         }
     }
 
@@ -255,8 +320,18 @@ public final class FileTaskLogStore
 
     private long readLastSequence(TaskId taskId)
     {
-        List<AgentEventEnvelope> envelopes = readCompleteRecords(taskId, 0, Integer.MAX_VALUE);
-        return envelopes.isEmpty() ? 0 : envelopes.getLast().sequence();
+        Path eventsFile = resourceService.require(taskId).eventsFile();
+        long sequence = 0;
+        try (InputStream input = new BufferedInputStream(Files.newInputStream(eventsFile))) {
+            byte[] line;
+            while ((line = readCompleteLine(input)) != null) {
+                validateSequence(taskId, deserialize(line), ++sequence);
+            }
+            return sequence;
+        }
+        catch (IOException e) {
+            throw new AgentStorageException("Cannot validate task log", e);
+        }
     }
 
     private static void rollbackAppend(Path eventsFile, long originalSize, IOException failure)
@@ -300,13 +375,24 @@ public final class FileTaskLogStore
     private static long findLastNewline(FileChannel channel, long position)
             throws IOException
     {
-        ByteBuffer byteBuffer = ByteBuffer.allocate(1);
-        for (long current = position; current >= 0; current--) {
-            byteBuffer.clear();
-            channel.read(byteBuffer, current);
-            if (byteBuffer.flip().get() == '\n') {
-                return current;
+        return findLastNewline(channel, position, 0);
+    }
+
+    private static long findLastNewline(FileChannel channel, long position, long lowerBound)
+            throws IOException
+    {
+        ByteBuffer block = ByteBuffer.allocate(READ_BLOCK_BYTES);
+        long end = position + 1;
+        while (end > lowerBound) {
+            long start = Math.max(lowerBound, end - READ_BLOCK_BYTES);
+            block.clear().limit(toIntExact(end - start));
+            readFully(channel, block, start);
+            for (int index = block.limit() - 1; index >= 0; index--) {
+                if (block.get(index) == '\n') {
+                    return start + index;
+                }
             }
+            end = start;
         }
         return -1;
     }
@@ -315,24 +401,145 @@ public final class FileTaskLogStore
     {
         Path eventsFile = resourceService.require(taskId).eventsFile();
         ImmutableList.Builder<AgentEventEnvelope> result = ImmutableList.builderWithExpectedSize(Math.min(limit, 100));
-        long expectedSequence = 1;
-        try (InputStream input = new BufferedInputStream(Files.newInputStream(eventsFile))) {
-            byte[] line;
-            while ((line = readCompleteLine(input)) != null) {
-                AgentEventEnvelope envelope = deserialize(line);
-                validateSequence(taskId, envelope, expectedSequence);
-                expectedSequence++;
-                if (envelope.sequence() > afterSequence) {
-                    result.add(envelope);
-                    if (--limit == 0) {
-                        break;
-                    }
-                }
+        try (FileChannel channel = FileChannel.open(eventsFile, StandardOpenOption.READ)) {
+            long end = completeEnd(channel);
+            long position = afterSequence == 0 ? 0 : findAfter(channel, taskId, afterSequence, limit, end);
+            long expectedSequence = afterSequence;
+            while (position < end && limit-- > 0) {
+                StoredRecord record = nextRecord(channel, taskId, position, end);
+                validateSequence(taskId, record.envelope(), ++expectedSequence);
+                result.add(record.envelope());
+                position = record.end();
             }
             return result.build();
         }
         catch (IOException e) {
             throw new AgentStorageException("Cannot read task log", e);
+        }
+    }
+
+    private long findAfter(FileChannel channel, TaskId taskId, long sequence, int limit, long end)
+            throws IOException
+    {
+        if (end == 0) {
+            return 0;
+        }
+        StoredRecord last = previousRecord(channel, taskId, end);
+        if (sequence >= last.envelope().sequence()) {
+            return end;
+        }
+        // Live subscriptions are normally at the tail; do not probe old output to deliver a new event.
+        if (last.envelope().sequence() - sequence <= limit) {
+            while (last.envelope().sequence() > sequence + 1 && last.start() > 0) {
+                StoredRecord previous = previousRecord(channel, taskId, last.start());
+                validateSequence(taskId, previous.envelope(), last.envelope().sequence() - 1);
+                last = previous;
+            }
+            return last.start();
+        }
+        long low = 0;
+        long high = end;
+        while (low < high) {
+            long middle = low + (high - low) / 2;
+            long start = recordStart(channel, middle);
+            StoredRecord record = nextRecord(channel, taskId, start, end);
+            if (record.envelope().sequence() <= sequence) {
+                low = record.end();
+            }
+            else {
+                high = start;
+            }
+        }
+        return low;
+    }
+
+    private long recordStart(FileChannel channel, long position)
+            throws IOException
+    {
+        long lowerBound = Math.max(0, position - maxEventBytes - 1L);
+        long newline = findLastNewline(channel, position - 1, lowerBound);
+        if (newline < 0 && lowerBound > 0) {
+            throw new AgentStorageException("Task log record exceeds the configured size limit");
+        }
+        return newline + 1;
+    }
+
+    private StoredRecord previousRecord(FileChannel channel, TaskId taskId, long end)
+            throws IOException
+    {
+        return record(channel, taskId, recordStart(channel, end - 1), end);
+    }
+
+    private StoredRecord nextRecord(FileChannel channel, TaskId taskId, long start, long completeEnd)
+            throws IOException
+    {
+        ByteBuffer block = ByteBuffer.allocate(READ_BLOCK_BYTES);
+        long limit = Math.min(completeEnd, start + maxEventBytes + 1L);
+        for (long position = start; position < limit; position += block.limit()) {
+            block.clear().limit(toIntExact(Math.min(READ_BLOCK_BYTES, limit - position)));
+            readFully(channel, block, position);
+            for (int index = 0; index < block.limit(); index++) {
+                if (block.get(index) == '\n') {
+                    return record(channel, taskId, start, position + index + 1);
+                }
+            }
+        }
+        throw new AgentStorageException("Task log record exceeds the configured size limit");
+    }
+
+    private StoredRecord record(FileChannel channel, TaskId taskId, long start, long end)
+            throws IOException
+    {
+        long size = end - start - 1;
+        if (size < 0 || size > maxEventBytes) {
+            throw new AgentStorageException("Task log record exceeds the configured size limit");
+        }
+        ByteBuffer bytes = ByteBuffer.allocate(toIntExact(size));
+        readFully(channel, bytes, start);
+        AgentEventEnvelope envelope = deserialize(bytes.array());
+        if (!envelope.taskId().equals(taskId)) {
+            throw new AgentStorageException("Task log sequence is corrupt");
+        }
+        return new StoredRecord(start, end, envelope);
+    }
+
+    private static long completeEnd(FileChannel channel)
+            throws IOException
+    {
+        long size = channel.size();
+        return size == 0 ? 0 : findLastNewline(channel, size - 1) + 1;
+    }
+
+    private static void validateHistoryCursor(FileChannel channel, long cursor, long completeEnd)
+            throws IOException
+    {
+        if (cursor < 0 || cursor > completeEnd) {
+            throw new InvalidAgentRequestException("History cursor is outside the complete task log");
+        }
+        if (cursor > 0) {
+            ByteBuffer preceding = ByteBuffer.allocate(1);
+            readFully(channel, preceding, cursor - 1);
+            if (preceding.get(0) != '\n') {
+                throw new InvalidAgentRequestException("History cursor is not a complete event boundary");
+            }
+        }
+    }
+
+    private static void readFully(FileChannel channel, ByteBuffer bytes, long position)
+            throws IOException
+    {
+        while (bytes.hasRemaining()) {
+            if (channel.read(bytes, position + bytes.position()) < 0) {
+                throw new IOException("Task log changed during a read");
+            }
+        }
+    }
+
+    private record StoredRecord(long start, long end, AgentEventEnvelope envelope)
+    {
+        private int byteSize()
+        {
+            return toIntExact(end - start - 1);
         }
     }
 

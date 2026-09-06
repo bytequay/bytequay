@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
@@ -57,6 +57,7 @@ import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
+import { captureHistoryAnchor, restoreHistoryAnchor, type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { Chevron } from '../Chevron';
@@ -73,6 +74,8 @@ import {
   confirmCompletion,
   createDraftSubmissionTracker,
   initialAgentTaskState,
+  historyBefore,
+  historyAfter,
   runtimeStatus,
   retryableInput,
   startAgentTaskSession,
@@ -98,6 +101,7 @@ import {
   settleFinalTurn,
   turnElapsedMs,
   turnLabel,
+  withApprovalAuthority,
   type ActivityBlock,
   type ActivityMember,
   type AgentNode,
@@ -110,6 +114,7 @@ import {
 } from './transcript';
 import type {
   AgentApprovalDecision,
+  AgentPendingApprovalDto,
   AgentCapabilitiesDto,
   AgentChildSummaryDto,
   AgentProviderStatus,
@@ -125,7 +130,7 @@ import type {
 export type PanelTab = 'agents' | 'prs';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
-export type AttachmentPreview = { status: 'loading' } | { status: 'ready'; url: string } | { status: 'unavailable' };
+export type AttachmentPreview = { status: 'notLoaded' } | { status: 'loading' } | { status: 'ready'; url: string; loadOriginal?: () => Promise<Blob> } | { status: 'unavailable' };
 
 /** A stored image as a tile: the picture when its bytes arrived, otherwise its name and state. */
 function AttachmentTile({ attachment, preview, compact = false }: {
@@ -133,19 +138,19 @@ function AttachmentTile({ attachment, preview, compact = false }: {
   preview: AttachmentPreview | undefined;
   compact?: boolean;
 }): React.JSX.Element {
-  const state = preview?.status ?? 'loading';
+  const state = preview?.status ?? 'notLoaded';
   if (state === 'ready' && preview?.status === 'ready') {
-    return <ImageAttachment url={preview.url} name={attachment.name} compact={compact} />;
+    return <ImageAttachment url={preview.url} loadOriginal={preview.loadOriginal} name={attachment.name} compact={compact} />;
   }
   if (compact) {
     return <span className={`agt-image-placeholder is-${state}`} role="img" aria-label={`${attachment.name}: ${state}`}>
       <Image aria-hidden="true" />
-      <span>{state === 'unavailable' ? 'Unavailable' : 'Loading…'}</span>
+      <span>{state === 'unavailable' ? 'Unavailable' : state === 'notLoaded' ? 'Preview not loaded' : 'Loading…'}</span>
     </span>;
   }
   return (
     <span className={`agt-file is-${state}`} title={attachment.mediaType}>
-      {attachment.name}{state === 'unavailable' ? ' · unavailable' : ''}
+      {attachment.name}{state === 'unavailable' ? ' · unavailable' : state === 'notLoaded' ? ' · preview not loaded' : ''}
     </span>
   );
 }
@@ -390,6 +395,16 @@ const OUTCOME_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelled',
 };
 
+function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock {
+  return {
+    kind: 'approval', id: approval.approvalId, approvalId: approval.approvalId,
+    title: approval.title, detail: approval.detail, approvalKind: approval.approvalKind,
+    scope: approval.scope, agent: approval.source.logicalAgentPath ?? 'agent',
+    decisions: approval.availableDecisions, actionable: approval.actionable,
+    outcome: null, forTask: false, at: approval.occurredAt,
+  };
+}
+
 function ApprovalView({ block, onDecide }: {
   block: ApprovalBlock;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
@@ -521,7 +536,7 @@ function TurnFooter({ turn, durable, models }: {
   durable: AgentTurnDto | undefined;
   models: ModelOptionDto[];
 }): React.JSX.Element {
-  const parts = [`Turn ${turn.ordinal}`];
+  const parts = [turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'];
   const elapsed = turnElapsedMs(turn, 0);
   if (elapsed !== null) parts.push(formatDuration(elapsed));
   if (durable?.settings) {
@@ -562,11 +577,11 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   return (
-    <section className="agt-turn" aria-label={`Turn ${turn.ordinal}`}>
+    <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
-          <div className="agt-user">
+          <div className="agt-user" data-history-anchor={user.id}>
             <div className="agt-user__bubble">
               {user.attachments.length > 0 && (
                 <div className="agt-user__files">
@@ -594,18 +609,17 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         </button>
       )}
       {open && turn.blocks.map((block) => (
-        <BlockView
-          key={block.id}
+        <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
           activityChoice={activityChoice}
           agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}
           onDecide={onDecide}
           onOpenAgent={onOpenAgent}
-        />
+        /></div>
       ))}
       {turn.answer !== null && (
-        <div className="agt-answer">{renderMarkdown(turn.answer.text)}{!turn.answer.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
+        <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>{renderMarkdown(turn.answer.text)}{!turn.answer.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
       )}
       {turn.endedAt !== null && <TurnFooter turn={turn} durable={turn.turnId === null ? undefined : durableTurns[turn.turnId]} models={models} />}
     </section>
@@ -996,7 +1010,7 @@ function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean;
 
 /** How long an agent worked, live while it runs and fixed once it ends. */
 function agentElapsed(agent: AgentNode, now: number): string | null {
-  if (agent.startedAt === null) return null;
+  if (agent.startedAt === null || agent.status === 'unknown') return null;
   const end = agent.endedAt === null ? now : Date.parse(agent.endedAt);
   return formatDuration(Math.max(0, end - Date.parse(agent.startedAt)));
 }
@@ -1010,6 +1024,7 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
         {agent.purpose !== null && <span className="agt-panel__purpose">{agent.purpose}</span>}
       </span>
       {agent.status === 'running' ? <Spinner /> : <span className="agt-spacer" />}
+      {agent.status === 'unknown' && <span className="agt-chip">historical activity</span>}
       {agent.status === 'failed' && <span className="agt-chip is-warn">failed</span>}
       <span className="agt-mono agt-muted">{agentElapsed(agent, now) ?? ''}</span>
       <Chevron />
@@ -1127,9 +1142,12 @@ function PullRequestRows({ pullRequests, onOpen }: {
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
-  width, showAgents, logChoice = null, onToggleLog = () => {},
+  width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
+  historyUnloaded?: boolean;
+  historyLoading?: boolean;
+  onLoadEarlier?: () => void;
   openAgent: string | null;
   expiredChildren: AgentChildSummaryDto[];
   deleteAfter: string | null;
@@ -1173,7 +1191,7 @@ function SidePanel({
     const parentLabel = parent === null ? 'root agent' : labels[parent] ?? 'root agent';
     const endedAt = agent?.endedAt ?? expired?.endedAt ?? null;
     const startedAt = agent?.startedAt ?? expired?.startedAt ?? null;
-    const worked = startedAt === null ? null : formatDuration(Math.max(0, (endedAt === null ? now : Date.parse(endedAt)) - Date.parse(startedAt)));
+    const worked = startedAt === null || agent?.status === 'unknown' ? null : formatDuration(Math.max(0, (endedAt === null ? now : Date.parse(endedAt)) - Date.parse(startedAt)));
     const running = agent?.status === 'running';
     // A live agent's log is what the user came to watch; a finished one folds to its result.
     const logOpen = logChoice === openAgent ? true : logChoice === `!${openAgent}` ? false : running;
@@ -1188,7 +1206,7 @@ function SidePanel({
             : (
               <span className={`agt-panel__outcome${agent?.status === 'failed' ? ' is-failed' : agent === undefined ? ' is-expired' : ' is-done'}`}>
                 {agent?.status === 'failed' ? <CircleX aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}
-                <span>{agent?.status === 'failed' ? 'Failed' : agent === undefined ? `Done${endedAt === null ? '' : ` · ${shortDate(endedAt)}`}` : 'Done'}</span>
+                <span>{agent?.status === 'unknown' ? 'Historical activity' : agent?.status === 'failed' ? 'Failed' : agent === undefined ? `Done${endedAt === null ? '' : ` · ${shortDate(endedAt)}`}` : 'Done'}</span>
               </span>
             )}
         </div>
@@ -1206,12 +1224,12 @@ function SidePanel({
         )}
         {blocks.length === 0 && (
           <div className="agt-panel__expired">
-            <div className="agt-panel__expired-title">Activity expired</div>
-            <div className="agt-panel__expired-body">
+            <div className="agt-panel__expired-title">{historyUnloaded ? 'Activity is not loaded' : 'Activity expired'}</div>
+            {historyUnloaded ? <button type="button" className="agt-action" disabled={historyLoading} onClick={onLoadEarlier}>Load earlier activity</button> : <div className="agt-panel__expired-body">
               {deleteAfter === null
                 ? 'Detailed steps were removed at the end of the retention window. The result is kept.'
                 : `Detailed steps were removed on ${shortDate(deleteAfter, true)} at the end of the retention window. The result is kept.`}
-            </div>
+            </div>}
           </div>
         )}
         {logOpen && blocks.length > 0 && (
@@ -1253,14 +1271,15 @@ function SidePanel({
   }
   return (
     <PanelFrame label="Subagents" tabs={tabs} width={width}>
-      <div className="agt-label agt-panel__section">Active · {active.length}</div>
+      {historyUnloaded && <div className="agt-note">Showing subagents in loaded activity. Earlier or newer pages may contain others.</div>}
+      <div className="agt-label agt-panel__section">{historyUnloaded ? 'Active in this window' : 'Active'} · {active.length}</div>
       {active.length === 0
-        ? <div className="agt-muted agt-panel__empty">No active subagents</div>
+        ? <div className="agt-muted agt-panel__empty">{historyUnloaded ? 'No active subagents in loaded activity' : 'No active subagents'}</div>
         : active.map((agent) => (
           <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
         ))}
       {(done.length > 0 || expiredChildren.length > 0) && (
-        <div className="agt-label agt-panel__section">Done · {done.length + expiredChildren.length}</div>
+        <div className="agt-label agt-panel__section">{done.some((agent) => agent.status === 'unknown') ? 'Earlier activity' : 'Done'} · {done.length + expiredChildren.length}</div>
       )}
       {done.map((agent) => (
         <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
@@ -1275,7 +1294,7 @@ function SidePanel({
         >
           <AgentMark name={child.label} muted />
           <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
-          <span className="agt-chip">expired</span>
+          <span className="agt-chip">{historyUnloaded ? 'not loaded' : 'expired'}</span>
           <span className="agt-spacer" />
           {child.endedAt !== null && <span className="agt-mono">{shortDate(child.endedAt)}</span>}
           <Chevron />
@@ -1329,9 +1348,17 @@ export function AgentTaskBody({
   onRemoveQueued = () => {},
   onResumeQueue = () => {},
   onCleanup = () => {},
+  historyLoading = false,
+  onLoadHistory = () => {},
+  onFollowHistory = () => {},
+  pendingApprovals = null,
 }: {
   state: AgentTaskState;
   models: ModelOptionDto[];
+  historyLoading?: boolean;
+  onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
+  onFollowHistory?: (following: boolean) => void;
+  pendingApprovals?: AgentPendingApprovalDto[] | null;
   /** The lane's label, as the heading of its model list. */
   provider?: string;
   /** Fresh status for the immutable task lane, used only by typed authentication recovery. */
@@ -1397,20 +1424,59 @@ export function AgentTaskBody({
   // Stuck to the bottom like a terminal until the user scrolls up, and stuck again once they return;
   // a task with no events yet is a fresh one, so it starts stuck.
   const follow = useRef(true);
-  useEffect(() => {
-    if (state.events.length === 0) follow.current = true;
-    const transcript = transcriptRef.current;
-    if (transcript !== null && follow.current) transcript.scrollTop = transcript.scrollHeight;
-  });
-  const projectedTurns = projectTranscript(state.events);
+  const [following, setFollowing] = useState(true);
+  const inspectedOpenTurns = useRef(new Set<string>());
+  const scrollIntent = useRef(0);
+  const previousScrollTop = useRef(0);
+  const anchor = useRef<HistoryScrollAnchor | null>(null);
+  const before = historyBefore(state);
+  const after = historyAfter(state);
+  const loadHistory = (direction: 'older' | 'newer' | 'latest'): void => {
+    if (historyLoading) return;
+    scrollIntent.current = 0;
+    const container = transcriptRef.current;
+    changeFollowing(direction === 'latest');
+    if (container !== null && direction !== 'latest') {
+      anchor.current = captureHistoryAnchor(container);
+    }
+    else anchor.current = null;
+    onLoadHistory(direction);
+  };
+  useLayoutEffect(() => {
+    const container = transcriptRef.current;
+    if (container === null) return;
+    if (anchor.current !== null) {
+      restoreHistoryAnchor(container, anchor.current);
+      anchor.current = null;
+    }
+    else if (follow.current) container.scrollTop = container.scrollHeight;
+  }, [state.events]);
+  const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
+  const project = (threadId: string | null): TranscriptTurn[] => {
+    const projected = projectTranscript(state.events, threadId, state.turns, before === null);
+    return state.historyPages.length > 0 ? withApprovalAuthority(projected, pendingIds) : projected;
+  };
+  const projectedTurns = project(null);
   const terminalTask = state.task !== null && state.task.state !== 'OPEN';
   const turns = projectedTurns.map((turn, index) => (
     terminalTask && index === projectedTurns.length - 1
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
+  const retainedTurnIds = new Set(turns.map((turn) => turn.turnId ?? `turn-${turn.ordinal}`));
+  for (const id of inspectedOpenTurns.current) if (!retainedTurnIds.has(id)) inspectedOpenTurns.current.delete(id);
+  const changeFollowing = (next: boolean): void => {
+    if (next) inspectedOpenTurns.current.clear();
+    else for (const turn of turns) {
+      const id = turn.turnId ?? `turn-${turn.ordinal}`;
+      if (turn.endedAt === null && (turnChoice[id] ?? true)) inspectedOpenTurns.current.add(id);
+    }
+    follow.current = next;
+    setFollowing(next);
+    onFollowHistory(next);
+  };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
-  const agents = supportsNestedAgents ? projectAgents(state.events) : [];
+  const agents = supportsNestedAgents ? projectAgents(state.events, state.historyPages.length === 0 ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null, after === null) : [];
   const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const working = activeAgents(agents);
   // A child the summary names but the events no longer hold: its steps were cleaned up.
@@ -1420,12 +1486,14 @@ export function AgentTaskBody({
   const visiblePanelTab: PanelTab = supportsNestedAgents ? panelTab : 'prs';
   const status = runtimeStatus(state);
   const terminal = status === 'completed' || status === 'failed';
-  const waiting = turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
+  const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
+    : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
   const statusLabel = status === 'running' && waiting ? 'Needs approval' : STATUS_LABELS[status];
   const statusText = state.turn === null
     ? STATUS_LABELS[status]
     : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
-  const plan = status === 'running' && state.capabilities?.structuredPlans === true ? currentPlan(turns) : null;
+  const plan = status === 'running' && after === null && state.capabilities?.structuredPlans === true
+    ? currentPlan(state.historyPages.length === 0 ? turns : turns.filter((turn) => turn.turnId === state.turn?.id)) : null;
   const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model, state.capabilities);
   const activeImagesAccepted = acceptsImages(models, state.turn?.settings?.model, state.capabilities);
   const imagesAccepted = status === 'running'
@@ -1525,11 +1593,33 @@ export function AgentTaskBody({
         role="log"
         aria-label="Task transcript"
         ref={transcriptRef}
+        onWheel={(event) => {
+          scrollIntent.current = Math.sign(event.deltaY);
+          if (event.deltaY < 0 && event.currentTarget.scrollTop < 80 && before !== null) loadHistory('older');
+        }}
+        onPointerDown={() => { scrollIntent.current = 2; }}
+        onPointerUp={() => { scrollIntent.current = 0; }}
+        onKeyDown={(event) => { scrollIntent.current = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ? -1 : 1; }}
         onScroll={(event) => {
           const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
-          follow.current = scrollHeight - scrollTop - clientHeight <= 32;
+          const atBottom = scrollHeight - scrollTop - clientHeight <= 32;
+          changeFollowing(atBottom && after === null);
+          const intent = scrollIntent.current === 2 ? Math.sign(scrollTop - previousScrollTop.current) : scrollIntent.current;
+          previousScrollTop.current = scrollTop;
+          if (scrollIntent.current !== 2) scrollIntent.current = 0;
+          if (intent < 0 && scrollTop < 80 && before !== null && !historyLoading) loadHistory('older');
+          else if (intent > 0 && atBottom && after !== null && !historyLoading) loadHistory('newer');
         }}
       >
+        {before !== null && <div className="agt-history-edge">
+          <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('older')}>
+            {historyLoading ? 'Loading history…' : 'Load earlier activity'}
+          </button>
+          <span>Earlier content is not loaded. A message or turn may continue from the previous page.</span>
+        </div>}
+        {(pendingApprovals ?? []).filter((approval) => !turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.approvalId === approval.approvalId))).map((approval) => (
+          <ApprovalView key={approval.approvalId} block={pendingApprovalBlock(approval)} onDecide={onDecide} />
+        ))}
         {turns.length === 0 && state.connection === 'connecting' && (
           <div className="agt-skeleton">
             <div className="agt-skeleton__note">Connecting — loading task history…</div>
@@ -1542,7 +1632,7 @@ export function AgentTaskBody({
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
             // A turn shows its log while it runs and folds it when it ends; the user's choice outlasts both.
-            const open = turnChoice[id] ?? turn.endedAt === null;
+            const open = turnChoice[id] ?? (turn.endedAt === null || (!following && inspectedOpenTurns.current.has(id)));
             return (
               <TurnView
                 key={id}
@@ -1562,6 +1652,10 @@ export function AgentTaskBody({
               />
             );
           })}
+        {(after !== null || (!follow.current && state.lastSequence > (state.events.at(-1)?.sequence ?? 0))) && <div className="agt-history-edge">
+          {after !== null && <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('newer')}>Load newer activity</button>}
+          <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('latest')}>Jump to latest</button>
+        </div>}
         {working.length > 0 && (
           <div className="agt-barrier">
             {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
@@ -1744,7 +1838,10 @@ export function AgentTaskBody({
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
             deleteAfter={state.task.deleteAfter}
-            transcript={!supportsNestedAgents || openAgent === null ? [] : projectTranscript(state.events, openAgent)}
+            transcript={!supportsNestedAgents || openAgent === null ? [] : project(openAgent)}
+            historyUnloaded={before !== null || after !== null}
+            onLoadEarlier={() => loadHistory('older')}
+            historyLoading={historyLoading}
             now={now}
             tab={visiblePanelTab}
             pullRequests={pullRequests}
@@ -1858,12 +1955,18 @@ export default function AgentTaskScreen({
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [now, setNow] = useState(() => Date.now());
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyLoadingRef = useRef(false);
+  const followingHistory = useRef(true);
+  const [pendingApprovals, setPendingApprovals] = useState<AgentPendingApprovalDto[] | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
   // screen goes away or a draft is dropped, never left for the garbage collector to find.
   const [previews, setPreviews] = useState<Record<string, AttachmentPreview>>({});
   const previewsRef = useRef<Record<string, AttachmentPreview>>({});
+  const ownedPreviewUrls = useRef(new Set<string>());
+  const previewWork = useRef<Promise<void>>(Promise.resolve());
   previewsRef.current = previews;
   const running = runtimeStatus(state) === 'running';
   // The clock only ticks while a turn runs; a finished turn's elapsed time is fixed by its events.
@@ -1929,7 +2032,7 @@ export default function AgentTaskScreen({
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
     let active = true;
-    const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active);
+    const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active, () => followingHistory.current);
     session.catch((failure: unknown) => {
       if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
     });
@@ -1938,6 +2041,28 @@ export default function AgentTaskScreen({
       void session.then((stop) => stop(), () => {});
     };
   }, [live, taskId, workspaceId]);
+
+  const loadHistory = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
+    if (historyLoadingRef.current) return;
+    const current = stateRef.current;
+    const before = direction === 'older' ? historyBefore(current) : null;
+    const after = direction === 'newer' ? historyAfter(current) : null;
+    if ((direction === 'older' && before === null) || (direction === 'newer' && after === null)) return;
+    historyLoadingRef.current = true;
+    setHistoryLoading(true);
+    followingHistory.current = direction === 'latest';
+    try {
+      const page = await live().readAgentHistory(taskId, before ?? undefined, after ?? undefined);
+      if (mountedRef.current) dispatch({ type: 'history/loaded', page, direction });
+    }
+    catch (failure) {
+      if (mountedRef.current) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+    }
+    finally {
+      historyLoadingRef.current = false;
+      if (mountedRef.current) setHistoryLoading(false);
+    }
+  }, [live, taskId]);
 
   const authenticationTurnId = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED'
     ? state.turn.id
@@ -1997,13 +2122,26 @@ export default function AgentTaskScreen({
 
   // Every lifecycle event changes durable task or turn facts the events themselves do not carry
   // (the claim, the terminal state), so each one triggers a re-read of both.
-  const { lifecycleEpoch, latestTurnId } = state;
+  const { lifecycleEpoch } = state;
+  const latestTurnId = state.task?.mutationClaim?.kind === 'TURN' ? state.task.mutationClaim.ownerId : state.latestTurnId;
   useEffect(() => {
-    if (lifecycleEpoch === 0) return;
+    if (latestTurnId === null && lifecycleEpoch === 0) return;
     void refreshProjection(latestTurnId).catch((failure: unknown) => {
       if (mountedRef.current) dispatch({ type: 'notice/changed', notice: failureText(failure) });
     });
   }, [refreshProjection, lifecycleEpoch, latestTurnId]);
+
+  useEffect(() => {
+    let active = true;
+    setPendingApprovals(null);
+    if (latestTurnId === null) return;
+    void live().readAgentPendingApprovals(taskId, latestTurnId).then((approvals) => {
+      if (active) setPendingApprovals(approvals);
+    }).catch((failure: unknown) => {
+      if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+    });
+    return () => { active = false; };
+  }, [live, taskId, latestTurnId, lifecycleEpoch]);
 
   // The branch is derived from the task, so this is only a lookup; it is repeated while the tab is
   // showing whenever something about the task changed.
@@ -2265,7 +2403,10 @@ export default function AgentTaskScreen({
     );
     dispatch({ type: 'attachments/removed', attachmentId });
     const preview = previewsRef.current[attachmentId];
-    if (preview?.status === 'ready') URL.revokeObjectURL(preview.url);
+    if (preview?.status === 'ready') {
+      URL.revokeObjectURL(preview.url);
+      ownedPreviewUrls.current.delete(preview.url);
+    }
     setPreviews((current) => {
       const next = { ...current };
       delete next[attachmentId];
@@ -2274,38 +2415,71 @@ export default function AgentTaskScreen({
     await live().removeAgentAttachment(taskId, workspaceId, attachmentId);
   }), [live, run, submissions, taskId, workspaceId]);
 
-  // Every stored image the screen shows, drafts and sent messages alike, is read once by reference.
-  const wanted = [
+  // Keep only previews for the visible history window and drafts, with a fixed image count cap.
+  const retainedImageIds = [...new Set([
+    ...state.events.flatMap((event) => event.type === 'user_message' ? event.payload.attachments.map((attachment) => attachment.id) : []),
     ...state.attachments.map((attachment) => attachment.id),
-    ...state.events.flatMap((event) => (event.type === 'user_message' ? event.payload.attachments.map((attachment) => attachment.id) : [])),
-  ].filter((id, index, ids) => ids.indexOf(id) === index && previews[id] === undefined).join(',');
+  ])].slice(-16).join(',');
   useEffect(() => {
-    if (wanted === '') return;
     let active = true;
-    const ids = wanted.split(',');
-    setPreviews((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, { status: 'loading' as const }])) }));
-    for (const id of ids) {
-      void live().readAgentAttachment(taskId, workspaceId, id).then(
-        (image) => {
-          const url = URL.createObjectURL(new Blob([image.bytes as BlobPart], { type: image.mediaType }));
-          if (!active) {
-            URL.revokeObjectURL(url);
-            return;
-          }
-          setPreviews((current) => ({ ...current, [id]: { status: 'ready', url } }));
-        },
-        () => {
-          if (active) setPreviews((current) => ({ ...current, [id]: { status: 'unavailable' } }));
-        },
-      );
+    const ids = retainedImageIds === '' ? [] : retainedImageIds.split(',');
+    const retained = new Set(ids);
+    const current = previewsRef.current;
+    for (const [id, preview] of Object.entries(current)) {
+      if (!retained.has(id) && preview.status === 'ready') {
+        URL.revokeObjectURL(preview.url);
+        ownedPreviewUrls.current.delete(preview.url);
+      }
+    }
+    const needed = ids.filter((id) => current[id] === undefined || current[id].status === 'loading');
+    setPreviews(Object.fromEntries(ids.map((id) => [id, current[id] ?? { status: 'loading' as const }])));
+    for (const id of needed) {
+      // Decode one source image at a time; only 512px thumbnails remain in the renderer.
+      previewWork.current = previewWork.current.then(async () => {
+        if (!active) return;
+        const image = await live().readAgentAttachment(taskId, workspaceId, id);
+        if (!active) return;
+        const bitmap = await createImageBitmap(new Blob([image.bytes as BlobPart], { type: image.mediaType }));
+        try {
+          if (!active) return;
+          const scale = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+          const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
+          const context = canvas.getContext('2d');
+          if (context === null) throw new Error('Image preview is unavailable');
+          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          const thumbnail = await canvas.convertToBlob({ type: 'image/png' });
+          if (!active) return;
+          const url = URL.createObjectURL(thumbnail);
+          // Own the URL before React commits state, so an intervening unmount still releases it.
+          ownedPreviewUrls.current.add(url);
+          const loadOriginal = async (): Promise<Blob> => {
+            const original = await live().readAgentAttachment(taskId, workspaceId, id);
+            return new Blob([original.bytes as BlobPart], { type: original.mediaType });
+          };
+          setPreviews((loaded) => ({ ...loaded, [id]: { status: 'ready', url, loadOriginal } }));
+        }
+        finally { bitmap.close(); }
+      }).catch(() => {
+        if (active) setPreviews((loaded) => ({ ...loaded, [id]: { status: 'unavailable' } }));
+      });
     }
     return () => { active = false; };
-  }, [live, taskId, workspaceId, wanted]);
+  }, [live, taskId, workspaceId, retainedImageIds]);
 
-  useEffect(() => () => {
-    for (const preview of Object.values(previewsRef.current)) {
-      if (preview.status === 'ready') URL.revokeObjectURL(preview.url);
-    }
+  useEffect(() => {
+    const turns = projectTranscript(state.events);
+    const turnIds = new Set(turns.map((turn) => turn.turnId ?? `turn-${turn.ordinal}`));
+    const blockIds = new Set(state.events.map((event) => event.eventId));
+    setTurnChoice((choices) => Object.fromEntries(Object.entries(choices).filter(([id]) => turnIds.has(id))));
+    setActivityChoice((choices) => Object.fromEntries(Object.entries(choices).filter(([id]) => blockIds.has(id))));
+  }, [state.events]);
+
+  useEffect(() => {
+    const urls = ownedPreviewUrls.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
   }, []);
 
   const cancel = useCallback(() => run(async () => {
@@ -2387,6 +2561,14 @@ export default function AgentTaskScreen({
   return (
     <AgentTaskBody
       state={state}
+      historyLoading={historyLoading}
+      onLoadHistory={(direction) => { void loadHistory(direction); }}
+      onFollowHistory={(following) => {
+        const resumed = following && !followingHistory.current;
+        followingHistory.current = following;
+        if (resumed && stateRef.current.lastSequence > (stateRef.current.events.at(-1)?.sequence ?? 0)) void loadHistory('latest');
+      }}
+      pendingApprovals={pendingApprovals}
       models={models}
       provider={provider}
       providerStatus={providerStatus}

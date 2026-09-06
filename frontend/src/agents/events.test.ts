@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
-import { parseAgentEventSequence } from './events';
+import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './events';
 
 describe('agent event contract', () => {
   it('freezes the workspace-safe task-create request', () => {
@@ -139,5 +139,74 @@ describe('agent event contract', () => {
 
     expect(() => parseAgentEventSequence(mixed)).toThrow(
       'Mixed taskId: expected 11111111-1111-4111-8111-111111111111, received 33333333-3333-4333-8333-333333333333');
+  });
+});
+
+describe('bounded history contract', () => {
+  const taskId = fixture.events[0].taskId;
+  const page = () => ({
+    events: structuredClone(fixture.events.slice(8)),
+    beforeCursor: '4294967296',
+    afterCursor: null as string | null,
+    latestSequence: 14,
+  });
+
+  it('accepts a partial history window and preserves a large byte cursor exactly', () => {
+    const parsed = parseAgentHistoryPage(page(), taskId);
+    expect(parsed.events[0].sequence).toBe(9);
+    expect(parsed.beforeCursor).toBe('4294967296');
+    expect(parsed.latestSequence).toBe(14);
+    expect(parseAgentHistoryPage({ ...page(), events: [], beforeCursor: null }, taskId).events).toEqual([]);
+  });
+
+  it('rejects gaps, foreign history, and a watermark behind the page', () => {
+    const gap = page();
+    gap.events.splice(2, 1);
+    expect(() => parseAgentHistoryPage(gap, taskId)).toThrow('Event sequence gap');
+    expect(() => parseAgentHistoryPage(page(), 'another-task')).toThrow('another task');
+    expect(() => parseAgentHistoryPage({ ...page(), latestSequence: 13 }, taskId)).toThrow('watermark');
+  });
+
+  it.each(['-1', '1.5', '01', '9223372036854775808'])('rejects invalid byte cursor %s', (beforeCursor) => {
+    expect(() => parseAgentHistoryPage({ ...page(), beforeCursor }, taskId)).toThrow('cursor');
+  });
+
+  it('enforces both the event count and serialized byte budget', () => {
+    expect(() => parseAgentHistoryPage({ ...page(), events: Array(201).fill(fixture.events[0]) }, taskId))
+      .toThrow('count or byte limit');
+    const oversized = structuredClone(fixture.events[0]);
+    oversized.payload.text = '界'.repeat(4 * 1024 * 1024);
+    expect(() => parseAgentHistoryPage({ ...page(), events: [oversized] }, taskId))
+      .toThrow('count or byte limit');
+  });
+
+  it.each([
+    { count: 50_000, storedAction: { kind: 'READ', path: null, query: null }, kind: 'READ' },
+    { count: 190_000, storedAction: { kind: 1 }, kind: 'LIST_FILES' },
+  ])('accepts bounded legacy normalization for $count actions', ({ count, storedAction, kind }) => {
+    const stored = {
+      ...fixture.events[4],
+      payload: { ...fixture.events[4].payload, actions: Array(count).fill(storedAction) },
+    };
+    const normalized = {
+      ...stored,
+      payload: { ...stored.payload, actions: Array(count).fill({ kind, name: null, path: null, query: null }) },
+    };
+    const bytes = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    expect(bytes(stored)).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(bytes(normalized)).toBeGreaterThan(2 * 1024 * 1024);
+    expect(bytes(normalized)).toBeLessThan(12 * 1024 * 1024);
+    const parsed = parseAgentHistoryPage({ ...page(), events: [normalized] }, taskId).events[0];
+    expect(parsed.type === 'command' && parsed.payload.actions.length).toBe(count);
+  });
+
+  it('reads pending approvals separately and rejects approvals belonging to another turn', () => {
+    const event = fixture.events[7];
+    if (event.turnId === null) throw new Error('The approval fixture must belong to a turn');
+    const approval = { ...event.payload, taskId, turnId: event.turnId, source: event.source, occurredAt: event.occurredAt };
+    expect(parseAgentPendingApprovals([approval], taskId, event.turnId)[0].approvalId).toBe(event.payload.approvalId);
+    expect(() => parseAgentPendingApprovals([approval], taskId, 'another-turn')).toThrow('another task or turn');
+    expect(() => parseAgentPendingApprovals([{ ...approval, actionable: 'yes' }], taskId, event.turnId))
+      .toThrow('actionable');
   });
 });

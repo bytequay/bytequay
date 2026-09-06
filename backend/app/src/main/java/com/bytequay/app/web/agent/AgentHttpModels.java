@@ -16,17 +16,24 @@ package com.bytequay.app.web.agent;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.ApprovalDecision;
+import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentHttpModels
 {
@@ -55,6 +62,31 @@ final class AgentHttpModels
                 decision.forTask(),
                 decision.resolvedAt(),
                 decision.timedOut());
+    }
+
+    static HistoryResponse history(AgentHistoryPage page)
+    {
+        return new HistoryResponse(
+                page.events().stream().map(AgentHttpModels::event).collect(toImmutableList()),
+                page.beforeCursor().isPresent() ? Optional.of(Long.toString(page.beforeCursor().getAsLong())) : Optional.empty(),
+                page.afterCursor().isPresent() ? Optional.of(Long.toString(page.afterCursor().getAsLong())) : Optional.empty(),
+                page.latestSequence());
+    }
+
+    static PendingApprovalResponse pendingApproval(ApprovalRequest request)
+    {
+        ProviderApprovalRequest provider = request.providerRequest();
+        ProviderAgentEventSource source = provider.source();
+        return new PendingApprovalResponse(
+                request.id().toString(), request.taskId().toString(), request.turnId().toString(),
+                new AgentEventSource(source.providerThreadId(), source.parentProviderThreadId(), source.logicalAgentPath(),
+                        source.providerTurnId(), source.providerItemId(), Optional.empty(), Optional.of(provider.requestedAt())),
+                request.requestedAt(), provider.title(), provider.detail(),
+                switch (provider.kind()) {
+                    case COMMAND, FILE_CHANGE -> provider.kind().name();
+                    case TOOL, OTHER -> "OTHER";
+                },
+                provider.requestedPermissions(), provider.availableDecisions().stream().map(Enum::name).collect(toImmutableList()), true);
     }
 
     static ProviderStatusResponse providerStatus(AgentProviderStatus status)
@@ -122,6 +154,12 @@ final class AgentHttpModels
             boolean forTask,
             Instant resolvedAt,
             boolean timedOut) {}
+
+    record HistoryResponse(List<EventResponse> events, Optional<String> beforeCursor, Optional<String> afterCursor, long latestSequence) {}
+
+    record PendingApprovalResponse(
+            String approvalId, String taskId, String turnId, AgentEventSource source, Instant occurredAt,
+            String title, String detail, String approvalKind, List<String> scope, List<String> availableDecisions, boolean actionable) {}
 
     record ProviderStatusResponse(
             String laneId,

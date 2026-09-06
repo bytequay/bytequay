@@ -34,7 +34,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderUsageSample;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.math.BigDecimal;
@@ -51,7 +50,7 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentMetricsService
         implements AgentMetricsService
 {
-    private static final int EVENT_PAGE_SIZE = 500;
+    private static final int EVENT_PAGE_SIZE = 8;
     private static final String CODEGRAPH_TOOL = "codegraph_explore";
     private static final Set<String> CLAUDE_EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS");
     private static final Set<AgentEventPayload.CommandActionKind> EXPLORE_ACTIONS =
@@ -130,7 +129,7 @@ public final class DefaultAgentMetricsService
                 current.cost(),
                 current.costProvenance(),
                 elapsed,
-                foldCounters(readEvents(turn.taskId()), turnId));
+                readCounters(turn.taskId(), turnId));
         AgentTurn stored = turnStore.update(turn.withMetrics(finished));
         persistTaskTotals(turn.taskId());
         return stored.metrics();
@@ -275,16 +274,16 @@ public final class DefaultAgentMetricsService
         return state == AgentEventPayload.ActivityState.COMPLETED || state == AgentEventPayload.ActivityState.FAILED;
     }
 
-    private List<AgentEventEnvelope> readEvents(TaskId taskId)
+    private ToolCounters readCounters(TaskId taskId, TurnId turnId)
     {
-        ImmutableList.Builder<AgentEventEnvelope> events = ImmutableList.builder();
+        ToolCounters counters = ToolCounters.ZERO;
         long after = 0;
         while (true) {
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, after, EVENT_PAGE_SIZE);
             if (page.isEmpty()) {
-                return events.build();
+                return counters;
             }
-            events.addAll(page);
+            counters = counters.plus(foldCounters(page, turnId));
             after = page.getLast().sequence();
         }
     }

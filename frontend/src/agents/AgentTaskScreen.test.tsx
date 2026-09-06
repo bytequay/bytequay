@@ -1070,7 +1070,10 @@ describe('agent task detail', () => {
     expect(providerWithoutImages).toMatch(/<button[^>]*class="agt-attach"[^>]*disabled/);
 
     const attachment = { id: 'att-1', name: 'stack-trace.png', mediaType: 'image/png', byteSize: 212 * 1024, width: 800, height: 600 };
-    const loading = body({ task: vision, connection: 'open', attachments: [attachment] });
+    const loading = body({ task: vision, connection: 'open', attachments: [attachment] }, {}, {}, { 'att-1': { status: 'loading' } });
+    const omitted = body({ task: vision, connection: 'open', attachments: [attachment] });
+    expect(omitted).toContain('Preview not loaded');
+    expect(omitted).not.toContain('Loading…');
     expect(loading).toContain('aria-label="stack-trace.png: loading"');
     expect(loading).toContain('Loading…');
     expect(loading.replace(/<[^>]*>/g, '')).not.toContain('stack-trace.png');

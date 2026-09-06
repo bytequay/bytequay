@@ -35,6 +35,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -199,6 +200,20 @@ public final class DefaultAgentApprovalService
     {
         requireNonNull(turnId, "turnId is null");
         deny(approvalStore.listPending(turnId));
+    }
+
+    @Override
+    public List<ApprovalRequest> listPending(TurnId turnId)
+    {
+        requireNonNull(turnId, "turnId is null");
+        if (turnStore.find(turnId)
+                .filter(turn -> turn.state().active() && turn.cancellationRequestedAt().isEmpty())
+                .isEmpty()) {
+            return ImmutableList.of();
+        }
+        return approvalStore.listPending(turnId).stream()
+                .map(AgentApproval::request)
+                .collect(toImmutableList());
     }
 
     @Override

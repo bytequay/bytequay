@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.BlobRef;
@@ -45,7 +46,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -118,6 +124,184 @@ class TestDefaultAgentEventService
         assertThat(subscriber.events()).containsExactly(replay);
         subscriber.request(1);
         assertThat(subscriber.events()).containsExactly(replay, live);
+    }
+
+    @Test
+    void readsReplayOnlyOnDemandInBoundedPagesWhileLiveEventsAccumulateOnDisk()
+    {
+        List<AgentEventEnvelope> expected = new ArrayList<>();
+        for (int index = 0; index < 40; index++) {
+            expected.add(service.append(event("replay " + index)));
+        }
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        service.subscribe(task.id(), 0).subscribe(subscriber);
+        for (int index = 0; index < 40; index++) {
+            expected.add(service.append(event("live " + index)));
+        }
+
+        assertThat(logStore.readLimits).isEmpty();
+        subscriber.request(3);
+        assertThat(subscriber.events()).containsExactlyElementsOf(expected.subList(0, 3));
+        assertThat(logStore.readLimits).containsExactly(3);
+
+        subscriber.request(Long.MAX_VALUE);
+        assertThat(subscriber.events()).containsExactlyElementsOf(expected);
+        assertThat(logStore.readLimits).allMatch(limit -> limit <= 8);
+    }
+
+    @Test
+    void rebuildsIdentityMetadataInBoundedPagesWithoutLosingRestartIdempotency()
+    {
+        UnsequencedAgentEvent first = event("first");
+        AgentEventEnvelope persisted = service.append(first);
+        for (int index = 0; index < 40; index++) {
+            service.append(event("later " + index));
+        }
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(restarted.append(first)).isEqualTo(persisted);
+        assertThat(logStore.events).hasSize(41);
+        assertThat(logStore.readLimits).isNotEmpty().allMatch(limit -> limit <= 8);
+    }
+
+    @Test
+    void readsHistoryWithoutInitializingTheLiveChannel()
+    {
+        AgentEventEnvelope persisted = service.append(event("history"));
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
+        int initializations = logStore.lastSequenceReads;
+
+        AgentHistoryPage page = restarted.readHistory(task.id(), OptionalLong.of(123), OptionalLong.empty());
+
+        assertThat(page.events()).containsExactly(persisted);
+        assertThat(logStore.historyBefore).isEqualTo(OptionalLong.of(123));
+        assertThat(logStore.historyAfter).isEmpty();
+        assertThat(logStore.lastSequenceReads).isEqualTo(initializations);
+        assertThat(logStore.readLimits).isEmpty();
+        assertThatThrownBy(() -> restarted.readHistory(task.id(), OptionalLong.of(1), OptionalLong.of(2)))
+                .isInstanceOf(InvalidAgentRequestException.class);
+        assertThatThrownBy(() -> restarted.readHistory(task.id(), OptionalLong.empty(), OptionalLong.of(-1)))
+                .isInstanceOf(InvalidAgentRequestException.class);
+    }
+
+    @Test
+    void opensLatestHistoryAndSubscribesWithoutScanningThePrefixUntilTheFirstWrite()
+    {
+        for (int index = 0; index < 5000; index++) {
+            service.append(event("old history " + index));
+        }
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
+        int validations = logStore.lastSequenceReads;
+
+        AgentHistoryPage page = restarted.readHistory(task.id(), OptionalLong.empty(), OptionalLong.empty());
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        restarted.subscribe(task.id(), page.latestSequence()).subscribe(subscriber);
+        assertThat(logStore.readLimits).isEmpty();
+        assertThat(logStore.lastSequenceReads).isEqualTo(validations);
+
+        subscriber.request(Long.MAX_VALUE);
+        assertThat(page.latestSequence()).isEqualTo(5000);
+        assertThat(page.events()).hasSize(200);
+        assertThat(subscriber.events()).isEmpty();
+        assertThat(logStore.readLimits).isEmpty();
+        assertThat(logStore.lastSequenceReads).isEqualTo(validations);
+
+        AgentEventEnvelope live = restarted.append(event("new live event"));
+        assertThat(live.sequence()).isEqualTo(5001);
+        assertThat(subscriber.events()).containsExactly(live);
+        assertThat(logStore.lastSequenceReads).isEqualTo(validations + 1);
+        assertThat(logStore.readLimits).isNotEmpty().allMatch(limit -> limit <= 8);
+    }
+
+    @Test
+    void readsASequencePageWithoutInitializingAChannelOrValidatingOldHistory()
+    {
+        AgentEventEnvelope expected = service.append(event("history"));
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
+        int validations = logStore.lastSequenceReads;
+
+        assertThat(restarted.readAfter(task.id(), 0, 1)).containsExactly(expected);
+
+        assertThat(logStore.readLimits).containsExactly(1);
+        assertThat(logStore.lastSequenceReads).isEqualTo(validations);
+    }
+
+    @Test
+    void preservesOrderAndTerminalDeliveryWhileAReplayCallbackOverlapsAppends()
+            throws InterruptedException
+    {
+        AgentEventEnvelope replay = service.append(event("replay"));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        subscriber.onNext = item -> {
+            if (item.sequence() == replay.sequence()) {
+                entered.countDown();
+                await(release);
+            }
+        };
+        service.subscribe(task.id(), 0).subscribe(subscriber);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread reader = Thread.ofVirtual().start(() -> {
+            try {
+                subscriber.request(Long.MAX_VALUE);
+            }
+            catch (Throwable thrown) {
+                failure.set(thrown);
+            }
+        });
+        AgentEventEnvelope live;
+        AgentEventEnvelope terminal;
+        try {
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            live = service.append(event("live"));
+            AgentEventOutboxEntry entry = inlineOutbox("terminal");
+            outboxStore.insert(entry);
+            taskStore.put(failedTask());
+            terminal = service.drain(entry.eventId());
+            assertThat(subscriber.completed()).isFalse();
+        }
+        finally {
+            release.countDown();
+            reader.join(5000);
+        }
+        assertThat(reader.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(subscriber.events()).containsExactly(replay, live, terminal);
+        assertThat(subscriber.completed()).isTrue();
+    }
+
+    @Test
+    void supportsReentrantDemandAndAppendWithoutDuplicatingReplay()
+    {
+        AgentEventEnvelope replay = service.append(event("replay"));
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        subscriber.onNext = item -> {
+            if (item.sequence() == replay.sequence()) {
+                service.append(event("reentrant live"));
+                subscriber.request(1);
+            }
+        };
+        service.subscribe(task.id(), 0).subscribe(subscriber);
+
+        subscriber.request(1);
+
+        assertThat(subscriber.events()).extracting(AgentEventEnvelope::sequence).containsExactly(1L, 2L);
+    }
+
+    @Test
+    void reportsReplayReadFailureWithoutFailingThePersistedAppend()
+    {
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        service.subscribe(task.id(), 0).subscribe(subscriber);
+        subscriber.request(1);
+        logStore.failNextRead = true;
+
+        AgentEventEnvelope persisted = service.append(event("persisted"));
+
+        assertThat(logStore.events).containsExactly(persisted);
+        assertThat(subscriber.failure).isInstanceOf(AgentStorageException.class).hasMessage("read failed");
+        assertThat(subscriber.events()).isEmpty();
     }
 
     @Test
@@ -400,6 +584,19 @@ class TestDefaultAgentEventService
                 NOW.plusSeconds(3));
     }
 
+    private static void await(CountDownLatch latch)
+    {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("callback was not released");
+            }
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(failure);
+        }
+    }
+
     private static final class TestSubscriber
             implements Flow.Subscriber<AgentEventEnvelope>
     {
@@ -410,6 +607,8 @@ class TestDefaultAgentEventService
         private boolean observedUnpersistedEvent;
         private boolean observedUnmarkedOutboxEvent;
         private boolean completed;
+        private Throwable failure;
+        private Consumer<AgentEventEnvelope> onNext = item -> {};
 
         private TestSubscriber(RecordingTaskLogStore logStore, RecordingEventOutboxStore outboxStore)
         {
@@ -430,12 +629,13 @@ class TestDefaultAgentEventService
             observedUnmarkedOutboxEvent |= outboxStore.find(item.eventId()).stream()
                     .anyMatch(entry -> entry.sequence().isEmpty());
             events.add(item);
+            onNext.accept(item);
         }
 
         @Override
         public void onError(Throwable failure)
         {
-            throw new AssertionError(failure);
+            this.failure = failure;
         }
 
         @Override
@@ -476,6 +676,11 @@ class TestDefaultAgentEventService
         private final List<AgentEventEnvelope> events = new ArrayList<>();
         private final Map<String, byte[]> blobs = new HashMap<>();
         private boolean failNextAppend;
+        private boolean failNextRead;
+        private int lastSequenceReads;
+        private final List<Integer> readLimits = new ArrayList<>();
+        private OptionalLong historyBefore = OptionalLong.empty();
+        private OptionalLong historyAfter = OptionalLong.empty();
 
         @Override
         public void append(AgentEventEnvelope envelope)
@@ -490,6 +695,11 @@ class TestDefaultAgentEventService
         @Override
         public List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit)
         {
+            readLimits.add(limit);
+            if (failNextRead) {
+                failNextRead = false;
+                throw new AgentStorageException("read failed");
+            }
             return events.stream()
                     .filter(event -> event.taskId().equals(taskId))
                     .filter(event -> event.sequence() > afterSequence)
@@ -498,8 +708,18 @@ class TestDefaultAgentEventService
         }
 
         @Override
+        public AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
+        {
+            historyBefore = before;
+            historyAfter = after;
+            List<AgentEventEnvelope> page = events.subList(Math.max(0, events.size() - 200), events.size());
+            return new AgentHistoryPage(page, OptionalLong.empty(), OptionalLong.empty(), events.size());
+        }
+
+        @Override
         public long lastSequence(TaskId taskId)
         {
+            lastSequenceReads++;
             return events.stream()
                     .filter(event -> event.taskId().equals(taskId))
                     .mapToLong(AgentEventEnvelope::sequence)

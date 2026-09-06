@@ -3174,3 +3174,14 @@
     transition: none;
   }
 }
+
+/* History navigation stays inside the conversation's existing scroll surface. */
+.agt-history-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: #57606a;
+  font-size: 12px;
+}

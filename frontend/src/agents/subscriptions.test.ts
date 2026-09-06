@@ -13,7 +13,8 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import fixture from './fixtures/agent-events-v2.json';
 import { AgentSubscriptions } from './subscriptions';
 
 /** Stands in for a WebContents: an emitter that records what main pushed to it. */
@@ -42,6 +43,32 @@ function registry(): { subscriptions: AgentSubscriptions; signals: AbortSignal[]
 }
 
 describe('AgentSubscriptions', () => {
+  it('coalesces live history into a watermark without forwarding transcript payloads', async () => {
+    const closing = {
+      ...fixture.events[1],
+      eventId: 'closing-event',
+      sequence: fixture.events.length + 1,
+      turnId: null as string | null,
+      payload: { phase: 'TASK_COMPLETED', message: 'Task completed' },
+    };
+    const frames = [...fixture.events, closing].map(event =>
+      `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+    const subscriptions = new AgentSubscriptions(async () => new Response(frames));
+    const sender = new FakeSender();
+    const subscriptionId = subscriptions.start(sender, fixture.events[0].taskId, 0, true);
+
+    await vi.waitFor(() => expect(sender.pushed).toContainEqual({
+      subscriptionId,
+      taskId: fixture.events[0].taskId,
+      kind: 'changed',
+      sequence: closing.sequence,
+      turnId: fixture.events.at(-1)?.turnId,
+    }));
+    expect(sender.pushed.filter(message => (message as { kind: string }).kind === 'changed')).toHaveLength(1);
+    expect(sender.pushed.some(message => (message as { kind: string }).kind === 'events')).toBe(false);
+    expect(JSON.stringify(sender.pushed)).not.toContain('Review the authentication change');
+  });
+
   it('stamps every push with its subscription and task', () => {
     const { subscriptions } = registry();
     const sender = new FakeSender();

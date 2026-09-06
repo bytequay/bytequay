@@ -17,9 +17,11 @@ import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.CostProvenance;
@@ -30,16 +32,22 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static java.lang.Math.toIntExact;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class TestFileTaskLogStore
 {
@@ -291,6 +299,144 @@ class TestFileTaskLogStore
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("size limit");
+    }
+
+    @Test
+    void pagesHistoryInBothDirectionsWithoutSplittingEvents()
+    {
+        for (int sequence = 1; sequence <= 450; sequence++) {
+            store.append(envelope(sequence, message("event " + sequence)));
+        }
+
+        AgentHistoryPage latest = store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty());
+        assertThat(latest.events()).hasSize(200);
+        assertThat(latest.events().getFirst().sequence()).isEqualTo(251);
+        assertThat(latest.events().getLast().sequence()).isEqualTo(450);
+        assertThat(latest.latestSequence()).isEqualTo(450);
+        assertThat(latest.afterCursor()).isEmpty();
+
+        AgentHistoryPage older = store.readHistory(taskId, latest.beforeCursor(), OptionalLong.empty());
+        assertThat(older.events()).hasSize(200);
+        assertThat(older.events().getFirst().sequence()).isEqualTo(51);
+        assertThat(older.events().getLast().sequence()).isEqualTo(250);
+        AgentHistoryPage oldest = store.readHistory(taskId, older.beforeCursor(), OptionalLong.empty());
+        assertThat(oldest.events()).hasSize(50);
+        assertThat(oldest.events().getFirst().sequence()).isEqualTo(1);
+        assertThat(oldest.beforeCursor()).isEmpty();
+
+        AgentHistoryPage newer = store.readHistory(taskId, OptionalLong.empty(), oldest.afterCursor());
+        assertThat(newer.events()).containsExactlyElementsOf(older.events());
+        assertThat(newer.beforeCursor()).isEqualTo(older.beforeCursor());
+        assertThat(newer.afterCursor()).isEqualTo(older.afterCursor());
+
+        store.append(envelope(451, message("appended after the page")));
+        AgentHistoryPage sameOlder = store.readHistory(taskId, latest.beforeCursor(), OptionalLong.empty());
+        assertThat(sameOlder.events()).containsExactlyElementsOf(older.events());
+        assertThat(sameOlder.latestSequence()).isEqualTo(451);
+        assertThat(store.readAfter(taskId, 17, 2)).extracting(AgentEventEnvelope::sequence).containsExactly(18L, 19L);
+        assertThat(store.readAfter(taskId, 448, 8)).extracting(AgentEventEnvelope::sequence).containsExactly(449L, 450L, 451L);
+    }
+
+    @Test
+    void boundsHistoryBytesAndAllowsOneMaximumSizeEvent()
+            throws IOException
+    {
+        store = new FileTaskLogStore(resources);
+        AgentEventEnvelope first = envelope(1, message(""));
+        store.append(first);
+        Path file = resources.require(taskId).eventsFile();
+        long firstSize = Files.size(file);
+        int overhead = toIntExact(firstSize - 1);
+        AgentEventEnvelope large = envelope(2, message("x".repeat(AgentEventEnvelope.MAX_SERIALIZED_BYTES - overhead)));
+        store.append(large);
+        assertThat(Files.size(file) - firstSize).isEqualTo(AgentEventEnvelope.MAX_SERIALIZED_BYTES + 1L);
+        AgentEventEnvelope last = envelope(3, message("tail"));
+        store.append(last);
+
+        AgentHistoryPage latest = store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty());
+        assertThat(latest.events()).containsExactly(last);
+        AgentHistoryPage middle = store.readHistory(taskId, latest.beforeCursor(), OptionalLong.empty());
+        assertThat(middle.events()).containsExactly(large);
+        AgentHistoryPage oldest = store.readHistory(taskId, middle.beforeCursor(), OptionalLong.empty());
+        assertThat(oldest.events()).containsExactly(first);
+        assertThat(store.readHistory(taskId, OptionalLong.empty(), oldest.afterCursor()).events()).containsExactly(large);
+        assertThat(store.readHistory(taskId, OptionalLong.empty(), middle.afterCursor()).events()).containsExactly(last);
+        assertThat(store.readAfter(taskId, 1, 1)).containsExactly(large);
+    }
+
+    @Test
+    void readsTheTailOfAGigabyteSparseLogWithoutVisitingItsPrefix()
+            throws IOException
+    {
+        for (int sequence = 1; sequence <= 201; sequence++) {
+            store.append(envelope(sequence, message("bounded tail")));
+        }
+        Path file = resources.require(taskId).eventsFile();
+        byte[] tail = Files.readAllBytes(file);
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            channel.position(1024L * 1024 * 1024);
+            channel.write(ByteBuffer.wrap("\n".getBytes(StandardCharsets.UTF_8)));
+            ByteBuffer records = ByteBuffer.wrap(tail);
+            while (records.hasRemaining()) {
+                channel.write(records);
+            }
+        }
+
+        // The sparse prefix is deliberately unreadable as JSON: success proves the page never visits it.
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            AgentHistoryPage latest = store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty());
+            assertThat(latest.events()).hasSize(200);
+            assertThat(latest.events().getFirst().sequence()).isEqualTo(2);
+            assertThat(latest.latestSequence()).isEqualTo(201);
+            assertThat(latest.beforeCursor().orElseThrow()).isGreaterThan(1024L * 1024 * 1024);
+            assertThat(store.readAfter(taskId, 200, 1)).extracting(AgentEventEnvelope::sequence).containsExactly(201L);
+        });
+    }
+
+    @Test
+    void ignoresTornHistoryTailWithoutChangingTheFileAndRejectsInvalidCursors()
+            throws IOException
+    {
+        assertThat(store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()).events()).isEmpty();
+        AgentEventEnvelope first = envelope(1, message("complete"));
+        store.append(first);
+        Path file = resources.require(taskId).eventsFile();
+        long completeEnd = Files.size(file);
+        Files.writeString(file, "{partial", StandardOpenOption.APPEND);
+        long tornSize = Files.size(file);
+        AgentHistoryPage latest = store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty());
+        assertThat(latest.events()).containsExactly(first);
+        assertThat(latest.latestSequence()).isEqualTo(1);
+        assertThat(Files.size(file)).isEqualTo(tornSize);
+        assertThat(store.readHistory(taskId, OptionalLong.empty(), OptionalLong.of(completeEnd)).events()).isEmpty();
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.of(1), OptionalLong.empty())).isInstanceOf(InvalidAgentRequestException.class);
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.of(-1), OptionalLong.empty())).isInstanceOf(InvalidAgentRequestException.class);
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.of(tornSize), OptionalLong.empty())).isInstanceOf(InvalidAgentRequestException.class);
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.of(0), OptionalLong.of(0))).isInstanceOf(InvalidAgentRequestException.class);
+    }
+
+    @Test
+    void rejectsCorruptHistoryRecordsAndStillValidatesTheWholeLogOnRecovery()
+            throws IOException
+    {
+        for (int sequence = 1; sequence <= 201; sequence++) {
+            store.append(envelope(sequence, message("event")));
+        }
+        Path file = resources.require(taskId).eventsFile();
+        String valid = Files.readString(file);
+        Files.writeString(file, valid.replaceFirst("\"sequence\":1,", "\"sequence\":9,"), StandardOpenOption.TRUNCATE_EXISTING);
+        assertThat(store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()).events()).hasSize(200);
+        assertThatThrownBy(() -> new FileTaskLogStore(resources).lastSequence(taskId))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("sequence is corrupt");
+        Files.writeString(file, valid.replace("\"sequence\":201,", "\"sequence\":203,"), StandardOpenOption.TRUNCATE_EXISTING);
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("sequence is corrupt");
+        Files.writeString(file, "{}\n", StandardOpenOption.APPEND);
+        assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("corrupt record");
     }
 
     @Test

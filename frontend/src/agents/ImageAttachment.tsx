@@ -15,22 +15,34 @@
 import { useEffect, useRef, useState } from 'react';
 import { Maximize, Minus, Plus, X } from 'lucide-react';
 
-export function ImageAttachment({ name, url, compact = false }: { name: string; url: string; compact?: boolean }) {
+export function ImageAttachment({ name, url, loadOriginal, compact = false }: {
+  name: string;
+  url: string;
+  loadOriginal?: () => Promise<Blob>;
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" className="agt-image-button" aria-label={`Preview image ${name}`} title="Click to enlarge" onClick={() => setOpen(true)}>
       <img className={compact ? 'agt-thumb' : 'agt-image'} src={url} alt={name} />
     </button>
-    {open && <ImageViewer name={name} url={url} onClose={() => setOpen(false)} />}
+    {open && <ImageViewer name={name} url={url} loadOriginal={loadOriginal} onClose={() => setOpen(false)} />}
   </>;
 }
 
-function ImageViewer({ name, url, onClose }: { name: string; url: string; onClose: () => void }) {
+function ImageViewer({ name, url, loadOriginal, onClose }: {
+  name: string;
+  url: string;
+  loadOriginal?: () => Promise<Blob>;
+  onClose: () => void;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [scale, setScale] = useState<number | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [originalState, setOriginalState] = useState(loadOriginal === undefined ? 'ready' : 'loading');
   const minimumScale = 1 / Math.max(size.width, size.height, 1);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -38,6 +50,28 @@ function ImageViewer({ name, url, onClose }: { name: string; url: string; onClos
     closeRef.current?.focus();
     return () => { dialog?.close(); };
   }, []);
+
+  useEffect(() => {
+    if (loadOriginal === undefined) return;
+    let active = true;
+    let ownedUrl: string | null = null;
+    void (async () => {
+      try {
+        const original = await loadOriginal();
+        if (!active) return;
+        ownedUrl = URL.createObjectURL(original);
+        setOriginalUrl(ownedUrl);
+        setOriginalState('ready');
+      }
+      catch {
+        if (active) setOriginalState('unavailable');
+      }
+    })();
+    return () => {
+      active = false;
+      if (ownedUrl !== null) URL.revokeObjectURL(ownedUrl);
+    };
+  }, [loadOriginal]);
 
   const zoom = (factor: number) => {
     const image = imageRef.current;
@@ -55,16 +89,17 @@ function ImageViewer({ name, url, onClose }: { name: string; url: string; onClos
       onKeyDown={(event) => event.stopPropagation()}
     >
       <div className="agt-image-viewer__toolbar">
-        <button type="button" aria-label="Zoom out" title="Zoom out" disabled={scale !== null && scale <= minimumScale} onClick={() => zoom(0.8)}><Minus aria-hidden="true" /></button>
-        <button type="button" aria-label="Actual size" title="Actual size" onClick={() => setScale(1)}>{scale === null ? 'Fit' : `${Math.round(scale * 100)}%`}</button>
-        <button type="button" aria-label="Zoom in" title="Zoom in" disabled={scale !== null && scale >= 8} onClick={() => zoom(1.25)}><Plus aria-hidden="true" /></button>
+        <button type="button" aria-label="Zoom out" title="Zoom out" disabled={originalState === 'loading' || (scale !== null && scale <= minimumScale)} onClick={() => zoom(0.8)}><Minus aria-hidden="true" /></button>
+        <button type="button" aria-label="Actual size" title="Actual size" disabled={originalState === 'loading'} onClick={() => setScale(1)}>{scale === null ? 'Fit' : `${Math.round(scale * 100)}%`}</button>
+        <button type="button" aria-label="Zoom in" title="Zoom in" disabled={originalState === 'loading' || (scale !== null && scale >= 8)} onClick={() => zoom(1.25)}><Plus aria-hidden="true" /></button>
         <button type="button" aria-label="Fit image to window" title="Fit to window" aria-pressed={scale === null} onClick={() => setScale(null)}><Maximize aria-hidden="true" /></button>
+        {originalState !== 'ready' && <span role="status">{originalState === 'loading' ? 'Loading original…' : 'Original unavailable'}</span>}
         <button ref={closeRef} type="button" className="agt-image-viewer__close" aria-label="Close image preview" title="Close (Esc)" onClick={() => dialogRef.current?.close()}><X aria-hidden="true" /></button>
       </div>
       <div className="agt-image-viewer__canvas" onClick={(event) => { if (event.target === event.currentTarget) dialogRef.current?.close(); }}>
         <img
           ref={imageRef}
-          src={url}
+          src={originalUrl ?? url}
           alt={name}
           className={scale === null ? 'is-fit' : undefined}
           style={scale === null || size.width === 0 ? undefined : { width: size.width * scale }}

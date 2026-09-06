@@ -826,7 +826,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        "user",
+                        approvalsReviewer(),
                         config,
                         sandbox);
             }
@@ -836,7 +836,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        "user",
+                        approvalsReviewer(),
                         config,
                         sandbox,
                         context.textOnly(),
@@ -894,7 +894,7 @@ public final class CodexCliDriver
                     command.effort().or(context::effort),
                     command.serviceTier().orElse("default"),
                     approvalPolicy(),
-                    "user",
+                    approvalsReviewer(),
                     worktree.toString(),
                     sandboxPolicy(worktree));
             rememberAppServerVersion();
@@ -920,6 +920,11 @@ public final class CodexCliDriver
         private String approvalPolicy()
         {
             return context.textOnly() ? "never" : "on-request";
+        }
+
+        private String approvalsReviewer()
+        {
+            return context.textOnly() ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
@@ -1755,6 +1760,8 @@ public final class CodexCliDriver
                     || notification instanceof CodexProtocol.PlanDeltaNotification
                     || notification instanceof CodexProtocol.PlanUpdatedNotification
                     || notification instanceof CodexProtocol.CommandOutputNotification
+                    || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
+                    || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification
                     || notification instanceof CodexProtocol.ErrorNotification;
         }
 

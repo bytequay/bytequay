@@ -38,6 +38,10 @@ const referenceBindingsPath = fileURLToPath(new URL(
   "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json",
   import.meta.url,
 ));
+const autoReviewPolicy = readFileSync(new URL(
+  "../backend/agent-cli/src/main/resources/com/bytequay/agent/cli/codex/codex-auto-review-policy.md",
+  import.meta.url,
+), "utf8");
 
 function schemaSource(bundle, definition, discriminatorField, discriminatorValue) {
   return {
@@ -109,6 +113,19 @@ const referenceRecordBindings = [
   recordBinding("ErrorNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "error"),
   ], [component("params"), component("emittedAtMs")]),
+  recordBinding("AutoApprovalReviewStartedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/autoApprovalReview/started"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("AutoApprovalReviewCompletedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "item/autoApprovalReview/completed"),
+  ], [component("params"), component("emittedAtMs")]),
+  recordBinding("AutoApprovalReviewParams", "decode", [
+    schemaSource("v2", "ItemGuardianApprovalReviewStartedNotification"),
+    schemaSource("v2", "ItemGuardianApprovalReviewCompletedNotification"),
+  ], [component("threadId"), component("turnId"), component("reviewId"), component("review")]),
+  recordBinding("AutoApprovalReview", "decode", [
+    schemaSource("v2", "GuardianApprovalReview"),
+  ], [component("status"), component("riskLevel"), component("rationale")]),
   recordBinding("TurnNotificationParams", "decode", [
     schemaSource("v2", "TurnStartedNotification"),
     schemaSource("v2", "TurnCompletedNotification"),
@@ -425,7 +442,7 @@ const referenceRecordBindings = [
     component("cwd"),
     component("model"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
-    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("approvalsReviewer", "approvalsReviewer", "auto_review"),
     component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
     component("ephemeral", "ephemeral", false),
@@ -495,7 +512,7 @@ const referenceRecordBindings = [
     component("cwd"),
     component("model"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
-    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("approvalsReviewer", "approvalsReviewer", "auto_review"),
     component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
   ]),
@@ -512,7 +529,7 @@ const referenceRecordBindings = [
     component("effort", "effort", "minimal"),
     component("serviceTierForTurn", "serviceTierForTurn", "default"),
     component("approvalPolicy", "approvalPolicy", "on-request"),
-    component("approvalsReviewer", "approvalsReviewer", "user"),
+    component("approvalsReviewer", "approvalsReviewer", "auto_review"),
     component("cwd"),
     component("sandboxPolicy", "sandboxPolicy", {
       type: "workspaceWrite",
@@ -615,6 +632,8 @@ const alwaysDisabledFeatures = [
   "browser_use",
   "browser_use_external",
   "computer_use",
+  "guardianv2",
+  "guardian_ext",
   "hooks",
   "image_generation",
   "in_app_browser",
@@ -2343,7 +2362,9 @@ function assertPathWithin(root, candidate, message) {
 function assertLaunchPolicy(response, launchProfile) {
   const config = response?.config;
   assert.ok(config && typeof config === "object", "config/read omitted effective config");
-  assert.equal(config.web_search, "disabled", "web search was not disabled");
+  assert.equal(config.web_search, "live", "native web search was not enabled");
+  assert.equal(config.auto_review?.policy, autoReviewPolicy, "automatic review omitted the ByteQuay policy");
+  assert.equal(config.features?.guardian_approval, true, "native automatic review was not enabled");
   if (launchProfile.codeGraph === undefined) {
     assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
   } else {
@@ -2418,7 +2439,9 @@ function assertLaunchPolicy(response, launchProfile) {
     "the session-flags layer is disabled",
   );
   const sessionFlags = sessionFlagLayer.config;
-  assert.equal(sessionFlags.web_search, "disabled", "session flags omitted web-search policy");
+  assert.equal(sessionFlags.web_search, "live", "session flags omitted web-search policy");
+  assert.equal(sessionFlags.auto_review?.policy, autoReviewPolicy, "session flags omitted automatic-review policy");
+  assert.equal(sessionFlags.features?.guardian_approval, true, "session flags omitted native automatic review");
   assert.equal(
     sessionFlags.features?.skip_host_skill_discovery,
     true,
@@ -3019,12 +3042,16 @@ function appServerArguments(launchProfile) {
     "--strict-config",
     "--enable",
     "skip_host_skill_discovery",
+    "--enable",
+    "guardian_approval",
     "-c",
     'cli_auth_credentials_store="file"',
     "-c",
     'forced_login_method="chatgpt"',
     "-c",
-    'web_search="disabled"',
+    'web_search="live"',
+    "-c",
+    `auto_review.policy=${JSON.stringify(autoReviewPolicy)}`,
     "-c",
     'shell_environment_policy.inherit="core"',
     "-c",
@@ -3925,6 +3952,7 @@ async function liveCompatibilityCheck() {
       cwd: cwdA,
       model: model.model,
       approvalPolicy: "untrusted",
+      // This probe deliberately exercises the client approval callback.
       approvalsReviewer: "user",
       sandbox: "workspace-write",
       ephemeral: false,
@@ -3937,7 +3965,7 @@ async function liveCompatibilityCheck() {
       cwd: cwdB,
       model: model.model,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       sandbox: "workspace-write",
       ephemeral: false,
       serviceName: "ByteQuay CP1 compatibility fixture task B",
@@ -4013,6 +4041,7 @@ async function liveCompatibilityCheck() {
       model: model.model,
       effort: model.defaultReasoningEffort,
       approvalPolicy: "untrusted",
+      // Keep manual review for this explicit approval-routing control.
       approvalsReviewer: "user",
       cwd: cwdA,
       sandboxPolicy: {
@@ -4089,7 +4118,7 @@ async function liveCompatibilityCheck() {
       threadId: threadAId,
       cwd: cwdA,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
@@ -4117,7 +4146,7 @@ async function liveCompatibilityCheck() {
       model: model.model,
       effort: model.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       cwd: cwdA,
       sandboxPolicy: {
         type: "workspaceWrite",
@@ -4246,7 +4275,7 @@ async function liveCompatibilityCheck() {
       model: model.model,
       effort: model.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       cwd: cwdB,
       sandboxPolicy: {
         type: "workspaceWrite",
@@ -4529,7 +4558,7 @@ async function liveCompatibilityCheck() {
       threadId: threadAId,
       cwd: cwdA,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
@@ -4833,7 +4862,7 @@ async function liveChildrenCompatibilityCheck() {
       cwd,
       model: selectedModel.model,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       sandbox: "workspace-write",
       ephemeral: false,
       serviceName: "ByteQuay CP1 recursive-child fixture",
@@ -4856,7 +4885,7 @@ async function liveChildrenCompatibilityCheck() {
       model: selectedModel.model,
       effort: selectedModel.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "user",
+      approvalsReviewer: "auto_review",
       cwd,
       sandboxPolicy: {
         type: "workspaceWrite",

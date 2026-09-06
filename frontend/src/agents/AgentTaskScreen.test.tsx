@@ -624,6 +624,7 @@ describe('agent task detail', () => {
       ['Web search', 'lucide-globe'],
       ['Image view', 'lucide-image'],
       ['Context compaction', 'lucide-chevrons-down-up'],
+      ['Automatic approval', 'lucide-shield-check'],
     ] as const;
     for (const [name, icon] of toolIcons) {
       const named = events.map((event) => event.type === 'tool' ? { ...event, payload: { ...event.payload, name } } : event);

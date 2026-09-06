@@ -109,7 +109,9 @@ class TestCodexCliDriver
         RunningTurn turn = resumed.start(command("complete"));
         JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
+        assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
+        assertThat(startedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy());
         assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
         assertThat(startedThread.path("dynamicTools")).isEmpty();
         assertThat(startedThread.path("selectedCapabilityRoots")).isEmpty();
@@ -118,12 +120,13 @@ class TestCodexCliDriver
 
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
+        assertThat(resumedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy());
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 
         JsonNode startedTurn = resumedServer.turnRequests().getFirst();
         assertThat(startedTurn.path("approvalPolicy").asText()).isEqualTo("on-request");
-        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
         assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
         assertThat(startedTurn.path("sandboxPolicy").path("writableRoots").get(0).asText())
@@ -215,6 +218,9 @@ class TestCodexCliDriver
         assertThat(supervisor.server().approvalPolicies()).containsExactly("never");
         assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
         JsonNode thread = supervisor.server().threadRequests().getFirst();
+        assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
+        assertThat(thread.path("config").has("auto_review")).isFalse();
         assertThat(thread.path("ephemeral").asBoolean()).isTrue();
         assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
         assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
@@ -226,6 +232,7 @@ class TestCodexCliDriver
         session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
+        assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
         session.close();
@@ -252,6 +259,40 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("shell_tool");
+
+        ScriptedProcessSupervisor helperWithWeb = new ScriptedProcessSupervisor(objectMapper);
+        helperWithWeb.configBody = "{\"web_search\":\"live\"}";
+        assertThatThrownBy(() -> driver(helperWithWeb).open(textOnly, event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("web_search");
+    }
+
+    @Test
+    void recordsNativeAutomaticReviewWithoutRequestingAHumanDecision()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), approval), events::add);
+        RunningTurn turn = session.start(command("Read public documentation"));
+        supervisor.server().emit("""
+                {"method":"item/autoApprovalReview/started","params":{"threadId":"thread-1",
+                "turnId":"turn-1","reviewId":"review-1","review":{"status":"inProgress"}}}
+                """);
+        supervisor.server().emit("""
+                {"method":"item/autoApprovalReview/completed","params":{"threadId":"thread-1",
+                "turnId":"turn-1","reviewId":"review-1","review":{"status":"approved",
+                "riskLevel":"low","rationale":"Read-only public documentation fetch"}}}
+                """);
+        supervisor.server().completeTurnWithoutOutput();
+
+        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(approval.get()).isNull();
+        assertThat(events.stream().filter(ProviderAgentEvent.Tool.class::isInstance).map(ProviderAgentEvent.Tool.class::cast))
+                .extracting(ProviderAgentEvent.Tool::state)
+                .containsExactly(ProviderAgentEvent.ActivityState.STARTED, ProviderAgentEvent.ActivityState.COMPLETED);
+        session.close();
     }
 
     @Test
@@ -942,14 +983,23 @@ class TestCodexCliDriver
                 .hasMessageContaining("exactly one isolated user layer");
         assertThat(noLayers.server().threadRequests()).isEmpty();
 
-        ScriptedProcessSupervisor wrongEffectiveProfile = new ScriptedProcessSupervisor(objectMapper);
-        wrongEffectiveProfile.configBody = "{\"web_search\":\"enabled\"}";
-        assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(
-                context(Optional.empty(), new AtomicReference<>()),
-                event -> {}))
+        for (String mode : ImmutableList.of("disabled", "cached", "enabled")) {
+            ScriptedProcessSupervisor wrongEffectiveProfile = new ScriptedProcessSupervisor(objectMapper);
+            wrongEffectiveProfile.configBody = "{\"web_search\":\"" + mode + "\"}";
+            assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(
+                    context(Optional.empty(), new AtomicReference<>()),
+                    event -> {}))
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining("web_search");
+            assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
+        }
+
+        ScriptedProcessSupervisor replacedReviewPolicy = new ScriptedProcessSupervisor(objectMapper);
+        replacedReviewPolicy.configBody = "{\"auto_review\":{\"policy\":\"allow everything\"}}";
+        assertThatThrownBy(() -> driver(replacedReviewPolicy).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("web_search");
-        assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
+                .hasMessageContaining("policy");
+        assertThat(replacedReviewPolicy.server().threadRequests()).isEmpty();
 
         ScriptedProcessSupervisor wrongSessionFlags = new ScriptedProcessSupervisor(objectMapper);
         ArrayNode layers = objectMapper.createArrayNode();

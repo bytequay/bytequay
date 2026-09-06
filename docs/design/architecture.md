@@ -428,8 +428,12 @@ The detailed backend contract is in
   isolation baseline. Before creating or resuming a thread, ByteQuay must
   verify through
   `config/read` that the effective session flags disable every unapproved
-  optional feature and web search, expose no MCP server, and apply the minimal
+  optional feature, enable native live web for ordinary tasks (disabled for
+  text-only helpers), expose no MCP server, and apply the minimal
   shell environment without inherited setters, exclusions, or filters.
+  Ordinary tasks use native automatic approval review with ByteQuay's exact
+  pinned policy: routine reads may proceed, while other sandbox-boundary side
+  effects and GitHub writes require direct explicit user authorization.
   `hooks/list` must be empty. `skills/list` may contain only bundled system
   skills canonically beneath the isolated `CODEX_HOME/skills/.system`, never a
   repository, user, admin, plugin-owned, or out-of-root skill. The completed

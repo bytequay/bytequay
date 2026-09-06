@@ -169,7 +169,11 @@ duplicating the user's text.
 
 For Codex, **Auto** maps to App Server's generated on-request approval value
 (`approvalPolicy: "on-request"` in the v0.151 reference schema) plus a
-workspace-write sandbox rooted at the generated task worktree. `thread/start` receives
+workspace-write sandbox rooted at the generated task worktree and the native
+`auto_review` approval reviewer. It can approve routine reads without a human
+card; other boundary side effects require direct explicit user authorization
+under ByteQuay's pinned reviewer policy. Normal tasks also enable Codex's native
+web tool, independently of the disabled shell network. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the
 active parent turn's effective sandbox and approval choices. The task-owned App
@@ -217,6 +221,13 @@ inline timestamp. This transcript refinement supersedes the older timing and
 disclosure presentation in the HTML references.
 
 ### 2.4 Approvals
+
+Codex automatic reviews appear as ordinary activity with their status, risk,
+and rationale. A review uses its own identity so its result cannot replace the
+reviewed command's output. Denials, timeouts, and aborted reviews stay visible;
+the native agent handles the next step or asks for user authorization. They do
+not create a pending manual approval card. The cards below handle remaining
+native user requests and the Claude lane.
 
 An approval card identifies the source task, child agent when applicable,
 turn, item, request kind, reason, and product-permitted available decisions.

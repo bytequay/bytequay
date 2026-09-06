@@ -226,6 +226,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
   'Web search': Globe,
   'Image view': Image,
   'Context compaction': ChevronsDownUp,
+  'Automatic approval': ShieldCheck,
 };
 
 /** Activity type is the primary icon; a live/failing state temporarily overrides it. */
@@ -1710,7 +1711,7 @@ export function AgentTaskBody({
               >
                 +
               </button>
-              <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">
+              <span className="agt-compose__chip is-fact" title="Routine work proceeds automatically; other actions may need your authorization">
                 {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
               </span>
               <span className="agt-spacer" />

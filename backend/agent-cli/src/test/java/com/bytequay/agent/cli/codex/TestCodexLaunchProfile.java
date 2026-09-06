@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestCodexLaunchProfile
 {
     @Test
-    void disablesEveryInheritableCapabilityWithoutSubagentsForCatalogs()
+    void isolatesCatalogCapabilitiesWithoutSubagents()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
                 "/usr/local/bin/codex",
@@ -70,10 +70,23 @@ class TestCodexLaunchProfile
                 Optional.empty(),
                 true);
 
+        assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
+        assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true))
+                .containsEntry("web_search", "disabled");
         for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
             assertThat(arguments).containsSequence("--disable", feature);
             assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
                     .containsEntry(feature, false);
+        }
+    }
+
+    @Test
+    void enablesLiveWebForEveryTaskThreadProfile()
+    {
+        for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
+            assertThat(CodexLaunchProfile.threadConfig(childProfile)).containsEntry("web_search", "live");
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, true)).containsEntry("web_search", "live");
         }
     }
 
@@ -83,7 +96,10 @@ class TestCodexLaunchProfile
         // Launching without these would accept whatever the host installation defaults to.
         assertThat(arguments).contains("--strict-config");
         assertThat(arguments).containsSequence("--enable", "skip_host_skill_discovery");
-        assertThat(arguments).contains("web_search=\"disabled\"");
+        assertThat(arguments).containsSequence("--enable", "guardian_approval");
+        assertThat(arguments).containsSequence("--disable", "guardianv2");
+        assertThat(arguments).containsSequence("--disable", "guardian_ext");
+        assertThat(arguments).containsSequence("-c", "web_search=\"live\"");
         assertThat(arguments).contains(
                 "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
                         + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");

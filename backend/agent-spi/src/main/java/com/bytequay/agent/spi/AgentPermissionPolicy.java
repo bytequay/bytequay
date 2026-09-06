@@ -22,9 +22,9 @@ public enum AgentPermissionPolicy
     /**
      * Reports whether the policy decides tool calls from a fixed rule instead of asking the user.
      *
-     * <p>{@link #AUTO} is attended: the provider approves its own work inside the leased worktree
-     * and escalates anything past the sandbox to the user. The remaining policies never reach a
-     * user, so ByteQuay answers every escalation itself.
+     * <p>{@link #AUTO} permits user decisions: Codex reviews routine reads automatically, while
+     * other boundary actions need explicit user authorization; Claude forwards its escalations
+     * to the user. The remaining policies never reach a user, so ByteQuay answers every escalation itself.
      *
      * @return true when no user decision is ever requested
      */

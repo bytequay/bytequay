@@ -253,7 +253,10 @@ final class CodexIsolationGuard
         if (!config.isObject()) {
             throw unavailable("config/read omitted the launch policy");
         }
-        requireTextValue(config, "web_search", "disabled");
+        requireTextValue(config, "web_search", textOnly ? "disabled" : "live");
+        if (!textOnly) {
+            requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy());
+        }
 
         JsonNode features = config.path("features");
         if (!features.isObject()) {

@@ -25,9 +25,9 @@ import java.util.Optional;
  * Builds the App Server launch arguments proven by the compatibility gate.
  *
  * <p>Launching with no arguments would accept whatever the host's Codex installation defaults to,
- * which is not a profile anything has verified. Every optional capability is therefore disabled
- * explicitly, the shell environment is reduced to a fixed allowlist, and host skill discovery is
- * skipped, so the running configuration matches the one the gate exercises.
+ * which is not a profile anything has verified. Tasks explicitly enable native web reading; other
+ * optional capabilities are disabled, the shell environment is reduced to a fixed allowlist, and
+ * host skill discovery is skipped, so the running configuration matches the one the gate exercises.
  *
  * <p>The model catalog runs without subagents. A task process enables exactly the V1 or V2 feature
  * advertised by its selected model; V1 is bounded to the proven root/child/grandchild depth.
@@ -42,6 +42,8 @@ final class CodexLaunchProfile
             "browser_use",
             "browser_use_external",
             "computer_use",
+            "guardian_ext",
+            "guardianv2",
             "hooks",
             "image_generation",
             "in_app_browser",
@@ -119,7 +121,7 @@ final class CodexLaunchProfile
                 "-c",
                 "forced_login_method=\"chatgpt\"",
                 "-c",
-                "web_search=\"disabled\"",
+                "web_search=" + tomlString(textOnly ? "disabled" : "live"),
                 "-c",
                 "shell_environment_policy.inherit=\"core\"",
                 "-c",
@@ -129,6 +131,10 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
+        arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
+        if (!textOnly) {
+            arguments.add("-c", "auto_review.policy=" + tomlString(CodexApprovalPolicy.policy()));
+        }
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         }
@@ -166,9 +172,12 @@ final class CodexLaunchProfile
     {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
-                .put("web_search", "disabled")
+                .put("web_search", textOnly ? "disabled" : "live")
                 .put("features", expectedFeatures(childProfile, textOnly))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+        if (!textOnly) {
+            config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy()));
+        }
         if (!codeGraph) {
             config.put("mcp_servers", ImmutableMap.of());
         }
@@ -188,6 +197,7 @@ final class CodexLaunchProfile
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
+        features.put("guardian_approval", !textOnly);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> features.put(feature, false));

@@ -65,13 +65,21 @@ one](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/core/src/config
 and its [V1 spawn handler rejects the next depth above that
 limit](https://github.com/openai/codex/blob/rust-v0.151.0/codex-rs/core/src/tools/handlers/multi_agents/spawn.rs#L63-L70),
 so the default permits a root child but not that child's required grandchild;
-V2 does not use this V1 depth gate. Disabled web search,
+V2 does not use this V1 depth gate. Native live web search,
 host-skill-discovery disable, and the
 minimal shell-environment policy must appear in both the session flags and the
 effective config, with an empty MCP-server map and no inherited shell
 environment setters, exclusions, or filters. Hook discovery must return one
 clean, empty result for the requested canonical cwd. This proves the isolated
 profiles can be selected; it does not prove that a model can create children.
+
+The ordinary task profile also supplies ByteQuay's pinned automatic-review
+policy verbatim, verified in effective config and session flags. Thread start,
+resume, and turn encode fixtures exercise `approvalsReviewer: "auto_review"`;
+the explicit manual-approval probe retains `user`. Typed automatic-review
+notifications are checked against the reference schema. These offline checks
+prove protocol/configuration compatibility, not a model's approval decisions.
+Text-only helpers continue to disable both web search and interactive approvals.
 
 `skip_host_skill_discovery` does not make the v0.151 skill catalog empty. App
 Server materializes its bundled system skills beneath the isolated

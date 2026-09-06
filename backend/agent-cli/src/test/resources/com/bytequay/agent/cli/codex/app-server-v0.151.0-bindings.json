@@ -445,6 +445,158 @@
       ]
     },
     {
+      "javaType": "AutoApprovalReviewStartedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/autoApprovalReview/started]"
+      ],
+      "context": {
+        "method": "item/autoApprovalReview/started"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "action": {
+              "server": "value",
+              "toolName": "value",
+              "type": "mcpToolCall"
+            },
+            "review": {
+              "status": "inProgress"
+            },
+            "reviewId": "value",
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "AutoApprovalReviewCompletedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=item/autoApprovalReview/completed]"
+      ],
+      "context": {
+        "method": "item/autoApprovalReview/completed"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "action": {
+              "server": "value",
+              "toolName": "value",
+              "type": "mcpToolCall"
+            },
+            "completedAtMs": 1,
+            "decisionSource": "agent",
+            "review": {
+              "status": "inProgress"
+            },
+            "reviewId": "value",
+            "startedAtMs": 1,
+            "threadId": "value",
+            "turnId": "value"
+          }
+        },
+        {
+          "javaName": "emittedAtMs",
+          "wireName": "emittedAtMs",
+          "required": false,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
+      "javaType": "AutoApprovalReviewParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ItemGuardianApprovalReviewStartedNotification",
+        "v2#ItemGuardianApprovalReviewCompletedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "turnId",
+          "wireName": "turnId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "reviewId",
+          "wireName": "reviewId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "review",
+          "wireName": "review",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "status": "inProgress"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "AutoApprovalReview",
+      "mode": "decode",
+      "sources": [
+        "v2#GuardianApprovalReview"
+      ],
+      "components": [
+        {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": "inProgress"
+        },
+        {
+          "javaName": "riskLevel",
+          "wireName": "riskLevel",
+          "required": false,
+          "nullable": true,
+          "sample": "low"
+        },
+        {
+          "javaName": "rationale",
+          "wireName": "rationale",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        }
+      ]
+    },
+    {
       "javaType": "TurnNotificationParams",
       "mode": "decode",
       "sources": [
@@ -2574,7 +2726,7 @@
           "wireName": "approvalsReviewer",
           "required": false,
           "nullable": true,
-          "sample": "user"
+          "sample": "auto_review"
         },
         {
           "javaName": "config",
@@ -2878,7 +3030,7 @@
           "wireName": "approvalsReviewer",
           "required": false,
           "nullable": true,
-          "sample": "user"
+          "sample": "auto_review"
         },
         {
           "javaName": "config",
@@ -3001,7 +3153,7 @@
           "wireName": "approvalsReviewer",
           "required": false,
           "nullable": true,
-          "sample": "user"
+          "sample": "auto_review"
         },
         {
           "javaName": "cwd",

@@ -123,6 +123,10 @@ final class CodexEventMapper
             case CodexProtocol.ItemCompletedNotification completed ->
                 mapItem(completed.params().item(), timestamp, false, rootThread,
                         source(completed, Optional.of(completed.params().item().id()), lineage));
+            case CodexProtocol.AutoApprovalReviewStartedNotification started ->
+                ImmutableList.of(autoApprovalReview(started, started.params(), timestamp, lineage));
+            case CodexProtocol.AutoApprovalReviewCompletedNotification completed ->
+                ImmutableList.of(autoApprovalReview(completed, completed.params(), timestamp, lineage));
             // The driver announces a new thread once its lineage is known; nothing to show here.
             case CodexProtocol.ThreadStartedNotification ignored -> ImmutableList.of();
             case CodexProtocol.CommandOutputNotification output -> ImmutableList.of(
@@ -164,6 +168,43 @@ final class CodexEventMapper
                     source(error, Optional.empty(), lineage)));
             case CodexProtocol.UnknownNotification ignored -> ImmutableList.of();
         };
+    }
+
+    private ProviderAgentEvent autoApprovalReview(
+            CodexProtocol.Notification notification,
+            CodexProtocol.AutoApprovalReviewParams params,
+            Optional<Instant> timestamp,
+            ThreadLineage lineage)
+    {
+        // A review has its own identity: using the target command's item ID would overwrite its output.
+        String itemId = "approval-review:" + params.reviewId();
+        CodexProtocol.AutoApprovalReview review = params.review();
+        String outcome = switch (review.status()) {
+            case "inProgress" -> "Reviewing action";
+            case "approved" -> "Approved";
+            case "denied" -> "Denied";
+            case "timedOut" -> "Timed out";
+            case "aborted" -> "Stopped";
+            default -> "Unknown review status";
+        };
+        ProviderAgentEvent.ActivityState state = switch (review.status()) {
+            case "inProgress" -> ProviderAgentEvent.ActivityState.STARTED;
+            case "approved" -> ProviderAgentEvent.ActivityState.COMPLETED;
+            default -> ProviderAgentEvent.ActivityState.FAILED;
+        };
+        String summary = outcome
+                + review.riskLevel().map(risk -> " · " + risk + " risk").orElse("")
+                + review.rationale().filter(reason -> !reason.isBlank()).map(reason -> " — " + reason).orElse("");
+        return new ProviderAgentEvent.Tool(
+                Optional.of(itemId + ":" + review.status()),
+                timestamp,
+                itemId,
+                "Automatic approval",
+                state,
+                redactor.redact(summary),
+                Optional.empty(),
+                source(notification, Optional.of(itemId), lineage),
+                Optional.empty());
     }
 
     /** An item read back from a thread's history, mapped as the completed item it now is. */

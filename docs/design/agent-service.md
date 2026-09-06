@@ -2438,9 +2438,11 @@ The connection and task sequence is:
    `multi_agent_v2`; a model advertising no child support stays on the no-child
    profile. An unknown advertised version makes that model unavailable rather
    than silently selecting another graph protocol. Every profile explicitly
-   disables apps, plugins, hooks, host skill discovery, web search, the other
+   disables apps, plugins, hooks, host skill discovery, the other
    multi-agent feature, and all other unapproved optional capabilities, and
-   applies the same minimal command environment. The separate
+   applies the same minimal command environment. Ordinary tasks enable native
+   `web_search: "live"` so public documentation reads do not require shell
+   network access. Text-only helpers keep web search disabled. The separate
    `--live-children` fixture proved the bounded root/child/grandchild V1/V2
    contract with a persistent fixture profile signed in directly with ChatGPT;
    production now applies that model-advertised profile at each turn boundary.
@@ -2471,7 +2473,7 @@ The connection and task sequence is:
 4. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
    (`approvalPolicy: "on-request"` in the v0.151 reference schema),
-   `approvalsReviewer: "user"`, the generated per-thread config override, and
+   `approvalsReviewer: "auto_review"`, the generated per-thread config override, and
    legacy `sandbox: "workspace-write"`. No `environments` are selected: the
    process default is rooted at the process working directory, which is this
    task's worktree. After start, page
@@ -2484,7 +2486,7 @@ The connection and task sequence is:
    child profile. A stale idle session must first close with a verified process
    stop. Start a new thread when no session reference exists; otherwise call
    `thread/resume` with the stored `threadId`, the same config and sandbox ceiling, and
-   `approvalsReviewer: "user"`. Repeat the
+   `approvalsReviewer: "auto_review"`. Repeat the
    effective-capability checks and never infer a session ID from provider
    files. Relaunching at the turn boundary is deliberate: changing the task
    default between turns cannot reuse a process configured for the previous
@@ -2494,7 +2496,7 @@ The connection and task sequence is:
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
    input is URL-based and is outside the first local-upload release. Apply the
    turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
-   `approvalsReviewer: "user"`, canonical `cwd`, and structured
+   `approvalsReviewer: "auto_review"`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and
    `writableRoots: [canonicalWorktree]`, with tool network disabled. The
    thread's persisted
@@ -2634,8 +2636,35 @@ the task worktree. The
 App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox or
 first-release process profile enforces a destination allowlist for that control
-traffic. The driver sets `approvalsReviewer: "user"` at start, resume, and turn
-start so approval requests remain visible to ByteQuay. ByteQuay adds no general
+traffic. The driver sets `approvalsReviewer: "auto_review"` at start, resume, and
+turn start for ordinary tasks. A separate native reviewer can approve routine
+read-only inspection and public fetching. ByteQuay supplies a complete pinned
+native tenant policy from Codex 0.152.1 plus stricter scope rules through
+`auto_review.policy`: other sandbox-boundary side effects, including every
+GitHub write, require direct explicit user authorization. General task intent
+is insufficient. Persistent grants, blanket future permissions, credential
+probing, and unauthorized private-data transmission are denied. The resource
+records its provenance; future native policy changes require review of that
+resource, rather than being silently inherited. Effective config and session
+flags must contain the exact policy before any task thread starts or resumes.
+
+Native review-start and review-completion notifications become normalized tool
+activity with independent review IDs, status, risk, and redacted rationale.
+They do not become pending human approval cards or overwrite command output.
+The profile pins classic `guardian_approval` on and experimental `guardianv2`
+and `guardian_ext` off. In the verified 0.152.1 native source, the classic
+reviewer uses a private delegated session, not a task subagent registered with
+App Server's thread manager. Reviews are emitted on their owning task thread;
+the native parent waits for its reviewer session to shut down. No synthetic
+subagent lineage or separate ByteQuay reviewer process is introduced.
+After denial the native agent must use a safer path or explain the reason and
+ask the user; there is no automatic human-card fallback. Remaining native
+approval requests still use the existing ByteQuay request/decision boundary.
+Text-only title/Better Words helpers keep `never`, reviewer `user`, read-only
+sandbox, disabled tools, and disabled web search. The shell network and
+filesystem sandbox remain unchanged for every profile.
+
+ByteQuay adds no general
 custom tool router, semantic Git-command policy, or post-turn Git workflow in
 this phase. The separately gated CodeGraph bridge remains limited to its one
 fixed structural tool.

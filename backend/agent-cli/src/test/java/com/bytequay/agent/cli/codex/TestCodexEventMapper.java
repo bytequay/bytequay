@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -126,6 +127,30 @@ class TestCodexEventMapper
                 "id":"item-1","future":true},"threadId":"thread-1","turnId":"turn-1"}}
                 """);
         assertThat(mapper.map(item, true)).isEmpty();
+    }
+
+    @Test
+    void mapsAutomaticReviewOutcomesSeparatelyFromTheReviewedCommand()
+    {
+        CodexEventMapper redacting = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("API_TOKEN", "known-secret")));
+        for (String status : ImmutableList.of("inProgress", "approved", "denied", "timedOut", "aborted", "futureStatus")) {
+            String method = status.equals("inProgress") ? "started" : "completed";
+            CodexProtocol.Notification notification = codec.decodeNotification("""
+                    {"method":"item/autoApprovalReview/%s","params":{"threadId":"thread-1",
+                    "turnId":"turn-1","reviewId":"review-1","targetItemId":"exec-1",
+                    "review":{"status":"%s","riskLevel":"low","rationale":"Inspect known-secret"}}}
+                    """.formatted(method, status));
+            ProviderAgentEvent.Tool tool = (ProviderAgentEvent.Tool) redacting.map(notification, true).getFirst();
+            assertThat(tool.name()).isEqualTo("Automatic approval");
+            assertThat(tool.source().providerItemId()).contains("approval-review:review-1");
+            assertThat(tool.source().providerTurnId()).contains("turn-1");
+            assertThat(tool.summary()).contains("low risk", "[REDACTED]").doesNotContain("known-secret");
+            assertThat(tool.state()).isEqualTo(switch (status) {
+                case "inProgress" -> ProviderAgentEvent.ActivityState.STARTED;
+                case "approved" -> ProviderAgentEvent.ActivityState.COMPLETED;
+                default -> ProviderAgentEvent.ActivityState.FAILED;
+            });
+        }
     }
 
     @Test

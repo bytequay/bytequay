@@ -42,6 +42,8 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "turn/completed", value = TurnCompletedNotification.class),
             @JsonSubTypes.Type(name = "item/started", value = ItemStartedNotification.class),
             @JsonSubTypes.Type(name = "item/completed", value = ItemCompletedNotification.class),
+            @JsonSubTypes.Type(name = "item/autoApprovalReview/started", value = AutoApprovalReviewStartedNotification.class),
+            @JsonSubTypes.Type(name = "item/autoApprovalReview/completed", value = AutoApprovalReviewCompletedNotification.class),
             @JsonSubTypes.Type(
                     name = "item/commandExecution/outputDelta",
                     value = CommandOutputNotification.class),
@@ -59,6 +61,7 @@ final class CodexProtocol
     sealed interface Notification
             permits TurnStartedNotification, TurnCompletedNotification,
             ItemStartedNotification, ItemCompletedNotification,
+            AutoApprovalReviewStartedNotification, AutoApprovalReviewCompletedNotification,
             CommandOutputNotification, AgentMessageDeltaNotification, PlanDeltaNotification,
             PlanUpdatedNotification, TokenUsageUpdatedNotification, ErrorNotification,
             ThreadStartedNotification, UnknownNotification
@@ -86,6 +89,7 @@ final class CodexProtocol
     sealed interface Params
             permits TurnNotificationParams, ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams,
             TokenUsageParams, ErrorParams, ThreadStartedParams, UnknownParams, CommandApprovalParams,
+            AutoApprovalReviewParams,
             FileChangeApprovalParams, PermissionsApprovalParams
     {
         String threadId();
@@ -144,6 +148,54 @@ final class CodexProtocol
         {
             requireNonNull(params, "params is null");
             requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+    }
+
+    record AutoApprovalReviewStartedNotification(AutoApprovalReviewParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        AutoApprovalReviewStartedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+    }
+
+    record AutoApprovalReviewCompletedNotification(AutoApprovalReviewParams params, Optional<Long> emittedAtMs)
+            implements Notification
+    {
+        AutoApprovalReviewCompletedNotification
+        {
+            requireNonNull(params, "params is null");
+            requireNonNull(emittedAtMs, "emittedAtMs is null");
+        }
+    }
+
+    record AutoApprovalReviewParams(String threadId, String turnId, String reviewId, AutoApprovalReview review)
+            implements Params
+    {
+        AutoApprovalReviewParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(reviewId, "reviewId");
+            requireNonNull(review, "review is null");
+        }
+
+        @Override
+        public Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId);
+        }
+    }
+
+    record AutoApprovalReview(String status, Optional<String> riskLevel, Optional<String> rationale)
+    {
+        AutoApprovalReview
+        {
+            checkIdentifier(status, "status");
+            requireNonNull(riskLevel, "riskLevel is null");
+            requireNonNull(rationale, "rationale is null");
         }
     }
 

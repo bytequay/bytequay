@@ -701,6 +701,13 @@
   cursor: default;
 }
 
+.agt-send.is-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .agt-stop-square {
   display: inline-block;
   width: 10px;

@@ -13,7 +13,7 @@
  */
 
 import React, { useEffect, useReducer, useRef, useState } from 'react';
-import { EyeOff, Pencil } from 'lucide-react';
+import { EyeOff, LoaderCircle, Pencil } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
@@ -93,7 +93,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   };
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
-      {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
+      {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
       {pill.label}
     </span>
   );

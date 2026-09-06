@@ -641,7 +641,7 @@ function TaskRow({ task, providers, now, checked, selecting, onOpen, onToggle, o
         {provider?.label ?? laneLabel(task.laneId)} · {model} · {relativeTime(task.updatedAt, { suffix: false, now })}
       </span>
       <span className={`agt-state ${pill.className}`}>
-        {pill.spinning && <span className="agt-spin" aria-hidden="true" />}
+        {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
         {pill.label}
       </span>
       <span className="agt-trow__actions">

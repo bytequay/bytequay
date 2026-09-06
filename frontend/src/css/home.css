@@ -102,7 +102,7 @@
 
 .home-start__title {
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -244,7 +244,7 @@
 .atn-row__title {
   min-width: 0;
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 400;
   color: #1f2328;
   white-space: nowrap;
   overflow: hidden;
@@ -269,7 +269,7 @@
 }
 
 .atn-row__kind {
-  font-weight: 600;
+  font-weight: 400;
   white-space: nowrap;
 }
 
@@ -1099,7 +1099,7 @@
 
 .home-section__title {
   font-size: var(--font-size-md);
-  font-weight: 600;
+  font-weight: 400;
   color: var(--text-1);
 }
 

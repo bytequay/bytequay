@@ -184,7 +184,7 @@ describe('agent task layout', () => {
       'font-size: 13px',
       'font-weight: 400',
     ]));
-    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.chev \{\s*font-size: 14px;\s*font-weight: 400;\s*color: #1f2328/s);
+    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.chev \{\s*font-size: 13px;\s*font-weight: 400;\s*color: #1f2328/s);
     expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.agt-send \{\s*transform: translateY\(2px\)/s);
     expect(declarations('.agt-compose.is-new-task .agt-attach')).toEqual(expect.arrayContaining([
       'font: inherit',

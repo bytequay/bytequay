@@ -511,10 +511,19 @@ reload, back, and forward all reconstruct the selected task, and the backend
 rejects a task whose durable `workspaceId` does not match the route. Existing
 cherry-pick rows keep their current Commits navigation.
 
-The detail screen keeps the composer anchored while the transcript scrolls:
+The detail header shows Back, the task title, status, and an icon-only completion
+button on the left. Its hover tooltip and accessible name are **Mark it complete**;
+disabled tooltips explain the current blocker. Provider, model, turn count, and
+time remain in the composer or transcript rather than the header.
+
+The detail screen keeps the composer anchored at the bottom of the conversation
+pane while the transcript scrolls. The composer shares the transcript's reading
+width and horizontal inset, with no divider above it. An open side panel sits
+beside the whole conversation, including its composer, and extends to the bottom
+of the screen. This layout supersedes the older HTML prototype's full-width dock.
 
 ```text
-┌ Back · task title     Complete    lane · model · status · elapsed ┐
+┌ Back · task title · status · ✓                      panel toggle ┐
 ├───────────────────────────────────────────────────────────────────┤
 │ user message + image previews                                     │
 │ assistant text                                                    │
@@ -523,7 +532,7 @@ The detail screen keeps the composer anchored while the transcript scrolls:
 │ approval card: request details          permitted decisions      │
 │ subagents card: Active (2) · Done (3)          Open agent         │
 │ final answer + usage/timing                                       │
-├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
 │ queued next turns (only when present)                              │
 │ image chips · message input                                       │
 │ model · effort · Auto                     Cancel · Steer/Run next │

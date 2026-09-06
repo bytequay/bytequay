@@ -169,12 +169,12 @@
   border-bottom: 1px solid #e3e3e6;
 }
 
-/* Everything under the transcript: the plan, drafts, recovery and the composer, on one bar. */
+/* The composer and its supporting controls stay at the bottom of the conversation pane. */
 .agt-bottom {
   display: flex;
+  flex: none;
   flex-direction: column;
   padding: 12px 24px;
-  border-top: 1px solid #e3e3e6;
   background: #ffffff;
 }
 
@@ -715,6 +715,21 @@
 
 .agt-compose-dock.is-task .agt-compose {
   border-radius: 14px;
+}
+
+.agt-compose-dock.is-task .agt-compose__row {
+  flex-wrap: wrap;
+}
+
+/* Anchor the menu to the card so running-turn controls cannot push it outside the pane. */
+.agt-compose-dock.is-task .agt-picker {
+  position: static;
+}
+
+.agt-compose-dock.is-task .agt-picker__card {
+  right: 10px;
+  max-width: calc(100% - 20px);
+  box-sizing: border-box;
 }
 
 .agt-steer {
@@ -1956,6 +1971,14 @@
   min-height: 0;
 }
 
+.agt-conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .agt-agents {
   display: flex;
   align-items: center;
@@ -2004,6 +2027,7 @@
 
 .agt-panel {
   flex: none;
+  max-width: calc(100% - min(480px, 60%));
   border-left: 1px solid #e3e3e6;
   background: #ffffff;
   display: flex;

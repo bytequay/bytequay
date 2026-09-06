@@ -226,7 +226,7 @@ describe('agent task layout', () => {
 
     expect(markup).toContain('Turn 1 · Worked for 11s');
     expect(markup).not.toContain('Working for');
-    expect(markup).toMatch(/<span class="agt-mono agt-meta">Codex · test-model · 1 turn · [^<]+<\/span>/);
+    expect(markup).not.toContain('agt-meta');
   });
 
   it('opens the composer picker upward as a floating card, and names models the short way', () => {
@@ -661,7 +661,8 @@ describe('agent task detail', () => {
     expect(idle).not.toMatch(/class="agt-send"[^>]*disabled/);
     expect(idle).not.toContain('agt-send is-stop');
     // Complete is live while idle, and the header names the state.
-    expect(idle).toMatch(/<button[^>]*class="agt-headbtn is-labelled"(?![^>]*disabled)/);
+    expect(idle).toMatch(/<button[^>]*class="agt-headbtn"[^>]*aria-label="Mark it complete"(?![^>]*disabled)/);
+    expect(idle).toContain('title="Mark it complete"');
     expect(idle).toContain('>Ready<');
     // The bounded status line is what assistive technology hears; it names the state, not tokens.
     expect(idle).toContain('aria-live="polite"');
@@ -830,10 +831,9 @@ describe('agent task detail', () => {
     // Nothing may send, retry or complete until the process is verified gone: the card replaces the composer.
     expect(markup).not.toContain('agt-compose');
     expect(markup).toMatch(/<button[^>]*disabled[^>]*>Retry last message</);
-    expect(markup).toMatch(/<button[^>]*class="agt-headbtn is-labelled"[^>]*disabled/);
+    expect(markup).toMatch(/<button[^>]*class="agt-headbtn"[^>]*aria-label="Mark it complete"[^>]*disabled/);
     expect(markup).toContain('Unlocks after recovery');
     expect(markup).toContain('>Recovering<');
-    expect(markup).toContain('workspace reserved');
   });
 
   it('can retry stopping a recovered process without requiring another restart', () => {
@@ -873,7 +873,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('the branch remains');
     expect(markup).not.toContain('Retry checkout cleanup');
     expect(markup).not.toContain('Message the agent');
-    expect(markup).not.toContain('agt-headbtn is-labelled');
+    expect(markup).not.toContain('aria-label="Mark it complete"');
 
     const failed = body({
       task: { ...task('t-1', 'FAILED', 'Gave up'), terminalReason: 'Marked failed by the user during recovery' },
@@ -1040,7 +1040,7 @@ describe('agent task detail', () => {
     expect(loadingImage).not.toMatch(/<textarea[^>]*disabled/);
     expect(loadingImage).toMatch(/aria-label="Send message"[^>]*disabled/);
     expect(loadingImage).toMatch(/aria-label="Attach an image"[^>]*disabled/);
-    expect(loadingImage).toMatch(/class="agt-headbtn is-labelled"[^>]*disabled/);
+    expect(loadingImage).toMatch(/class="agt-headbtn"[^>]*aria-label="Mark it complete"[^>]*disabled/);
     expect(render(false)).toMatch(/<textarea[^>]*disabled/);
   });
 

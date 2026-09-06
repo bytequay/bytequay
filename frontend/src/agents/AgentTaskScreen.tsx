@@ -703,7 +703,7 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
   switch (status) {
     case 'idle':
       return canComplete(state)
-        ? 'Closes this task, removes its clean checkout and keeps the result branch'
+        ? 'Mark it complete'
         : 'Run or remove every waiting queued message first';
     case 'recovery':
       return 'Unlocks after recovery';
@@ -712,41 +712,6 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
     default:
       return 'Available when the task is idle';
   }
-}
-
-/** The header's second line: where the task is, in the fewest words that are still facts. */
-function headerMeta(
-  turns: TranscriptTurn[],
-  status: AgentRuntimeStatus,
-  waiting: boolean,
-  now: number,
-  state: AgentTaskState,
-  models: ModelOptionDto[],
-  provider: string,
-): string {
-  const identity = state.task === null
-    ? ''
-    : `${provider || laneLabel(state.task.laneId)} · ${modelName(models, state.task.defaults.model)} · `;
-  const last = turns[turns.length - 1];
-  if (status === 'recovery') {
-    return `${identity}${last === undefined ? '' : `Turn ${last.ordinal} interrupted · `}workspace reserved`;
-  }
-  if (status === 'closing') return `${identity}Closing…`;
-  if (status === 'running' && last !== undefined) {
-    const queued = state.queue.filter((input) => input.state === 'QUEUED').length;
-    const queueText = queued === 0 ? '' : ` · ${queued} queued`;
-    if (waiting) return `${identity}Turn ${last.ordinal} · waiting on you${queueText}`;
-    const elapsed = turnElapsedMs(last, now);
-    return `${identity}Turn ${last.ordinal}${elapsed === null ? '' : ` · ${formatDuration(elapsed)}`}${queueText}`;
-  }
-  if (last !== undefined) {
-    const ended = [...turns].reverse().find((turn) => turn.endedAt !== null);
-    return `${identity}${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}${ended === undefined ? '' : ` · ${clock(ended.endedAt as string)}`}`;
-  }
-  if (state.effective !== null) {
-    return `${identity}${state.effective.effort === null ? '' : `${state.effective.effort} · `}${permissionLabel(state.effective.permissionPolicy)}`;
-  }
-  return identity.endsWith(' · ') ? identity.slice(0, -3) : identity;
 }
 
 const QUEUE_LABELS: Record<string, string> = {
@@ -1493,13 +1458,6 @@ export function AgentTaskBody({
           {(status === 'recovery' || status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
-        <span className="agt-mono agt-meta">{headerMeta(turns, status, waiting, now, state, models, provider)}</span>
-        <span className="agt-spacer" />
-        <span
-          className={`agt-conn-dot is-${stateClass(state.connection)}`}
-          title={connectionText(state)}
-          aria-label={connectionText(state)}
-        />
         {state.task !== null && onArchive !== undefined && (
           <button
             type="button"
@@ -1517,15 +1475,21 @@ export function AgentTaskBody({
         {!terminal && (
           <button
             type="button"
-            className="agt-headbtn is-labelled"
+            className="agt-headbtn"
+            aria-label="Mark it complete"
             title={completeTitle(status, state)}
             onClick={onComplete}
             disabled={state.sending || !canComplete(state)}
           >
             <CircleCheck aria-hidden="true" />
-            Complete
           </button>
         )}
+        <span className="agt-spacer" />
+        <span
+          className={`agt-conn-dot is-${stateClass(state.connection)}`}
+          title={connectionText(state)}
+          aria-label={connectionText(state)}
+        />
         {state.task !== null && status !== 'loading' && (
           <button
             type="button"
@@ -1555,6 +1519,7 @@ export function AgentTaskBody({
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <div className="agt-body">
+      <div className="agt-conversation">
       <div
         className="agt-transcript"
         role="log"
@@ -1603,41 +1568,6 @@ export function AgentTaskBody({
             {' — Send, queued messages, and Complete unlock when every agent and command finishes.'}
           </div>
         )}
-      </div>
-      {panelOpen && state.task !== null && (
-        <>
-          <div
-            className={`agt-panel-resize${sidePanel.resizing ? ' is-resizing' : ''}`}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize side panel"
-            title="Drag to resize the panel"
-            onMouseDown={sidePanel.startResize}
-          />
-          <SidePanel
-            agents={agents}
-            openAgent={supportsNestedAgents ? openAgent : null}
-            expiredChildren={expiredChildren}
-            deleteAfter={state.task.deleteAfter}
-            transcript={!supportsNestedAgents || openAgent === null ? [] : projectTranscript(state.events, openAgent)}
-            now={now}
-            tab={visiblePanelTab}
-            pullRequests={pullRequests}
-            activityChoice={activityChoice}
-            onOpenAgent={onOpenAgent}
-            onCloseAgent={onCloseAgent}
-            onToggleActivity={onToggleActivity}
-            onDecide={onDecide}
-            onSelectTab={onSelectPanelTab}
-            onHide={onTogglePanel}
-            onOpenPullRequest={onOpenPullRequest}
-            width={sidePanel.width}
-            showAgents={supportsNestedAgents}
-            logChoice={logChoice}
-            onToggleLog={onToggleLog}
-          />
-        </>
-      )}
       </div>
 
       <div className="agt-bottom">
@@ -1796,6 +1726,42 @@ export function AgentTaskBody({
           </div>
           <TaskStats task={state.task} turns={turns} now={now} />
         </div>
+      )}
+      </div>
+      </div>
+      {panelOpen && state.task !== null && (
+        <>
+          <div
+            className={`agt-panel-resize${sidePanel.resizing ? ' is-resizing' : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize side panel"
+            title="Drag to resize the panel"
+            onMouseDown={sidePanel.startResize}
+          />
+          <SidePanel
+            agents={agents}
+            openAgent={supportsNestedAgents ? openAgent : null}
+            expiredChildren={expiredChildren}
+            deleteAfter={state.task.deleteAfter}
+            transcript={!supportsNestedAgents || openAgent === null ? [] : projectTranscript(state.events, openAgent)}
+            now={now}
+            tab={visiblePanelTab}
+            pullRequests={pullRequests}
+            activityChoice={activityChoice}
+            onOpenAgent={onOpenAgent}
+            onCloseAgent={onCloseAgent}
+            onToggleActivity={onToggleActivity}
+            onDecide={onDecide}
+            onSelectTab={onSelectPanelTab}
+            onHide={onTogglePanel}
+            onOpenPullRequest={onOpenPullRequest}
+            width={sidePanel.width}
+            showAgents={supportsNestedAgents}
+            logChoice={logChoice}
+            onToggleLog={onToggleLog}
+          />
+        </>
       )}
       </div>
     </div>

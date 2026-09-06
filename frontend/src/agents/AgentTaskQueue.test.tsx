@@ -81,7 +81,7 @@ function body(state: Partial<AgentTaskState>, providerStatus: AgentProviderStatu
 }
 
 describe('the queue behind a running turn', () => {
-  it('lists queued messages under the composer, with their settings, and counts them in the header', () => {
+  it('lists queued messages under the composer with their settings', () => {
     const markup = body({
       turn: turn('RUNNING'),
       events,
@@ -93,9 +93,8 @@ describe('the queue behind a running turn', () => {
     expect(markup).toContain('Open a draft pull request');
     expect(markup).toContain('5.6 Terra medium');
     expect(markup).toContain('1 image');
-    // A waiting row can be removed, and the header says how many wait.
+    // Each waiting row can be removed.
     expect(markup.match(/aria-label="Remove from queue"/g)).toHaveLength(2);
-    expect(markup).toContain('2 queued');
     // Queued text is not in the transcript: only the queue shows it until it runs.
     expect(markup).not.toContain('agt-user__bubble">Then update');
   });
@@ -151,12 +150,12 @@ describe('the queue behind a running turn', () => {
   it('blocks Complete for live queue work but lets an uncertain row reach confirmation', () => {
     for (const state of ['QUEUED', 'PAUSED', 'STARTING']) {
       const waiting = body({ turn: turn('COMPLETED'), queue: [queued('q-1', state, 'Still waiting')] });
-      expect(waiting).toMatch(/class="agt-headbtn is-labelled"[^>]*disabled/);
+      expect(waiting).toMatch(/class="agt-headbtn"[^>]*aria-label="Mark it complete"[^>]*disabled/);
       expect(waiting).toContain('Run or remove every waiting queued message first');
     }
 
     const uncertain = body({ turn: turn('COMPLETED'), queue: [queued('q-1', 'UNCERTAIN', 'Maybe sent')] });
-    expect(uncertain).not.toMatch(/class="agt-headbtn is-labelled"[^>]*disabled/);
+    expect(uncertain).not.toMatch(/class="agt-headbtn"[^>]*aria-label="Mark it complete"[^>]*disabled/);
   });
 
   it('shows a starting row with a spinner and nothing to press', () => {

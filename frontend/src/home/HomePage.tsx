@@ -24,6 +24,7 @@ import {
   loadHandled,
   saveHandled,
   stillHandled,
+  visibleAttention,
   type AttentionItem,
   type Handled,
 } from './attention';
@@ -124,6 +125,8 @@ function HomePage({
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
+  const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(null);
+  const [attentionError, setAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -132,6 +135,34 @@ function HomePage({
 
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const reload = () => {
+      void window.bridge.fetchAttentionPrs().then(rows => {
+        if (active) { setAttentionPrs(rows); setAttentionError(null); }
+      }).catch(error => {
+        if (active) setAttentionError(error instanceof Error ? error.message : String(error));
+      });
+    };
+    const updated = (event: Event) => {
+      setAttentionPrs((event as CustomEvent<PullRequestDto[]>).detail);
+      setAttentionError(null);
+    };
+    const handledChanged = () => setHandled(loadHandled());
+    reload();
+    const stopSync = window.bridge.onPullRequestsSynced(reload);
+    window.addEventListener('bytequay:pr-attention-updated', updated);
+    window.addEventListener('bytequay:pr-monitor-changed', reload);
+    window.addEventListener('bytequay:attention-handled-changed', handledChanged);
+    return () => {
+      active = false;
+      stopSync();
+      window.removeEventListener('bytequay:pr-attention-updated', updated);
+      window.removeEventListener('bytequay:pr-monitor-changed', reload);
+      window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
+    };
   }, []);
 
   useEffect(() => {
@@ -225,8 +256,8 @@ function HomePage({
   }, [login, workspaceKey]);
 
   const candidates = useMemo(
-    () => attentionCandidates(prs ?? [], issueItems),
-    [issueItems, prs]);
+    () => attentionCandidates(attentionPrs ?? [], issueItems, login),
+    [attentionPrs, issueItems, login]);
 
   const snoozedCount = useMemo(() => {
     const now = Date.now();
@@ -237,18 +268,17 @@ function HomePage({
   }, [candidates, handled]);
 
   const prInboxCounts = useMemo(() => {
-    if (!prs) return null;
+    if (!attentionPrs) return null;
     let mine = 0;
     let awaiting = 0;
-    let flagged = 0;
-    for (const pr of prs) {
+    for (const pr of attentionPrs) {
       if (pr.state !== 'open') continue;
       if (pullRequestIsMine(pr, login)) mine++;
       else if (pullRequestNeedsReview(pr)) awaiting++;
-      if (pr.attentionReason !== null && pr.attentionReason !== 'MINE') flagged++;
     }
+    const flagged = visibleAttention(candidates, handled, Date.now()).filter(item => item.type === 'pr').length;
     return { mine, awaiting, flagged };
-  }, [login, prs]);
+  }, [attentionPrs, candidates, handled, login]);
 
 
   function applyHandled(next: Handled) {
@@ -285,6 +315,7 @@ function HomePage({
         </button>
       </div>
 
+      {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
       <AttentionList
         candidates={candidates}
         handled={handled}

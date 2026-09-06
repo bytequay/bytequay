@@ -188,6 +188,28 @@
   font-size: var(--ui-font-size);
 }
 
+.pull-card { position: relative; }
+.pull-card > .pull-row { padding-right: 48px; }
+.pull-card__monitor {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b949e;
+}
+.pull-card--wide > .pull-card__monitor { top: 50%; transform: translateY(-50%); }
+.pull-card__monitor:hover { background: #e7ebf0; color: #57606a; }
+.pull-card__monitor.is-active { background: #ddf4ff; color: #0969da; }
+.pull-card__monitor:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.pull-card__monitor:disabled { cursor: wait; opacity: .5; }
+
 .pull-row {
   display: flex;
   width: 100%;

@@ -69,20 +69,38 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   applyHandled: (handled: Handled) => void;
 } {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
+  const [login, setLogin] = useState<string | null>(null);
   const [issues, setIssues] = useState<AttentionItem[]>([]);
   const [handled, setHandled] = useState<Handled>(loadHandled);
   useEffect(() => {
     let active = true;
-    window.bridge.fetchPrs(workspaceId, 0, 50)
-      .then((page) => { if (active) setPrs(page.pullRequests.filter((pr) => pr.repo === repository)); })
-      .catch(() => {});
+    const apply = (rows: PullRequestDto[]) => {
+      if (active) setPrs(rows.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()));
+    };
+    const reload = () => { void window.bridge.fetchAttentionPrs().then(apply).catch(() => {}); };
+    const updated = (event: Event) => apply((event as CustomEvent<PullRequestDto[]>).detail);
+    const handledChanged = () => setHandled(loadHandled());
+    reload();
+    const stopSync = window.bridge.onPullRequestsSynced(reload);
+    window.addEventListener('bytequay:pr-attention-updated', updated);
+    window.addEventListener('bytequay:pr-monitor-changed', reload);
+    window.addEventListener('bytequay:attention-handled-changed', handledChanged);
     window.bridge.getUserProfile()
-      .then((profile) => window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
-        .then((snapshot) => { if (active) setIssues(assignedIssues(snapshot, workspaceId, profile.login)); }))
+      .then(profile => {
+        if (active) setLogin(profile.login);
+        return window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
+          .then(snapshot => { if (active) setIssues(assignedIssues(snapshot, workspaceId, profile.login)); });
+      })
       .catch(() => {});
-    return () => { active = false; };
+    return () => {
+      active = false;
+      stopSync();
+      window.removeEventListener('bytequay:pr-attention-updated', updated);
+      window.removeEventListener('bytequay:pr-monitor-changed', reload);
+      window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
+    };
   }, [repository, workspaceId]);
-  const candidates = useMemo(() => attentionCandidates(prs, issues), [issues, prs]);
+  const candidates = useMemo(() => attentionCandidates(prs, issues, login), [issues, login, prs]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);

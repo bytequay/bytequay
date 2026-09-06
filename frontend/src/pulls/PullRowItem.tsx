@@ -12,24 +12,41 @@
  * limitations under the License.
  */
 import Avatar from '../Avatar';
-import { GitMerge, GitPullRequest, MessageCircle } from 'lucide-react';
+import { Bell, BellRing, GitMerge, GitPullRequest, MessageCircle } from 'lucide-react';
 import type { PullRow } from './model';
 
-export default function PullRowItem({ row, wide, selected, onPick }: {
+export default function PullRowItem({ row, wide, selected, monitoring = false, onPick, onMonitor }: {
   row: PullRow;
   wide: boolean;
   selected: boolean;
+  monitoring?: boolean;
   onPick: () => void;
+  onMonitor: () => void;
 }) {
+  const monitorLabel = row.monitored ? 'Stop monitoring PR' : 'Monitor PR';
   return (
-    <button
-      type="button"
-      className={`pull-row${wide ? ' pull-row--wide' : ''}${selected ? ' is-selected' : ''}`}
-      aria-pressed={selected}
-      onClick={onPick}
-    >
-      {wide ? <WideRow row={row} /> : <NarrowRow row={row} />}
-    </button>
+    <div className={`pull-card${wide ? ' pull-card--wide' : ''}`}>
+      <button
+        type="button"
+        className={`pull-row${wide ? ' pull-row--wide' : ''}${selected ? ' is-selected' : ''}`}
+        aria-pressed={selected}
+        onClick={onPick}
+      >
+        {wide ? <WideRow row={row} /> : <NarrowRow row={row} />}
+      </button>
+      <button
+        type="button"
+        className={`pull-card__monitor${row.monitored ? ' is-active' : ''}`}
+        title={monitorLabel}
+        aria-label={`${monitorLabel}: ${row.repo} #${row.num}`}
+        aria-pressed={row.monitored}
+        aria-busy={monitoring}
+        disabled={monitoring}
+        onClick={onMonitor}
+      >
+        {row.monitored ? <BellRing size={16} aria-hidden="true" /> : <Bell size={16} aria-hidden="true" />}
+      </button>
+    </div>
   );
 }
 

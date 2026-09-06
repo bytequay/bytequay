@@ -302,9 +302,10 @@ never deletes a row. A known row omitted by the current search is reconciled thr
 repository-and-number endpoint before retention runs. Closed rows expire only after both their close
 time and last GitHub update are older than 30 days. The background job runs six minutes after its
 previous refresh completes. New PRs, changed GitHub update timestamps, and missing local details
-refresh the full aggregate immediately. An unchanged open PR updated within the previous six hours
-refreshes only mergeability and CI when its stored status is at least six minutes old. Other unchanged
-PRs are skipped, including every unchanged closed PR and older open PR.
+refresh the full aggregate immediately. An unchanged open dashboard PR refreshes mergeability and CI
+when its stored status is at least six minutes old, including older open PRs. Explicitly monitored
+PRs continue refreshing after closure; unmonitored unchanged closed PRs are skipped. Authored closed
+PR discovery uses recent activity, so a new comment can bring an older closed PR back into the snapshot.
 
 Dashboard refresh requests for the same GitHub credential join an in-flight dashboard refresh and
 reuse a successful dashboard snapshot for six minutes after it completes. A credential change waits
@@ -322,6 +323,21 @@ full file bodies refresh only after the user requests that range or expands that
 persisted before they are displayed.
 
 GitHub writes remain behind direct comment, approve, failed-check rerun, or merge actions.
+
+Home and Workspace Home read an unpaginated personal attention projection. Authored PRs follow all
+activity, including drafts and closure. Other PRs qualify for review requests, or new commits and
+merge readiness when the user was requested or has reviewed them. Repository watching alone does
+not make another author's failed CI actionable. A bell on each PR card explicitly monitors that PR;
+monitoring is local SQLite state and performs no GitHub write. Enabling it establishes a current
+snapshot baseline, and subsequent changes enter Needs attention. Stored activity timestamps include
+check changes that do not advance GitHub's PR update timestamp.
+
+Electron checks the local attention projection every 30 seconds and shows a native notification for
+new monitored activity discovered by GitHub refresh. This continues while the app runs with its window
+closed. Notification clicks open the PR in ByteQuay. Delivery marks and a copy of the renderer's local
+acknowledgment/snooze state survive restart in Electron's application data. Acknowledgment and
+"until new activity" snoozes wake on changed activity; timed snoozes remain quiet until their deadline.
+The bell does not announce activity that predates enabling it.
 
 ### 6.2 Issue flow
 

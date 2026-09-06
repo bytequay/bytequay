@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import FindBar from './FindBar';
 import HomePage from './home/HomePage';
+import { loadHandled } from './home/attention';
 import { pullRequestFromRoute, pullRequestRoute } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -114,6 +115,23 @@ export default function App() {
       stopBrowser();
       stopFullScreen();
     };
+  }, []);
+
+  useEffect(() => {
+    void window.bridge.setPrAttentionHandled(loadHandled()).catch(() => {});
+    const stopAttention = window.bridge.onPrAttentionUpdated(prs => {
+      window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: prs }));
+    });
+    const stopNotification = window.bridge.onPrNotificationOpen(reference => {
+      const slash = reference.repo.indexOf('/');
+      if (slash < 1) return;
+      setBrowserUrl(null);
+      setPaletteOpen(false);
+      window.location.hash = pullRequestRoute({
+        owner: reference.repo.slice(0, slash), repo: reference.repo.slice(slash + 1), number: reference.number,
+      });
+    });
+    return () => { stopAttention(); stopNotification(); };
   }, []);
 
   useEffect(() => {

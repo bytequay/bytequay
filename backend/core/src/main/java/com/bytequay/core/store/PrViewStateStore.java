@@ -16,6 +16,7 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PrViewState;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 
@@ -30,7 +31,7 @@ public interface PrViewStateStore
      */
     void markViewed(long prId);
 
-    void markReviewed(long prId, HandledAction action, String headSha);
+    void markReviewed(long prId, HandledAction action, String headSha, Instant reviewedAt);
 
     void markNeedsReview(long prId);
 }

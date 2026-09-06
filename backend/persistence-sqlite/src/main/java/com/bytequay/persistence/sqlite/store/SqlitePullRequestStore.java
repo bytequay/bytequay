@@ -25,6 +25,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -34,8 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -63,6 +66,33 @@ public class SqlitePullRequestStore
     {
         this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PullRequest> findAttentionCandidates()
+    {
+        List<PullRequestEntity> rows = jpaRepository.findAttentionCandidates();
+        Map<Long, PrViewState> states = viewStateStore.findByPrIds(rows.stream().map(PullRequestEntity::getId).collect(toImmutableSet()));
+        return rows.stream().map(row -> row.toDomain(states.get(row.getId()))).collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<PullRequest> findById(long prId)
+    {
+        PrViewState state = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
+        return jpaRepository.findById(prId).map(row -> row.toDomain(state));
+    }
+
+    @Override
+    @Transactional
+    public void setMonitored(long prId, boolean monitored)
+    {
+        PullRequestEntity row = jpaRepository.findById(prId).orElseThrow();
+        if (monitored != (row.getMonitoredAt() != null)) {
+            row.setMonitoredAt(monitored ? Instant.now() : null);
+        }
     }
 
     @Override
@@ -211,7 +241,19 @@ public class SqlitePullRequestStore
         entity.setId(previous == null ? null : previous.getId());
         mark.accept(entity, previous);
         if (previous != null) {
+            // Search has no reviewer list or head ref; only exact detail can remove a known pending request.
+            if (pullRequest.headRef() == null && pullRequest.origin() == PullRequest.Origin.OTHER
+                    && PullRequest.Origin.REVIEW_REQUESTED.name().equals(previous.getOrigin())) {
+                entity.setOrigin(previous.getOrigin());
+            }
             entity.preserveEnrichmentFrom(previous);
+            if (!Objects.equals(previous.getUpdatedAt(), entity.getUpdatedAt())
+                    || !Objects.equals(previous.getTitle(), entity.getTitle())
+                    || !Objects.equals(canonicalState(previous.getState(), previous.getMergedAt()), entity.getState())
+                    || previous.isDraft() != entity.isDraft()
+                    || !ImmutableSet.copyOf(previous.getLabels()).equals(ImmutableSet.copyOf(entity.getLabels()))) {
+                entity.setActivityAt(now);
+            }
         }
         return jpaRepository.save(entity).toDomain(null);
     }
@@ -310,8 +352,14 @@ public class SqlitePullRequestStore
     @Transactional
     public void updateState(long prId, String state, Instant updatedAt, Instant mergedAt)
     {
+        String normalizedState = canonicalState(state, mergedAt);
         jpaRepository.findById(prId).ifPresent(entity -> {
-            entity.setState(state);
+            if (!Objects.equals(canonicalState(entity.getState(), entity.getMergedAt()), normalizedState)
+                    || (updatedAt != null && !Objects.equals(entity.getUpdatedAt(), updatedAt))
+                    || !Objects.equals(entity.getMergedAt(), mergedAt)) {
+                entity.setActivityAt(Instant.now());
+            }
+            entity.setState(normalizedState);
             if (updatedAt != null) {
                 entity.setUpdatedAt(updatedAt);
             }
@@ -331,9 +379,30 @@ public class SqlitePullRequestStore
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
-            String headRef)
+            String headRef,
+            List<String> requestedReviewers,
+            PullRequest.Origin origin,
+            Optional<Instant> reviewRequestedAt,
+            Optional<String> reviewDecision,
+            Map<String, String> activityFingerprints)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
+            Map<String, String> previousFingerprints = Optional.ofNullable(entity.getActivityFingerprints()).orElse(ImmutableMap.of());
+            if (activityFingerprints.entrySet().stream().anyMatch(entry -> previousFingerprints.containsKey(entry.getKey())
+                    && !Objects.equals(previousFingerprints.get(entry.getKey()), entry.getValue()))) {
+                entity.setActivityAt(Instant.now());
+            }
+            Map<String, String> fingerprints = new HashMap<>(previousFingerprints);
+            fingerprints.putAll(activityFingerprints);
+            entity.setActivityFingerprints(ImmutableMap.copyOf(fingerprints));
+            if (origin == PullRequest.Origin.REVIEW_REQUESTED && !origin.name().equals(entity.getOrigin())) {
+                entity.setReviewRequestedAt(Instant.now());
+            }
+            entity.setOrigin(origin.name());
+            reviewRequestedAt.filter(timestamp -> entity.getReviewRequestedAt() == null || timestamp.isAfter(entity.getReviewRequestedAt()))
+                    .ifPresent(entity::setReviewRequestedAt);
+            entity.setReviewDecision(reviewDecision.orElse(null));
+            entity.setRequestedReviewers(requestedReviewers);
             entity.setCiStatus(ciStatus);
             entity.setAdditions(additions);
             entity.setDeletions(deletions);
@@ -350,6 +419,11 @@ public class SqlitePullRequestStore
                 entity.setHeadRef(headRef);
             }
         });
+    }
+
+    private static String canonicalState(String state, Instant mergedAt)
+    {
+        return mergedAt != null ? "merged" : state;
     }
 
     private static boolean dashboardVisible(PullRequestEntity entity)

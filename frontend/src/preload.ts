@@ -13,12 +13,36 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
-import type { AgentStreamMessage, Bridge, FindResult, InAppNavState } from './types';
+import type { AgentStreamMessage, Bridge, FindResult, InAppNavState, PullRequestDto } from './types';
 
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
   fetchPrs: (workspaceId, page, pageSize, search) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize, search),
+  fetchAttentionPrs: () => ipcRenderer.invoke('prs:attention'),
+  setPrMonitored: (prId, monitored) => ipcRenderer.invoke('prs:monitor', prId, monitored),
+  setPrAttentionHandled: handled => ipcRenderer.invoke('prs:attention:handled', handled),
+  onPrAttentionUpdated: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, prs: PullRequestDto[]) => callback(prs);
+    ipcRenderer.on('prs:attention-updated', listener);
+    return () => ipcRenderer.removeListener('prs:attention-updated', listener);
+  },
+  onPrNotificationOpen: callback => {
+    let active = true;
+    const consume = () => {
+      void ipcRenderer.invoke('prs:notification:pending')
+        .then((reference: { repo: string; number: number } | null) => {
+          if (active && reference !== null) callback(reference);
+        })
+        .catch(() => {});
+    };
+    ipcRenderer.on('prs:notification-open', consume);
+    consume();
+    return () => {
+      active = false;
+      ipcRenderer.removeListener('prs:notification-open', consume);
+    };
+  },
   syncPrs: workspaceId => ipcRenderer.invoke('prs:sync', workspaceId),
   onPullRequestsSynced: callback => {
     const listener = () => callback();

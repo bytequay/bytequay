@@ -34,6 +34,7 @@ import {
   anchorPanel,
   ATTENTION_KINDS,
   attentionDetail,
+  handledEntry,
   handledSummary,
   SNOOZE_OPTIONS,
   snoozeHint,
@@ -59,9 +60,11 @@ const KIND_ICONS: Record<AttentionKind, LucideIcon> = {
   review: ListChecks,
   assigned: CircleDot,
   changes: CircleAlert,
+  blocked: CircleAlert,
   ci: CircleX,
   commits: GitCommitHorizontal,
   merge: GitMerge,
+  updated: CircleDot,
 };
 
 type Props = {
@@ -138,7 +141,7 @@ export default function AttentionList({
   function acknowledge(item: AttentionItem) {
     handle(
       item,
-      { kind: 'ack', until: null, seenUpdatedAt: item.updatedAt, label: 'acknowledged' },
+      handledEntry(item, 'ack', null, 'acknowledged'),
       `Acknowledged #${item.number} — cleared from your list`,
     );
   }
@@ -146,12 +149,7 @@ export default function AttentionList({
   function applySnooze(item: AttentionItem, option: SnoozeId, label: string) {
     handle(
       item,
-      {
-        kind: 'snooze',
-        until: snoozeUntil(option, Date.now()),
-        seenUpdatedAt: item.updatedAt,
-        label: label.toLowerCase(),
-      },
+      handledEntry(item, 'snooze', snoozeUntil(option, Date.now()), label.toLowerCase()),
       `Snoozed #${item.number} · ${label.toLowerCase()}`,
     );
   }
@@ -240,7 +238,7 @@ export default function AttentionList({
               </span>
               {variant === 'home' && <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />}
               <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={22} />
-              <span className="atn-row__age">{relativeTime(item.updatedAt, { suffix: false })}</span>
+              <span className="atn-row__age">{relativeTime(item.pr?.activityAt ?? item.updatedAt, { suffix: false })}</span>
               <div className="atn-row__actions" role="group" aria-label={`Actions for #${item.number}`}>
                 <button
                   className="atn-iconbtn is-ack"

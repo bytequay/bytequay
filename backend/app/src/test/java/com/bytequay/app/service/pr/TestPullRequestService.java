@@ -83,6 +83,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -90,6 +91,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -130,6 +132,125 @@ class TestPullRequestService
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
+    }
+
+    @Test
+    void monitorEstablishesFreshBaselineBeforeEnablingAndDisableStaysLocal()
+    {
+        PullRequestService monitoredService = spy(service);
+        PullRequest row = storedPullRequest();
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        doReturn(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), false))
+                .when(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+
+        assertThat(monitoredService.setMonitored(row.id(), true)).isEqualTo(row);
+        var order = inOrder(monitoredService, store);
+        order.verify(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+        order.verify(store).setMonitored(row.id(), true);
+        monitoredService.setMonitored(row.id(), false);
+        verify(store).setMonitored(row.id(), false);
+        verify(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+    }
+
+    @Test
+    void monitoringRemainsDisabledWhenTheFreshBaselineIsIncomplete()
+    {
+        PullRequestService monitoredService = spy(service);
+        PullRequest row = storedPullRequest();
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        StoredPrDetail partial = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS));
+        doReturn(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, partial, false))
+                .when(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+
+        assertThatThrownBy(() -> monitoredService.setMonitored(row.id(), true)).isInstanceOf(ResponseStatusException.class);
+        verify(store, never()).setMonitored(anyLong(), anyBoolean());
+    }
+
+    @Test
+    void newerExternalReviewUpdatesTheBaselineBeforeCheckingForNewCommits()
+    {
+        Instant latestReviewAt = REVIEWED_AT.plusSeconds(30);
+        PrReviewState review = new PrReviewState(1L, "me", null, false, "APPROVED", latestReviewAt, null, null, "head");
+        StoredPrDetail latest = new StoredPrDetail(raw(), ImmutableList.of(review), ImmutableList.of(), ImmutableList.of());
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(store.findById(12L)).thenReturn(Optional.of(storedPullRequest()));
+        when(detailStore.find(12L)).thenReturn(Optional.of(latest));
+        when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7), Optional.empty()))
+                .thenReturn(new PullRequestFetch(Optional.empty(), Optional.empty()));
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
+        PrViewState previous = new PrViewState(12L, REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "old-head");
+        PrViewState updated = new PrViewState(12L, REVIEWED_AT, latestReviewAt, HandledAction.APPROVED, "head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
+                .thenReturn(ImmutableMap.of(12L, previous), ImmutableMap.of(12L, updated));
+
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED, "head", latestReviewAt);
+        verify(viewStateStore, never()).markNeedsReview(12L);
+    }
+
+    @Test
+    void scheduledDashboardSyncRefreshesRetainedPrsMissingFromSearch()
+    {
+        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), anyString(), anyString()))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(storedPullRequest()));
+        PullRequestService monitoredService = spy(service);
+        doReturn(new PullRequestService.DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), false)))
+                .when(monitoredService).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        monitoredService.syncFromGitHub();
+
+        verify(monitoredService).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+    }
+
+    @Test
+    void activityFingerprintDetectsIndividualCheckChangesEvenWithSameAggregateAndUpdateTime()
+    {
+        PrCheckRunState first = new PrCheckRunState(1L, "one", "completed", "failure");
+        PrCheckRunState second = new PrCheckRunState(2L, "two", "completed", "success");
+        StoredPrDetail baseline = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(first, second));
+        StoredPrDetail reordered = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(second, first));
+        StoredPrDetail changed = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(first, new PrCheckRunState(2L, "two", "completed", "failure")));
+        assertThat(PullRequestService.activityFingerprints(reordered)).isEqualTo(PullRequestService.activityFingerprints(baseline));
+        assertThat(PullRequestService.activityFingerprints(changed)).isNotEqualTo(PullRequestService.activityFingerprints(baseline));
+        assertThat(PrAttention.aggregateCiStatus(changed)).isEqualTo(PrAttention.aggregateCiStatus(baseline));
+    }
+
+    @Test
+    void partialTimelineStillProducesCiFingerprintAndCollectionOrderingDoesNotChangeRawFingerprint()
+    {
+        PrRawDetail first = new PrRawDetail(
+                "title", "url", "open", "author", null, REVIEWED_AT, REVIEWED_AT, null, "body",
+                ImmutableList.of("a", "b"), ImmutableMap.of("a", "111", "b", "222"), ImmutableList.of("a", "b"), null,
+                false, true, "clean", 0, 0, 0, 2, ImmutableList.of("a", "b"), "head", "feature", "main");
+        PrRawDetail reordered = new PrRawDetail(
+                "title", "url", "open", "author", null, REVIEWED_AT, REVIEWED_AT, null, "body",
+                ImmutableList.of("b", "a"), ImmutableMap.of("b", "222", "a", "111"), ImmutableList.of("b", "a"), null,
+                false, true, "clean", 0, 0, 0, 2, ImmutableList.of("b", "a"), "head", "feature", "main");
+        StoredPrDetail baseline = new StoredPrDetail(first, ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        StoredPrDetail partial = new StoredPrDetail(reordered, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(1L, "ci", "completed", "failure")), ImmutableList.of(StoredPrDetail.TIMELINE));
+
+        assertThat(PullRequestService.activityFingerprints(partial)).containsKey("checks").doesNotContainKey("timeline");
+        assertThat(PullRequestService.activityFingerprints(partial).get("raw")).isEqualTo(PullRequestService.activityFingerprints(baseline).get("raw"));
+        assertThat(PullRequestService.activityFingerprints(partial).get("checks")).isNotEqualTo(PullRequestService.activityFingerprints(baseline).get("checks"));
+    }
+
+    @Test
+    void reviewDecisionUsesActualLatestVerdictsAndDismissals()
+    {
+        assertThat(PullRequestService.reviewDecision(ImmutableList.of(
+                new PrReviewState("reviewer", "CHANGES_REQUESTED", REVIEWED_AT),
+                new PrReviewState("reviewer", "APPROVED", REVIEWED_AT.plusSeconds(1)),
+                new PrReviewState("reviewer", "COMMENTED", REVIEWED_AT.plusSeconds(2)))))
+                .contains("APPROVED");
+        assertThat(PullRequestService.reviewDecision(ImmutableList.of(
+                new PrReviewState("reviewer", "CHANGES_REQUESTED", REVIEWED_AT),
+                new PrReviewState("reviewer", "DISMISSED", REVIEWED_AT.plusSeconds(1)))))
+                .isEmpty();
     }
 
     @Test
@@ -324,7 +445,7 @@ class TestPullRequestService
         verify(store).completeDashboardSync(anyString(), eq("me"));
         verify(store, never()).findUpdatedAtByIds(any());
         verify(store, never()).updateEnrichment(
-                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any());
+                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
         verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());
@@ -610,7 +731,7 @@ class TestPullRequestService
     }
 
     @Test
-    void refreshesOnlyRecentOpenStatusesEverySixMinutes()
+    void refreshesAllOpenStatusesEverySixMinutes()
     {
         Instant now = Instant.parse("2026-08-24T12:00:00Z");
         PullRequest recentOpen = storedPullRequest("open", now.minusSeconds(5 * 60 * 60), null);
@@ -637,7 +758,7 @@ class TestPullRequestService
                 Optional.of(oldOpen.updatedAt()),
                 Optional.of(now.minusSeconds(7 * 60)),
                 now))
-                .isEqualTo(PullRequestService.RefreshMode.NONE);
+                .isEqualTo(PullRequestService.RefreshMode.STATUS);
         assertThat(PullRequestService.refreshMode(
                 closed,
                 closed.updatedAt(),
@@ -742,7 +863,7 @@ class TestPullRequestService
         assertThat(detail.recentActivity())
                 .extracting(PullRequestDetail.ActivityItem::githubId)
                 .containsExactly(99L);
-        verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
         verify(detailStore, never()).deleteByPrIds(any());
         verifyNoInteractions(diffStore, gitHub);
     }
@@ -869,7 +990,7 @@ class TestPullRequestService
         PullRequestDetail detail = service.submitReview(
                 "owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of());
 
-        verify(viewStateStore).markReviewed(12L, HandledAction.CHANGES_REQUESTED, "head");
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.CHANGES_REQUESTED), eq("head"), any(Instant.class));
         // The submitted review is spliced into the cache, so nothing is thrown away
         // and the caller needs no follow-up fetch.
         verify(detailStore, never()).deleteByPrIds(any());
@@ -922,7 +1043,7 @@ class TestPullRequestService
 
         service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of());
 
-        verify(viewStateStore).markReviewed(12L, HandledAction.COMMENTED, "head");
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.COMMENTED), eq("head"), any(Instant.class));
     }
 
     private static PrReviewState review(long githubId, String state, String body)
@@ -950,7 +1071,7 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.merged()).isTrue();
-        verify(viewStateStore).markReviewed(12L, HandledAction.MERGED, "head");
+        verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("head"), any(Instant.class));
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -968,7 +1089,7 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.queued()).isTrue();
-        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any());
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -984,7 +1105,7 @@ class TestPullRequestService
 
         assertThat(result.queued()).isTrue();
         verify(merges, never()).mergePullRequest(anyString(), any(), any());
-        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any());
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
     }
 
@@ -1088,7 +1209,7 @@ class TestPullRequestService
                 fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(),
                 fetched.labelColors(), fetched.draft(), null, null, null, fetched.requestedReviewers(),
                 null, 0, 0, 0, null, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
-                fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef());
+                fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef(), null, null, null, null);
     }
 
     private static FetchedPullRequest pullRequest()

@@ -19,6 +19,7 @@ import {
   attentionCandidates,
   attentionDetail,
   attentionKind,
+  handledEntry,
   handledSummary,
   previewMarkdown,
   snoozeUntil,
@@ -61,23 +62,62 @@ function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
 }
 
 describe('attentionKind', () => {
-  it('names each reason from what the list payload carries', () => {
-    expect(attentionKind(pr({ origin: 'REVIEW_REQUESTED' }))).toBe('review');
-    expect(attentionKind(pr({ mergeableState: 'blocked' }))).toBe('changes');
+  it('keeps every authored PR eligible, with truthful status reasons', () => {
+    expect(attentionKind(pr({ mergeableState: 'blocked' }))).toBe('blocked');
+    expect(attentionKind(pr({ reviewDecision: 'CHANGES_REQUESTED' }))).toBe('changes');
     expect(attentionKind(pr({ ciStatus: 'FAILING' }))).toBe('ci');
-    expect(attentionKind(pr({
-      origin: 'OTHER',
-      handledAction: 'APPROVED',
-      reviewedAt: '2026-08-14T00:00:00Z',
-      headPushedAt: '2026-08-14T06:00:00Z',
-    }))).toBe('commits');
+    expect(attentionKind(pr({ draft: true }))).toBe('updated');
+    expect(attentionKind(pr({ state: 'closed' }))).toBe('updated');
+    expect(attentionKind(pr({ state: 'merged' }))).toBe('updated');
+    expect(attentionKind(pr({ mergeableState: 'behind', ciStatus: 'PENDING' }))).toBe('updated');
     expect(attentionKind(pr({}))).toBe('merge');
+    expect(attentionKind(pr({ origin: 'OTHER', author: 'JACK', ciStatus: 'FAILING' }), 'jack')).toBe('ci');
   });
 
-  it('leaves out drafts, closed pull requests and quiet ones', () => {
-    expect(attentionKind(pr({ draft: true }))).toBeNull();
-    expect(attentionKind(pr({ state: 'merged' }))).toBeNull();
-    expect(attentionKind(pr({ mergeableState: 'behind', ciStatus: 'PENDING' }))).toBeNull();
+  it('excludes unrelated PRs even when their CI fails or they are mergeable', () => {
+    expect(attentionKind(pr({ origin: 'OTHER', ciStatus: 'FAILING' }))).toBeNull();
+    expect(attentionKind(pr({ origin: 'OTHER', attentionReason: 'CI_FAILING' }))).toBeNull();
+    expect(attentionKind(pr({ origin: 'OTHER' }))).toBeNull();
+    expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'jack')).toBeNull();
+  });
+
+  it('includes requests and re-requests after an earlier completed review', () => {
+    expect(attentionKind(pr({ origin: 'REVIEW_REQUESTED' }))).toBe('review');
+    expect(attentionKind(pr({ origin: 'OTHER', author: 'alice', requestedReviewers: ['JACK'] }), 'jack')).toBe('review');
+    expect(attentionKind(pr({
+      origin: 'REVIEW_REQUESTED', handledAction: 'APPROVED',
+      reviewedAt: '2026-08-14T00:00:00Z', reviewRequestedAt: '2026-08-15T00:00:00Z',
+    }))).toBe('review');
+  });
+
+  it('follows commits and merge readiness for requested or previously reviewed PRs', () => {
+    for (const relationship of [
+      { reviewedAt: '2026-08-14T00:00:00Z' },
+      { reviewRequestedAt: '2026-08-14T00:00:00Z' },
+    ]) {
+      const reviewed = pr({ origin: 'OTHER', handledAction: 'APPROVED', ...relationship });
+      expect(attentionKind(reviewed)).toBe('merge');
+      expect(attentionKind({ ...reviewed, headPushedAt: '2026-08-14T06:00:00Z' })).toBe('commits');
+      expect(attentionKind({ ...reviewed, ciStatus: 'FAILING' })).toBeNull();
+      expect(attentionKind({ ...reviewed, ciStatus: 'PENDING' })).toBeNull();
+      expect(attentionKind({ ...reviewed, draft: true })).toBeNull();
+      expect(attentionKind({ ...reviewed, state: 'merged' })).toBeNull();
+    }
+  });
+
+  it('follows changes only after monitoring starts, including CI and closure', () => {
+    const monitored = pr({
+      origin: 'OTHER', monitoredAt: '2026-08-15T01:00:00Z', activityAt: '2026-08-15T00:00:00Z',
+    });
+    expect(attentionKind(monitored)).toBeNull();
+    expect(attentionKind({ ...monitored, activityAt: monitored.monitoredAt })).toBeNull();
+    const changed = { ...monitored, activityAt: '2026-08-15T02:00:00Z' };
+    expect(attentionKind({ ...changed, ciStatus: 'FAILING' })).toBe('ci');
+    expect(attentionKind({ ...changed, ciStatus: 'PENDING' })).toBe('updated');
+    expect(attentionKind({ ...changed, state: 'closed' })).toBe('updated');
+    expect(attentionKind({ ...changed, state: 'merged' })).toBe('updated');
+    expect(attentionKind({ ...changed, draft: true })).toBe('updated');
+    expect(attentionKind({ ...changed, monitoredAt: null, ciStatus: 'FAILING' })).toBeNull();
   });
 
   it('sorts by reason first, then by most recently updated', () => {
@@ -163,12 +203,32 @@ describe('handled rows', () => {
     const snoozed: HandledEntry = { ...acknowledged, kind: 'snooze', until: now + 1000 };
 
     expect(stillHandled(snoozed, item(), now)).toBe(true);
+    expect(stillHandled(snoozed, item('2026-08-15T09:00:00Z'), now)).toBe(true);
     expect(stillHandled(snoozed, item(), now + 2000)).toBe(false);
   });
 
   it('brings a row back when the pull request moves on', () => {
     expect(stillHandled(acknowledged, item(), now)).toBe(true);
     expect(stillHandled(acknowledged, item('2026-08-15T09:00:00Z'), now)).toBe(false);
+  });
+
+  it('wakes acknowledgments and activity snoozes on CI changes without a new updatedAt', () => {
+    const original = attentionCandidates([pr({})])[0];
+    const changed = attentionCandidates([pr({ ciStatus: 'FAILING' })])[0];
+    for (const kind of ['ack', 'snooze'] as const) {
+      const entry = handledEntry(original, kind, null, '');
+      expect(stillHandled(entry, original, now)).toBe(true);
+      expect(stillHandled(entry, changed, now)).toBe(false);
+    }
+    const timed = handledEntry(original, 'snooze', now + 1000, '');
+    expect(stillHandled(timed, changed, now)).toBe(true);
+    expect(stillHandled(timed, changed, now + 1000)).toBe(false);
+  });
+
+  it('uses meaningful activity versions when displayed status returns to its previous value', () => {
+    const original = attentionCandidates([pr({ activityAt: '2026-08-15T01:00:00Z' })])[0];
+    const changed = attentionCandidates([pr({ activityAt: '2026-08-15T02:00:00Z' })])[0];
+    expect(stillHandled(handledEntry(original, 'ack', null, ''), changed, now)).toBe(false);
   });
 
   it('drops handled rows from the visible list', () => {
@@ -249,9 +309,15 @@ describe('attentionDetail', () => {
     expect(attentionDetail({ ...base, kind: 'review' })).toBe('alice asked for your review');
     expect(attentionDetail({ ...base, kind: 'review', author: null })).toBe('your review was requested');
     expect(attentionDetail({ ...base, kind: 'assigned', type: 'issue', commentCount: 1 })).toBe('opened by alice · 1 comment');
-    expect(attentionDetail({ ...base, kind: 'changes' })).toBe('review blocks merging · 3 comments');
+    expect(attentionDetail({ ...base, kind: 'changes' })).toBe('reviewer requested changes · 3 comments');
+    expect(attentionDetail({ ...base, kind: 'blocked' })).toBe('merge requirements are not met · 3 comments');
     expect(attentionDetail({ ...base, kind: 'ci' })).toBe('ci · checks failed');
-    expect(attentionDetail({ ...base, kind: 'commits' })).toBe('new commits since your review');
-    expect(attentionDetail({ ...base, kind: 'merge' })).toBe('checks green · mergeable');
+    expect(attentionDetail({ ...base, kind: 'commits', pr: pr({ reviewedAt: '2026-08-14T00:00:00Z' }) })).toBe('new commits since your review');
+    expect(attentionDetail({ ...base, kind: 'commits' })).toBe('new commits since your review request');
+    expect(attentionDetail({ ...base, kind: 'merge', pr: pr({}) })).toBe('checks green · mergeable');
+    expect(attentionDetail({ ...base, kind: 'merge' })).toBe('mergeable');
+    expect(attentionDetail({ ...base, kind: 'updated' })).toBe('pull request updated · 3 comments');
+    expect(attentionDetail({ ...base, kind: 'updated', pr: pr({ state: 'closed' }) })).toBe('pull request closed');
+    expect(attentionDetail({ ...base, kind: 'updated', pr: pr({ state: 'merged' }) })).toBe('pull request merged');
   });
 });

@@ -59,7 +59,7 @@ public final class PrAttention
         }
         boolean mine = pr.origin() == PullRequest.Origin.AUTHORED;
         PullRequestDetail.CiStatus ciStatus = aggregateCiStatus(detail);
-        if (ciStatus == PullRequestDetail.CiStatus.FAILING) {
+        if ((mine || pr.monitoredAt() != null) && ciStatus == PullRequestDetail.CiStatus.FAILING) {
             return AttentionReason.CI_FAILING;
         }
         // Merge conflict only fires for PRs the user has to fix — i.e.
@@ -68,16 +68,16 @@ public final class PrAttention
         if (mine && hasMergeConflict(detail)) {
             return AttentionReason.MERGE_CONFLICT;
         }
-        if (hasUnseenMention(detail.timeline(), currentLogin, viewedAt)) {
+        if (mine && hasUnseenMention(detail.timeline(), currentLogin, viewedAt)) {
             return AttentionReason.MENTIONED;
         }
         if (mine && hasUnseenActivity(detail.timeline(), currentLogin, viewedAt)) {
             return AttentionReason.NEW_COMMENT;
         }
-        if (hasBlockingLabel(pr.labels())) {
+        if (mine && hasBlockingLabel(pr.labels())) {
             return AttentionReason.BLOCKING;
         }
-        if (pr.updatedAt() != null && Duration.between(pr.updatedAt(), now).compareTo(STALE_THRESHOLD) >= 0) {
+        if (mine && pr.updatedAt() != null && Duration.between(pr.updatedAt(), now).compareTo(STALE_THRESHOLD) >= 0) {
             return AttentionReason.STALE;
         }
         // MINE is the catch-all: every authored PR ends up promoted, even

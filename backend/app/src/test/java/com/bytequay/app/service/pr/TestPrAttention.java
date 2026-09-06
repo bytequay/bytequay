@@ -33,12 +33,12 @@ class TestPrAttention
     private static final Instant NOW = Instant.parse("2026-04-26T10:00:00Z");
 
     @Test
-    void unseenThirdPartyMentionPromotesThePullRequest()
+    void unrelatedReviewRequestsDoNotPromoteCommentMentions()
     {
         StoredPrDetail detail = detail(
                 ImmutableList.of(comment("bob", "hey @Alice", NOW.minusSeconds(1))), ImmutableList.of(), raw(true, "clean"));
 
-        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW.minusSeconds(2), NOW)).isEqualTo(AttentionReason.MENTIONED);
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW.minusSeconds(2), NOW)).isNull();
         assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW, NOW)).isNull();
     }
 
@@ -52,6 +52,15 @@ class TestPrAttention
 
         assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.AUTHORED), detail, "alice", NOW, NOW))
                 .isEqualTo(AttentionReason.CI_FAILING);
+    }
+
+    @Test
+    void otherAuthorsFailingCiDoesNotRequireTheReviewerToAct()
+    {
+        StoredPrDetail detail = detail(
+                ImmutableList.of(), ImmutableList.of(new PrCheckRunState(1L, "ci", "completed", "failure")), raw(false, "dirty"));
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.REVIEW_REQUESTED), detail, "alice", NOW, NOW)).isNull();
+        assertThat(PrAttention.promoteReason(pr(PullRequest.Origin.OTHER), detail, "alice", NOW, NOW)).isNull();
     }
 
     @Test
@@ -94,6 +103,6 @@ class TestPrAttention
         return new PullRequest(
                 1L, "owner/repo", 7, "title", "alice", "url", NOW, NOW, origin,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "open", null, null, null, null, null, null);
+                0, 0, 0, null, "open", null, null, null, null, null, null, null, null, null, null);
     }
 }

@@ -42,6 +42,11 @@ export type PullRequestDto = {
   mergeableState: string | null;
   headPushedAt: string | null;
   headRef: string | null;
+  /** Local monitoring baseline and latest observed GitHub activity. */
+  monitoredAt?: string | null;
+  activityAt?: string | null;
+  reviewRequestedAt?: string | null;
+  reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | null;
 };
 
 export type PullRequestPageDto = {
@@ -1163,6 +1168,11 @@ export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number, search?: string) => Promise<PullRequestPageDto>;
+  fetchAttentionPrs: () => Promise<PullRequestDto[]>;
+  setPrMonitored: (prId: number, monitored: boolean) => Promise<PullRequestDto>;
+  setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
+  onPrAttentionUpdated: (callback: (prs: PullRequestDto[]) => void) => () => void;
+  onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;
   onPullRequestsSynced: (callback: () => void) => () => void;
   fetchPullRequestDetail: (prId: number) => Promise<PullRequestDetailDto>;

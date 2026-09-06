@@ -44,6 +44,7 @@ export type PullRow = {
   deletions: number;
   comments: number;
   review: string | null;
+  monitored: boolean;
 };
 
 function toRow(pr: PullRequestDto, reviewedTime = false): PullRow {
@@ -67,6 +68,7 @@ function toRow(pr: PullRequestDto, reviewedTime = false): PullRow {
     deletions: pr.deletions,
     comments: pr.commentCount,
     review: reviewLabel(pr),
+    monitored: pr.monitoredAt != null,
   };
 }
 

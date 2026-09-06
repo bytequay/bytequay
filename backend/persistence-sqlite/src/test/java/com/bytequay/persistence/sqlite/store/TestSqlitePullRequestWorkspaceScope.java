@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -69,6 +70,106 @@ class TestSqlitePullRequestWorkspaceScope
         registry.add("spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
+    }
+
+    @Test
+    void monitorSurvivesSyncAndRetentionAndDisablesWithoutChangingActivity()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1, "closed", RETENTION_CUTOFF.minusSeconds(1), RETENTION_CUTOFF.minusSeconds(1))
+                .withOrigin(PullRequest.Origin.OTHER);
+        PullRequest row = store.saveObserved(fetched);
+        store.setMonitored(row.id(), true);
+        Instant baseline = store.findById(row.id()).orElseThrow().monitoredAt();
+        store.saveDashboardSyncPage(ImmutableList.of(fetched), "old");
+        store.completeDashboardSync("new", "alice");
+
+        assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isEqualTo(baseline);
+        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).contains(row.id());
+        assertThat(store.findAttentionCandidates()).extracting(PullRequest::id).contains(row.id());
+        store.setMonitored(row.id(), false);
+        assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isNull();
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(fetched.updatedAt());
+        assertThat(store.findAttentionCandidates()).isEmpty();
+    }
+
+    @Test
+    void activityChangesOnlyWhenObservedGithubFactsChange()
+    {
+        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, null, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
+        store.setMonitored(row.id(), true);
+        Instant baselineActivity = store.findById(row.id()).orElseThrow().activityAt();
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, null, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baselineActivity);
+
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, null, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
+        PullRequest changed = store.findById(row.id()).orElseThrow();
+        assertThat(changed.updatedAt()).isEqualTo(row.updatedAt());
+        assertThat(changed.activityAt()).isAfter(changed.monitoredAt());
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, null, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(changed.activityAt());
+    }
+
+    @Test
+    void labelOrderingAndEquivalentMergedStatesDoNotCreateActivity()
+    {
+        Instant timestamp = Instant.parse("2026-08-20T00:00:00Z");
+        FetchedPullRequest fetched = new FetchedPullRequest(
+                1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
+                ImmutableList.of("a", "b"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature");
+        PullRequest row = store.saveObserved(fetched);
+        store.updateState(row.id(), "merged", timestamp, timestamp);
+        store.saveObserved(new FetchedPullRequest(
+                1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
+                ImmutableList.of("b", "a"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature"));
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(row.activityAt());
+        assertThat(store.findById(row.id()).orElseThrow().state()).isEqualTo("merged");
+    }
+
+    @Test
+    void newReviewRequestsAdvanceTheirTimestampAndSearchDoesNotInventRequests()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        Instant firstRequestedAt = row.reviewRequestedAt();
+        store.saveObserved(fetched.withOrigin(PullRequest.Origin.OTHER));
+        Instant reviewedAt = Instant.now();
+        viewStateStore.markReviewed(row.id(), HandledAction.APPROVED, "head", reviewedAt);
+        store.saveObserved(fetched.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        Instant requestedAgainAt = store.findById(row.id()).orElseThrow().reviewRequestedAt();
+        assertThat(requestedAgainAt).isAfter(reviewedAt);
+
+        FetchedPullRequest searchRow = pullRequest(1, "owner/project", 1, "open", null, fetched.updatedAt(), null).withOrigin(PullRequest.Origin.OTHER);
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow), "generic-search");
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow.withOrigin(PullRequest.Origin.REVIEW_REQUESTED)), "review-search");
+        assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, null, true, "clean", null, "feature",
+                ImmutableList.of("alice"), PullRequest.Origin.REVIEW_REQUESTED, Optional.of(firstRequestedAt), Optional.empty(), ImmutableMap.of());
+        assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
+    }
+
+    @Test
+    void attentionIncludesEveryRelatedRowAndRetainsPastReviewRequests()
+    {
+        ImmutableList.Builder<FetchedPullRequest> rows = ImmutableList.builder();
+        for (int index = 1; index <= 55; index++) {
+            rows.add(pullRequest(index, "owner/project", index));
+        }
+        store.saveRepositorySyncPage("owner/project", rows.build(), "first");
+        PullRequest unrelated = store.saveObserved(pullRequest(56, "owner/project", 56).withOrigin(PullRequest.Origin.OTHER));
+        PullRequest reviewed = store.saveObserved(pullRequest(57, "owner/project", 57).withOrigin(PullRequest.Origin.OTHER));
+        Instant reviewedAt = Instant.parse("2026-08-01T00:00:00Z");
+        viewStateStore.markReviewed(reviewed.id(), HandledAction.APPROVED, "head", reviewedAt);
+        PullRequest requested = store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.OTHER));
+
+        assertThat(store.findAttentionCandidates()).hasSize(57).extracting(PullRequest::id).doesNotContain(unrelated.id());
+        assertThat(store.findById(requested.id()).orElseThrow().reviewRequestedAt()).isNotNull();
+        assertThat(store.findById(reviewed.id()).orElseThrow().reviewedAt()).isEqualTo(reviewedAt);
     }
 
     @Test
@@ -207,7 +308,7 @@ class TestSqlitePullRequestWorkspaceScope
     {
         FetchedPullRequest reviewed = pullRequest(301, "owner/project", 301);
         long id = store.saveObserved(reviewed).id();
-        viewStateStore.markReviewed(id, HandledAction.APPROVED, "headsha");
+        viewStateStore.markReviewed(id, HandledAction.APPROVED, "headsha", Instant.now());
         jdbc.update("UPDATE pull_requests SET dashboard_visible = 0, workspace_visible = 0 WHERE id = ?", id);
 
         assertThat(store.completeDashboardSync("sweep", "alice")).doesNotContain(id);

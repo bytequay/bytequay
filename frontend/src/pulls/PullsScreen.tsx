@@ -178,6 +178,8 @@ export default function PullsScreen({
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [monitorError, setMonitorError] = useState<string | null>(null);
+  const [monitoringIds, setMonitoringIds] = useState<number[]>([]);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -202,6 +204,7 @@ export default function PullsScreen({
   const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
   const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
+  const monitorRequests = useRef(new Set<number>());
   viewerLoginRef.current = viewerLogin;
   listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
 
@@ -306,6 +309,15 @@ export default function PullsScreen({
       .then(result => { if (request === listRequest.current) applyPage(result); })
       .catch(() => {});
   }), [applyPage]);
+
+  useEffect(() => {
+    const updateAttention = (event: Event) => {
+      const updates = new Map((event as CustomEvent<PullRequestDto[]>).detail.map(pr => [pr.id, pr]));
+      setPrs(current => current.map(pr => updates.get(pr.id) ?? pr));
+    };
+    window.addEventListener('bytequay:pr-attention-updated', updateAttention);
+    return () => window.removeEventListener('bytequay:pr-attention-updated', updateAttention);
+  }, []);
 
   const refreshList = useCallback(async () => {
     const workspaceId = repositoryScope?.workspaceId;
@@ -459,9 +471,12 @@ export default function PullsScreen({
       return;
     }
     let cancelled = false;
-    window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number).then(value => {
+    Promise.all([
+      window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number),
+      window.bridge.fetchAttentionPrs().catch((): PullRequestDto[] => []),
+    ]).then(([value, tracked]) => {
       if (cancelled) return;
-      const remote = remotePullRequest(value, viewerLogin ?? undefined);
+      const remote = tracked.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       applyDetail(remote.id, value, false);
       setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
@@ -618,6 +633,25 @@ export default function PullsScreen({
     setDiffRange(null);
     setDiffLoading(false);
     setPendingReviewComments([]);
+  };
+
+  const toggleMonitor = async (row: PullRow) => {
+    if (monitorRequests.current.has(row.id)) return;
+    monitorRequests.current.add(row.id);
+    setMonitoringIds(current => [...current, row.id]);
+    setMonitorError(null);
+    try {
+      const updated = await window.bridge.setPrMonitored(row.id, !row.monitored);
+      setPrs(current => current.map(pr => pr.id === updated.id ? updated : pr));
+      window.dispatchEvent(new CustomEvent('bytequay:pr-monitor-changed'));
+    }
+    catch (failure) {
+      setMonitorError(`Could not ${row.monitored ? 'stop monitoring' : 'monitor'} ${row.repo} #${row.num}. ${remoteErrorMessage(failure)}`);
+    }
+    finally {
+      monitorRequests.current.delete(row.id);
+      setMonitoringIds(current => current.filter(id => id !== row.id));
+    }
   };
 
   const changeCommitRange = (range: CommitRange) => {
@@ -807,6 +841,7 @@ export default function PullsScreen({
               Could not sync pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {syncError}
             </div>
           )}
+          {monitorError && <div className="pulls-sync-error" role="alert">{monitorError}</div>}
           {!loading && error && rows.length === 0 && (
             <div className="hp-empty" role="alert">
               Could not load pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {error}
@@ -826,7 +861,9 @@ export default function PullsScreen({
               row={row}
               wide={!paneShown}
               selected={row.id === visibleSelected}
+              monitoring={monitoringIds.includes(row.id)}
               onPick={() => pick(row)}
+              onMonitor={() => { void toggleMonitor(row); }}
             />
           ))}
           <div ref={loadMoreMarker} aria-hidden="true" />
@@ -919,6 +956,10 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
     mergeableState: detail.mergeableState,
     headPushedAt: null,
     headRef: detail.headRef,
+    monitoredAt: null,
+    activityAt: null,
+    reviewRequestedAt: null,
+    reviewDecision: null,
   };
 }
 

@@ -69,7 +69,11 @@ public record PullRequest(
         Boolean mergeable,
         String mergeableState,
         Instant headPushedAt,
-        String headRef)
+        String headRef,
+        Instant monitoredAt,
+        Instant activityAt,
+        Instant reviewRequestedAt,
+        String reviewDecision)
 {
     public PullRequest
     {
@@ -105,6 +109,6 @@ public record PullRequest(
                 labelColors, draft, viewState.viewedAt(), viewState.reviewedAt(),
                 viewState.handledAction(), requestedReviewers, ciStatus, additions, deletions,
                 commentCount, attentionReason, state, closedAt, mergedAt, mergeable, mergeableState,
-                headPushedAt, headRef);
+                headPushedAt, headRef, monitoredAt, activityAt, reviewRequestedAt, reviewDecision);
     }
 }

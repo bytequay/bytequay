@@ -20,6 +20,7 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestPage;
@@ -39,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -61,6 +63,21 @@ public class PullRequestController
     {
         return pullRequests.listPullRequests(page, size, search);
     }
+
+    @GetMapping("/prs/attention")
+    public List<PullRequest> attention()
+    {
+        return pullRequests.listAttentionCandidates();
+    }
+
+    @PatchMapping("/prs/{prId}/monitor")
+    public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request)
+    {
+        checkArgument(request.monitored() != null, "monitored is required");
+        return pullRequests.setMonitored(prId, request.monitored());
+    }
+
+    public record MonitorRequest(Boolean monitored) {}
 
     @GetMapping("/prs/users")
     public List<RepoUser> users(

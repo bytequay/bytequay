@@ -116,6 +116,13 @@ describe('rowsForTab', () => {
     expect(PULL_TABS.find(tab => tab.key === 'reviewed')?.short).toBe('Viewed');
   });
 
+  it('preserves monitoring state in pull request cards', () => {
+    const monitored = pr({ id: 1, monitoredAt: '2026-09-06T00:00:00Z' });
+    const unmonitored = pr({ id: 2, monitoredAt: null });
+
+    expect(rowsForTab([monitored, unmonitored], 'all').map(row => row.monitored)).toEqual([true, false]);
+  });
+
   it('keeps a commented pull request open after it leaves Needs review', () => {
     const current = pr({ id: 1, origin: 'REVIEW_REQUESTED' });
     const waiting = pr({ id: 2, origin: 'REVIEW_REQUESTED' });

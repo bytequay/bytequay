@@ -160,6 +160,23 @@ public class PullRequestEntity
     @Column(name = "head_ref")
     private String headRef;
 
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant monitoredAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant activityAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant reviewRequestedAt;
+
+    private String reviewDecision;
+
+    @Convert(converter = StringMapConverter.class)
+    private Map<String, String> activityFingerprints;
+
+    @Convert(converter = StringListConverter.class)
+    private List<String> requestedReviewers;
+
     public PullRequestEntity() {}
 
     @PrePersist
@@ -192,12 +209,17 @@ public class PullRequestEntity
         entity.setSyncedAt(syncedAt);
         // state/closedAt/mergedAt come straight from the GitHub response; the
         // enrichment a fetch cannot report is carried over by preserveEnrichment.
-        entity.setState(pr.state());
+        entity.setState(pr.mergedAt() != null ? "merged" : pr.state());
         entity.setClosedAt(pr.closedAt());
         entity.setMergedAt(pr.mergedAt());
         entity.setMergeable(pr.mergeable());
         entity.setMergeableState(pr.mergeableState());
         entity.setHeadRef(pr.headRef());
+        entity.setRequestedReviewers(pr.requestedReviewers());
+        entity.setActivityAt(pr.updatedAt());
+        if (pr.origin() == PullRequest.Origin.REVIEW_REQUESTED) {
+            entity.setReviewRequestedAt(syncedAt);
+        }
         return entity;
     }
 
@@ -228,7 +250,7 @@ public class PullRequestEntity
                 Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
-                ImmutableList.of(),
+                Optional.ofNullable(getRequestedReviewers()).orElse(ImmutableList.of()),
                 getCiStatus(),
                 getAdditions(),
                 getDeletions(),
@@ -240,7 +262,11 @@ public class PullRequestEntity
                 getMergeable(),
                 getMergeableState(),
                 getHeadPushedAt(),
-                getHeadRef());
+                getHeadRef(),
+                getMonitoredAt(),
+                getActivityAt(),
+                getReviewRequestedAt(),
+                getReviewDecision());
     }
 
     /**
@@ -250,6 +276,16 @@ public class PullRequestEntity
      */
     public void preserveEnrichmentFrom(PullRequestEntity previous)
     {
+        setMonitoredAt(previous.getMonitoredAt());
+        setActivityAt(previous.getActivityAt());
+        setActivityFingerprints(previous.getActivityFingerprints());
+        setReviewDecision(previous.getReviewDecision());
+        if (getReviewRequestedAt() == null || PullRequest.Origin.REVIEW_REQUESTED.name().equals(previous.getOrigin())) {
+            setReviewRequestedAt(previous.getReviewRequestedAt());
+        }
+        if (getRequestedReviewers().isEmpty()) {
+            setRequestedReviewers(previous.getRequestedReviewers());
+        }
         setCiStatus(previous.getCiStatus());
         setAdditions(previous.getAdditions());
         setDeletions(previous.getDeletions());

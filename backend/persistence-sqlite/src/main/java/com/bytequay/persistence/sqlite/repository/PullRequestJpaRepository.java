@@ -29,13 +29,19 @@ import java.util.Set;
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
 {
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
+            + "OR e.monitoredAt IS NOT NULL OR e.reviewRequestedAt IS NOT NULL "
+            + "OR EXISTS (SELECT v.prId FROM PrViewStateEntity v WHERE v.prId = e.id AND v.reviewedAt IS NOT NULL) "
+            + "ORDER BY e.updatedAt DESC, e.id DESC")
+    List<PullRequestEntity> findAttentionCandidates();
+
     @Query("SELECT e FROM PullRequestEntity e WHERE "
-            + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL) "
+            + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
             + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))")
     Page<PullRequestEntity> findDashboardPage(Pageable pageable);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE ((e.dashboardVisible = true OR e.dashboardVisible IS NULL) "
+    @Query("SELECT e FROM PullRequestEntity e WHERE ((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
             + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
@@ -63,14 +69,14 @@ public interface PullRequestJpaRepository
             @Param("syncMarker") String syncMarker);
 
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
-            + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL) "
+            + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
             + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (e.state IS NULL OR e.state = 'open')")
     long countOpenDashboard();
 
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
-            + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL) "
+            + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
             + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (e.state IS NULL OR e.state = 'open') "
@@ -91,7 +97,7 @@ public interface PullRequestJpaRepository
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE PullRequestEntity e SET e.dashboardVisible = false "
-            + "WHERE (e.dashboardVisible = true OR e.dashboardVisible IS NULL) "
+            + "WHERE (e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "AND (e.dashboardSyncMarker IS NULL OR e.dashboardSyncMarker <> :syncMarker) "
             + "AND ((LOWER(e.state) IN ('closed', 'merged') AND e.updatedAt < :retentionCutoff "
             + "AND (e.closedAt IS NULL OR e.closedAt < :retentionCutoff)) "
@@ -120,12 +126,14 @@ public interface PullRequestJpaRepository
     // pull request would strand them.
     @Query("SELECT e.id FROM PullRequestEntity e WHERE e.dashboardVisible = false "
             + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false) "
+            + "AND e.monitoredAt IS NULL AND e.reviewRequestedAt IS NULL "
             + "AND e.id NOT IN (SELECT v.prId FROM PrViewStateEntity v)")
     Set<Long> findInvisibleIds();
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM PullRequestEntity e WHERE e.dashboardVisible = false "
             + "AND (e.workspaceVisible IS NULL OR e.workspaceVisible = false) "
+            + "AND e.monitoredAt IS NULL AND e.reviewRequestedAt IS NULL "
             + "AND e.id NOT IN (SELECT v.prId FROM PrViewStateEntity v)")
     int deleteInvisibleRows();
 

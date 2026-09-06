@@ -33,6 +33,7 @@ import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -52,7 +53,9 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,12 +66,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -77,6 +82,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -99,7 +105,6 @@ public class PullRequestService
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
     private static final Duration STATUS_REFRESH_INTERVAL = Duration.ofMinutes(6);
-    private static final Duration ACTIVE_PULL_REQUEST_WINDOW = Duration.ofHours(6);
     private static final Duration DETAIL_FAILURE_BACKOFF = Duration.ofHours(6);
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of(
@@ -175,6 +180,26 @@ public class PullRequestService
     {
         checkPage(page, pageSize);
         return store.findPage(page, pageSize, validateSearch(search));
+    }
+
+    public List<PullRequest> listAttentionCandidates()
+    {
+        return store.findAttentionCandidates();
+    }
+
+    public PullRequest setMonitored(long prId, boolean monitored)
+    {
+        PullRequest row = store.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
+        if (monitored && row.monitoredAt() == null) {
+            // Establish the current GitHub snapshot before monitoring begins, so existing failures are not new notifications.
+            PullRequestDetail baseline = refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+            if (!baseline.unavailableSections().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not load all pull request activity. Retry monitoring shortly.");
+            }
+        }
+        store.setMonitored(prId, monitored);
+        return store.findById(prId).orElseThrow();
     }
 
     /** Returns the existing local PR rows restricted to one repository. */
@@ -313,7 +338,7 @@ public class PullRequestService
                 currentLogin,
                 syncMarker,
                 seen,
-                "is:pr is:closed author:@me closed:>=" + sinceDate,
+                "is:pr is:closed author:@me updated:>=" + sinceDate,
                 AUTHORED,
                 refreshDetails);
         syncDashboardQuery(
@@ -327,7 +352,29 @@ public class PullRequestService
         syncDashboardQuery(
                 pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER, refreshDetails);
         syncNotificationPullRequests(pat, currentLogin, syncMarker, seen, refreshDetails);
+        if (refreshDetails) {
+            refreshRetainedAttentionCandidates(seen);
+        }
         deleteDetails(store.completeDashboardSync(syncMarker, currentLogin));
+    }
+
+    private void refreshRetainedAttentionCandidates(Set<String> seen)
+    {
+        for (PullRequest pullRequest : store.findAttentionCandidates()) {
+            if ((pullRequest.monitoredAt() == null && !"open".equalsIgnoreCase(pullRequest.state()))
+                    || seen.contains(pullRequest.repo() + "#" + pullRequest.number())) {
+                continue;
+            }
+            try {
+                refreshPullRequestDetailFromGitHub(pullRequest.repo(), pullRequest.number());
+            }
+            catch (RuntimeException failure) {
+                if (isRateLimit(failure)) {
+                    throw failure;
+                }
+                log.info("Retained attention PR {}#{} refresh failed: {}", pullRequest.repo(), pullRequest.number(), failure.getMessage());
+            }
+        }
     }
 
     private void syncDetails(String pat, String currentLogin, List<PullRequest> pullRequests)
@@ -401,6 +448,7 @@ public class PullRequestService
         PullRequestFetch fetched = gitHub.getPullRequest(pat, ref, etag);
         if (fetched.pullRequest().isEmpty()) {
             StoredPrDetail detail = snapshots.refreshStatus(pat, ref, storedId.orElseThrow(), fetched);
+            store.findById(storedId.orElseThrow()).ifPresent(row -> storeDetail(row, detail, credential.profile().login()));
             return new DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(
                     storedId.orElseThrow(), ref.repoFullName(), ref.number(), detail, detail.viewerCanWrite()));
         }
@@ -743,7 +791,7 @@ public class PullRequestService
             case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
             default -> HandledAction.COMMENTED;
         };
-        viewStateStore.markReviewed(prId, action, currentHeadSha(prId));
+        viewStateStore.markReviewed(prId, action, currentHeadSha(prId), Instant.now());
     }
 
     private void recordComment(String repo, int number, String kind, PrTimelineEvent created, String body)
@@ -821,7 +869,7 @@ public class PullRequestService
             }
             throw e;
         }
-        viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId));
+        viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId), Instant.now());
         recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "merged" / "closed" events surface
@@ -1039,9 +1087,7 @@ public class PullRequestService
                 || detailSyncedAt.isEmpty()) {
             return RefreshMode.FULL;
         }
-        if (!"open".equalsIgnoreCase(pullRequest.state())
-                || pullRequest.updatedAt() == null
-                || pullRequest.updatedAt().isBefore(now.minus(ACTIVE_PULL_REQUEST_WINDOW))) {
+        if (!"open".equalsIgnoreCase(pullRequest.state()) && pullRequest.monitoredAt() == null) {
             return RefreshMode.NONE;
         }
         return detailSyncedAt.orElseThrow().isAfter(now.minus(STATUS_REFRESH_INTERVAL))
@@ -1133,15 +1179,67 @@ public class PullRequestService
         Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
         store.updateEnrichment(
                 prId,
-                PrAttention.aggregateCiStatus(detail),
+                detail.checkRunsComplete() ? PrAttention.aggregateCiStatus(detail) : pullRequest.ciStatus(),
                 detail.raw().additions(),
                 detail.raw().deletions(),
-                PrAttention.countComments(detail),
+                detail.timelineComplete() ? PrAttention.countComments(detail) : pullRequest.commentCount(),
                 PrAttention.promoteReason(pullRequest, detail, currentLogin, viewedAt, Instant.now()),
                 detail.raw().mergeable(),
                 detail.raw().mergeableState(),
-                PullRequestDetailMapper.latestPushAt(detail.timeline()),
-                detail.raw().headRef());
+                detail.timelineComplete() ? PullRequestDetailMapper.latestPushAt(detail.timeline()) : pullRequest.headPushedAt(),
+                detail.raw().headRef(),
+                detail.raw().requestedReviewers(),
+                pullRequest.author().equalsIgnoreCase(currentLogin) ? AUTHORED
+                        : detail.raw().requestedReviewers().stream().anyMatch(currentLogin::equalsIgnoreCase) ? REVIEW_REQUESTED : OTHER,
+                detail.timeline().stream()
+                        .filter(event -> "review_requested".equals(event.event()) && currentLogin.equalsIgnoreCase(event.payload().requestedReviewer()))
+                        .map(PrTimelineEvent::timestamp)
+                        .filter(Objects::nonNull)
+                        .max(Comparator.naturalOrder()),
+                detail.reviewsComplete() ? reviewDecision(detail.reviews()) : Optional.ofNullable(pullRequest.reviewDecision()),
+                activityFingerprints(detail));
+    }
+
+    static Map<String, String> activityFingerprints(StoredPrDetail detail)
+    {
+        PrRawDetail raw = detail.raw();
+        PrRawDetail canonicalRaw = new PrRawDetail(
+                raw.title(), raw.htmlUrl(), raw.state(), raw.author(), raw.authorAvatarUrl(), raw.createdAt(), raw.updatedAt(), raw.mergedAt(), raw.body(),
+                raw.labels().stream().sorted().collect(toImmutableList()), new TreeMap<>(raw.labelColors()),
+                raw.assignees().stream().sorted().collect(toImmutableList()), raw.milestone(), raw.draft(), raw.mergeable(), raw.mergeableState(),
+                raw.additions(), raw.deletions(), raw.changedFiles(), raw.requestedReviewerCount(),
+                raw.requestedReviewers().stream().sorted().collect(toImmutableList()), raw.headSha(), raw.headRef(), raw.baseRef());
+        ImmutableMap.Builder<String, String> fingerprints = ImmutableMap.builder();
+        fingerprints.put("raw", fingerprint(canonicalRaw));
+        // Each successful source advances independently; a failed timeline fetch cannot hide a CI change.
+        if (detail.reviewsComplete()) {
+            fingerprints.put("reviews", fingerprint(detail.reviews().stream().map(Object::toString).sorted().collect(toImmutableList())));
+        }
+        if (detail.timelineComplete()) {
+            fingerprints.put("timeline", fingerprint(detail.timeline().stream().map(Object::toString).sorted().collect(toImmutableList())));
+        }
+        if (detail.checkRunsComplete()) {
+            fingerprints.put("checks", fingerprint(detail.checkRuns().stream().map(Object::toString).sorted().collect(toImmutableList())));
+        }
+        return fingerprints.buildOrThrow();
+    }
+
+    private static String fingerprint(Object value)
+    {
+        return Hashing.sha256().hashString(value.toString(), StandardCharsets.UTF_8).toString();
+    }
+
+    static Optional<String> reviewDecision(List<PrReviewState> reviews)
+    {
+        Map<String, String> verdicts = new HashMap<>();
+        reviews.stream()
+                .sorted(Comparator.comparing(review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
+                .filter(review -> !"COMMENTED".equals(review.state()) && !"PENDING".equals(review.state()))
+                .forEach(review -> verdicts.put(review.login().toLowerCase(Locale.ROOT), review.state()));
+        if (verdicts.containsValue("CHANGES_REQUESTED")) {
+            return Optional.of("CHANGES_REQUESTED");
+        }
+        return verdicts.containsValue("APPROVED") ? Optional.of("APPROVED") : Optional.empty();
     }
 
     private void syncDiffQuietly(String pat, PullRequest pullRequest)
@@ -1208,8 +1306,8 @@ public class PullRequestService
      * If the user has submitted a review on this PR outside the app (via the
      * embedded github.com window, a browser tab, or the GitHub mobile app),
      * mirror that state into {@code pr_view_state.handled_action} so the PR
-     * shows up correctly in the Handled bucket. Never overrides an
-     * explicitly-set handled action — the user's in-app choice wins.
+     * shows up correctly in the Handled bucket. A later GitHub review advances
+     * the baseline; an equal or newer local action remains authoritative.
      */
     private void reconcileHandledActionFromReviews(long prId, List<PrReviewState> reviews, String currentLogin, PrViewState existing)
     {
@@ -1217,10 +1315,11 @@ public class PullRequestService
         if (review == null) {
             return;
         }
-        if (existing != null && existing.handledAction() != null) {
+        if (existing != null && existing.handledAction() != null
+                && (review.submittedAt() == null || existing.reviewedAt() == null || !review.submittedAt().isAfter(existing.reviewedAt()))) {
             return;
         }
-        viewStateStore.markReviewed(prId, handledAction(review), review.commitId());
+        viewStateStore.markReviewed(prId, handledAction(review), review.commitId(), Optional.ofNullable(review.submittedAt()).orElse(Instant.now()));
     }
 
     /**

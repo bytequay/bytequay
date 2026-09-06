@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
-import { pullRequestNeedsReview } from '../pulls/model';
+import { pullRequestIsMine } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 
 /** Why an item is on the "Needs attention" list, in priority order. */
-export type AttentionKind = 'review' | 'assigned' | 'changes' | 'ci' | 'commits' | 'merge';
+export type AttentionKind = 'review' | 'assigned' | 'changes' | 'blocked' | 'ci' | 'commits' | 'merge' | 'updated';
 
 export const ATTENTION_KINDS: Record<AttentionKind, {
   label: string;
@@ -26,12 +26,14 @@ export const ATTENTION_KINDS: Record<AttentionKind, {
   review: { label: 'Review requested', color: '#0969da', background: '#ddf4ff' },
   assigned: { label: 'Assigned to you', color: '#6639ba', background: '#f3eefe' },
   changes: { label: 'Changes requested', color: '#cf222e', background: '#ffebe9' },
+  blocked: { label: 'Merge blocked', color: '#9a6700', background: '#fff8c5' },
   ci: { label: 'CI failing', color: '#bc4c00', background: '#fff1e5' },
   commits: { label: 'New commits', color: '#9a6700', background: '#fff8c5' },
   merge: { label: 'Ready to merge', color: '#1a7f37', background: '#dafbe1' },
+  updated: { label: 'Updated', color: '#0969da', background: '#ddf4ff' },
 };
 
-const PRIORITY: AttentionKind[] = ['review', 'assigned', 'changes', 'ci', 'commits', 'merge'];
+const PRIORITY: AttentionKind[] = ['review', 'assigned', 'changes', 'ci', 'blocked', 'commits', 'merge', 'updated'];
 
 /** One row: a pull request or an issue assigned to you. */
 export type AttentionItem = {
@@ -56,27 +58,31 @@ export type AttentionItem = {
   workspaceId: string | null;
 };
 
-/**
- * First matching reason, or null when the pull request doesn't need you.
- *
- * ponytail: "Changes requested" leans on GitHub's `blocked` merge state — the
- * only review-decision signal the list payload carries. A PR still waiting for
- * its first approval reads the same. Exact would mean reading the detail's
- * reviewer states, which costs a request per row.
- */
-export function attentionKind(pr: PullRequestDto): AttentionKind | null {
-  if (pr.state !== 'open' || pr.draft) return null;
-  if (pullRequestNeedsReview(pr) && pr.reviewedAt === null) return 'review';
-  if (pr.origin === 'AUTHORED' && pr.mergeableState === 'blocked') return 'changes';
-  if (pr.ciStatus === 'FAILING' || pr.attentionReason === 'CI_FAILING') return 'ci';
-  if (hasCommitsSinceReview(pr)) return 'commits';
-  if (pr.mergeableState === 'clean') return 'merge';
-  return null;
+/** Authored and explicitly monitored PRs follow all activity; review work follows its relationship to you. */
+export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): AttentionKind | null {
+  const mine = pullRequestIsMine(pr, viewerLogin);
+  const requested = pr.origin === 'REVIEW_REQUESTED'
+    || viewerLogin != null && pr.requestedReviewers.some(login => login.toLowerCase() === viewerLogin.toLowerCase());
+  const reviewing = requested || pr.reviewRequestedAt != null || pr.reviewedAt !== null;
+  const monitoredChange = pr.monitoredAt != null
+    && Date.parse(pr.activityAt ?? pr.updatedAt) > Date.parse(pr.monitoredAt);
+  const followsAllActivity = mine || monitoredChange;
+
+  if (pr.state !== 'open' || pr.draft) return followsAllActivity ? 'updated' : null;
+  if (!mine && requested && (pr.reviewedAt === null || pr.handledAction === null
+    || pr.reviewRequestedAt != null && Date.parse(pr.reviewRequestedAt) > Date.parse(pr.reviewedAt))) return 'review';
+  if (followsAllActivity && pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
+  if (followsAllActivity && (pr.ciStatus === 'FAILING' || pr.attentionReason === 'CI_FAILING')) return 'ci';
+  if (followsAllActivity && pr.mergeableState === 'blocked') return 'blocked';
+  if ((followsAllActivity || reviewing) && hasCommitsSinceReview(pr)) return 'commits';
+  if ((followsAllActivity || reviewing) && pr.mergeable === true && pr.mergeableState === 'clean'
+    && pr.ciStatus !== 'FAILING' && pr.ciStatus !== 'PENDING') return 'merge';
+  return followsAllActivity ? 'updated' : null;
 }
 
 function hasCommitsSinceReview(pr: PullRequestDto): boolean {
-  if (pr.reviewedAt === null || pr.headPushedAt === null) return false;
-  return Date.parse(pr.headPushedAt) > Date.parse(pr.reviewedAt);
+  const since = pr.reviewedAt ?? pr.reviewRequestedAt;
+  return since != null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since);
 }
 
 function pullRequestItem(pr: PullRequestDto, kind: AttentionKind): AttentionItem {
@@ -131,15 +137,16 @@ export function assignedIssues(
 export function attentionCandidates(
   prs: PullRequestDto[],
   issues: AttentionItem[] = [],
+  viewerLogin?: string | null,
 ): AttentionItem[] {
   const items = prs
-    .map(pr => ({ pr, kind: attentionKind(pr) }))
+    .map(pr => ({ pr, kind: attentionKind(pr, viewerLogin) }))
     .filter((row): row is { pr: PullRequestDto; kind: AttentionKind } => row.kind !== null)
     .map(row => pullRequestItem(row.pr, row.kind))
     .concat(issues);
   return items.sort((left, right) =>
     PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind)
-    || Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+    || Date.parse(right.pr?.activityAt ?? right.updatedAt) - Date.parse(left.pr?.activityAt ?? left.updatedAt));
 }
 
 /** The row's second line: what happened, in words the list payload can back up. */
@@ -148,10 +155,15 @@ export function attentionDetail(item: AttentionItem): string {
   switch (item.kind) {
     case 'review': return item.author ? `${item.author} asked for your review` : 'your review was requested';
     case 'assigned': return item.author ? `opened by ${item.author} · ${comments}` : comments;
-    case 'changes': return `review blocks merging · ${comments}`;
+    case 'changes': return `reviewer requested changes · ${comments}`;
+    case 'blocked': return `merge requirements are not met · ${comments}`;
     case 'ci': return 'ci · checks failed';
-    case 'commits': return 'new commits since your review';
-    case 'merge': return 'checks green · mergeable';
+    case 'commits': return item.pr?.reviewedAt == null ? 'new commits since your review request' : 'new commits since your review';
+    case 'merge': return item.pr?.ciStatus === 'PASSING' ? 'checks green · mergeable' : 'mergeable';
+    case 'updated':
+      if (item.pr?.state === 'merged') return 'pull request merged';
+      if (item.pr?.state === 'closed') return 'pull request closed';
+      return `pull request updated · ${comments}`;
   }
 }
 
@@ -163,6 +175,8 @@ export type HandledEntry = {
   until: number | null;
   /** The item's updatedAt when it was handled. */
   seenUpdatedAt: string;
+  /** Includes CI and review changes that need not advance GitHub's updatedAt. */
+  seenActivityVersion?: string;
   /** Toast/footer wording, e.g. "next monday". */
   label: string;
 };
@@ -188,12 +202,27 @@ export function saveHandled(handled: Handled): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(handled));
   }
   catch { /* A full or disabled store just means the row comes back. */ }
+  void window.bridge?.setPrAttentionHandled?.(handled).catch(() => {});
+  window.dispatchEvent(new CustomEvent('bytequay:attention-handled-changed'));
 }
 
-/** False once the snooze expires or the item moved on without us. */
+export function attentionActivityVersion(item: AttentionItem): string {
+  const pr = item.pr;
+  return JSON.stringify(pr === null ? [item.updatedAt] : [
+    pr.activityAt, pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,
+    pr.reviewDecision, pr.reviewRequestedAt, pr.headPushedAt, pr.commentCount, [...pr.labels].sort(),
+  ]);
+}
+
+export function handledEntry(item: AttentionItem, kind: HandledEntry['kind'], until: number | null, label: string): HandledEntry {
+  return { kind, until, label, seenUpdatedAt: item.updatedAt, seenActivityVersion: attentionActivityVersion(item) };
+}
+
+/** Timed snoozes stay quiet through activity; acknowledgment and activity snoozes wake on a change. */
 export function stillHandled(entry: HandledEntry, item: AttentionItem, now: number): boolean {
-  if (Date.parse(item.updatedAt) > Date.parse(entry.seenUpdatedAt)) return false;
-  return entry.until === null || now < entry.until;
+  if (entry.kind === 'snooze' && entry.until !== null) return now < entry.until;
+  if (entry.seenActivityVersion !== undefined) return entry.seenActivityVersion === attentionActivityVersion(item);
+  return Date.parse(item.updatedAt) <= Date.parse(entry.seenUpdatedAt);
 }
 
 export function visibleAttention(

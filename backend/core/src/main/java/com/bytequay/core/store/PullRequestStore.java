@@ -30,6 +30,12 @@ public interface PullRequestStore
 {
     PullRequestPage findPage(int page, int pageSize);
 
+    List<PullRequest> findAttentionCandidates();
+
+    Optional<PullRequest> findById(long prId);
+
+    void setMonitored(long prId, boolean monitored);
+
     PullRequestPage findPage(int page, int pageSize, String search);
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
@@ -73,5 +79,10 @@ public interface PullRequestStore
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
-            String headRef);
+            String headRef,
+            List<String> requestedReviewers,
+            PullRequest.Origin origin,
+            Optional<Instant> reviewRequestedAt,
+            Optional<String> reviewDecision,
+            Map<String, String> activityFingerprints);
 }

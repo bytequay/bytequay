@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
 import {
   parseAgentApproval,
   parseAgentAttachment,
@@ -46,6 +47,7 @@ import type {
   CreateAgentTaskRequest,
   GitHubCodeSnippetRequest,
   QueueAgentInputRequest,
+  PullRequestDto,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
@@ -71,6 +73,103 @@ app.setName('ByteQuay');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 
 let mainWindow: BrowserWindow | null = null;
+let prNotificationState: PrNotificationState | null = null;
+let prNotificationTimer: ReturnType<typeof setInterval> | undefined;
+let pollingPrNotifications = false;
+let repollPrNotifications = false;
+let prNotificationGeneration = 0;
+let prMonitorMutations = 0;
+let pendingPrNotification: { repo: string; number: number } | null = null;
+const showingPrNotifications = new Map<number, Notification>();
+
+function notificationState(): PrNotificationState {
+  if (prNotificationState === null) {
+    try {
+      prNotificationState = parsePrNotificationState(JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'pr-notifications.json'), 'utf8')));
+    }
+    catch {
+      prNotificationState = { handled: {}, delivered: {} };
+    }
+  }
+  return prNotificationState;
+}
+
+function saveNotificationState(): void {
+  const file = path.join(app.getPath('userData'), 'pr-notifications.json');
+  try {
+    fs.writeFileSync(`${file}.tmp`, JSON.stringify(notificationState()));
+    fs.renameSync(`${file}.tmp`, file);
+  }
+  catch (error) {
+    console.warn('Unable to save PR notification state', error);
+  }
+}
+
+async function pollPrNotifications(): Promise<void> {
+  if (pollingPrNotifications || prMonitorMutations > 0) {
+    repollPrNotifications = true;
+    return;
+  }
+  pollingPrNotifications = true;
+  repollPrNotifications = false;
+  const generation = prNotificationGeneration;
+  try {
+    const prs = await backendJson<PullRequestDto[]>(`${BACKEND_BASE}/prs/attention`);
+    if (generation !== prNotificationGeneration || prMonitorMutations > 0) return;
+    mainWindow?.webContents.send('prs:attention-updated', prs);
+    const state = notificationState();
+    if (!Notification.isSupported()) return;
+    for (const item of pendingPrNotifications(prs, state, Date.now())) {
+      const pr = item.pr;
+      if (pr === null || showingPrNotifications.has(pr.id)) continue;
+      const version = notificationVersion(item);
+      const notification = new Notification({
+        title: `PR updated · ${item.repo}#${item.number}`,
+        body: item.title,
+      });
+      showingPrNotifications.set(pr.id, notification);
+      const release = () => {
+        if (showingPrNotifications.get(pr.id) === notification) showingPrNotifications.delete(pr.id);
+      };
+      notification.on('click', () => {
+        pendingPrNotification = { repo: item.repo, number: item.number };
+        void ensureWindow().then(() => {
+          mainWindow?.show();
+          mainWindow?.focus();
+          mainWindow?.webContents.send('prs:notification-open');
+        }).catch(error => console.warn('Unable to open PR notification', error));
+      });
+      notification.on('show', () => {
+        if (showingPrNotifications.get(pr.id) !== notification) return;
+        release();
+        if (generation !== prNotificationGeneration || prMonitorMutations > 0
+          || pendingPrNotifications([pr], state, Date.now()).length === 0) {
+          notification.close();
+          return;
+        }
+        state.delivered[item.key] = version;
+        saveNotificationState();
+      });
+      notification.on('failed', (_event, error) => {
+        release();
+        console.warn('Unable to display PR notification', error);
+      });
+      notification.on('close', release);
+      try {
+        notification.show();
+      }
+      catch (error) {
+        release();
+        console.warn('Unable to display PR notification', error);
+      }
+    }
+  }
+  catch { /* Keep the last delivery marks while the sidecar or GitHub account is unavailable. */ }
+  finally {
+    pollingPrNotifications = false;
+    if (repollPrNotifications) void pollPrNotifications();
+  }
+}
 
 const MAX_DRAFT_ATTACHMENTS = 8;
 const draftAttachments = new Map<string, AgentDraftAttachmentDto>();
@@ -998,6 +1097,32 @@ function registerIpc(): void {
     if (search?.trim()) url.searchParams.set('search', search.trim());
     return backendJson(url);
   });
+  ipcMain.handle('prs:attention', () => backendJson(`${BACKEND_BASE}/prs/attention`));
+  ipcMain.handle('prs:monitor', async (_event, prId: number, monitored: boolean) => {
+    if (!Number.isSafeInteger(prId) || prId <= 0 || typeof monitored !== 'boolean') throw new Error('Invalid PR monitor request');
+    prNotificationGeneration++;
+    prMonitorMutations++;
+    repollPrNotifications = true;
+    try {
+      return await backendJson<PullRequestDto>(`${BACKEND_BASE}/prs/${prId}/monitor`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monitored }),
+      });
+    }
+    finally {
+      prNotificationGeneration++;
+      prMonitorMutations--;
+      void pollPrNotifications();
+    }
+  });
+  ipcMain.handle('prs:notification:pending', () => {
+    const reference = pendingPrNotification;
+    pendingPrNotification = null;
+    return reference;
+  });
+  ipcMain.handle('prs:attention:handled', (_event, handled: unknown) => {
+    notificationState().handled = parsePrNotificationState({ handled }).handled;
+    saveNotificationState();
+  });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
     ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
     : `${BACKEND_BASE}/api/settings/sync/trigger?listOnly=true`, {
@@ -1412,12 +1537,15 @@ app.on('ready', async () => {
   if (app.isPackaged && !await waitForBackendReady()) reportBackendFailure();
   await ensureWindow();
   refreshDashboardInBackground();
+  void pollPrNotifications();
+  prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 30_000);
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', () => {
+  clearInterval(prNotificationTimer);
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();
   killBackend();

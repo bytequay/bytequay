@@ -2091,11 +2091,6 @@
   border-color: #c6ccd2;
 }
 
-.agt-headbtn.is-labelled {
-  padding: 0 11px;
-  color: #24292f;
-}
-
 .agt-headbtn:disabled {
   color: #8c959f;
   border-color: #e3e3e6;

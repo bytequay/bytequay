@@ -168,6 +168,18 @@ function declarations(selector: string): string[] {
 }
 
 describe('agent task layout', () => {
+  it('offers scrollable history without newer-activity navigation buttons', () => {
+    const markup = body({
+      task: task('t-1', 'OPEN', 'x'),
+      connection: 'open',
+      historyPages: [{ events: [], beforeCursor: 'older', afterCursor: 'newer', latestSequence: 10 }],
+    });
+    expect(markup).toContain('Scroll up for earlier activity');
+    expect(markup).toContain('aria-label="Task transcript" tabindex="0"');
+    expect(markup).not.toContain('Load newer activity');
+    expect(markup).not.toContain('Jump to latest');
+  });
+
   it('keeps the new-task controls low and aligned without branch or creation-hint rows', () => {
     expect(declarations('.agt-compose.is-new-task')).toEqual(expect.arrayContaining([
       'display: flex',
@@ -1410,10 +1422,10 @@ describe('task list tabs, day groups and row actions', () => {
       />);
 
     const active = render(task('t-1', 'OPEN', 'x'));
-    expect(active).toMatch(/<button[^>]*class="agt-headbtn is-labelled is-shelf"[^>]*title="Archive this task; it keeps its transcript and branch"[^>]*>[^]*?Archive<\/button>/);
+    expect(active).toMatch(/<button[^>]*class="agt-headbtn is-shelf"[^>]*title="Archive"[^>]*aria-label="Archive"[^>]*><svg[^]*?<\/svg><\/button>/);
     expect(active).toContain('lucide-archive"');
     const shelved = render({ ...task('t-1', 'COMPLETED', 'x'), terminalAt: '2026-08-20T10:05:00Z', archivedAt: '2026-08-21T10:05:00Z' });
-    expect(shelved).toMatch(/is-shelf"[^>]*title="Restore this task to the active list"[^>]*>[^]*?Restore<\/button>/);
+    expect(shelved).toMatch(/is-shelf"[^>]*title="Restore"[^>]*aria-label="Restore"[^>]*><svg[^]*?<\/svg><\/button>/);
     expect(shelved).toContain('lucide-archive-restore');
     // Without a handler the header offers nothing, as the static states are rendered.
     expect(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open' })).not.toContain('is-shelf');

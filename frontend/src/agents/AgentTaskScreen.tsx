@@ -1311,7 +1311,7 @@ function SidePanel({
  * makes a reconnecting, recovering or closed screen testable without driving a real subscription.
  */
 export function AgentTaskBody({
-  state, models, onBack, onSend, onCancel, onComplete, onDecide, onCompose, onSelectModel,
+  state, models, onBack, onSend: send, onCancel, onComplete, onDecide, onCompose, onSelectModel,
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
@@ -1343,7 +1343,7 @@ export function AgentTaskBody({
   onCloseAgent = () => {},
   onSelectPanelTab = () => {},
   onOpenPullRequest,
-  onSteer = () => {},
+  onSteer: steer = () => {},
   onQueue = () => {},
   onRemoveQueued = () => {},
   onResumeQueue = () => {},
@@ -1429,6 +1429,8 @@ export function AgentTaskBody({
   const scrollIntent = useRef(0);
   const previousScrollTop = useRef(0);
   const anchor = useRef<HistoryScrollAnchor | null>(null);
+  // Restore the anchor only when a page changes, even if the follow callback was re-rendered.
+  const followingChange = useRef<(next: boolean) => void>(() => {});
   const before = historyBefore(state);
   const after = historyAfter(state);
   const loadHistory = (direction: 'older' | 'newer' | 'latest'): void => {
@@ -1448,9 +1450,10 @@ export function AgentTaskBody({
     if (anchor.current !== null) {
       restoreHistoryAnchor(container, anchor.current);
       anchor.current = null;
+      if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
     }
     else if (follow.current) container.scrollTop = container.scrollHeight;
-  }, [state.events]);
+  }, [state.events, after]);
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
     const projected = projectTranscript(state.events, threadId, state.turns, before === null);
@@ -1474,6 +1477,27 @@ export function AgentTaskBody({
     follow.current = next;
     setFollowing(next);
     onFollowHistory(next);
+  };
+  followingChange.current = changeFollowing;
+  const onSend = (): void => { changeFollowing(true); send(); };
+  const onSteer = (): void => { changeFollowing(true); steer(); };
+  const scrollHistory = (container: HTMLDivElement, direction: number): void => {
+    // DOM growth, folding and our own scroll anchoring also emit scroll events.
+    // Only the user's scrolling may pause live updates.
+    if (direction === 0) return;
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 32;
+    if (direction < 0) {
+      if (container.scrollTop <= 0 && scrollIntent.current === -1) scrollIntent.current = 0;
+      if (!atBottom || container.scrollHeight > container.clientHeight || before !== null) changeFollowing(false);
+      if (container.scrollTop < 80 && before !== null) loadHistory('older');
+    }
+    else if (atBottom) {
+      // A wheel/key gesture at the edge may never produce a native scroll event.
+      if (scrollIntent.current === 1) scrollIntent.current = 0;
+      if (after !== null) loadHistory('newer');
+      else changeFollowing(true);
+    }
+    else changeFollowing(false);
   };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
   const agents = supportsNestedAgents ? projectAgents(state.events, state.historyPages.length === 0 ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null, after === null) : [];
@@ -1529,15 +1553,13 @@ export function AgentTaskBody({
         {state.task !== null && onArchive !== undefined && (
           <button
             type="button"
-            className="agt-headbtn is-labelled is-shelf"
-            title={taskArchived(state.task)
-              ? 'Restore this task to the active list'
-              : 'Archive this task; it keeps its transcript and branch'}
+            className="agt-headbtn is-shelf"
+            title={taskArchived(state.task) ? 'Restore' : 'Archive'}
+            aria-label={taskArchived(state.task) ? 'Restore' : 'Archive'}
             disabled={state.sending}
             onClick={() => onArchive(!taskArchived(state.task ?? { archivedAt: null }))}
           >
             {taskArchived(state.task) ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}
-            {taskArchived(state.task) ? 'Restore' : 'Archive'}
           </button>
         )}
         {!terminal && (
@@ -1592,30 +1614,31 @@ export function AgentTaskBody({
         className="agt-transcript"
         role="log"
         aria-label="Task transcript"
+        tabIndex={0}
         ref={transcriptRef}
         onWheel={(event) => {
           scrollIntent.current = Math.sign(event.deltaY);
-          if (event.deltaY < 0 && event.currentTarget.scrollTop < 80 && before !== null) loadHistory('older');
+          scrollHistory(event.currentTarget, scrollIntent.current);
         }}
         onPointerDown={() => { scrollIntent.current = 2; }}
         onPointerUp={() => { scrollIntent.current = 0; }}
-        onKeyDown={(event) => { scrollIntent.current = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ? -1 : 1; }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const direction = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ? -1
+            : ['ArrowDown', 'PageDown', 'End', ' '].includes(event.key) ? 1 : 0;
+          scrollIntent.current = direction;
+          scrollHistory(event.currentTarget, direction);
+        }}
         onScroll={(event) => {
-          const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
-          const atBottom = scrollHeight - scrollTop - clientHeight <= 32;
-          changeFollowing(atBottom && after === null);
+          const { scrollTop } = event.currentTarget;
           const intent = scrollIntent.current === 2 ? Math.sign(scrollTop - previousScrollTop.current) : scrollIntent.current;
           previousScrollTop.current = scrollTop;
           if (scrollIntent.current !== 2) scrollIntent.current = 0;
-          if (intent < 0 && scrollTop < 80 && before !== null && !historyLoading) loadHistory('older');
-          else if (intent > 0 && atBottom && after !== null && !historyLoading) loadHistory('newer');
+          scrollHistory(event.currentTarget, intent);
         }}
       >
         {before !== null && <div className="agt-history-edge">
-          <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('older')}>
-            {historyLoading ? 'Loading history…' : 'Load earlier activity'}
-          </button>
-          <span>Earlier content is not loaded. A message or turn may continue from the previous page.</span>
+          {historyLoading ? 'Loading earlier activity…' : 'Scroll up for earlier activity'}
         </div>}
         {(pendingApprovals ?? []).filter((approval) => !turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.approvalId === approval.approvalId))).map((approval) => (
           <ApprovalView key={approval.approvalId} block={pendingApprovalBlock(approval)} onDecide={onDecide} />
@@ -1652,10 +1675,7 @@ export function AgentTaskBody({
               />
             );
           })}
-        {(after !== null || (!follow.current && state.lastSequence > (state.events.at(-1)?.sequence ?? 0))) && <div className="agt-history-edge">
-          {after !== null && <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('newer')}>Load newer activity</button>}
-          <button type="button" className="agt-action" disabled={historyLoading} onClick={() => loadHistory('latest')}>Jump to latest</button>
-        </div>}
+        {after !== null && historyLoading && <div className="agt-history-edge">Loading activity…</div>}
         {working.length > 0 && (
           <div className="agt-barrier">
             {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}

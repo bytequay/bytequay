@@ -2683,6 +2683,12 @@ when shutdown proves `VERIFIED_STOPPED`; otherwise the `OPEN` task remains
 blocked with the recovery-required projection and retained claim. No other task
 shares that process.
 
+Ephemeral text-only title and Better Words helpers have no persisted history.
+They use their current terminal notification as the turn result and skip
+history reconciliation while retaining live-activity, background-terminal,
+and verified process-shutdown checks. Their verified profile disables tools
+and subagents.
+
 The task uses the running App Server's selected sandbox and approval policy.
 Readiness verifies that ordinary built-in tool execution works and stays inside
 the task worktree. The

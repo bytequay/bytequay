@@ -18,6 +18,13 @@ to the latest view requests a fresh bounded page. Live updates keep their own
 sequence cursor; browsing older pages never rewinds current task state or
 replays all intervening messages into memory.
 
+The conversation starts at the latest activity and follows new messages until
+the user scrolls up. Layout changes and automatic scroll anchoring never pause
+live updates. Scroll down to load newer pages and resume following at the bottom;
+there are no **Load newer activity** or **Jump to latest** buttons. Sending or
+steering a message also resumes following. Archive and Restore in the task
+header are icons with matching hover tooltips and accessible names.
+
 These JSON budgets do not include JavaScript object, DOM, or decoded-image
 overhead; attachment and UI caches must also remain bounded.
 
@@ -472,7 +479,10 @@ effort, has no attachments or resumable history, and treats the prompt as
 untrusted quoted data. Claude runs with tools disabled. Codex uses an ephemeral
 thread with shell, code-mode, and subagents disabled in an empty read-only
 scratch directory; approvals and network access are denied. The turn times out
-after 30 seconds. Its unique scratch directory lives inside the durable task's
+after 30 seconds. Codex uses the ephemeral thread's terminal notification as its
+result and skips unavailable persisted history; live activity, background-terminal
+checks, and verified shutdown still gate acceptance.
+Its unique scratch directory lives inside the durable task's
 runtime resources: that subtree is deleted only after provider shutdown is
 verified and otherwise stays task-owned for recovery and normal task cleanup.
 It never enters the task transcript or task usage totals, while the supervised

@@ -1625,6 +1625,11 @@ public final class CodexCliDriver
          */
         private Optional<String> firstUnfinishedInHistory(Set<String> threads, String providerTurnId)
         {
+            // Ephemeral text-only helpers have no persisted history. Their terminal notification
+            // supplies the result; live activity, background terminals, and verified shutdown still gate completion.
+            if (context.textOnly()) {
+                return Optional.empty();
+            }
             for (String thread : threads) {
                 if (!thread.equals(reference.providerValue()) && !routableThread(thread)) {
                     continue;

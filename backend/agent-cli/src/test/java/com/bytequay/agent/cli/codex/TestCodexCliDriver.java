@@ -194,7 +194,8 @@ class TestCodexCliDriver
     }
 
     @Test
-    void opensATextOnlySessionWithoutWriteOrApprovalAuthority()
+    void completesAnEphemeralTextOnlySessionWithoutWriteOrApprovalAuthority()
+            throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
@@ -229,12 +230,20 @@ class TestCodexCliDriver
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
-        session.start(command("read only"));
+        RunningTurn turn = session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
         assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+        supervisor.server().emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\","
+                + "\"item\":{\"type\":\"agentMessage\",\"id\":\"title\",\"text\":\"Find refactoring opportunities\",\"phase\":\"final_answer\"}}}");
+        supervisor.server().completeTurnWithoutOutput();
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.finalResponse()).contains("Find refactoring opportunities");
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(supervisor.server().backgroundTerminalThreads()).isNotEmpty();
         session.close();
 
         assertThatThrownBy(() -> new AgentSessionContext(
@@ -2856,9 +2865,14 @@ class TestCodexCliDriver
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
                         + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
-                case "thread/items/list" -> respond(
-                        id,
-                        historyItems.apply(message.path("params").path("threadId").asText()));
+                case "thread/items/list" -> {
+                    if (textOnlyProfile()) {
+                        emit("{\"id\":" + id + ",\"error\":{\"code\":-32601,\"message\":\"ephemeral thread history is unavailable\"}}");
+                    }
+                    else {
+                        respond(id, historyItems.apply(message.path("params").path("threadId").asText()));
+                    }
+                }
                 case "thread/backgroundTerminals/list" -> {
                     backgroundTerminalThreads.add(message.path("params").path("threadId").asText());
                     respond(id, backgroundTerminals.get());

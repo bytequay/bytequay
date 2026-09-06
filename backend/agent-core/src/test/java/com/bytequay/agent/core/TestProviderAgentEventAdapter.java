@@ -105,6 +105,7 @@ class TestProviderAgentEventAdapter
                 Optional.of(Duration.ofMillis(1450)),
                 ImmutableList.of(new ProviderAgentEvent.CommandAction(
                         ProviderAgentEvent.CommandActionKind.SEARCH,
+                        Optional.of("TODO references"),
                         Optional.empty(),
                         Optional.of("TODO"))));
         AgentEventPayload.CommandActivity activity =
@@ -113,6 +114,7 @@ class TestProviderAgentEventAdapter
         assertThat(activity.durationMs()).contains(1450L);
         assertThat(activity.actions()).containsExactly(new AgentEventPayload.CommandAction(
                 AgentEventPayload.CommandActionKind.SEARCH,
+                Optional.of("TODO references"),
                 Optional.empty(),
                 Optional.of("TODO")));
 

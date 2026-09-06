@@ -616,6 +616,9 @@ describe('agent task detail', () => {
     expect(parsedMarkup).toContain('lucide-book-open');
     expect(parsedMarkup).toContain('lucide-folder-open');
     expect(parsedMarkup).toContain('lucide-search');
+    // All actions belong to one command, so the result gets one disclosure.
+    expect(parsedMarkup.match(/<summary class="agt-act__row is-command">/g)).toHaveLength(1);
+    expect(parsedMarkup).toMatch(/<summary class="agt-act__row is-command">[^]*?Read src\/auth.ts[^]*?Listed src[^]*?Searched token in src[^]*?<\/summary>/);
 
     const toolIcons = [
       ['Web search', 'lucide-globe'],
@@ -937,9 +940,65 @@ describe('agent task detail', () => {
     // The disclosure carries the app's one arrow, not the browser's marker.
     // The command row is the disclosure, its chevron on the row; the output box hangs under it.
     expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?<svg class="chev"/);
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Ran command[^]*?<\/summary><pre class="agt-pre">[^]*?Shell[^]*?\$ npm test/);
     expect(markup).not.toContain('<summary>Output');
     // Approval buttons carry the request they answer, not just "Allow once".
     expect(markup).toContain('aria-label="Allow once: ');
+  });
+
+  it('expands a read from its supplied name and keeps skill loading as a plain row', () => {
+    const named = events.map((event): AgentEventEnvelope => {
+      if (event.type === 'command') return {
+        ...event,
+        payload: {
+          ...event.payload,
+          actions: [{ kind: 'READ' as const, name: 'OpenAI Docs skill', path: null, query: null }],
+          output: 'Skill documentation content',
+          durationMs: 0,
+          truncated: true,
+        },
+      };
+      if (event.type === 'tool') return {
+        ...event, payload: { ...event.payload, name: 'Loaded a tool', summary: '', durationMs: 0 },
+      };
+      return event;
+    });
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: named, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
+
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Read OpenAI Docs skill[^]*?<\/summary><pre class="agt-pre">[^]*?Skill documentation content[^]*?truncated/);
+    expect(markup.match(/Skill documentation content/g)).toHaveLength(1);
+    expect(markup).not.toMatch(/<summary[^>]*>[^<]*Output/);
+    expect(markup).not.toContain('>0s<');
+    expect(markup).toMatch(/<div class="agt-act__row">[^]*?<span class="agt-muted">Loaded a tool<\/span><\/div>/);
+    expect(markup).not.toMatch(/<summary[^>]*>(?:(?!<\/summary>)[^])*Loaded a tool/);
+  });
+
+  it('keeps unnamed reads truthful and running results open without activity clocks', () => {
+    const reading = events.map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({
+      ...event,
+      payload: {
+        ...event.payload,
+        state: 'PROGRESS' as const,
+        actions: [{ kind: 'READ' as const, path: null, query: null }],
+        durationMs: 0,
+        exitCode: null,
+      },
+    }));
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: reading, connection: 'open' });
+    expect(markup).toMatch(/<details class="agt-out" open=""><summary[^>]*>[^]*?Read file[^]*?<\/summary>/);
+    expect(markup).not.toContain('Read .');
+    expect(markup).toContain('— reading files');
+    expect(markup).not.toMatch(/<div class="agt-act__head">(?:(?!<\/div>)[^])*\d+s/);
+    expect(markup).toContain('agt-cursor');
+  });
+
+  it('keeps approval outcomes without inserting a timestamp into the log', () => {
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' });
+    const approval = markup.match(/<div class="agt-appr-done"[^]*?<\/div>/)?.[0];
+    expect(approval).toBeDefined();
+    expect(approval).toContain('Approved once');
+    expect(approval).not.toMatch(/\d+:\d{2}|<span>·/);
+    expect(markup).toContain('Turn 1 · Worked for 11s');
   });
 
   it('offers the task-wide allow the design draws, and shows an allow that covered the task', () => {

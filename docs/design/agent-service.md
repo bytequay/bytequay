@@ -3036,8 +3036,10 @@ elapsed ticks are deterministic React projections. They are not written back
 as a second event or summary model.
 
 ByteQuay measures turn elapsed time from its accepted/running/terminal
-timestamps. Item duration is shown only when the provider supplies enough
-typed timestamps or duration data; the UI never invents a provider duration.
+timestamps. Provider item durations remain event facts but are omitted from
+activity rows and groups. Optional provider command-action names survive as
+display metadata even when an out-of-worktree path cannot be retained. Reads
+use that name or a retained relative path, falling back to **Read file**.
 
 Stable localhost endpoints:
 

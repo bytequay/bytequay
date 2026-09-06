@@ -489,12 +489,13 @@ public sealed interface ProviderAgentEvent
         PROMPT
     }
 
-    /** What a shell command did to one worktree-relative path, as the provider parsed it. */
-    record CommandAction(CommandActionKind kind, Optional<String> path, Optional<String> query)
+    /** What a shell command did, with the provider's display name and any worktree-relative path. */
+    record CommandAction(CommandActionKind kind, Optional<String> name, Optional<String> path, Optional<String> query)
     {
         public CommandAction
         {
             requireNonNull(kind, "kind is null");
+            checkOptionalText(name, "name");
             checkOptionalText(path, "path");
             checkOptionalText(query, "query");
         }

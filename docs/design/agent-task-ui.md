@@ -198,8 +198,7 @@ The transcript displays:
   searches, image views, and terminal results;
 - pending and resolved approval cards;
 - context compaction, retries, errors, cancellation, and turn completion;
-- optional item and turn duration, token usage, status icons, and a live
-  elapsed clock.
+- turn duration, token usage, status icons, and a live turn elapsed clock.
 
 Contiguous low-level activity is grouped into one expandable block. While any
 member is running, the group stays visibly active. After the group finishes,
@@ -207,6 +206,15 @@ the renderer derives a compact sentence such as “Read files, ran 2 commands,
 and edited 3 files” from the typed items. App Server does not supply that
 presentation sentence. The completed item is authoritative when its payload
 differs from accumulated deltas.
+
+Activity groups and their individual rows omit elapsed times. A read or
+command's summary title is its disclosure control, with the exact command and
+result in a single shell panel underneath; there is no separate **Output**
+row. Reads use the provider's display name when available, then a retained
+relative path, then **Read file**. Skill/tool loading without a result remains
+a plain row. Resolved approvals keep their outcome and command without an
+inline timestamp. This transcript refinement supersedes the older timing and
+disclosure presentation in the HTML references.
 
 ### 2.4 Approvals
 

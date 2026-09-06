@@ -38,7 +38,7 @@ const props = {
   selection: { model: MODELS[0].id, effort: 'medium' },
   draft: '  Review this screenshot  ',
   images: [{ id: 'draft-1', name: 'failure.png', url: 'blob:preview' }],
-  blocker: null,
+  blocker: null as string | null,
   busy: false,
   attaching: false,
   onDraftChange: () => {},

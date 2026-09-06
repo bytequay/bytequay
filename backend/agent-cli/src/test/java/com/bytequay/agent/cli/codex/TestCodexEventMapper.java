@@ -283,7 +283,8 @@ class TestCodexEventMapper
                   {"type":"read","command":"sed -n 1,40p App.java","name":"App.java","path":"%s"},
                   {"type":"search","command":"rg TODO","query":"TODO","path":null},
                   {"type":"listFiles","command":"ls","path":"/elsewhere"},
-                  {"type":"somethingNew","command":"x"}]},
+                  {"type":"somethingNew","command":"x"},
+                  {"type":"read","command":"cat SKILL.md","name":"OpenAI Docs skill","path":"/elsewhere/skills/openai-docs/SKILL.md"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
                 """.formatted(cwd, file)), true);
         assertThat(events).hasSize(1);
@@ -294,11 +295,16 @@ class TestCodexEventMapper
                 ProviderAgentEvent.CommandActionKind.READ,
                 ProviderAgentEvent.CommandActionKind.SEARCH,
                 ProviderAgentEvent.CommandActionKind.LIST_FILES,
-                ProviderAgentEvent.CommandActionKind.OTHER);
+                ProviderAgentEvent.CommandActionKind.OTHER,
+                ProviderAgentEvent.CommandActionKind.READ);
+        assertThat(command.actions().get(0).name()).contains("App.java");
         assertThat(command.actions().get(0).path()).contains("backend/App.java");
+        assertThat(command.actions().get(1).name()).isEmpty();
         assertThat(command.actions().get(1).query()).contains("TODO");
         // A path outside the worktree is dropped rather than shown.
         assertThat(command.actions().get(2).path()).isEmpty();
+        assertThat(command.actions().get(4).name()).contains("OpenAI Docs skill");
+        assertThat(command.actions().get(4).path()).isEmpty();
 
         ProviderAgentEvent.Tool search = only("""
                 {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-1",

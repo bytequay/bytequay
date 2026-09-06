@@ -222,8 +222,8 @@ class TestDefaultAgentMetricsService
                         Optional.empty(),
                         Optional.of(40L),
                         ImmutableList.of(
-                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.SEARCH, Optional.empty(), Optional.of("cleanup")),
-                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.OTHER, Optional.empty(), Optional.empty())))),
+                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.SEARCH, Optional.empty(), Optional.empty(), Optional.of("cleanup")),
+                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())))),
                 event(6, other, new AgentEventPayload.ToolActivity("Grep", AgentEventPayload.ActivityState.COMPLETED, "elsewhere")));
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);

@@ -21,7 +21,7 @@ import type { AgentEventEnvelope } from './events';
 
 export type ActivityState = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED';
 
-export type CommandAction = { kind: 'READ' | 'LIST_FILES' | 'SEARCH' | 'OTHER'; path: string | null; query: string | null };
+export type CommandAction = { kind: 'READ' | 'LIST_FILES' | 'SEARCH' | 'OTHER'; name?: string | null; path: string | null; query: string | null };
 
 export type CommandMember = {
   kind: 'command';
@@ -645,11 +645,6 @@ export function turnElapsedMs(turn: TranscriptTurn, now: number): number | null 
 export function settleFinalTurn(turn: TranscriptTurn, terminalAt: string | null, completed: boolean): TranscriptTurn {
   if (turn.endedAt !== null || terminalAt === null) return turn;
   return { ...turn, endedAt: terminalAt, outcome: completed ? 'completed' : 'interrupted' };
-}
-
-export function activityElapsedMs(block: ActivityBlock, now: number): number {
-  const end = block.endedAt === null ? now : Date.parse(block.endedAt);
-  return Math.max(0, end - Date.parse(block.startedAt));
 }
 
 /** "Turn 1 · Working for 38s", "Turn 1 · Worked for 4m 51s", "Turn 2 · Interrupted after 12s". */

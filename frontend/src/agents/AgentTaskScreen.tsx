@@ -82,7 +82,6 @@ import {
 } from './model';
 import {
   activeAgents,
-  activityElapsedMs,
   activityExpanded,
   activityPhrase,
   activityRunning,
@@ -239,71 +238,54 @@ function ActivityIcon({ member, action }: { member: ActivityMember; action?: Com
   return <Glyph icon={TOOL_ICONS[member.name] ?? Wrench} />;
 }
 
-function Duration({ ms }: { ms: number | null }): React.JSX.Element | null {
-  return ms === null ? null : <span className="agt-mono agt-muted agt-right">{formatDuration(ms)}</span>;
-}
-
-/** One command, as the rows the provider's parsing of it justifies: reads and searches by name, the rest verbatim. */
+/** A command has one result, even when the provider describes several actions within it. */
 function CommandRows({ member, live }: { member: CommandMember; live: boolean }): React.JSX.Element {
-  const state = memberState(member);
-  const parsed = member.actions.filter((action) => action.kind !== 'OTHER');
-  const verbatim = parsed.length === 0 || member.actions.some((action) => action.kind === 'OTHER');
-  const running = state === 'running';
+  const running = memberState(member) === 'running';
+  if (member.command === '' && !member.output) {
+    return <div className="agt-act__row"><CommandCells member={member} /></div>;
+  }
   return (
-    <>
-      {parsed.map((action, index) => (
-        <div className="agt-act__row" key={`${member.id}:${index}`}>
-          <ActivityIcon member={member} action={action.kind} />
-          <span className="agt-muted">{ACTION_VERBS[action.kind]}</span>
-          <span className="agt-mono">
-            {action.kind === 'SEARCH'
-              ? `${action.query ?? member.command}${action.path === null ? '' : ` in ${action.path}`}`
-              : action.path ?? '.'}
-          </span>
-          {index === 0 && !verbatim && <Duration ms={member.durationMs} />}
-        </div>
-      ))}
-      {verbatim && (member.output === null || member.output === ''
-        ? <div className="agt-act__row is-command"><CommandCells member={member} /></div>
-        : (
-          // The row is the disclosure: keyboard-operable for free, and a running command's output
-          // stays open because that is what the user is watching.
-          <details className="agt-out" open={live && running ? true : undefined}>
-            <summary className="agt-act__row is-command">
-              <CommandCells member={member} chevron />
-            </summary>
-            <pre className="agt-pre">
-              {member.output}
-              {member.truncated && <span className="agt-muted"> … truncated</span>}
-              {running && <span className="agt-cursor" aria-hidden="true" />}
-            </pre>
-          </details>
-        ))}
-      {!verbatim && member.output !== null && member.output !== '' && (
-        <details className="agt-out" open={live && running ? true : undefined}>
-          <summary><Chevron />Output{member.truncated ? ' (truncated)' : ''}</summary>
-          <pre className="agt-pre">{member.output}{running && <span className="agt-cursor" aria-hidden="true" />}</pre>
-        </details>
-      )}
-    </>
+    <details className="agt-out" open={live && running ? true : undefined}>
+      <summary className="agt-act__row is-command">
+        <CommandCells member={member} chevron />
+      </summary>
+      <pre className="agt-pre">
+        <span className="agt-out__label">Shell{member.cwd !== null && member.cwd !== '.' ? ` · ${member.cwd}` : ''}</span>
+        {member.command !== '' && `$ ${member.command}\n\n`}
+        {member.output}
+        {member.truncated && <span className="agt-muted"> … truncated</span>}
+        {running && <span className="agt-cursor" aria-hidden="true" />}
+      </pre>
+    </details>
   );
 }
 
-/** The cells of a command's row; the chevron sits after the command when the row folds its output. */
+/** Summary titles use provider facts; the exact shell command stays in the disclosure. */
 function CommandCells({ member, chevron = false }: {
   member: CommandMember;
   chevron?: boolean;
 }): React.JSX.Element {
+  const parsed = member.actions.filter((action) => action.kind !== 'OTHER');
   return (
     <>
-      <ActivityIcon member={member} />
-      <span className="agt-mono">$ {member.command}</span>
+      {parsed.map((action, index) => (
+        <React.Fragment key={index}>
+          <ActivityIcon member={member} action={action.kind} />
+          <span className="agt-act__label">
+            {ACTION_VERBS[action.kind]}{' '}
+            {action.kind === 'SEARCH'
+              ? `${action.query ?? action.name ?? 'files'}${action.path === null ? '' : ` in ${action.path}`}`
+              : action.name ?? action.path ?? (action.kind === 'READ' ? 'file' : 'files')}
+          </span>
+        </React.Fragment>
+      ))}
+      {(parsed.length === 0 || member.actions.some((action) => action.kind === 'OTHER')) && (
+        <><ActivityIcon member={member} /><span className="agt-act__label">Ran command</span></>
+      )}
       {chevron && <Chevron size={11} />}
       {member.exitCode !== null && (
         <span className={`agt-exit ${member.exitCode === 0 ? 'is-ok' : 'is-failed'}`}>exit {member.exitCode}</span>
       )}
-      {member.cwd !== null && member.cwd !== '.' && <span className="agt-mono agt-muted">in {member.cwd}</span>}
-      <Duration ms={member.durationMs} />
     </>
   );
 }
@@ -343,7 +325,6 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
             <ActivityIcon member={member} />
             <span className="agt-muted">{member.name}</span>
             {member.summary !== '' && member.summary !== member.name && <span className="agt-mono">{member.summary}</span>}
-            <Duration ms={member.durationMs} />
           </div>
         );
       })}
@@ -355,13 +336,11 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
  * Contiguous activity as one block: a running group shows its members under a "Working" header,
  * a finished one folds to a sentence derived from those members unless the user opened it.
  */
-function ActivityView({ block, now, expanded, onToggle }: {
+function ActivityView({ block, expanded, onToggle }: {
   block: ActivityBlock;
-  now: number;
   expanded: boolean;
   onToggle: () => void;
 }): React.JSX.Element {
-  const elapsed = formatDuration(activityElapsedMs(block, now));
   if (activityRunning(block)) {
     return (
       <div className="agt-act is-running">
@@ -369,7 +348,6 @@ function ActivityView({ block, now, expanded, onToggle }: {
           <Spinner />
           <span className="agt-act__title">Working</span>
           <span className="agt-muted">— {activityPhrase(block.members)}</span>
-          <span className="agt-mono agt-muted">{elapsed}</span>
         </div>
         <MemberRows members={block.members} live />
       </div>
@@ -380,7 +358,6 @@ function ActivityView({ block, now, expanded, onToggle }: {
       <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle}>
         <Chevron open={expanded} />
         <span>{activitySummary(block.members)}</span>
-        <span className="agt-mono agt-muted">{elapsed}</span>
       </button>
       {expanded && <div className="agt-act__body"><MemberRows members={block.members} live={false} /></div>}
     </div>
@@ -421,7 +398,6 @@ function ApprovalView({ block, onDecide }: {
         <Glyph icon={allowed ? ShieldCheck : ShieldX} className={`${allowed ? 'is-ok' : 'is-failed'} is-outcome`} />
         <span>{block.outcome === 'ALLOWED' && block.forTask ? 'Approved for this task' : OUTCOME_LABELS[block.outcome] ?? block.outcome} —</span>
         <span className="agt-mono">{block.detail}</span>
-        <span>· {clock(block.at)}</span>
       </div>
     );
   }
@@ -460,9 +436,8 @@ function ApprovalView({ block, onDecide }: {
   );
 }
 
-function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
+function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
   block: TurnBlock;
-  now: number;
   activityChoice: Record<string, boolean>;
   agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
@@ -496,7 +471,7 @@ function BlockView({ block, now, activityChoice, agentLabels, onToggleActivity, 
       );
     case 'activity': {
       const expanded = activityExpanded(block, activityChoice[block.id]);
-      return <ActivityView block={block} now={now} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
+      return <ActivityView block={block} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
     }
     case 'approval':
       return <ApprovalView block={block} onDecide={onDecide} />;
@@ -618,7 +593,6 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         <BlockView
           key={block.id}
           block={block}
-          now={now}
           activityChoice={activityChoice}
           agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}
@@ -1284,7 +1258,6 @@ function SidePanel({
                 <BlockView
                   key={block.id}
                   block={block}
-                  now={now}
                   activityChoice={activityChoice}
                   agentLabels={labels}
                   onToggleActivity={onToggleActivity}

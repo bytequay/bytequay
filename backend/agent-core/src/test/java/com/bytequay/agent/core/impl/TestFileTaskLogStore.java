@@ -142,6 +142,32 @@ class TestFileTaskLogStore
     }
 
     @Test
+    void replaysCommandNamesAndOlderActionsWithoutNames()
+            throws IOException
+    {
+        AgentEventEnvelope named = envelope(1, new AgentEventPayload.CommandActivity(
+                AgentEventPayload.ActivityState.COMPLETED,
+                ImmutableList.of("cat SKILL.md"),
+                Optional.empty(),
+                Optional.of(0),
+                false,
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableList.of(new AgentEventPayload.CommandAction(
+                        AgentEventPayload.CommandActionKind.READ,
+                        Optional.of("OpenAI Docs skill"),
+                        Optional.empty(),
+                        Optional.empty()))));
+        store.append(named);
+        assertThat(store.readAfter(taskId, 0, 10)).containsExactly(named);
+
+        Path eventsFile = resources.require(taskId).eventsFile();
+        Files.writeString(eventsFile, Files.readString(eventsFile).replace("\"name\":\"OpenAI Docs skill\",", ""));
+        AgentEventPayload.CommandActivity older = (AgentEventPayload.CommandActivity) store.readAfter(taskId, 0, 10).getFirst().payload();
+        assertThat(older.actions().getFirst().name()).isEmpty();
+    }
+
+    @Test
     void ignoresOnlyAnUnterminatedFinalRecord()
             throws IOException
     {

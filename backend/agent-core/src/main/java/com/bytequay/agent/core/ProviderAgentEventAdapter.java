@@ -66,6 +66,7 @@ public final class ProviderAgentEventAdapter
                     command.actions().stream()
                             .map(action -> new AgentEventPayload.CommandAction(
                                     AgentEventPayload.CommandActionKind.valueOf(action.kind().name()),
+                                    action.name(),
                                     action.path(),
                                     action.query()))
                             .collect(toImmutableList()));

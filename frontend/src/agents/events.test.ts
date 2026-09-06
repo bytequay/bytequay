@@ -96,6 +96,29 @@ describe('agent event contract', () => {
     expect(() => parseAgentEventSequence(duplicate)).toThrow('Duplicate or out-of-order event sequence 5');
   });
 
+  it('keeps read names, accepts old actions without names, and rejects invalid names', () => {
+    const command = {
+      ...structuredClone(fixture.events[4]),
+      sequence: 1,
+      payload: {
+        ...fixture.events[4].payload,
+        actions: [
+          { kind: 'READ', name: 'OpenAI Docs skill', path: null as string | null, query: null as string | null },
+          { kind: 'READ', path: 'README.md', query: null as string | null },
+        ],
+      },
+    };
+    const [parsed] = parseAgentEventSequence([command]);
+    expect(parsed.type === 'command' && parsed.payload.actions).toEqual([
+      { kind: 'READ', name: 'OpenAI Docs skill', path: null, query: null },
+      { kind: 'READ', name: null, path: 'README.md', query: null },
+    ]);
+    expect(() => parseAgentEventSequence([{
+      ...command,
+      payload: { ...command.payload, actions: [{ kind: 'READ', name: 42, path: null, query: null }] },
+    }])).toThrow('commandAction.name');
+  });
+
   it('rejects a sequence gap', () => {
     const gapped = structuredClone(fixture.events);
     gapped[5].sequence++;

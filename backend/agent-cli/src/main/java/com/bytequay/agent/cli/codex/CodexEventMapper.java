@@ -327,6 +327,7 @@ final class CodexEventMapper
         };
         return new ProviderAgentEvent.CommandAction(
                 kind,
+                action.name().map(redactor::redact).flatMap(CodexEventMapper::optionalText),
                 action.path().flatMap(this::relativePath),
                 action.query().map(redactor::redact).flatMap(CodexEventMapper::optionalText));
     }

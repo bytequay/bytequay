@@ -224,6 +224,7 @@ class ManagedWorkspaceGit
                 "origin",
                 previous.originCloneUrl(),
                 current.originCloneUrl());
+        requireGitSuccess(git.run(repository, "config", "remote.pushDefault", "origin"), "configure default push destination");
         reconcileRemoteSources(current, repository);
         Optional<String> actualUpstream = remoteUrl(repository, "upstream");
         if (current.upstreamRepositoryId().isEmpty()) {

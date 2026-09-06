@@ -22,10 +22,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Durable identity and routing for one watched GitHub repository.
  *
- * <p>A workspace always clones the selected repository as {@code origin}. An optional user-selected
+ * <p>A workspace always clones the selected repository as {@code origin}. The watch flow selects the personal fork for foreign repositories. An optional
  * GitHub repository supplies the read-only {@code upstream}; that repository is also monitored for
- * pull requests, issues, and reference metadata. GitHub fork topology is only descriptive and never
- * establishes this link.</p>
+ * pull requests, issues, and reference metadata. Watching a fork or foreign repository establishes its canonical upstream link.</p>
  */
 public record Workspace(
         String id,

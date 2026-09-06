@@ -34,6 +34,8 @@ public record WatchRepositoryPreview(
         String developmentBase,
         String pushRemote,
         boolean pushWritable,
+        RepoRef pushRepository,
+        boolean forkRequired,
         RepoRef pullRequestBase,
         String fingerprint,
         Optional<String> existingWorkspaceId)
@@ -49,6 +51,7 @@ public record WatchRepositoryPreview(
         requireNonNull(defaultBranch, "defaultBranch is null");
         requireNonNull(developmentBase, "developmentBase is null");
         requireNonNull(pushRemote, "pushRemote is null");
+        requireNonNull(pushRepository, "pushRepository is null");
         requireNonNull(pullRequestBase, "pullRequestBase is null");
         requireNonNull(fingerprint, "fingerprint is null");
         requireNonNull(existingWorkspaceId, "existingWorkspaceId is null");

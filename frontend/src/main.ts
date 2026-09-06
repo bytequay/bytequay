@@ -53,6 +53,7 @@ import type {
   RecentTouchRequest,
   StartAgentTurnRequest,
   SteerAgentTurnRequest,
+  WatchRepositoryCommand,
 } from './types';
 import {
   BACKEND_BASE,
@@ -1342,11 +1343,7 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ selectedRepositoryId }),
     }));
-  ipcMain.handle('workspaces:watch', (_event, command: {
-    selectedRepositoryId: number;
-    previewFingerprint: string;
-    name?: string;
-  }) => backendJson(`${BACKEND_BASE}/api/workspaces`, {
+  ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) => backendJson(`${BACKEND_BASE}/api/workspaces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(command),

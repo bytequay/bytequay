@@ -49,6 +49,33 @@ class TestCodeGraphBaselineRefresher
     }
 
     @Test
+    void indexesTheUpstreamDefaultBranchUnderThePhysicalForkIdentity(@TempDir Path temp)
+            throws IOException
+    {
+        FakeCodeGraphService codeGraph = new FakeCodeGraphService();
+        Fixture fixture = Fixture.create(temp, git, true);
+        Fixture.run(git, fixture.repository, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-q", "-m", "Upstream advanced");
+        String upstreamHead = Fixture.run(git, fixture.repository, "rev-parse", "HEAD");
+        Fixture.run(git, fixture.repository, "update-ref", "refs/remotes/upstream/master", upstreamHead);
+        Workspace workspace = fixture.workspace.withRepositoryRouting(
+                fixture.workspace.selectedRepository(),
+                Optional.of(200L),
+                Optional.of(RepoRef.of("upstream", "name")),
+                200,
+                RepoRef.of("upstream", "name"),
+                "main",
+                fixture.workspace.originCloneUrl(),
+                Optional.of("master"),
+                Optional.of("https://github.com/upstream/name.git"),
+                fixture.workspace.updatedAt());
+
+        refresher(codeGraph, fixture).refreshAfterFetch(workspace);
+
+        assertThat(upstreamHead).isNotEqualTo(fixture.head);
+        assertThat(codeGraph.refreshes).containsExactly(new FakeCodeGraphService.Refresh(new RepositoryIdentity("owner", "name"), fixture.repository, upstreamHead));
+    }
+
+    @Test
     void skipsWhenTheHelperIsUnavailable(@TempDir Path temp)
             throws IOException
     {

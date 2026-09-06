@@ -12,6 +12,21 @@ browser) plus PNG exports.
 | Workspace Home | `../Workspace Home.dc.html` (current); `watched-repo-ui/Workspace Home.dc.html` · `workspace-home.png` (earlier state board) |
 | Workspace Pull Requests | `watched-repo-ui/Workspace Pull Requests.dc.html` · `workspace-pull-requests.png` |
 
+## Current watch routing
+
+The 2026-09-06 watch flow supersedes the original board's optional upstream-link step.
+Selecting upstream or any fork resolves the original source and the signed-in user's personal
+fork. If the source belongs to the user, it stays direct. Otherwise the preview names the
+upstream being followed, its default branch, the personal fork receiving branches, and the
+upstream PR target. A renamed existing fork is reused. A missing fork requires the explicit
+**Create fork and watch** action; Back or Cancel creates nothing. Fork consent belongs to this
+confirmed watch, and is not a blanket account preference.
+
+Only the resolved preview can offer **Open workspace**. A search result's stored workspace may
+still be an older direct checkout; it must not skip the routing preview. Existing task worktrees
+keep their original identities. Watching an older foreign direct workspace establishes the
+personal-fork workspace without rewriting that checkout or its tasks.
+
 ## UI principles
 
 1. **Save is instant; everything else is background.** Watch always succeeds or fails

@@ -69,7 +69,9 @@ public class CodeGraphBaselineRefresher
             return;
         }
         Path repository = paths.repository(workspace);
-        Result head = git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/" + workspace.defaultBranch() + "^{commit}");
+        String remote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
+        String branch = workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch());
+        Result head = git.run(repository, "rev-parse", "--verify", "refs/remotes/" + remote + "/" + branch + "^{commit}");
         if (!head.successful() || head.truncated() || head.output().isBlank()) {
             LOG.debug("CodeGraph baseline skipped for workspace {}: the default branch has no fetched commit", workspace.id());
             return;

@@ -212,7 +212,10 @@ replace it without changing agent or worktree contracts.
 
 ### Baseline refresh
 
-The baseline for a repository is the index of `refs/remotes/origin/<default-branch>`.
+The baseline is the index of the monitored default branch:
+`refs/remotes/upstream/<upstream-default-branch>` for linked workspaces, otherwise
+`refs/remotes/origin/<default-branch>`. Its cache identity remains the selected
+physical write repository, matching the task worktree that consumes it.
 It changes only when a fetch shows that branch gained commits. The hook sits
 on the workspace code synchronization, which fetches the managed
 repository's remotes when a workspace is first used, when the workspace

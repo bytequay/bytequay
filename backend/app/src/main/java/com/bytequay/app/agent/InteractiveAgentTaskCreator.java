@@ -137,7 +137,7 @@ public final class InteractiveAgentTaskCreator
                 defaults.effort(),
                 defaults.serviceTier());
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
-        String startRef = "refs/remotes/origin/" + workspace.defaultBranch() + "^{commit}";
+        String startRef = "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}";
         Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);
         if (!head.successful() || head.truncated() || head.output().isBlank()) {
             throw new AgentStorageException("Cannot resolve the workspace start commit");

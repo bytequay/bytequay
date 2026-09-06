@@ -16,6 +16,7 @@ import Avatar from './Avatar';
 import type {
   RepoRefDto,
   RepositorySearchResultDto,
+  WatchRepositoryCommand,
   WatchRepositoryPreviewDto,
   WorkspaceDto,
 } from './types';
@@ -32,38 +33,104 @@ function fullName(repo: RepoRefDto): string {
 
 type RoutingRow = { key: string; value: string };
 
-function routingRows(
-  preview: WatchRepositoryPreviewDto,
-  linked: boolean,
-): RoutingRow[] {
+function routingRows(preview: WatchRepositoryPreviewDto): RoutingRow[] {
   const base = `${fullName(preview.pullRequestBase)} · ${preview.defaultBranch}`;
-  if (linked) {
-    return [
-      { key: 'Cloned for your work', value: fullName(preview.selectedRepository) },
-      { key: 'Followed for updates', value: fullName(preview.monitoredRepository) },
-      { key: 'New branches start from', value: preview.developmentBase },
-      { key: 'Pull requests open against', value: base },
-    ];
-  }
   return [
+    { key: 'Followed for updates', value: fullName(preview.monitoredRepository) },
     { key: 'New branches start from', value: preview.developmentBase },
-    { key: 'Work branches push to', value: preview.pushWritable ? preview.pushRemote : 'Read-only for you' },
+    { key: 'Work branches push to', value: fullName(preview.pushRepository) },
     { key: 'Pull requests open against', value: base },
   ];
 }
 
-function summaryFor(preview: WatchRepositoryPreviewDto, linked: boolean): string {
-  const name = fullName(preview.selectedRepository);
-  if (linked) {
-    return `ByteQuay clones the fork for local work and follows ${fullName(preview.monitoredRepository)}`
-      + ' for commits, issues and pull requests.';
+function summaryFor(preview: WatchRepositoryPreviewDto): string {
+  const upstream = fullName(preview.monitoredRepository);
+  const push = fullName(preview.pushRepository);
+  if (preview.forkRequired) {
+    return `Allow ByteQuay to create ${push} as your personal fork of ${upstream}?`
+      + ` ByteQuay will follow ${upstream} for commits, issues and pull requests,`
+      + ` and publish your work branches to ${push}.`;
   }
   if (preview.topology === 'FORK') {
-    return `GitHub reports this as a fork, and it starts unlinked — everything uses ${name} until you`
-      + ' choose an upstream in workspace settings.';
+    return `ByteQuay will reuse your existing personal fork ${push} for work branches`
+      + ` and follow ${upstream} for commits, issues and pull requests.`;
   }
-  return `Everything uses ${name} — code, issues, pull requests and pushes.`
-    + ' It appears in Workspaces the moment you watch it.';
+  return `Code, issues, pull requests and work branches use your repository ${upstream}.`;
+}
+
+export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, onOpenWorkspace }: {
+  preview: WatchRepositoryPreviewDto;
+  adding: boolean;
+  onBack: () => void;
+  onWatch: (command: WatchRepositoryCommand) => void;
+  onOpenWorkspace: (workspaceId: string) => void;
+}) {
+  return (
+    <div className="modal-preview">
+      <div className="modal-preview__title-row">
+        <Avatar
+          login={preview.selectedRepository.owner}
+          size={32}
+          className="modal-preview__avatar"
+        />
+        <div>
+          <div className="modal-preview__name-row">
+            <span className="modal-preview__name">{fullName(preview.selectedRepository)}</span>
+            <span className={`modal-chip${preview.topology === 'FORK' ? ' is-fork' : ' is-direct'}`}>
+              {preview.topology === 'FORK' ? '⑂ personal fork workflow' : 'your repository'}
+            </span>
+          </div>
+          <div className="modal-preview__sub">
+            {preview.visibility} · default branch {preview.defaultBranch}
+          </div>
+        </div>
+      </div>
+
+      {!preview.pushWritable && !preview.forkRequired && (
+        <div className="modal-preview__warning" role="status">
+          You can’t push to {fullName(preview.pushRepository)}. Check your GitHub permissions
+          before publishing work branches.
+        </div>
+      )}
+
+      <div className="modal-routing">
+        <div className="modal-routing__head">HOW THIS REPOSITORY WILL WORK</div>
+        <div className="modal-routing__grid">
+          {routingRows(preview).map(row => (
+            <div className="modal-routing__row" key={row.key}>
+              <span>{row.key}</span>
+              <b>{row.value}</b>
+            </div>
+          ))}
+        </div>
+        <p className="modal-routing__summary">{summaryFor(preview)}</p>
+      </div>
+
+      <div className="modal-preview__actions">
+        <button type="button" disabled={adding} onClick={onBack}>Back</button>
+        <button
+          className="modal-preview__confirm"
+          type="button"
+          disabled={adding}
+          onClick={() => {
+            if (preview.existingWorkspaceId !== null) {
+              onOpenWorkspace(preview.existingWorkspaceId);
+              return;
+            }
+            onWatch({
+              selectedRepositoryId: preview.selectedRepositoryId,
+              previewFingerprint: preview.fingerprint,
+              allowForkCreation: preview.forkRequired,
+            });
+          }}
+        >
+          {adding ? 'Watching…'
+            : preview.existingWorkspaceId !== null ? 'Open workspace'
+              : preview.forkRequired ? 'Create fork and watch' : 'Watch repository'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Props) {
@@ -99,8 +166,19 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
   }, [query]);
 
   useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    window.bridge.previewWatch(selected.id)
+      .then(result => { if (!cancelled) setPreview(result); })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [selected]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || adding) return;
       if (selected) {
         setSelected(null);
         setPreview(null);
@@ -111,51 +189,27 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onClose, selected]);
+  }, [adding, onClose, selected]);
 
-  /** An already-watched repository goes straight to its workspace — there is
-   *  nothing to confirm and nothing to clone a second time. */
   const pick = (repo: RepositorySearchResultDto) => {
-    if (repo.existingWorkspaceId !== null) {
-      onClose();
-      onOpenWorkspace(repo.existingWorkspaceId);
-      return;
-    }
-    void choose(repo);
-  };
-
-  const choose = async (repo: RepositorySearchResultDto) => {
     setSelected(repo);
     setPreview(null);
-    setPreviewLoading(true);
     setError(null);
-    try {
-      setPreview(await window.bridge.previewWatch(repo.id));
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-    finally {
-      setPreviewLoading(false);
-    }
   };
 
-  const add = async () => {
-    if (!selected || !preview) return;
+  const add = async (command: WatchRepositoryCommand) => {
+    if (adding) return;
     setAdding(true);
     setError(null);
     try {
-      const workspace = await window.bridge.watchRepository({
-        selectedRepositoryId: selected.id,
-        previewFingerprint: preview.fingerprint,
-      });
+      const workspace = await window.bridge.watchRepository(command);
       onAdded(workspace);
       onClose();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       try {
-        setPreview(await window.bridge.previewWatch(selected.id));
+        setPreview(await window.bridge.previewWatch(command.selectedRepositoryId));
       }
       catch { /* Keep the original confirmation error visible. */ }
     }
@@ -171,12 +225,8 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
     window.setTimeout(() => inputRef.current?.focus());
   };
 
-  const linked = preview !== null
-    && preview.topology === 'FORK'
-    && preview.upstreamRepository !== null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={() => { if (!adding) onClose(); }}>
       <div className="modal" onClick={event => event.stopPropagation()}>
         {!selected && (
           <>
@@ -217,9 +267,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
                   <div className="modal-repo-row__text">
                     <div className="modal-repo-row__head">
                       <span className="modal-repo-row__name">{repo.fullName}</span>
-                      {repo.existingWorkspaceId !== null ? (
-                        <span className="modal-chip is-watched">already watched</span>
-                      ) : repo.fork && repo.upstream ? (
+                      {repo.fork && repo.upstream ? (
                         <span className="modal-chip is-fork">⑂ fork of {fullName(repo.upstream)}</span>
                       ) : null}
                     </div>
@@ -228,11 +276,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
                       {repo.description ? ` · ${repo.description}` : ''}
                     </div>
                   </div>
-                  <span
-                    className={`modal-repo-row__pill${repo.existingWorkspaceId !== null ? ' is-open' : ''}`}
-                  >
-                    {repo.existingWorkspaceId !== null ? 'Open' : 'Watch'}
-                  </span>
+                  <span className="modal-repo-row__pill">Watch</span>
                 </div>
               ))}
               {!loading && repos.length === 0 && (
@@ -249,70 +293,22 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
         {selected && (
           <>
             <div className="modal__header">
-              <button className="modal__back" onClick={back} type="button">‹ Search</button>
-              <button className="modal__close" onClick={onClose} type="button">✕</button>
+              <button className="modal__back" disabled={adding} onClick={back} type="button">‹ Search</button>
+              <button className="modal__close" disabled={adding} onClick={onClose} type="button">✕</button>
             </div>
             {previewLoading && <div className="modal__loading">Checking repository routing…</div>}
             {error && <div className="modal__empty">{error}</div>}
             {preview && (
-              <div className="modal-preview">
-                <div className="modal-preview__title-row">
-                  <Avatar
-                    login={preview.selectedRepository.owner}
-                    size={32}
-                    className="modal-preview__avatar"
-                  />
-                  <div>
-                    <div className="modal-preview__name-row">
-                      <span className="modal-preview__name">{fullName(preview.selectedRepository)}</span>
-                      <span className={`modal-chip${preview.topology === 'FORK' ? ' is-fork' : ' is-direct'}`}>
-                        {preview.topology === 'FORK' && selected.upstream
-                          ? `⑂ fork of ${fullName(selected.upstream)}`
-                          : preview.topology === 'FORK' ? '⑂ fork' : 'direct repository'}
-                      </span>
-                    </div>
-                    <div className="modal-preview__sub">
-                      {preview.visibility} · default branch {preview.defaultBranch}
-                    </div>
-                  </div>
-                </div>
-
-                {!preview.pushWritable && (
-                  <div className="modal-preview__warning" role="status">
-                    You can’t push to {fullName(preview.selectedRepository)}. You can still browse
-                    commits, cherry-pick, and work locally; ByteQuay won’t push somewhere else.
-                  </div>
-                )}
-
-                <div className="modal-routing">
-                  <div className="modal-routing__head">
-                    {linked ? 'HOW THIS FORK WILL WORK' : 'HOW THIS REPOSITORY WILL WORK'}
-                  </div>
-                  <div className="modal-routing__grid">
-                    {routingRows(preview, linked).map(row => (
-                      <div className="modal-routing__row" key={row.key}>
-                        <span>{row.key}</span>
-                        <b>{row.value}</b>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="modal-routing__summary">{summaryFor(preview, linked)}</p>
-                </div>
-
-                <div className="modal-preview__actions">
-                  <button type="button" onClick={back}>Back</button>
-                  <button
-                    className="modal-preview__confirm"
-                    type="button"
-                    disabled={adding}
-                    onClick={() => { void add(); }}
-                  >
-                    {adding
-                      ? 'Watching…'
-                      : preview.topology === 'FORK' ? 'Watch fork' : 'Watch repository'}
-                  </button>
-                </div>
-              </div>
+              <WatchRepositoryConfirmation
+                preview={preview}
+                adding={adding}
+                onBack={back}
+                onWatch={command => { void add(command); }}
+                onOpenWorkspace={workspaceId => {
+                  onClose();
+                  onOpenWorkspace(workspaceId);
+                }}
+              />
             )}
           </>
         )}

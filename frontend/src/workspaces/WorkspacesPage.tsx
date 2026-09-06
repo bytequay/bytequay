@@ -36,6 +36,10 @@ const SPARK_MAX_AGE_MS = 300_000;
 /** How long a clone may sit unfinished before the card offers a retry. */
 const SLOW_CLONE_MS = 60_000;
 
+function sparkKey(workspace: WorkspaceDto): string {
+  return `workspace-spark:${workspace.id}:${workspace.monitoredRepositoryId}:${workspace.upstreamDefaultBranch ?? workspace.defaultBranch}`;
+}
+
 export type WorkspaceActivity = {
   openPrs: number;
   needsYou: number;
@@ -96,21 +100,23 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       if (firstSeen.current[workspace.id] === undefined) {
         firstSeen.current[workspace.id] = Date.now();
       }
-      if (workspace.lastCodeSyncAt === null || sparks[workspace.id] !== undefined) continue;
-      const key = `workspace-spark:${workspace.id}`;
+      const key = sparkKey(workspace);
+      if (workspace.lastCodeSyncAt === null || sparks[key] !== undefined) continue;
+      const source = workspace.upstreamRepositoryId === null ? 'WORKSPACE' : 'UPSTREAM';
+      const branch = workspace.upstreamDefaultBranch ?? workspace.defaultBranch;
       const cached = getCachedFresh<number[]>(key, SPARK_MAX_AGE_MS);
       if (cached) {
-        setSparks(previous => ({ ...previous, [workspace.id]: cached }));
+        setSparks(previous => ({ ...previous, [key]: cached }));
         continue;
       }
-      window.bridge.gitLog(workspace.id, 'WORKSPACE', workspace.defaultBranch, 200)
+      window.bridge.gitLog(workspace.id, source, branch, 200)
         .then(snapshot => {
           const bars = commitsPerDay(
             snapshot.commits.map(commit => commit.committedAt),
             SPARK_DAYS,
           );
           setCached(key, bars);
-          if (!cancelled) setSparks(previous => ({ ...previous, [workspace.id]: bars }));
+          if (!cancelled) setSparks(previous => ({ ...previous, [key]: bars }));
         })
         .catch(() => { /* Card keeps the flat "activity after first sync" bars. */ });
     }
@@ -160,7 +166,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       needsYou: prs.filter(pr => pr.repo === monitored && pr.state === 'open' && pullRequestNeedsReview(pr)).length,
       tasks: executions.filter(execution =>
         execution.workspaceId === workspace.id && execution.status !== 'FINISHED').length,
-      spark: sparks[workspace.id] ?? null,
+      spark: sparks[sparkKey(workspace)] ?? null,
       runningTask: running?.workBranch ?? null,
     };
   }

@@ -1,6 +1,6 @@
 # Watched Repository / Workspace Design
 
-Status: implemented through Checkpoint 8.
+Status: implemented through Checkpoint 8, with fork-first watch routing approved on 2026-09-06.
 
 This design connects the existing watched-repository entry point to the existing workspace
 commits and cherry-pick experience. A watched GitHub repository becomes a durable ByteQuay
@@ -85,15 +85,19 @@ user-selected paths are outside the managed-checkout ownership model.
 
 These are persistence invariants, not UI conventions:
 
-- A GitHub repository can be watched only once. `selectedRepositoryId` has a database unique
-  constraint. A repeated watch returns the existing workspace instead of creating another one.
+- A physical write repository can have only one workspace. `selectedRepositoryId` has a database
+  unique constraint. Watching either an upstream or a fork resolves to the same personal-fork
+  workspace; a repeated watch returns that workspace instead of creating another clone.
 - A workspace has zero or one user-managed upstream GitHub repository.
 - An upstream candidate can be any repository readable through the connected GitHub account and
   cannot be the workspace's selected repository.
 - The upstream is identified by its stable GitHub repository ID. Any number of workspaces may use
   the same upstream repository without requiring a separate watched workspace.
-- GitHub's fork/parent relationship is descriptive metadata and a useful watch hint. It never
-  creates, changes, or removes the user-selected upstream.
+- Watching a fork uses GitHub's canonical source repository as the initial upstream. Watching a
+  repository owned by another account resolves the same source and the signed-in user's fork,
+  even when the user can push to that source. An owned non-fork repository stays direct.
+- Workspace Settings remains an explicit override: users can later link, change, or unlink the
+  upstream. Background synchronization never chooses a new upstream from GitHub topology.
 - A user-configured extra remote may carry the same stable identity when its GitHub URL matches a
   selected or upstream repository already known in local workspace routing. It remains an extra
   remote and never becomes the workspace upstream implicitly.
@@ -113,19 +117,22 @@ relationship.
    - repository owner and name;
    - default branch;
    - direct or fork topology;
-   - GitHub parent suggestion when it is a fork;
+   - canonical GitHub source when it is a fork;
    - monitored repository;
    - development base remote;
    - push destination and whether it is writable;
    - pull-request base repository.
-5. The user confirms **Watch**. The new workspace starts with no upstream link.
-6. The backend saves the workspace and returns it immediately with provisioning states.
+5. The user confirms **Watch**. If a personal fork is missing, the preview asks for explicit
+   permission to create it as part of this action. An existing personal fork is reused.
+6. The backend resolves or creates the confirmed write repository, saves the workspace, and
+   returns it with provisioning states. Personal-fork workspaces start linked to the canonical
+   upstream; owned non-fork workspaces start direct.
 7. Clone/code synchronization and metadata synchronization start after the transaction commits.
 8. Home shows the workspace card immediately and updates its progress.
 
-Saving first is intentional. A slow clone or GitHub request must not make it unclear whether the
-watch action succeeded. Background failures leave last-success timestamps unchanged and are retried
-when the data is still stale.
+Saving before cloning is intentional. Fork creation, when explicitly authorized, happens before
+the workspace is saved; clone and metadata work happen afterward. Background failures leave
+last-success timestamps unchanged and are retried when the data is still stale.
 
 ### 2. Open the workspace
 
@@ -151,9 +158,12 @@ when the data is still stale.
 
 ## Repository topology and routing
 
-GitHub topology and ByteQuay routing are separate concepts. Every watched repository is cloned as
-`origin`. The user may then select any GitHub-readable repository as `upstream` from Workspace
-Settings.
+The preview's selected repository is the search result the user chose. The persisted workspace's
+selected repository is the physical write repository cloned as `origin`: the signed-in user's
+personal fork for another account's project, or the user's own non-fork repository. Upstream and
+fork search results therefore converge on the same write repository. The canonical source becomes
+`upstream`, and all monitored issues, pull requests, contributors, and activity use it. The user
+may later select any GitHub-readable repository as an explicit upstream override in Settings.
 
 | Purpose | No upstream linked | Upstream repository linked |
 | --- | --- | --- |
@@ -166,9 +176,20 @@ Settings.
 | Work branch push | `origin` when writable | `origin` when writable |
 | Pull-request base | selected repository | selected upstream repository |
 
-Linking configures and fetches the selected repository as the read-only `upstream` remote. Unlinking
-removes that remote and returns monitoring to the selected repository. GitHub parent/source data
-may be displayed while watching a fork, but it never establishes this routing.
+Linking configures and fetches the source repository as `upstream`. Unlinking removes that remote
+and returns monitoring to the selected repository. Git uses `remote.pushDefault=origin`; ByteQuay
+branch delivery and the task's draft-PR action explicitly push to `origin`. The draft targets the
+monitored repository's default branch and names a linked head as `<fork-owner>:<branch>`.
+
+Interactive tasks and the CodeGraph baseline start from the fetched monitored default branch:
+`upstream/<upstream-default-branch>` when linked, otherwise `origin/<default-branch>`. Their
+physical worktree identity remains the selected repository, so a stale fork default branch does
+not become the task's development base.
+
+Existing workspaces and task worktree identities are not rewritten. Watching a previously watched
+foreign direct repository resolves a new or existing personal-fork workspace, preserving the old
+workspace and its tasks. A confirmed watch of an existing personal-fork workspace can restore its
+canonical upstream through the existing guarded upstream-setting operation.
 
 If the configured push destination is not writable, browsing, local worktrees, and local
 cherry-pick execution remain available. Push and pull-request actions are disabled with an
@@ -308,9 +329,8 @@ public interface WorkspaceRepositoryService
     /**
      * Resolves the repository identity and topology hint that will be persisted by watch.
      *
-     * <p>The selected repository is always {@code origin} and the initial monitor.
-     * For a fork, GitHub's parent is returned only as a suggestion that the user may
-     * watch separately and link later.</p>
+     * <p>The preview separates the chosen search result from the resolved write repository and
+     * monitored upstream. A missing personal fork requires explicit creation permission.</p>
      *
      * @param selectedRepositoryId stable GitHub ID of the selected repository
      * @return confirmation data shown before the user watches the repository
@@ -594,13 +614,14 @@ delivery first attempts the same synchronous provisioning path used by code refr
 
 ## Application orchestration
 
-`watch` performs only the synchronous work needed to validate and persist:
+`watch` performs the synchronous work needed to establish the confirmed routing and persist:
 
 1. Load the repository again by stable GitHub ID.
 2. Recompute routing and compare it with the confirmed preview/version.
-3. Insert or return the durable workspace.
-4. Commit.
-5. Schedule provisioning and metadata synchronization independently.
+3. Reuse the signed-in user's fork, or create it only with explicit permission when required.
+4. Insert or return the durable workspace for the resolved write repository and canonical source.
+5. Commit.
+6. Schedule provisioning and metadata synchronization independently.
 
 The implementation uses the existing Spring async facilities rather than introducing a new queue.
 Active work is deduplicated in process. On application startup, a recovery component provisions a
@@ -700,8 +721,8 @@ contain tokens, authenticated clone URLs, or arbitrary command output with secre
 - Reuse the existing watched-repository grid and Add Repository modal.
 - Search results show owner/name, visibility, default branch, and fork marker.
 - Selecting a result loads the confirmation preview before enabling Watch.
-- For a fork, the confirmation shows GitHub's parent only as a suggestion and says the workspace
-  starts unlinked.
+- The confirmation shows the monitored source, personal write fork, development base, and PR
+  destination. A missing fork requires an explicit **Create fork and watch** confirmation.
 - After save, close the modal and insert the returned workspace card immediately.
 - Cards show `Preparing`, `Ready`, `Syncing`, or `Needs attention`, with retry when appropriate.
 
@@ -809,9 +830,10 @@ sequenceDiagram
 
     User->>Home: Search and select GitHub repository
     Home->>API: Preview watch(selectedRepositoryId)
-    API-->>Home: Selected repository, topology hint, and permissions
+    API-->>Home: Monitored source, write repository, and any required fork consent
     User->>Home: Confirm Watch
     Home->>API: Create workspace
+    API->>API: Reuse personal fork or create it with explicit permission
     API->>DB: Save workspace with empty sync timestamps
     DB-->>API: Committed workspace
     API-->>Home: Workspace summary
@@ -865,6 +887,7 @@ sequenceDiagram
 - Renderer-provided filesystem paths are not accepted for managed workspaces.
 - Every managed path is resolved and checked beneath the ByteQuay workspace root.
 - Search, clone, fetch, and metadata refresh are reads.
+- Creating a personal fork is a GitHub write and occurs only through the disclosed watch action.
 - Push and pull-request creation are explicit GitHub writes and require a user action.
 - Initial delivery never force-pushes, deletes a remote branch, or changes a PR base implicitly.
   A separately disclosed CI Autofix watch may later push with an exact remote-head lease.
@@ -886,10 +909,12 @@ delivery as a separate explicit gate.
 
 ## Acceptance criteria
 
-- Watching a repository creates exactly one durable, initially unlinked workspace and managed clone.
-- Repeating watch for the same stable repository returns that workspace; it never creates a second
-  workspace or clone.
-- GitHub fork metadata never establishes an upstream link.
+- Watching a foreign repository or any of its forks resolves a personal-fork workspace that
+  monitors the canonical source, regardless of the user's source push permission.
+- Watching an owned non-fork repository creates a direct workspace.
+- Repeating watch through either the source or a fork returns the same resolved write workspace.
+- A missing personal fork is created only after explicit consent; an existing fork is reused.
+- Existing direct workspace tasks retain their recorded physical repository and worktree identity.
 - Upstream candidates are repositories readable through the connected GitHub account, whether or
   not they are watched; users can search, link, change, and unlink them in Settings.
 - Selecting the workspace repository itself, an inaccessible repository, or unsafe repository

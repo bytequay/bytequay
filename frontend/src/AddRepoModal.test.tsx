@@ -1,0 +1,145 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import type { ButtonHTMLAttributes, MouseEvent, ReactElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+import { WatchRepositoryConfirmation } from './AddRepoModal';
+import type { WatchRepositoryPreviewDto } from './types';
+
+const upstream = { owner: 'trinodb', repo: 'trino' };
+const fork = { owner: 'octocat', repo: 'trino' };
+const preview: WatchRepositoryPreviewDto = {
+  selectedRepositoryId: 1,
+  selectedRepository: upstream,
+  visibility: 'public',
+  topology: 'FORK',
+  upstreamRepositoryId: 1,
+  upstreamRepository: upstream,
+  monitoredRepositoryId: 1,
+  monitoredRepository: upstream,
+  defaultBranch: 'master',
+  developmentBase: 'upstream/master',
+  pushRemote: 'origin',
+  pushRepository: fork,
+  pushWritable: false,
+  forkRequired: true,
+  pullRequestBase: upstream,
+  fingerprint: 'confirmed-routing',
+  existingWorkspaceId: null,
+};
+
+function confirmation(overrides: Partial<WatchRepositoryPreviewDto> = {}, adding = false) {
+  const onWatch = vi.fn();
+  const onBack = vi.fn();
+  const onOpenWorkspace = vi.fn();
+  const view = WatchRepositoryConfirmation({ preview: { ...preview, ...overrides }, adding, onWatch, onBack, onOpenWorkspace });
+  const actions = view.props.children[3] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
+  return {
+    onWatch,
+    onBack,
+    onOpenWorkspace,
+    html: renderToStaticMarkup(view),
+    back: actions.props.children[0],
+    confirm: actions.props.children[1],
+  };
+}
+
+describe('watch repository fork consent', () => {
+  it('discloses the exact fork and upstream without creating anything on preview or Back', () => {
+    const { html, onWatch, onBack, back, confirm } = confirmation();
+
+    expect(html).toContain('Allow ByteQuay to create octocat/trino as your personal fork of trinodb/trino?');
+    expect(html).toContain('>Create fork and watch</button>');
+    expect(html).toContain('<span>Followed for updates</span><b>trinodb/trino</b>');
+    expect(html).toContain('<span>Work branches push to</span><b>octocat/trino</b>');
+    expect(html).toContain('<span>New branches start from</span><b>upstream/master</b>');
+    expect(html).toContain('<span>Pull requests open against</span><b>trinodb/trino · master</b>');
+    expect(html).not.toContain('You can’t push');
+    expect(onWatch).not.toHaveBeenCalled();
+
+    back.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(onWatch).not.toHaveBeenCalled();
+
+    confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onWatch).toHaveBeenCalledOnce();
+    expect(onWatch).toHaveBeenCalledWith({
+      selectedRepositoryId: 1,
+      previewFingerprint: 'confirmed-routing',
+      allowForkCreation: true,
+    });
+  });
+
+  it.each([
+    { selectedRepositoryId: 1, selectedRepository: upstream },
+    { selectedRepositoryId: 2, selectedRepository: fork },
+  ])('reuses the personal fork when watching $selectedRepository.owner/$selectedRepository.repo', selected => {
+    const { html, onWatch, confirm } = confirmation({ ...selected, pushWritable: true, forkRequired: false });
+
+    expect(html).toContain('reuse your existing personal fork octocat/trino');
+    expect(html).toContain('follow trinodb/trino for commits, issues and pull requests');
+    expect(html).toContain('>Watch repository</button>');
+    expect(html).not.toContain('Create fork and watch');
+    expect(onWatch).not.toHaveBeenCalled();
+
+    confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onWatch).toHaveBeenCalledOnce();
+    expect(onWatch).toHaveBeenCalledWith({
+      selectedRepositoryId: selected.selectedRepositoryId,
+      previewFingerprint: 'confirmed-routing',
+      allowForkCreation: false,
+    });
+  });
+
+  it('keeps repositories created by the user direct and grants no fork permission', () => {
+    const { html, onWatch, confirm } = confirmation({
+      selectedRepository: fork,
+      topology: 'DIRECT',
+      upstreamRepositoryId: null,
+      upstreamRepository: null,
+      monitoredRepository: fork,
+      developmentBase: 'origin/master',
+      pushWritable: true,
+      forkRequired: false,
+      pullRequestBase: fork,
+    });
+
+    expect(html).toContain('Code, issues, pull requests and work branches use your repository octocat/trino.');
+    expect(html).not.toContain('personal fork');
+    confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onWatch).toHaveBeenCalledWith(expect.objectContaining({ allowForkCreation: false }));
+  });
+
+  it('opens the existing workspace shared by upstream and fork without another watch command', () => {
+    const { html, onWatch, onOpenWorkspace, confirm } = confirmation({
+      existingWorkspaceId: 'existing-workspace',
+      pushWritable: true,
+      forkRequired: false,
+    });
+
+    expect(html).toContain('>Open workspace</button>');
+    confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+    expect(onOpenWorkspace).toHaveBeenCalledWith('existing-workspace');
+    expect(onWatch).not.toHaveBeenCalled();
+  });
+
+  it('disables both actions while the confirmed watch is in progress', () => {
+    const { html, back, confirm } = confirmation({}, true);
+
+    expect(back.props.disabled).toBe(true);
+    expect(confirm.props.disabled).toBe(true);
+    expect(html).toContain('>Watching…</button>');
+  });
+});

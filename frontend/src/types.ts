@@ -267,7 +267,9 @@ export type WatchRepositoryPreviewDto = {
   defaultBranch: string;
   developmentBase: string;
   pushRemote: string;
+  pushRepository: RepoRefDto;
   pushWritable: boolean;
+  forkRequired: boolean;
   pullRequestBase: RepoRefDto;
   fingerprint: string;
   existingWorkspaceId: string | null;
@@ -276,6 +278,7 @@ export type WatchRepositoryPreviewDto = {
 export type WatchRepositoryCommand = {
   selectedRepositoryId: number;
   previewFingerprint: string;
+  allowForkCreation: boolean;
   name?: string;
 };
 

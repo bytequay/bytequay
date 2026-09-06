@@ -685,6 +685,12 @@ canonical worktree path, generated branch, and exact starting commit.
 `WorktreeSnapshot` contains that worktree, a required exact HEAD, the dirty
 flag, and the open-Git-operation flag.
 
+Interactive creation uses the monitored repository's fetched default branch,
+including `upstream` for personal-fork workspaces. This changes the starting
+commit, not the immutable physical selected-repository identity. Existing
+tasks keep their recorded worktree ownership when later watches resolve a
+personal fork; see [Watched Repository / Workspace](watched-repo.md).
+
 `inspect` and `cleanup` revalidate the supplied immutable worktree facts.
 Cleanup requires a clean worktree with no Git operation open, uses non-forced
 removal, removes only the worktree, and always retains the generated branch.

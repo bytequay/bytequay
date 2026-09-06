@@ -100,7 +100,8 @@ public class WorkspaceController
         return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
                 request.selectedRepositoryId(),
                 request.previewFingerprint(),
-                Optional.ofNullable(request.name()))));
+                Optional.ofNullable(request.name()),
+                request.allowForkCreation())));
     }
 
     @PostMapping("/watch-preview")
@@ -318,7 +319,7 @@ public class WorkspaceController
                         HttpStatus.NOT_FOUND, "No workspace token is stored.")));
     }
 
-    public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name) {}
+    public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name, boolean allowForkCreation) {}
 
     public record WatchPreviewRequest(long selectedRepositoryId) {}
 

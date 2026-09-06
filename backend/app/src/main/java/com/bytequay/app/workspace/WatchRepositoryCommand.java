@@ -22,7 +22,8 @@ import static java.util.Objects.requireNonNull;
 public record WatchRepositoryCommand(
         long selectedRepositoryId,
         String previewFingerprint,
-        Optional<String> name)
+        Optional<String> name,
+        boolean allowForkCreation)
 {
     public WatchRepositoryCommand
     {

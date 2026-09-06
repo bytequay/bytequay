@@ -58,6 +58,13 @@ public final class WorkspaceException
                 "Repository routing or permissions changed. Review the updated preview.", true);
     }
 
+    public static WorkspaceException forkConfirmationRequired()
+    {
+        return new WorkspaceException(
+                "FORK_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST,
+                "Allow ByteQuay to create your fork before watching this repository.", false);
+    }
+
     public static WorkspaceException repositoryNotReady()
     {
         return new WorkspaceException(

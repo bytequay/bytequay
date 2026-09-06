@@ -112,7 +112,7 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
-    void resolvesSelectedOriginWhenWorkspaceAlsoHasUpstream()
+    void resolvesUpstreamDefaultBranchWhileKeepingTheForkAsPhysicalRepository()
     {
         Path repository = temporaryDirectory.resolve("repository");
         WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext(
@@ -124,10 +124,10 @@ class TestInteractiveAgentTaskCreator
                 RepoRef.of("upstream", "project"),
                 "upstream",
                 "origin",
-                "main",
+                "master",
                 ImmutableList.of());
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace);
-        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/upstream/master^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
 
         create(new AgentTaskDefaults(
@@ -135,8 +135,12 @@ class TestInteractiveAgentTaskCreator
                         Optional.of("high"),
                         AgentPermissionPolicy.AUTO));
 
-        verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
-        verify(git, never()).run(repository, "rev-parse", "--verify", "refs/remotes/upstream/main^{commit}");
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity("selected", "fork"));
+        assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/upstream/master^{commit}");
+        verify(git, never()).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
     }
 
     @Test
@@ -245,9 +249,9 @@ class TestInteractiveAgentTaskCreator
                 repository,
                 1,
                 RepoRef.of("selected", "fork"),
-                OptionalLong.of(2),
-                RepoRef.of("upstream", "project"),
-                "upstream",
+                OptionalLong.empty(),
+                RepoRef.of("selected", "fork"),
+                "origin",
                 "origin",
                 "main",
                 ImmutableList.of());

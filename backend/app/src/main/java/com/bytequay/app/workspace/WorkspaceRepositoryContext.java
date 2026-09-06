@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-/** Backend-resolved repository path and routing used by trusted Git operations. */
+/** Backend-resolved repository path and routing; {@code defaultBranch} belongs to the monitored {@code sourceRemote}. */
 public record WorkspaceRepositoryContext(
         String workspaceId,
         Path repository,

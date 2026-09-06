@@ -467,6 +467,79 @@ public class GitHubAccountClient
         }
     }
 
+    public Optional<UserRepo> findOwnedFork(String pat, UserRepo upstream, String login)
+    {
+        requirePat(pat);
+        requireNonNull(upstream, "upstream is null");
+        requireNonNull(login, "login is null");
+        int perPage = 100;
+        // Forks may be renamed, so inspect every owned fork instead of guessing login/upstream.name.
+        for (int page = 1; ; page++) {
+            int currentPage = page;
+            List<GitHubUserRepoItem> items = translating(() -> gitHubRestClient
+                    .get()
+                    .uri(uri -> uri.path("/user/repos")
+                            .queryParam("affiliation", "owner")
+                            .queryParam("sort", "full_name")
+                            .queryParam("direction", "asc")
+                            .queryParam("per_page", perPage)
+                            .queryParam("page", currentPage)
+                            .build())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {}));
+            if (items == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response while finding your GitHub fork");
+            }
+            for (GitHubUserRepoItem item : items) {
+                if (!item.fork()) {
+                    continue;
+                }
+                UserRepo candidate = fetchRepository(pat, item.id())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(409), "Could not inspect your GitHub fork. Retry watching the repository."));
+                if (candidate.fork() && candidate.upstream().filter(source -> source.id() > 0).isEmpty()) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub did not identify the source of your fork " + candidate.fullName());
+                }
+                if (candidate.owner().equalsIgnoreCase(login) && isForkOf(candidate, upstream)) {
+                    return Optional.of(candidate);
+                }
+            }
+            if (items.size() < perPage) {
+                return Optional.empty();
+            }
+        }
+    }
+
+    public UserRepo createFork(String pat, UserRepo upstream)
+    {
+        requirePat(pat);
+        requireNonNull(upstream, "upstream is null");
+        GitHubUserRepoItem item = translating(() -> gitHubRestClient
+                .post()
+                .uri("/repos/{owner}/{repo}/forks", upstream.owner(), upstream.name())
+                .header("Authorization", authorization(pat))
+                .body(ImmutableMap.of("default_branch_only", false))
+                .retrieve()
+                .body(GitHubUserRepoItem.class));
+        if (item == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub returned no repository after accepting the fork request. Retry watching to find it.");
+        }
+        UserRepo fork = toUserRepo(item);
+        if (!isForkOf(fork, upstream)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub did not return a fork of the selected upstream repository");
+        }
+        // GitHub returns 202 before the fork's Git objects are necessarily available to clone.
+        return fork;
+    }
+
+    private static boolean isForkOf(UserRepo repository, UserRepo upstream)
+    {
+        return repository.fork()
+                && repository.id() > 0
+                && repository.id() != upstream.id()
+                && repository.upstream().map(source -> source.id() == upstream.id()).orElse(false);
+    }
+
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item) {
         String owner =
                 Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");

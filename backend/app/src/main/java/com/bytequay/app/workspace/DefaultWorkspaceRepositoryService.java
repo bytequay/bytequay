@@ -50,7 +50,6 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
@@ -155,30 +154,41 @@ public class DefaultWorkspaceRepositoryService
     public WatchRepositoryPreview previewWatch(long selectedRepositoryId)
     {
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
-        UserRepo selected = gitHub.fetchRepository(credentials.resolveGitHubToken(), selectedRepositoryId)
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(selectedRepositoryId));
-        validate(selected);
-        return toPreview(selected);
+        var credential = credentials.resolveGitHubCredential();
+        return toPreview(resolveWatch(selectedRepositoryId, credential.token(), credential.profile().login()));
     }
 
     @Override
-    public Workspace watch(WatchRepositoryCommand command)
+    // ponytail: watch confirmations serialize fork creation; use per-account locks if concurrent watching becomes common.
+    public synchronized Workspace watch(WatchRepositoryCommand command)
     {
         requireNonNull(command, "command is null");
-        UserRepo selected = gitHub.fetchRepository(
-                        credentials.resolveGitHubToken(), command.selectedRepositoryId())
-                .orElseThrow(() -> WorkspaceException.repositoryNotFound(command.selectedRepositoryId()));
-        validate(selected);
-        Optional<Workspace> existing = store.findBySelectedRepositoryId(selected.id());
-        if (existing.isPresent()) {
+        var credential = credentials.resolveGitHubCredential();
+        WatchRouting routing = resolveWatch(command.selectedRepositoryId(), credential.token(), credential.profile().login());
+        Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()));
+        if (existing.filter(value -> matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
             scheduleIncompleteWork(workspace);
             return workspace;
         }
-        if (!sameFingerprint(toPreview(selected).fingerprint(), command.previewFingerprint())) {
+        if (!sameFingerprint(toPreview(routing).fingerprint(), command.previewFingerprint())) {
             throw WorkspaceException.previewChanged();
         }
-        return createWorkspace(selected, command.name(), OptionalInt.empty());
+        if (routing.pushRepository().isEmpty() && !command.allowForkCreation()) {
+            throw WorkspaceException.forkConfirmationRequired();
+        }
+        UserRepo pushRepository = routing.pushRepository()
+                .orElseGet(() -> gitHub.createFork(credential.token(), routing.monitoredRepository()));
+        validate(pushRepository);
+        if (routing.fork() && (!pushRepository.owner().equalsIgnoreCase(routing.login())
+                || !pushRepository.fork()
+                || pushRepository.upstream().filter(value -> value.id() == routing.monitoredRepository().id()).isEmpty())) {
+            throw WorkspaceException.invalidRepository("GitHub did not return your fork of the monitored repository. Review the watch preview and retry.");
+        }
+        if (existing.isPresent()) {
+            return setUpstream(existing.orElseThrow().id(), routing.upstream().map(UserRepo::id));
+        }
+        return createWorkspace(pushRepository, routing.upstream(), command.name());
     }
 
     @Override
@@ -238,7 +248,7 @@ public class DefaultWorkspaceRepositoryService
                 workspace.monitoredRepository(),
                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                 "origin",
-                workspace.defaultBranch(),
+                workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()),
                 enrichment.enrichRemoteSources(workspace.id()));
     }
 
@@ -369,8 +379,8 @@ public class DefaultWorkspaceRepositoryService
 
     private Workspace createWorkspace(
             UserRepo selected,
-            Optional<String> name,
-            OptionalInt retainedDisplayOrder)
+            Optional<UserRepo> upstream,
+            Optional<String> name)
     {
         validate(selected);
 
@@ -379,28 +389,25 @@ public class DefaultWorkspaceRepositoryService
             return existing.orElseThrow();
         }
 
-        int displayOrder = retainedDisplayOrder.orElseGet(() -> store.findAll().stream()
-                .mapToInt(Workspace::displayOrder)
-                .max()
-                .orElse(-1) + 1);
+        int displayOrder = store.findAll().stream().mapToInt(Workspace::displayOrder).max().orElse(-1) + 1;
         String id = UUID.randomUUID().toString();
         Instant now = clock.instant();
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
         Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
         Workspace proposed = new Workspace(
                 id,
-                name.orElse(selected.fullName()),
+                name.orElseGet(() -> upstream.map(UserRepo::fullName).orElse(selected.fullName())),
                 selected.id(),
                 selectedRef,
-                Optional.empty(),
-                Optional.empty(),
-                selected.id(),
-                selectedRef,
+                upstream.map(UserRepo::id),
+                upstream.map(DefaultWorkspaceRepositoryService::repositoryRef),
+                upstream.map(UserRepo::id).orElse(selected.id()),
+                upstream.map(DefaultWorkspaceRepositoryService::repositoryRef).orElse(selectedRef),
                 topology,
                 selected.defaultBranch(),
                 selected.cloneUrl(),
-                Optional.empty(),
-                Optional.empty(),
+                upstream.map(UserRepo::defaultBranch),
+                upstream.map(UserRepo::cloneUrl),
                 paths.workspace(id).resolve("repository").toString(),
                 Optional.empty(),
                 Optional.empty(),
@@ -459,30 +466,90 @@ public class DefaultWorkspaceRepositoryService
                 existingWorkspaceId);
     }
 
-    private WatchRepositoryPreview toPreview(UserRepo selected)
+    private WatchRouting resolveWatch(long selectedRepositoryId, String token, String login)
     {
-        RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Optional<UserRepo.Upstream> upstream = selected.upstream()
-                .filter(DefaultWorkspaceRepositoryService::validUpstream);
-        Optional<Long> upstreamId = upstream.map(UserRepo.Upstream::id);
-        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
-        Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
+        UserRepo selected = requireRepository(token, selectedRepositoryId);
+        if (!selected.fork() && selected.owner().equalsIgnoreCase(login)) {
+            return new WatchRouting(selected, selected, Optional.of(selected), login);
+        }
+        UserRepo monitored = selected.fork()
+                ? requireRepository(token, selected.upstream().filter(DefaultWorkspaceRepositoryService::validUpstream)
+                        .orElseThrow(() -> WorkspaceException.invalidRepository("GitHub did not return the fork's upstream repository. Retry the preview.")).id())
+                : selected;
+        if (monitored.fork()) {
+            throw WorkspaceException.invalidRepository("GitHub did not return the original upstream repository. Retry the preview.");
+        }
+        if (monitored.owner().equalsIgnoreCase(login)) {
+            return new WatchRouting(selected, monitored, Optional.of(monitored), login);
+        }
+        Optional<UserRepo> pushRepository = selected.fork() && selected.owner().equalsIgnoreCase(login)
+                ? Optional.of(selected)
+                : gitHub.findOwnedFork(token, monitored, login);
+        pushRepository.ifPresent(DefaultWorkspaceRepositoryService::validate);
+        return new WatchRouting(selected, monitored, pushRepository, login);
+    }
+
+    private UserRepo requireRepository(String token, long repositoryId)
+    {
+        UserRepo repository = gitHub.fetchRepository(token, repositoryId)
+                .orElseThrow(() -> WorkspaceException.repositoryNotFound(repositoryId));
+        validate(repository);
+        if (repository.id() != repositoryId) {
+            throw WorkspaceException.previewChanged();
+        }
+        return repository;
+    }
+
+    private WatchRepositoryPreview toPreview(WatchRouting routing)
+    {
+        UserRepo selected = routing.selectedRepository();
+        UserRepo monitored = routing.monitoredRepository();
+        RepoRef monitoredRef = repositoryRef(monitored);
+        RepoRef pushRef = routing.pushRepository().map(DefaultWorkspaceRepositoryService::repositoryRef)
+                .orElseGet(() -> RepoRef.of(routing.login(), monitored.name()));
         return new WatchRepositoryPreview(
                 selected.id(),
-                selectedRef,
+                repositoryRef(selected),
                 selected.visibility(),
-                topology,
-                upstreamId,
-                upstreamRef,
-                selected.id(),
-                selectedRef,
-                selected.defaultBranch(),
-                "origin/" + selected.defaultBranch(),
+                routing.fork() ? Topology.FORK : Topology.DIRECT,
+                routing.upstream().map(UserRepo::id),
+                routing.upstream().map(DefaultWorkspaceRepositoryService::repositoryRef),
+                monitored.id(),
+                monitoredRef,
+                monitored.defaultBranch(),
+                (routing.fork() ? "upstream/" : "origin/") + monitored.defaultBranch(),
                 "origin",
-                selected.viewerCanPush(),
-                selectedRef,
-                fingerprint(selected),
-                store.findBySelectedRepositoryId(selected.id()).map(Workspace::id));
+                routing.pushRepository().map(UserRepo::viewerCanPush).orElse(false),
+                pushRef,
+                routing.pushRepository().isEmpty(),
+                monitoredRef,
+                fingerprint(routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
+                        + routing.pushRepository().map(DefaultWorkspaceRepositoryService::fingerprint).orElse("create-fork")),
+                routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()))
+                        .filter(value -> matchesWatch(value, routing)).map(Workspace::id));
+    }
+
+    private static boolean matchesWatch(Workspace workspace, WatchRouting routing)
+    {
+        return workspace.upstreamRepositoryId().equals(routing.upstream().map(UserRepo::id));
+    }
+
+    private static RepoRef repositoryRef(UserRepo repository)
+    {
+        return RepoRef.of(repository.owner(), repository.name());
+    }
+
+    private record WatchRouting(UserRepo selectedRepository, UserRepo monitoredRepository, Optional<UserRepo> pushRepository, String login)
+    {
+        boolean fork()
+        {
+            return !monitoredRepository.owner().equalsIgnoreCase(login);
+        }
+
+        Optional<UserRepo> upstream()
+        {
+            return fork() ? Optional.of(monitoredRepository) : Optional.empty();
+        }
     }
 
     private static boolean validSearchResult(UserRepo repository)
@@ -507,6 +574,11 @@ public class DefaultWorkspaceRepositoryService
                 Boolean.toString(repository.fork()), repository.visibility(),
                 Boolean.toString(repository.viewerCanPush()), repository.defaultBranch(),
                 repository.cloneUrl(), upstream);
+        return fingerprint(material);
+    }
+
+    private static String fingerprint(String material)
+    {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(material.getBytes(StandardCharsets.UTF_8)));

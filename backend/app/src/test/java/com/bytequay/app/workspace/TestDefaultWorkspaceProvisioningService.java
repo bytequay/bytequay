@@ -102,6 +102,29 @@ class TestDefaultWorkspaceProvisioningService
     }
 
     @Test
+    void defaultsPushToForkEvenWhenTheBranchTracksUpstream()
+            throws IOException
+    {
+        Remote origin = remote("origin");
+        Remote upstream = remote("upstream");
+        GitCommandRunner routed = routedGit(
+                ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()),
+                temporary.resolve("git-commands.log"));
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        Workspace workspace = store.createOrGet(workspace("fork", true));
+        assertThat(service(store, routed).provision(workspace.id()).successful()).isTrue();
+        Path repository = directPath(workspace);
+        git(repository, "checkout", "-b", "contribution", "--track", "upstream/main");
+
+        GitCommandRunner.Result pushed = routed.run(repository, "-c", "push.default=current", "push");
+
+        assertThat(pushed.successful()).describedAs(pushed.output()).isTrue();
+        assertThat(git(origin.bare(), "rev-parse", "refs/heads/contribution"))
+                .isEqualTo(git(upstream.bare(), "rev-parse", "refs/heads/main"));
+        assertThat(new GitCommandRunner().run(upstream.bare(), "show-ref", "--verify", "refs/heads/contribution").successful()).isFalse();
+    }
+
+    @Test
     void concurrentProvisioningClonesOnceAndRetryReusesCheckout()
             throws Exception
     {

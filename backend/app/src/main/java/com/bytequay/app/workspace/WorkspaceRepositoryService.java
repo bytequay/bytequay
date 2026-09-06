@@ -31,7 +31,7 @@ public interface WorkspaceRepositoryService
     List<RepositorySearchResult> searchRepositories(String query, int limit);
 
     /**
-     * Resolves the selected repository routing and provider topology hint that the user confirms before watching.
+     * Resolves upstream monitoring and personal-fork publishing that the user confirms before watching.
      *
      * @param selectedRepositoryId stable GitHub repository identifier
      * @return current routing, permission state, and confirmation fingerprint
@@ -42,8 +42,8 @@ public interface WorkspaceRepositoryService
     /**
      * Creates a durable workspace after re-reading the selected repository by stable GitHub ID.
      *
-     * <p>The selected repository's stable GitHub ID is idempotent: a repeated or concurrent watch
-     * returns the existing workspace. A changed routing fingerprint is rejected so stale preview
+     * <p>The resolved push repository's stable GitHub ID is idempotent: watching upstream or the
+     * personal fork returns the same workspace. Missing forks require explicit creation consent. A changed routing fingerprint is rejected so stale preview
      * data cannot be persisted.</p>
      *
      * @param command confirmed repository ID, preview fingerprint, and optional display name

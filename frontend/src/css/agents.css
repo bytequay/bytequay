@@ -480,7 +480,6 @@
 
 .agt-compose:focus-within {
   border-color: #526f96;
-  box-shadow: 0 0 0 1px #526f96;
 }
 
 .agt-compose.is-new-task .agt-compose__row {

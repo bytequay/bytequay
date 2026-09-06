@@ -16,7 +16,7 @@ import { CircleDot, GitBranch, History, House, LayoutGrid, ListChecks, PanelLeft
 import Avatar from './Avatar';
 import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
-import { workspaceHasReadableCode, workspacePhaseColor, workspacePhaseLabel, type WorkspaceTab } from './workspaces/model';
+import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 
 export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'settings';
 
@@ -181,13 +181,6 @@ export default function AppSidebar({
             onClick={() => onWorkspaceTab('home')}
           >
             <Avatar login={workspace.selectedOwner} size={18} />
-            <span
-              className="app-sidebar__ws-dot"
-              style={{ background: workspacePhaseColor(workspace) }}
-              role="img"
-              aria-label={`Workspace ${workspacePhaseLabel(workspace).toLowerCase()}`}
-              title={`Workspace ${workspacePhaseLabel(workspace).toLowerCase()}`}
-            />
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
@@ -246,5 +239,5 @@ function SettingsIcon() {
 }
 
 function PanelIcon() {
-  return <PanelLeft size={18} strokeWidth={1.5} aria-hidden="true" />;
+  return <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />;
 }

@@ -23,6 +23,7 @@ import {
   type AgentTaskState,
 } from './model';
 import { projectTranscript } from './transcript';
+import type { AgentHistoryPageDto, AgentStreamMessage } from '../types';
 
 /** Drives one preview screen without a DOM: the same session helper the screen's effect runs. */
 async function open(bridge: ReturnType<typeof createPreviewBridge>, taskId: string) {
@@ -77,6 +78,60 @@ describe('a task window', () => {
 });
 
 describe('preview journey', () => {
+  it.each([false, true])('loads the final answer without another notification (page read in flight: %s)', async (inFlight) => {
+    vi.useFakeTimers();
+    let stop = (): void => {};
+    try {
+      const preview = createPreviewBridge('workspace-1');
+      const answer = preview.events.find((event) => event.type === 'assistant_message' && event.payload.phase === 'FINAL');
+      if (answer?.type !== 'assistant_message') throw new Error('missing final answer fixture');
+      const page = (through: number): AgentHistoryPageDto => ({
+        events: preview.events.filter((event) => event.sequence <= through),
+        beforeCursor: null,
+        afterCursor: null,
+        latestSequence: through,
+      });
+      const completed = page(preview.events.at(-1)?.sequence ?? 0);
+      const pendingPage = Promise.withResolvers<AgentHistoryPageDto>();
+      const readAgentHistory = vi.fn().mockResolvedValueOnce(page(2));
+      if (inFlight) readAgentHistory.mockReturnValueOnce(pendingPage.promise);
+      readAgentHistory.mockResolvedValue(completed);
+      let notify: (message: AgentStreamMessage) => void = () => { throw new Error('subscription not open'); };
+      const bridge = {
+        ...preview,
+        readAgentHistory,
+        subscribeAgentTask: async (_taskId: string, _after: number, listener: typeof notify) => {
+          notify = listener;
+          return (): void => {};
+        },
+      };
+      let state = initialAgentTaskState();
+      stop = await startAgentTaskSession(bridge, answer.taskId, 'workspace-1', (action) => {
+        state = agentTaskReducer(state, action);
+      });
+      const changed = (sequence: number): void => notify({
+        kind: 'changed', subscriptionId: 'session', taskId: answer.taskId, sequence, turnId: answer.turnId,
+      });
+      if (inFlight) {
+        changed(answer.sequence - 1);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(readAgentHistory).toHaveBeenCalledTimes(2);
+      }
+      changed(completed.latestSequence);
+      if (inFlight) pendingPage.resolve(page(answer.sequence - 1));
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(state.events.at(-1)?.sequence).toBe(completed.latestSequence);
+      expect(projectTranscript(state.events)[0].answer?.text).toBe(answer.payload.text);
+      expect(state.events.filter((event) => event.eventId === answer.eventId)).toHaveLength(1);
+      expect(readAgentHistory).toHaveBeenCalledTimes(inFlight ? 3 : 2);
+    }
+    finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('replays history then subscribes past the highest replayed sequence', async () => {
     const bridge = createPreviewBridge('workspace-1', { replayThrough: 3 });
     const session = await open(bridge, bridge.events[0].taskId);

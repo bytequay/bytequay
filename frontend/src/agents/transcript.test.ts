@@ -30,6 +30,7 @@ import {
   turnLabel,
   withApprovalAuthority,
   type ActivityBlock,
+  type CommandAction,
 } from './transcript';
 
 const fixtureEvents = parseAgentEventSequence(fixture.events);
@@ -192,6 +193,46 @@ describe('projecting the transcript', () => {
     expect(first.members[1]).toMatchObject({ kind: 'file', added: 2, removed: 1 });
     expect(activityRunning(first)).toBe(false);
     expect(activityRunning(turns[0].blocks[2] as ActivityBlock)).toBe(true);
+  });
+
+  it('shows repeated action metadata once per command throughout streaming and replay', () => {
+    const read: CommandAction = { kind: 'READ', name: 'DEVELOPMENT.md', path: 'DEVELOPMENT.md', query: null };
+    const search: CommandAction = { kind: 'SEARCH', name: null, path: 'src', query: 'TODO' };
+    const argv = ['sed -n 1,100p DEVELOPMENT.md; sed -n 101,200p DEVELOPMENT.md; sed -n 201,300p DEVELOPMENT.md'];
+    const events = [
+      command('STARTED', { argv, actions: [read, read, read] }, { itemId: 'exec-1' }),
+      command('PROGRESS', { output: 'first lines' }, { itemId: 'exec-1', complete: false }),
+      command('COMPLETED', { argv, actions: [read, read, read], output: 'all three ranges', exitCode: 0 }, { itemId: 'exec-1' }),
+      command('COMPLETED', { argv: ['rg TODO src; rg TODO src'], actions: [search, search], exitCode: 0 }, { itemId: 'exec-2' }),
+    ];
+
+    for (const length of [1, 2, 3, 4]) {
+      const block = projectTranscript(events.slice(0, length))[0].blocks[0] as ActivityBlock;
+      expect(block.members[0]).toMatchObject({ command: argv[0], actions: [read] });
+    }
+    const block = projectTranscript(events)[0].blocks[0] as ActivityBlock;
+    expect(block.members[0]).toMatchObject({ output: 'all three ranges', exitCode: 0 });
+    expect(block.members[1]).toMatchObject({ actions: [search] });
+    expect(activitySummary(block.members)).toBe('Read 1 file and ran 1 search');
+    expect(events[0].payload).toMatchObject({ actions: [read, read, read] });
+  });
+
+  it('preserves different action paths and queries and separate calls with the same actions', () => {
+    const actions: CommandAction[] = [
+      { kind: 'READ', name: 'README.md', path: 'first/README.md', query: null },
+      { kind: 'READ', name: 'README.md', path: 'second/README.md', query: null },
+      { kind: 'SEARCH', name: null, path: 'src', query: 'TODO' },
+      { kind: 'SEARCH', name: null, path: 'test', query: 'TODO' },
+      { kind: 'SEARCH', name: null, path: 'src', query: 'FIXME' },
+    ];
+    const block = projectTranscript([
+      command('COMPLETED', { actions }, { itemId: 'exec-1' }),
+      command('COMPLETED', { actions }, { itemId: 'exec-2' }),
+    ])[0].blocks[0] as ActivityBlock;
+
+    expect(block.members).toHaveLength(2);
+    for (const member of block.members) expect(member).toMatchObject({ actions });
+    expect(activitySummary(block.members)).toBe('Read 2 files and ran 6 searches');
   });
 
   it('derives the folded sentence from typed facts, so it reads the same from the fixture every time', () => {

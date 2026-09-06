@@ -125,7 +125,7 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
   };
 }
 
-/** Every turn's id, opened, so a test can look at a finished turn's log; the screen folds one by default. */
+/** Explicit open choices for tests inspecting a finished turn's log. */
 function allTurnsOpen(state: Partial<AgentTaskState>): Record<string, boolean> {
   return Object.fromEntries(projectTranscript(state.events ?? []).map((turn) => [turn.turnId ?? `turn-${turn.ordinal}`, true]));
 }
@@ -932,18 +932,55 @@ describe('agent task detail', () => {
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
   });
 
-  it('folds a finished turn without repeating its activity summary, and keeps the totals under the composer', () => {
+  it('keeps a finished turn readable and the totals under the composer', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
 
-    // The turn header already opens the folded log, so a second activity/duration row would repeat it.
     expect(markup).not.toContain('agt-turn__sum');
-    expect(markup).not.toContain('Ran 1 command, edited 1 file, and used 1 tool');
-    expect(markup).toMatch(/class="agt-turn__head" aria-expanded="false"/);
+    expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
+    expect(markup).toMatch(/class="agt-turn__head" aria-expanded="true"/);
     expect(markup).toContain('Turn 1 · Worked for 11s');
     expect(markup).toContain('class="agt-answer"');
     expect(markup).not.toContain('agt-usage__tokens');
     expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ steps?<\/span><span class="agt-compose__sep"/);
     expect(markup).toMatch(/Input \d[\d.]*[kM]? tok · Cached \d[\d.]*[kM]? tok · Output \d[\d.]*[kM]? tok/);
+  });
+
+  it('keeps commentary visible when a finished turn has no final answer and respects explicit folding', () => {
+    const withoutAnswer = events.map((event): AgentEventEnvelope => event.type === 'assistant_message'
+      ? { ...event, payload: { ...event.payload, messageKind: 'COMMENTARY' } } : event);
+    const state = { task: task('t-1', 'OPEN', 'x'), events: withoutAnswer, connection: 'open' as const };
+    expect(body(state, {}, {})).toMatch(/class="agt-turn__head" aria-expanded="true"/);
+    expect(body(state, {}, {})).toContain('class="agt-text"');
+    const closed = Object.fromEntries(projectTranscript(events).map((turn) => [turn.turnId ?? `turn-${turn.ordinal}`, false]));
+    expect(body(state, {}, closed)).not.toContain('class="agt-text"');
+    expect(body({ ...state, events }, {}, closed)).toContain('I found one authentication regression.');
+  });
+
+  it('shows a live thinking line, the current command, and returns to thinking when it finishes', () => {
+    const start = events.slice(0, 2);
+    const state = { task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING', { id: start[0].turnId ?? 'turn-1' }), connection: 'open' as const };
+    const liveLine = (shown: AgentEventEnvelope[]) => body({ ...state, events: shown }).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
+    expect(liveLine(start)).toContain('>Thinking</span>');
+    expect(liveLine(start)).toContain('agt-live__label is-active');
+    const command = events.find((event) => event.type === 'command');
+    if (command?.type !== 'command') throw new Error('Missing command fixture');
+    const running: AgentEventEnvelope = { ...command, payload: { ...command.payload, state: 'STARTED', exitCode: null, output: null } };
+    expect(liveLine([...start, running])).toContain('>Running npm test</span>');
+    expect(liveLine([...start, command])).toContain('>Thinking</span>');
+    const read: AgentEventEnvelope = { ...running, payload: { ...running.payload, actions: [{ kind: 'READ', name: 'DEVELOPMENT.md', path: 'DEVELOPMENT.md', query: null }] } };
+    expect(liveLine([...start, read])).toContain('>Reading DEVELOPMENT.md</span>');
+    expect(body({ ...state, events: start, turn: turn('ACCEPTED') })).toContain('>Starting…</span>');
+    expect(body({ ...state, events: start, turn: turn('RUNNING', { cancellationRequestedAt: '2026-08-20T10:00:02Z' }) })).toContain('>Stopping…</span>');
+    expect(body({ ...state, events: start, connection: 'reconnecting' })).toContain('>Reconnecting…</span>');
+    expect(body({ ...state, events: start, connection: 'reconnecting' })).not.toContain('agt-live__label is-active');
+    expect(body({ ...state, events, turn: turn('COMPLETED', { endedAt: '2026-08-20T10:00:12Z' }) })).not.toContain('class="agt-live"');
+    expect(body({ ...state, events: start, historyPages: [{ events: start, beforeCursor: null, afterCursor: 'newer', latestSequence: 20 }] })).not.toContain('class="agt-live"');
+  });
+
+  it('waits for approval without animating a thinking label', () => {
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), events, connection: 'open' });
+    expect(markup).toContain('>Waiting for approval</span>');
+    expect(markup).not.toContain('agt-live__label is-active');
   });
 
   it('folds command output behind a keyboard-operable disclosure', () => {

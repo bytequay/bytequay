@@ -221,6 +221,28 @@ function memberState(member: ActivityMember): 'running' | 'ok' | 'failed' {
   return member.kind === 'command' && member.exitCode !== null && member.exitCode !== 0 ? 'failed' : 'ok';
 }
 
+function currentActivityLabel(turn: TranscriptTurn | undefined): string {
+  const running = turn?.blocks.flatMap((block) => block.kind === 'activity' ? block.members : [])
+    .filter((member) => memberState(member) === 'running') ?? [];
+  const member = running.at(-1);
+  if (member?.kind === 'command') {
+    const action = member.actions.find((action) => action.kind !== 'OTHER');
+    if (action?.kind === 'READ') return `Reading ${action.name ?? action.path ?? 'file'}`;
+    if (action?.kind === 'SEARCH') return `Searching ${action.query ?? action.name ?? 'files'}`;
+    if (action?.kind === 'LIST_FILES') return `Listing ${action.name ?? action.path ?? 'files'}`;
+    return member.command === '' ? 'Running command' : `Running ${member.command}`;
+  }
+  if (member?.kind === 'tool') return member.name;
+  if (turn?.answer && !turn.answer.complete) return 'Writing response';
+  return 'Thinking';
+}
+
+function LiveActivity({ label, animated = true }: { label: string; animated?: boolean }): React.JSX.Element {
+  return <div className="agt-live" role="status" aria-live="polite">
+    <span className={`agt-live__label${animated ? ' is-active' : ''}`} title={label}>{label}</span>
+  </div>;
+}
+
 const ACTION_VERBS = { READ: 'Read', LIST_FILES: 'Listed', SEARCH: 'Searched', OTHER: '' } as const;
 
 const ACTION_ICONS: Record<CommandAction['kind'], LucideIcon> = {
@@ -356,7 +378,7 @@ function ActivityView({ block, expanded, onToggle }: {
         <div className="agt-act__head">
           <Spinner />
           <span className="agt-act__title">Working</span>
-          <span className="agt-muted">— {activityPhrase(block.members)}</span>
+          <span className="agt-muted">— {activityPhrase(block.members.filter((member) => memberState(member) === 'running'))}</span>
         </div>
         <MemberRows members={block.members} live />
       </div>
@@ -1425,7 +1447,6 @@ export function AgentTaskBody({
   // a task with no events yet is a fresh one, so it starts stuck.
   const follow = useRef(true);
   const [following, setFollowing] = useState(true);
-  const inspectedOpenTurns = useRef(new Set<string>());
   const scrollIntent = useRef(0);
   const previousScrollTop = useRef(0);
   const anchor = useRef<HistoryScrollAnchor | null>(null);
@@ -1453,7 +1474,12 @@ export function AgentTaskBody({
       if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
     }
     else if (follow.current) container.scrollTop = container.scrollHeight;
-  }, [state.events, after]);
+    else if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
+  }, [state.events, after, state.turn?.endedAt]);
+  useLayoutEffect(() => {
+    const container = transcriptRef.current;
+    if (following && container !== null) container.scrollTop = container.scrollHeight;
+  }, [following]);
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
     const projected = projectTranscript(state.events, threadId, state.turns, before === null);
@@ -1466,14 +1492,7 @@ export function AgentTaskBody({
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
-  const retainedTurnIds = new Set(turns.map((turn) => turn.turnId ?? `turn-${turn.ordinal}`));
-  for (const id of inspectedOpenTurns.current) if (!retainedTurnIds.has(id)) inspectedOpenTurns.current.delete(id);
   const changeFollowing = (next: boolean): void => {
-    if (next) inspectedOpenTurns.current.clear();
-    else for (const turn of turns) {
-      const id = turn.turnId ?? `turn-${turn.ordinal}`;
-      if (turn.endedAt === null && (turnChoice[id] ?? true)) inspectedOpenTurns.current.add(id);
-    }
     follow.current = next;
     setFollowing(next);
     onFollowHistory(next);
@@ -1536,6 +1555,12 @@ export function AgentTaskBody({
   const providerRecoveryRequired = status === 'idle' && (authenticationFailure || providerBlocked);
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
+  const liveTurn = turns.find((turn) => turn.turnId === (state.turn?.id ?? state.latestTurnId));
+  const liveLabel = state.connection !== 'open' || state.gap ? 'Reconnecting…'
+    : waiting ? 'Waiting for approval'
+      : state.turn?.cancellationRequestedAt != null ? 'Stopping…'
+        : state.turn?.state === 'ACCEPTED' ? 'Starting…'
+          : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
@@ -1654,8 +1679,7 @@ export function AgentTaskBody({
           ? <div className="agt-empty">No activity yet.</div>
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
-            // A turn shows its log while it runs and folds it when it ends; the user's choice outlasts both.
-            const open = turnChoice[id] ?? (turn.endedAt === null || (!following && inspectedOpenTurns.current.has(id)));
+            const open = turnChoice[id] ?? true;
             return (
               <TurnView
                 key={id}
@@ -1675,6 +1699,7 @@ export function AgentTaskBody({
               />
             );
           })}
+        {status === 'running' && after === null && following && <LiveActivity label={liveLabel} animated={!waiting && state.connection === 'open' && !state.gap} />}
         {after !== null && historyLoading && <div className="agt-history-edge">Loading activity…</div>}
         {working.length > 0 && (
           <div className="agt-barrier">

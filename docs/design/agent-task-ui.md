@@ -36,9 +36,10 @@ previews and fold/turn caches follow the retained window and have explicit
 memory bounds. Cards replace their recent page instead of accumulating events.
 Retained image previews are limited to sixteen thumbnails of at most 512 pixels
 per side. Opening the image viewer fetches its original separately and releases
-that object URL when closed. While the user reads above the bottom, completion
-keeps an already-open running log open; normal default folding resumes on return
-to the latest view. Explicit fold choices always win.
+that object URL when closed. Turn logs stay open on completion so commentary and
+activity summaries remain readable even without a final answer. Explicit fold
+choices always win. Reaching the bottom resumes latest-history loading, including
+when completion leaves the displayed content short enough to fit the viewport.
 
 Backend replay also reads bounded pages on demand and does not prebuild the
 whole subscriber backlog. Large-log verification must cover page byte limits,
@@ -285,6 +286,14 @@ relative path, then **Read file**. Skill/tool loading without a result remains
 a plain row. Resolved approvals keep their outcome and command without an
 inline timestamp. This transcript refinement supersedes the older timing and
 disclosure presentation in the HTML references.
+
+Repeated identical action descriptions within one command appear once; distinct
+commands, paths, and search queries retain their own entries, and the disclosure
+keeps the full command and result. While following a running task, a live line
+below its transcript names the current command or tool, or shows **Thinking**
+between actions. A moving text highlight indicates ongoing work and respects
+reduced-motion preferences. Startup, approval, cancellation, and reconnect states
+use their own labels; completion removes the live line without folding the turn.
 
 ### 2.4 Approvals
 

@@ -1368,6 +1368,35 @@
   white-space: nowrap;
 }
 
+.agt-live {
+  margin-top: 20px;
+  color: #656d76;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.agt-live__label {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.agt-live__label.is-active {
+  background: linear-gradient(100deg, #656d76 35%, #c9cdd2 50%, #656d76 65%);
+  background-size: 250% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: agt-thinking 2s linear infinite;
+}
+
+@keyframes agt-thinking {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
 .agt-text,
 .agt-answer {
   font-size: 13.5px;
@@ -3159,6 +3188,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agt-live__label.is-active {
+    animation: none;
+    background: none;
+    color: #656d76;
+  }
+
   .agt-compose__streamer::after,
   .agt-spin,
   .agt-state__dot,

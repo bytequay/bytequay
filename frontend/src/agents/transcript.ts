@@ -271,6 +271,14 @@ export function activityRunning(block: ActivityBlock): boolean {
   return block.members.some((member) => !isTerminal(member));
 }
 
+function uniqueCommandActions(actions: CommandAction[]): CommandAction[] {
+  // Several shell fragments may read the same file; the full command remains in its disclosure.
+  return [...new Map(actions.map((action) => [
+    JSON.stringify([action.kind, action.name ?? null, action.path, action.query]),
+    { ...action },
+  ])).values()];
+}
+
 class TurnBuilder {
   readonly turn: TranscriptTurn;
   private readonly members = new Map<string, { block: ActivityBlock; member: ActivityMember }>();
@@ -332,7 +340,7 @@ class TurnBuilder {
             truncated: payload.truncated || (payload.state === 'PROGRESS' && (previous?.truncated ?? false)),
             cwd: payload.cwd ?? previous?.cwd ?? null,
             durationMs: payload.durationMs ?? previous?.durationMs ?? null,
-            actions: payload.actions.length > 0 ? payload.actions.map((action) => ({ ...action })) : previous?.actions ?? [],
+            actions: payload.actions.length > 0 ? uniqueCommandActions(payload.actions) : previous?.actions ?? [],
           };
         });
         break;

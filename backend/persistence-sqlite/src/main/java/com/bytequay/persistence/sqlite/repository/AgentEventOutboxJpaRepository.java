@@ -16,6 +16,9 @@ package com.bytequay.persistence.sqlite.repository;
 import com.bytequay.persistence.sqlite.entity.AgentEventOutboxEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,4 +33,8 @@ public interface AgentEventOutboxJpaRepository
     List<AgentEventOutboxEntity> findByTaskIdAndEventSequenceIsNullOrderByIdAsc(String taskId, Pageable pageable);
 
     boolean existsByTaskIdAndEventSequenceIsNull(String taskId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AgentEventOutboxEntity entry WHERE entry.taskId = :taskId")
+    void deleteByTaskId(@Param("taskId") String taskId);
 }

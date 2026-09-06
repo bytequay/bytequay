@@ -79,7 +79,8 @@ final class InteractiveAgentHttpContract
                 task.deleteAfter(),
                 task.cleanupFailure(),
                 task.worktreeRemovedAt(),
-                task.codegraphArm());
+                task.codegraphArm(),
+                task.archivedAt());
     }
 
     /**
@@ -243,14 +244,18 @@ final class InteractiveAgentHttpContract
         }
     }
 
-    record RenameTaskRequest(
+    /** One change to a task: a person's title, or whether it sits on the archive shelf. Exactly one is given. */
+    record PatchTaskRequest(
             long expectedVersion,
-            String title)
+            Optional<String> title,
+            Optional<Boolean> archived)
     {
-        RenameTaskRequest
+        PatchTaskRequest
         {
             checkArgument(expectedVersion >= 0, "expectedVersion is negative");
-            checkNotBlank(title, "title");
+            checkOptionalText(title, "title");
+            requireNonNull(archived, "archived is null");
+            checkArgument(title.isPresent() != archived.isPresent(), "give either a title or archived");
         }
     }
 
@@ -294,7 +299,8 @@ final class InteractiveAgentHttpContract
             Optional<Instant> deleteAfter,
             Optional<String> cleanupFailure,
             Optional<Instant> checkoutRemovedAt,
-            Optional<CodeGraphArm> codegraphArm) {}
+            Optional<CodeGraphArm> codegraphArm,
+            Optional<Instant> archivedAt) {}
 
     record MutationClaim(
             String kind,

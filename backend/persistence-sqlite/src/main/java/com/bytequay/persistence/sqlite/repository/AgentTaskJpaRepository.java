@@ -77,4 +77,17 @@ public interface AgentTaskJpaRepository
             @Param("now") Instant now,
             @Param("retryBefore") Instant retryBefore,
             Pageable pageable);
+
+    @Query("""
+            FROM AgentTaskEntity task
+            WHERE task.interactive = true
+              AND task.state = :completed
+              AND task.archivedAt IS NULL
+              AND task.terminalAt <= :completedBefore
+            ORDER BY task.terminalAt ASC
+            """)
+    List<AgentTaskEntity> findArchiveDue(
+            @Param("completed") TaskState completed,
+            @Param("completedBefore") Instant completedBefore,
+            Pageable pageable);
 }

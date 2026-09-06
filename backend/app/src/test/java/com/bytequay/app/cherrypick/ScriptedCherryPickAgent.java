@@ -24,6 +24,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -209,6 +210,12 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask archive(ArchiveAgentTaskCommand command)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public List<AgentTask> list(int limit)
     {
         return task == null ? ImmutableList.of() : ImmutableList.of(task);
@@ -342,6 +349,12 @@ final class ScriptedCherryPickAgent
     public com.bytequay.agent.core.CleanupResult cleanup(TaskId taskId)
     {
         return null;
+    }
+
+    @Override
+    public void delete(TaskId taskId)
+    {
+        throw new UnsupportedOperationException();
     }
 
     /** True once the range closed the task it opened. */

@@ -188,6 +188,9 @@ public class AgentTaskEntity
 
     private String cleanupFailure;
 
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant archivedAt;
+
     @Transient
     private boolean newEntity = true;
 
@@ -247,6 +250,7 @@ public class AgentTaskEntity
         cleanupState = task.cleanupState();
         deleteAfter = task.deleteAfter().orElse(null);
         cleanupFailure = task.cleanupFailure().orElse(null);
+        archivedAt = task.archivedAt().orElse(null);
     }
 
     public AgentTask toDomain()
@@ -294,7 +298,8 @@ public class AgentTaskEntity
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
-                Optional.ofNullable(codegraphArm));
+                Optional.ofNullable(codegraphArm),
+                Optional.ofNullable(archivedAt));
     }
 
     private Optional<WorktreeMutationClaim> worktreeMutationClaim()

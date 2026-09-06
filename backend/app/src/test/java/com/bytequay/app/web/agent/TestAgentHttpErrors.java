@@ -20,10 +20,15 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -37,6 +42,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentServingGate;
@@ -53,15 +59,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -77,6 +88,7 @@ class TestAgentHttpErrors
     private AgentDriver driver;
     private WorkspaceRepositoryService workspaces;
     private GitCommandRunner git;
+    private AgentCompletionService completionService;
 
     @BeforeEach
     void setUp()
@@ -88,6 +100,7 @@ class TestAgentHttpErrors
         driver = mock(AgentDriver.class);
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitCommandRunner.class);
+        completionService = mock(AgentCompletionService.class);
         AgentController controller = new AgentController(
                 taskService,
                 mock(com.bytequay.agent.core.AgentTaskTitleService.class),
@@ -102,7 +115,7 @@ class TestAgentHttpErrors
                 turnService,
                 mock(AgentEventService.class),
                 mock(AgentApprovalService.class),
-                mock(AgentCompletionService.class),
+                completionService,
                 mock(AgentMetricsService.class),
                 driverRegistry,
                 mock(ModelSettingsService.class),
@@ -150,6 +163,45 @@ class TestAgentHttpErrors
         verify(taskService, never()).createInteractive(any());
         verify(turnService, never()).start(any());
         verifyNoInteractions(workspaces, git);
+    }
+
+    @Test
+    void refusesToDeleteARunningTaskAndTreatsAnAbsentOneAsDeleted()
+            throws Exception
+    {
+        TaskId taskId = TaskId.random();
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-1",
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789012345678901234567890123456789");
+        AgentTask task = AgentTask.created(
+                taskId,
+                true,
+                "Delete me",
+                TitleSource.USER,
+                AgentLaneId.CODEX_CLI,
+                worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                Instant.parse("2026-08-16T00:00:00Z"));
+        when(taskService.getInteractive("workspace-1", taskId)).thenReturn(task);
+        doThrow(new AgentConflictException("Task has an active turn")).when(completionService).delete(taskId);
+
+        mvc.perform(delete("/agent/tasks/{taskId}", taskId.toString()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isConflict());
+        // A patch must say what changes; neither or both is a bad request, not a guess.
+        mvc.perform(patch("/agent/tasks/{taskId}", taskId.toString())
+                        .queryParam("workspaceId", "workspace-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isBadRequest());
+
+        when(taskService.getInteractive("workspace-1", taskId)).thenThrow(new AgentTaskNotFoundException(taskId));
+        mvc.perform(delete("/agent/tasks/{taskId}", taskId.toString()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isNoContent());
+        verify(completionService).delete(taskId);
     }
 
     @Test

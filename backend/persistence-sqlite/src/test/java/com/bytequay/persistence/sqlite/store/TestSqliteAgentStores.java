@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -30,6 +31,7 @@ import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
+import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -100,6 +102,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
+import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -127,6 +130,9 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqliteAgentEventOutboxStore outboxStore;
+
+    @Autowired
+    private SqliteAgentProcessLaunchStore launchStore;
 
     @Autowired
     private SqliteAgentUnitOfWork unitOfWork;
@@ -622,6 +628,55 @@ class TestSqliteAgentStores
                 turnSettings(),
                 now.plusSeconds(2))))
                 .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void deletesATaskWithEveryRowThatHangsOffIt()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
+        turnStore.insert(turn);
+        queueStore.insert(queuedInput(task.id(), 1, "queue-1", now));
+        steerStore.insert(AgentInputDelivery.accepted(InputDeliveryId.random(), task.id(), turn.id(), "steer-1", now));
+        outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.of(turn.id()), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now));
+        launchStore.insert(new AgentProcessLaunch("launch-task", LaunchOwnerKind.APP_SERVER, task.id().toString(), true, "/usr/bin/codex", "digest", now));
+        launchStore.insert(new AgentProcessLaunch("launch-turn", LaunchOwnerKind.CLAUDE_TURN, turn.id().toString(), true, "/usr/bin/claude", "digest", now));
+        AgentTask other = newTask(now);
+        taskStore.insert(other);
+        launchStore.insert(new AgentProcessLaunch("launch-other", LaunchOwnerKind.APP_SERVER, other.id().toString(), true, "/usr/bin/codex", "digest", now));
+        entityManager.clear();
+
+        taskStore.delete(task.id());
+        entityManager.clear();
+
+        assertThat(taskStore.find(task.id())).isEmpty();
+        assertThat(turnStore.find(turn.id())).isEmpty();
+        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox")) {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE task_id = ?", Integer.class, task.id().toString()))
+                    .as(table).isZero();
+        }
+        assertThat(launchStore.list()).extracting(AgentProcessLaunch::launchId).containsExactly("launch-other");
+        assertThat(taskStore.find(other.id())).isPresent();
+
+        taskStore.delete(task.id());
+        assertThat(taskStore.find(other.id())).isPresent();
+    }
+
+    @Test
+    void roundTripsTheArchiveShelf()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+
+        AgentTask archived = taskStore.update(task.withArchived(true, now.plusSeconds(5)));
+        entityManager.clear();
+
+        assertThat(taskStore.find(task.id())).contains(archived);
+        assertThat(archived.archivedAt()).contains(now.plusSeconds(5));
+        assertThat(archived.updatedAt()).isEqualTo(task.updatedAt());
     }
 
     @Test

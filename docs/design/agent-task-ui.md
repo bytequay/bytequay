@@ -627,6 +627,7 @@ POST   /agent/tasks/{taskId}/queue/resume
 POST   /agent/tasks/{taskId}/attachments
 GET    /agent/tasks/{taskId}/attachments/{attachmentId}
 POST   /agent/tasks/{taskId}/mark-failed
+DELETE /agent/tasks/{taskId}
 ```
 
 Task creation accepts a workspace ID, lane, defaults, and the first message;
@@ -651,8 +652,9 @@ the first turn. The creation fingerprint includes the ordered image names,
 types, and bytes, so replaying a lost response cannot silently replace the
 first message's images or start another turn. Once that turn is accepted,
 replaying the request reuses its stored attachments.
-`PATCH /agent/tasks/{taskId}` carries only a user-chosen name and the observed
-task version, so a rename cannot race an agent-proposed name. Turn/queue
+`PATCH /agent/tasks/{taskId}` carries either a user-chosen name or the archive
+flag, with the observed task version, so a rename cannot race an agent-proposed
+name and a stale list cannot flip the shelf. Turn/queue
 requests accept explicit supported model, effort, and permission settings plus
 the observed task version, so enqueue cannot race Complete. Attachment upload
 receives bytes selected by Electron main, validates media type and size,

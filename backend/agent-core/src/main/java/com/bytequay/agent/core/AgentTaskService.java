@@ -90,6 +90,16 @@ public interface AgentTaskService
     AgentTask rename(RenameAgentTaskCommand command);
 
     /**
+     * Shelves a task or brings it back, using optimistic task versioning. Archiving changes nothing
+     * about the task's work: state, checkout, branch, and provider session stay as they are.
+     *
+     * @param command task, observed version, and whether it should be archived
+     * @return updated task with its next version
+     * @throws AgentConflictException when the task changed concurrently
+     */
+    AgentTask archive(ArchiveAgentTaskCommand command);
+
+    /**
      * Lists durable task facts in reverse update order.
      *
      * <p>This keeps the current unscoped listing working until workspace-owned

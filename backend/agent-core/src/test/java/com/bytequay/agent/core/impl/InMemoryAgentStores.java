@@ -30,6 +30,7 @@ import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentApprovalStore;
@@ -150,6 +151,29 @@ final class InMemoryAgentStores
     synchronized void put(AgentTask task)
     {
         tasks.put(task.id(), task);
+    }
+
+    @Override
+    public synchronized List<AgentTask> listArchiveDue(Instant completedBefore, int limit)
+    {
+        return tasks.values().stream()
+                .filter(AgentTask::interactive)
+                .filter(task -> task.state() == TaskState.COMPLETED && task.archivedAt().isEmpty())
+                .filter(task -> !task.terminalAt().orElseThrow().isAfter(completedBefore))
+                .sorted(Comparator.comparing((AgentTask task) -> task.terminalAt().orElseThrow()))
+                .limit(limit)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized void delete(TaskId taskId)
+    {
+        tasks.remove(taskId);
+        turns.values().removeIf(turn -> turn.taskId().equals(taskId));
+        approvals.values().removeIf(approval -> approval.request().taskId().equals(taskId));
+        outbox.values().removeIf(entry -> entry.taskId().equals(taskId));
+        queue.values().removeIf(input -> input.taskId().equals(taskId));
+        steers.values().removeIf(delivery -> delivery.taskId().equals(taskId));
     }
 
     @Override

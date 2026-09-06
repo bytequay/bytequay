@@ -115,4 +115,22 @@ public interface AgentTaskStore
      * @return cleanup candidates ordered by their next eligible operation time
      */
     List<AgentTask> listCleanupDue(Instant now, Instant retryBefore, int limit);
+
+    /**
+     * Lists interactive tasks that completed at or before {@code completedBefore} and are not yet
+     * archived, oldest completion first.
+     *
+     * @param completedBefore latest completion time eligible for archiving
+     * @param limit positive maximum row count
+     * @return at most {@code limit} tasks
+     */
+    List<AgentTask> listArchiveDue(Instant completedBefore, int limit);
+
+    /**
+     * Removes a task and every durable row that hangs off it: turns, approvals, queued inputs,
+     * steer deliveries, outbox entries, and process launches. An absent task is ignored.
+     *
+     * @param taskId task to remove
+     */
+    void delete(TaskId taskId);
 }

@@ -1473,6 +1473,12 @@ class TestCherryPickExecutionService
         }
 
         @Override
+        public void delete(TaskWorktree worktree)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public void cleanup(TaskWorktree worktree)
         {
             if (Files.notExists(worktree.canonicalWorktree())) {

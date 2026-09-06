@@ -239,6 +239,66 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void deletesAnIdleTaskWithItsCheckoutBranchResourcesAndRows()
+    {
+        stores.insert(queuedInput(taskId, 1, "queue-1"));
+        RecordingSession session = new RecordingSession();
+        runtimeRegistry.registerSession(taskId, session);
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.delete(taskId);
+
+        assertThat(session.closed).isTrue();
+        // Delete, not cleanup: the branch goes with the checkout, dirty or not.
+        assertThat(worktrees.deleted).hasSize(1);
+        assertThat(worktrees.cleaned).isEmpty();
+        assertThat(resources.deletions).isEqualTo(1);
+        assertThat(stores.find(taskId)).isEmpty();
+        assertThat(stores.listQueued(taskId)).isEmpty();
+
+        // Deleting what is already gone is a no-op, not an error.
+        service.delete(taskId);
+        assertThat(worktrees.deleted).hasSize(1);
+        assertThat(resources.deletions).isEqualTo(1);
+    }
+
+    @Test
+    void refusesToDeleteWhileATurnRunsOrTheWorktreeIsClaimed()
+    {
+        stores.insert(AgentTurn.accepted(TurnId.random(), taskId, "request-1", turnSettings(), NOW));
+        TaskId claimed = TaskId.random();
+        stores.insert(managedTask(claimed, "Claimed").claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.delete(taskId))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("active turn");
+        assertThatThrownBy(() -> service.delete(claimed))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("claimed");
+
+        assertThat(worktrees.deleted).isEmpty();
+        assertThat(resources.deletions).isZero();
+        assertThat(stores.find(taskId)).isPresent();
+        assertThat(stores.find(claimed)).isPresent();
+    }
+
+    @Test
+    void keepsTheTaskWhenItsCheckoutCannotBeDeleted()
+    {
+        worktrees.failDelete = true;
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.delete(taskId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("branch checked out elsewhere");
+
+        // Git refused first, so nothing else was touched and the task is still there to retry.
+        assertThat(resources.deletions).isZero();
+        assertThat(stores.find(taskId)).isPresent();
+    }
+
+    @Test
     void abandonsATaskStuckHoldingAWorktreeClaim()
     {
         TurnId turnId = TurnId.random();
@@ -569,7 +629,9 @@ class TestDefaultAgentCompletionService
     {
         private final List<WorktreeSnapshot> inspected = new ArrayList<>();
         private final List<TaskWorktree> cleaned = new ArrayList<>();
+        private final List<TaskWorktree> deleted = new ArrayList<>();
         private boolean failCleanup;
+        private boolean failDelete;
 
         @Override
         public TaskWorktree provision(ProvisionWorktreeCommand command)
@@ -587,6 +649,15 @@ class TestDefaultAgentCompletionService
                     false);
             inspected.add(snapshot);
             return snapshot;
+        }
+
+        @Override
+        public void delete(TaskWorktree worktree)
+        {
+            deleted.add(worktree);
+            if (failDelete) {
+                throw new IllegalStateException("branch checked out elsewhere");
+            }
         }
 
         @Override

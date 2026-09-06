@@ -53,7 +53,8 @@ public record AgentTask(
         CleanupState cleanupState,
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
-        Optional<CodeGraphArm> codegraphArm)
+        Optional<CodeGraphArm> codegraphArm,
+        Optional<Instant> archivedAt)
 {
     public AgentTask
     {
@@ -82,6 +83,7 @@ public record AgentTask(
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
         requireNonNull(codegraphArm, "codegraphArm is null");
+        requireNonNull(archivedAt, "archivedAt is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
                 "taskWorktree belongs to another task");
@@ -142,6 +144,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 CleanupState.RETAINED,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
@@ -213,7 +216,8 @@ public record AgentTask(
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty(),
-                codegraphArm);
+                codegraphArm,
+                Optional.empty());
     }
 
     public static AgentTask created(
@@ -392,7 +396,48 @@ public record AgentTask(
                 cleanupState,
                 deleteAfter,
                 cleanupFailure,
-                codegraphArm);
+                codegraphArm,
+                archivedAt);
+    }
+
+    /**
+     * Shelves the task or brings it back. A shelf is not a state: the work, checkout, branch, and
+     * session are untouched, and the update time stays so the task keeps its place in the list.
+     */
+    public AgentTask withArchived(boolean archived, Instant now)
+    {
+        requireNonNull(now, "now is null");
+        if (archived == archivedAt.isPresent()) {
+            return this;
+        }
+        return new AgentTask(
+                id,
+                workspaceId,
+                interactive,
+                creationFingerprint,
+                title,
+                titleSource,
+                laneId,
+                repository,
+                worktree,
+                taskWorktree,
+                defaults,
+                state,
+                worktreeMutationClaim,
+                version,
+                createdAt,
+                updatedAt,
+                terminalAt,
+                terminalReason,
+                sessionReference,
+                metrics,
+                summary,
+                worktreeRemovedAt,
+                cleanupState,
+                deleteAfter,
+                cleanupFailure,
+                codegraphArm,
+                archived ? Optional.of(now) : Optional.empty());
     }
 
     public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
@@ -427,7 +472,8 @@ public record AgentTask(
                 cleanupState,
                 deleteAfter,
                 cleanupFailure,
-                codegraphArm);
+                codegraphArm,
+                archivedAt);
     }
 
     public AgentTask withVersion(long updatedVersion)
@@ -495,7 +541,8 @@ public record AgentTask(
                 cleanupState,
                 deleteAfter,
                 cleanupFailure,
-                codegraphArm);
+                codegraphArm,
+                archivedAt);
     }
 
     public AgentTask withWorktreeCleanupAttemptAt(Instant attemptedAt)
@@ -569,7 +616,8 @@ public record AgentTask(
                 updatedCleanupState,
                 updatedDeleteAfter,
                 updatedCleanupFailure,
-                codegraphArm);
+                codegraphArm,
+                archivedAt);
     }
 
     private void requireState(TaskState expected)

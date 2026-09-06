@@ -19,6 +19,7 @@ import com.bytequay.persistence.sqlite.entity.AgentApprovalEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -52,4 +53,8 @@ public interface AgentApprovalJpaRepository
     List<AgentApprovalEntity> findByDecisionIsNullOrderByRequestedAtAscIdAsc();
 
     List<AgentApprovalEntity> findByTaskIdAndDecisionAndForTask(String taskId, ApprovalDecision.Decision decision, boolean forTask);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AgentApprovalEntity approval WHERE approval.taskId = :taskId")
+    void deleteByTaskId(@Param("taskId") String taskId);
 }

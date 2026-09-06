@@ -359,6 +359,47 @@ public final class DefaultAgentCompletionService
         }
     }
 
+    @Override
+    public void delete(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            if (!deletable(taskId)) {
+                return;
+            }
+        }
+        // As for abandon: the provider's own callbacks take the task lock while the close runs.
+        runtimeRegistry.closeSession(taskId);
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            if (!deletable(taskId)) {
+                return;
+            }
+            AgentTask task = requireTask(taskId);
+            task.taskWorktree().ifPresent(worktreeService::delete);
+            resourceService.delete(taskId);
+            unitOfWork.execute(() -> {
+                taskStore.delete(taskId);
+                return null;
+            });
+        }
+    }
+
+    /** False once there is nothing left to delete; refuses a task whose work may still be moving. */
+    private boolean deletable(TaskId taskId)
+    {
+        Optional<AgentTask> found = taskStore.find(taskId);
+        if (found.isEmpty()) {
+            return false;
+        }
+        turnStore.findActive(taskId).ifPresent(turn -> {
+            throw new AgentConflictException("Task has an active turn; stop it before deleting: " + turn.id());
+        });
+        found.orElseThrow().worktreeMutationClaim().ifPresent(claim -> {
+            throw new AgentConflictException("Task worktree is claimed by " + claim.kind() + "; it cannot be deleted yet");
+        });
+        return true;
+    }
+
     private AgentTask removeWorktree(AgentTask task)
     {
         if (task.worktreeRemovedAt().isPresent()) {

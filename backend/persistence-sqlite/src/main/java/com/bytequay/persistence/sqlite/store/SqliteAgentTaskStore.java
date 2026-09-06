@@ -23,7 +23,14 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.persistence.sqlite.entity.AgentTaskEntity;
+import com.bytequay.persistence.sqlite.entity.AgentTurnEntity;
+import com.bytequay.persistence.sqlite.repository.AgentApprovalJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AgentEventOutboxJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AgentInputDeliveryJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AgentProcessLaunchJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
 import com.google.common.collect.ImmutableList;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -34,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -51,10 +59,29 @@ public class SqliteAgentTaskStore
             AgentPermissionPolicy.CHERRY_PICK);
 
     private final AgentTaskJpaRepository repository;
+    private final AgentTurnJpaRepository turns;
+    private final AgentApprovalJpaRepository approvals;
+    private final AgentQueuedInputJpaRepository queue;
+    private final AgentInputDeliveryJpaRepository deliveries;
+    private final AgentEventOutboxJpaRepository outbox;
+    private final AgentProcessLaunchJpaRepository launches;
 
-    public SqliteAgentTaskStore(AgentTaskJpaRepository repository)
+    public SqliteAgentTaskStore(
+            AgentTaskJpaRepository repository,
+            AgentTurnJpaRepository turns,
+            AgentApprovalJpaRepository approvals,
+            AgentQueuedInputJpaRepository queue,
+            AgentInputDeliveryJpaRepository deliveries,
+            AgentEventOutboxJpaRepository outbox,
+            AgentProcessLaunchJpaRepository launches)
     {
         this.repository = requireNonNull(repository, "repository is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.approvals = requireNonNull(approvals, "approvals is null");
+        this.queue = requireNonNull(queue, "queue is null");
+        this.deliveries = requireNonNull(deliveries, "deliveries is null");
+        this.outbox = requireNonNull(outbox, "outbox is null");
+        this.launches = requireNonNull(launches, "launches is null");
     }
 
     @Override
@@ -185,6 +212,37 @@ public class SqliteAgentTaskStore
                         PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentTask> listArchiveDue(Instant completedBefore, int limit)
+    {
+        requireNonNull(completedBefore, "completedBefore is null");
+        checkLimit(limit);
+        return repository.findArchiveDue(TaskState.COMPLETED, completedBefore, PageRequest.of(0, limit)).stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional
+    public void delete(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        String id = taskId.toString();
+        // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
+        List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
+                .collect(toImmutableList());
+        launches.deleteByOwnerIdIn(owners);
+        approvals.deleteByTaskId(id);
+        queue.deleteByTaskId(id);
+        deliveries.deleteByTaskId(id);
+        outbox.deleteByTaskId(id);
+        turns.deleteByTaskId(id);
+        repository.deleteById(id);
+        // Flushed here so a caller inside a wider transaction sees the row gone, as the bulk deletes above already are.
+        repository.flush();
     }
 
     private static void checkLimit(int limit)

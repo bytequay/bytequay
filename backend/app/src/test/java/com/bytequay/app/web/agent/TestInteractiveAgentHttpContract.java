@@ -97,7 +97,8 @@ class TestInteractiveAgentHttpContract
                         "deleteAfter",
                         "cleanupFailure",
                         "checkoutRemovedAt",
-                        "codegraphArm");
+                        "codegraphArm",
+                        "archivedAt");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");

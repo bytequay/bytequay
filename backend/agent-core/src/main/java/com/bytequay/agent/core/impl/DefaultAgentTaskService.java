@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
@@ -177,6 +178,17 @@ public final class DefaultAgentTaskService
             throw new AgentConflictException("Task version changed: " + task.id());
         }
         return taskStore.update(task.withTitle(command.title().strip(), TitleSource.USER, Instant.now(clock)));
+    }
+
+    @Override
+    public AgentTask archive(ArchiveAgentTaskCommand command)
+    {
+        requireNonNull(command, "command is null");
+        AgentTask task = get(command.taskId());
+        if (task.version() != command.expectedVersion()) {
+            throw new AgentConflictException("Task version changed: " + task.id());
+        }
+        return taskStore.update(task.withArchived(command.archived(), Instant.now(clock)));
     }
 
     @Override

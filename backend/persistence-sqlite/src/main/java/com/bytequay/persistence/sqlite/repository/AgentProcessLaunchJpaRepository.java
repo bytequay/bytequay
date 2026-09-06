@@ -15,11 +15,19 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.AgentProcessLaunchEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface AgentProcessLaunchJpaRepository
         extends JpaRepository<AgentProcessLaunchEntity, String>
 {
     List<AgentProcessLaunchEntity> findAllByOrderByIdAsc();
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AgentProcessLaunchEntity launch WHERE launch.ownerId IN :ownerIds")
+    void deleteByOwnerIdIn(@Param("ownerIds") Collection<String> ownerIds);
 }

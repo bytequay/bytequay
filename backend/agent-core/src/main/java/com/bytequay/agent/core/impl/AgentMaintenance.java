@@ -373,6 +373,38 @@ public final class AgentMaintenance
         });
     }
 
+    /**
+     * Shelves finished work nobody has come back to. Only a completed task is old news: a failed
+     * one still needs a look, and an open one is still work.
+     *
+     * @param window how long a completed task stays on the active list
+     * @param limit positive maximum number of tasks archived in one pass
+     * @return how many tasks this pass archived
+     */
+    public int archiveDue(Duration window, int limit)
+    {
+        requireNonNull(window, "window is null");
+        checkArgument(limit > 0, "limit must be positive");
+        Instant now = Instant.now(clock);
+        int archived = 0;
+        for (AgentTask due : taskStore.listArchiveDue(now.minus(window), limit)) {
+            synchronized (runtimeRegistry.taskLock(due.id())) {
+                try {
+                    Optional<AgentTask> current = taskStore.find(due.id()).filter(task -> task.archivedAt().isEmpty());
+                    if (current.isPresent()) {
+                        taskStore.update(current.orElseThrow().withArchived(true, now));
+                        archived++;
+                    }
+                }
+                catch (AgentConflictException raced) {
+                    // Something else moved the task first; the next pass sees the result.
+                    log.log(System.Logger.Level.DEBUG, "Task " + due.id() + " was not archived: " + raced.getMessage());
+                }
+            }
+        }
+        return archived;
+    }
+
     public List<CleanupResult> cleanupDue(int limit)
     {
         checkArgument(limit > 0, "limit must be positive");

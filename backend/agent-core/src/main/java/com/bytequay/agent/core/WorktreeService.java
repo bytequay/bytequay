@@ -45,4 +45,16 @@ public interface WorktreeService
      * @throws AgentStorageException when Git cannot be updated safely
      */
     void cleanup(TaskWorktree worktree);
+
+    /**
+     * Destroys a task's checkout and its generated branch, uncommitted work included.
+     *
+     * <p>The one destructive worktree operation. Deleting a task is its only caller: the branch is
+     * the task's local result, so nothing that keeps the task may call this. Ownership is
+     * revalidated first, dirty work is not a refusal, and repeating it is safe.
+     *
+     * @throws InvalidAgentRequestException when ownership is unverifiable
+     * @throws AgentStorageException when Git cannot be updated safely
+     */
+    void delete(TaskWorktree worktree);
 }

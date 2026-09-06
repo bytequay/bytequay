@@ -37,7 +37,9 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
@@ -434,6 +436,31 @@ class TestAgentMaintenance
     }
 
     @Test
+    void archivesOnlyCompletedInteractiveTasksOlderThanTheWindow()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        AgentTask oldCompleted = interactiveTask(TaskId.random()).complete(summary(), NOW, NOW.plus(Duration.ofDays(7)));
+        AgentTask freshCompleted = interactiveTask(TaskId.random()).complete(summary(), NOW.plus(Duration.ofDays(5)), NOW.plus(Duration.ofDays(12)));
+        AgentTask failed = interactiveTask(TaskId.random()).fail("failed", NOW, NOW.plus(Duration.ofDays(7)));
+        AgentTask open = interactiveTask(TaskId.random());
+        AgentTask workflow = managedTask(TaskId.random()).complete(summary(), NOW, NOW.plus(Duration.ofDays(7)));
+        for (AgentTask task : ImmutableList.of(oldCompleted, freshCompleted, failed, open, workflow)) {
+            stores.insert(task);
+        }
+        Instant sweepTime = NOW.plus(Duration.ofDays(8));
+        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), sweepTime);
+
+        assertThat(maintenance.archiveDue(Duration.ofDays(7), 10)).isEqualTo(1);
+
+        assertThat(stores.find(oldCompleted.id()).orElseThrow().archivedAt()).contains(sweepTime);
+        // Recent, failed, open, and workflow-owned tasks stay where the user can see them.
+        for (AgentTask untouched : ImmutableList.of(freshCompleted, failed, open, workflow)) {
+            assertThat(stores.find(untouched.id()).orElseThrow().archivedAt()).isEmpty();
+        }
+        assertThat(maintenance.archiveDue(Duration.ofDays(7), 10)).isZero();
+    }
+
+    @Test
     void submitsDueAndRetryPendingTasksForCleanup()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
@@ -547,6 +574,31 @@ class TestAgentMaintenance
         return managedTask(taskId, AgentPermissionPolicy.AUTO);
     }
 
+    private static AgentTask interactiveTask(TaskId taskId)
+    {
+        TaskWorktree worktree = new TaskWorktree(
+                taskId,
+                "workspace-a",
+                REPOSITORY,
+                WORKTREE.resolve(taskId.toString()),
+                "bytequay/task/" + taskId,
+                "0123456789012345678901234567890123456789");
+        return AgentTask.created(
+                taskId,
+                true,
+                "Archive test",
+                TitleSource.USER,
+                AgentLaneId.CODEX_CLI,
+                worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                NOW);
+    }
+
+    private static TaskSummary summary()
+    {
+        return new TaskSummary("done", Optional.empty(), ImmutableList.of(), TaskMetrics.empty(), ImmutableList.of(), Optional.empty());
+    }
+
     private static AgentTask managedTask(TaskId taskId, AgentPermissionPolicy permissionPolicy)
     {
         TaskWorktree worktree = new TaskWorktree(
@@ -629,6 +681,12 @@ class TestAgentMaintenance
                     CleanupState.DELETED,
                     Optional.of(NOW.plus(Duration.ofDays(8))),
                     Optional.empty());
+        }
+
+        @Override
+        public void delete(TaskId taskId)
+        {
+            throw new UnsupportedOperationException();
         }
     }
 

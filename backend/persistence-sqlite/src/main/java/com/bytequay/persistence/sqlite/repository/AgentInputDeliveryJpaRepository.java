@@ -16,6 +16,9 @@ package com.bytequay.persistence.sqlite.repository;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.persistence.sqlite.entity.AgentInputDeliveryEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -27,4 +30,8 @@ public interface AgentInputDeliveryJpaRepository
     Optional<AgentInputDeliveryEntity> findByTaskIdAndIdempotencyKey(String taskId, String idempotencyKey);
 
     List<AgentInputDeliveryEntity> findByStateInOrderByCreatedAtAsc(Collection<AgentInputDelivery.State> states);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AgentInputDeliveryEntity delivery WHERE delivery.taskId = :taskId")
+    void deleteByTaskId(@Param("taskId") String taskId);
 }

@@ -15,6 +15,9 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.AgentTurnEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -29,4 +32,8 @@ public interface AgentTurnJpaRepository
     List<AgentTurnEntity> findByTaskIdOrderByCreatedAtAsc(String taskId);
 
     List<AgentTurnEntity> findByActiveTaskIdIsNotNullOrderByCreatedAtAsc();
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AgentTurnEntity turn WHERE turn.taskId = :taskId")
+    void deleteByTaskId(@Param("taskId") String taskId);
 }

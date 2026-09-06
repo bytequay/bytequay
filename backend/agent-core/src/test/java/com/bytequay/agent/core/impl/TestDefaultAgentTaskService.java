@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -264,6 +265,28 @@ class TestDefaultAgentTaskService
     }
 
     @Test
+    void archivesAndRestoresWithTheObservedVersion()
+    {
+        AgentTask created = service.createInteractive(interactiveCommand(TaskId.random()));
+
+        AgentTask archived = service.archive(new ArchiveAgentTaskCommand(created.id(), created.version(), true));
+
+        // A shelf, not a state: the task keeps its place in the list and its work untouched.
+        assertThat(archived.archivedAt()).contains(NOW);
+        assertThat(archived.state()).isEqualTo(created.state());
+        assertThat(archived.updatedAt()).isEqualTo(created.updatedAt());
+        assertThat(archived.version()).isEqualTo(created.version() + 1);
+        assertThatThrownBy(() -> service.archive(new ArchiveAgentTaskCommand(created.id(), created.version(), false)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("version changed");
+
+        AgentTask restored = service.archive(new ArchiveAgentTaskCommand(created.id(), archived.version(), false));
+
+        assertThat(restored.archivedAt()).isEmpty();
+        assertThat(service.get(created.id())).isEqualTo(restored);
+    }
+
+    @Test
     void renamesWithTheObservedTaskVersion()
     {
         AgentTask created = service.createInteractive(interactiveCommand(TaskId.random()));
@@ -432,6 +455,12 @@ class TestDefaultAgentTaskService
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
             return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false);
+        }
+
+        @Override
+        public void delete(TaskWorktree worktree)
+        {
+            throw new UnsupportedOperationException();
         }
 
         @Override

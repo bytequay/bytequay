@@ -26,6 +26,8 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -42,6 +44,7 @@ import static java.util.Objects.requireNonNull;
 public final class ManagedWorktreeService
         implements WorktreeService
 {
+    private static final Logger log = LoggerFactory.getLogger(ManagedWorktreeService.class);
     private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of(
             "MERGE_HEAD",
             "CHERRY_PICK_HEAD",
@@ -206,7 +209,50 @@ public final class ManagedWorktreeService
         }
     }
 
-    private WorktreeSnapshot inspectVerified(
+    @Override
+    public void delete(TaskWorktree worktree)
+    {
+        requireNonNull(worktree, "worktree is null");
+        Lock lock = WorkspaceOperationLocks.get(worktree.workspaceId());
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(worktree.workspaceId());
+            verifyPhysicalRepository(workspace, worktree.physicalRepository());
+            Path repository = verifyManagedRepository(workspace);
+            verifyDerivedPath(worktree);
+            Path path = worktree.canonicalWorktree();
+            if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+                // Deleting the task is deleting its work, so dirty files are no refusal; ownership still is.
+                verifyOwnedWorktree(workspace, repository, worktree);
+                Result removed = git.run(repository, ImmutableList.of("worktree", "remove", "--force", path.toString()));
+                if (!removed.successful()) {
+                    throw new AgentStorageException("Cannot remove task worktree: " + diagnostic(removed));
+                }
+            }
+            if (registeredWorktreePaths(repository).contains(path)) {
+                Result pruned = git.run(repository, "worktree", "prune");
+                if (!pruned.successful()) {
+                    throw new AgentStorageException("Cannot prune task worktree: " + diagnostic(pruned));
+                }
+            }
+            if (registeredWorktreePaths(repository).contains(path) || Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+                throw new AgentStorageException("Git did not fully remove the task worktree");
+            }
+            if (branchExists(repository, worktree.generatedBranch())) {
+                log.info("Deleting generated branch {} of task {}", worktree.generatedBranch(), worktree.taskId());
+                Result deleted = git.run(repository, ImmutableList.of("branch", "-D", worktree.generatedBranch()));
+                if (!deleted.successful()) {
+                    throw new AgentStorageException("Cannot delete task branch: " + diagnostic(deleted));
+                }
+            }
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    /** The task's checkout, once every recorded ownership fact has been checked against the disk and Git. */
+    private Path verifyOwnedWorktree(
             Workspace workspace,
             Path repository,
             TaskWorktree worktree)
@@ -232,30 +278,38 @@ public final class ManagedWorktreeService
                 throw invalid("Task worktree belongs to another managed repository");
             }
             requireOrigin(canonical, workspace.originCloneUrl());
-
-            String branch = requireOutput(
-                    git.run(canonical, "symbolic-ref", "--quiet", "--short", "HEAD"),
-                    "read task worktree branch");
-            if (!branch.equals(worktree.generatedBranch())) {
-                throw invalid("Task worktree is on another branch");
-            }
-            String head = requireOutput(
-                    git.run(canonical, "rev-parse", "--verify", "HEAD^{commit}"),
-                    "read task worktree HEAD");
-            boolean dirty = !requireOutput(
-                    git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"),
-                    "read task worktree status").isEmpty();
-            List<Path> operationPaths = git.gitPaths(canonical, GIT_OPERATION_PATHS);
-            if (operationPaths.size() != GIT_OPERATION_PATHS.size()) {
-                throw invalid("Cannot read task worktree operation state");
-            }
-            boolean operationInProgress = operationPaths.stream()
-                    .anyMatch(path -> Files.exists(path, LinkOption.NOFOLLOW_LINKS));
-            return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
+            return canonical;
         }
         catch (IOException failure) {
             throw new InvalidAgentRequestException("Cannot verify task worktree ownership", failure);
         }
+    }
+
+    private WorktreeSnapshot inspectVerified(
+            Workspace workspace,
+            Path repository,
+            TaskWorktree worktree)
+    {
+        Path canonical = verifyOwnedWorktree(workspace, repository, worktree);
+        String branch = requireOutput(
+                git.run(canonical, "symbolic-ref", "--quiet", "--short", "HEAD"),
+                "read task worktree branch");
+        if (!branch.equals(worktree.generatedBranch())) {
+            throw invalid("Task worktree is on another branch");
+        }
+        String head = requireOutput(
+                git.run(canonical, "rev-parse", "--verify", "HEAD^{commit}"),
+                "read task worktree HEAD");
+        boolean dirty = !requireOutput(
+                git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"),
+                "read task worktree status").isEmpty();
+        List<Path> operationPaths = git.gitPaths(canonical, GIT_OPERATION_PATHS);
+        if (operationPaths.size() != GIT_OPERATION_PATHS.size()) {
+            throw invalid("Cannot read task worktree operation state");
+        }
+        boolean operationInProgress = operationPaths.stream()
+                .anyMatch(path -> Files.exists(path, LinkOption.NOFOLLOW_LINKS));
+        return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
     }
 
     private Path verifyManagedRepository(Workspace workspace)

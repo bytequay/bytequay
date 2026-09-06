@@ -78,4 +78,17 @@ public interface AgentCompletionService
      * @throws AgentConflictException when the task is live or cleanup is early
      */
     CleanupResult cleanup(TaskId taskId);
+
+    /**
+     * Removes a task and everything ByteQuay keeps for it: rows, event log, blobs, checkout, and
+     * the generated branch.
+     *
+     * <p>The checkout and branch go first, so a refused Git operation leaves the task whole and
+     * visible; the rows go last, so a failure in between can be retried. A task with an active turn
+     * or a held worktree claim is refused. Deleting an absent task is a no-op.
+     *
+     * @param taskId task to remove
+     * @throws AgentConflictException when the task is still running or its worktree is claimed
+     */
+    void delete(TaskId taskId);
 }

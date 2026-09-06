@@ -50,7 +50,8 @@
     "deleteAfter": null,
     "cleanupFailure": null,
     "checkoutRemovedAt": null,
-    "codegraphArm": "OFF"
+    "codegraphArm": "OFF",
+    "archivedAt": null
   },
   "turns": [
     {
@@ -735,6 +736,7 @@
     "deleteAfter": "<timestamp>",
     "cleanupFailure": null,
     "checkoutRemovedAt": "<timestamp>",
-    "codegraphArm": "OFF"
+    "codegraphArm": "OFF",
+    "archivedAt": null
   }
 }

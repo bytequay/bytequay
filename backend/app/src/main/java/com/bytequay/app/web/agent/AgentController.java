@@ -28,6 +28,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueueAgentInputCommand;
@@ -41,6 +42,7 @@ import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -83,6 +85,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -276,17 +279,41 @@ public class AgentController
     }
 
     @PatchMapping("/tasks/{taskId}")
-    public InteractiveAgentHttpContract.TaskResponse renameTask(
+    public InteractiveAgentHttpContract.TaskResponse patchTask(
             @PathVariable String taskId,
             @RequestParam String workspaceId,
-            @RequestBody InteractiveAgentHttpContract.RenameTaskRequest request)
+            @RequestBody InteractiveAgentHttpContract.PatchTaskRequest request)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        return taskResponse(taskService.rename(new RenameAgentTaskCommand(
-                id,
-                request.expectedVersion(),
-                request.title())));
+        AgentTask updated = request.title().isPresent()
+                ? taskService.rename(new RenameAgentTaskCommand(id, request.expectedVersion(), request.title().orElseThrow()))
+                : taskService.archive(new ArchiveAgentTaskCommand(id, request.expectedVersion(), request.archived().orElseThrow()));
+        return taskResponse(updated);
+    }
+
+    /**
+     * Removes a task and everything ByteQuay keeps for it, generated branch included: the one place
+     * that branch may be destroyed. A running task is refused; repeating the request is a no-op.
+     */
+    @DeleteMapping("/tasks/{taskId}")
+    public ResponseEntity<Void> deleteTask(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        AgentTask task;
+        try {
+            task = taskService.getInteractive(workspaceId, id);
+        }
+        catch (AgentTaskNotFoundException alreadyGone) {
+            return ResponseEntity.noContent().build();
+        }
+        String correlationId = UUID.randomUUID().toString();
+        log.info("Deleting task {} with branch {} (correlation {})", id, task.taskWorktree().map(TaskWorktree::generatedBranch).orElse("none"), correlationId);
+        completionService.delete(id);
+        log.info("Deleted task {} (correlation {})", id, correlationId);
+        return ResponseEntity.noContent().build();
     }
 
     /**

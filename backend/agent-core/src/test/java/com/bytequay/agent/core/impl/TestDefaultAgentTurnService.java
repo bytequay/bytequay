@@ -209,6 +209,12 @@ class TestDefaultAgentTurnService
         }
 
         @Override
+        public void delete(TaskWorktree worktree)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public void cleanup(TaskWorktree worktree)
         {
             throw new UnsupportedOperationException();

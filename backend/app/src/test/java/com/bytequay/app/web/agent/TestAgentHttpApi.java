@@ -93,6 +93,7 @@ import java.util.stream.StreamSupport;
 
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -447,6 +448,44 @@ class TestAgentHttpApi
                 null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(tasks.get(workflowTaskId).state().name()).isEqualTo("OPEN");
         assertThat(workflowTask.taskWorktree().orElseThrow().canonicalWorktree()).exists();
+    }
+
+    @Test
+    void archivesRestoresAndDeletesATaskWithItsBranch()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String taskId = created.required("id").asText();
+        assertThat(created.required("archivedAt").isNull()).isTrue();
+        AgentTask task = tasks.get(TaskId.valueOf(taskId));
+        String branch = task.taskWorktree().orElseThrow().generatedBranch();
+        Path worktree = task.taskWorktree().orElseThrow().canonicalWorktree();
+        String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
+        awaitCondition(() -> get(taskPath).getBody().path("mutationClaim").isNull());
+        long version = get(taskPath).getBody().required("version").asLong();
+
+        JsonNode archived = patch(taskPath, ImmutableMap.of("expectedVersion", version, "archived", true)).getBody();
+        assertThat(archived.required("archivedAt").isTextual()).isTrue();
+        assertThat(archived.required("state").asText()).isEqualTo("OPEN");
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).hasSize(1);
+        // The shelf is versioned like a rename: a stale observer cannot flip it.
+        assertThat(patch(taskPath, ImmutableMap.of("expectedVersion", version, "archived", false)).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        JsonNode restored = patch(taskPath, ImmutableMap.of("expectedVersion", archived.required("version").asLong(), "archived", false)).getBody();
+        assertThat(restored.required("archivedAt").isNull()).isTrue();
+        assertThat(patch("/agent/tasks/" + taskId + "?workspaceId=another-workspace", ImmutableMap.of("expectedVersion", 0, "archived", true)).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Deleting the task is deleting its work: uncommitted files do not stop it.
+        Files.writeString(worktree.resolve("scratch.txt"), "half-finished\n");
+        assertThat(delete(taskPath).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        assertThat(get(taskPath).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
+        assertThat(worktree).doesNotExist();
+        assertThat(run("git", "-C", repository.toString(), "branch", "--list", branch)).isEmpty();
+        assertThatThrownBy(() -> resources.require(TaskId.valueOf(taskId))).isInstanceOf(RuntimeException.class);
+        assertThat(delete(taskPath).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test
@@ -990,6 +1029,23 @@ class TestAgentHttpApi
     private ResponseEntity<JsonNode> get(String path)
     {
         return rest.exchange(url(path), HttpMethod.GET, new HttpEntity<>(headers()), JsonNode.class);
+    }
+
+    private ResponseEntity<JsonNode> patch(String path, Object body)
+            throws Exception
+    {
+        HttpHeaders requestHeaders = headers();
+        requestHeaders.setContentType(MediaType.APPLICATION_JSON);
+        return rest.exchange(
+                url(path),
+                HttpMethod.PATCH,
+                new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
+                JsonNode.class);
+    }
+
+    private ResponseEntity<JsonNode> delete(String path)
+    {
+        return rest.exchange(url(path), HttpMethod.DELETE, new HttpEntity<>(headers()), JsonNode.class);
     }
 
     private ResponseEntity<JsonNode> post(String path, Object body, String idempotencyKey)

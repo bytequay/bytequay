@@ -17,10 +17,13 @@ import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 
 import static java.util.Objects.requireNonNull;
 
@@ -32,11 +35,16 @@ public final class AgentMaintenanceJob
 
     private final AgentMaintenance maintenance;
     private final AgentServingGate servingGate;
+    private final Duration autoArchiveWindow;
 
-    public AgentMaintenanceJob(AgentMaintenance maintenance, AgentServingGate servingGate)
+    public AgentMaintenanceJob(
+            AgentMaintenance maintenance,
+            AgentServingGate servingGate,
+            @Value("${bytequay.agent.auto-archive-days:7}") int autoArchiveDays)
     {
         this.maintenance = requireNonNull(maintenance, "maintenance is null");
         this.servingGate = requireNonNull(servingGate, "servingGate is null");
+        this.autoArchiveWindow = Duration.ofDays(autoArchiveDays);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -51,6 +59,7 @@ public final class AgentMaintenanceJob
         if (!servingGate.isReady()) {
             return;
         }
+        maintenance.archiveDue(autoArchiveWindow, CLEANUP_BATCH_SIZE);
         maintenance.cleanupDue(CLEANUP_BATCH_SIZE).stream()
                 .filter(result -> result.state() == CleanupState.RETRY_PENDING)
                 .forEach(result -> log.warn(

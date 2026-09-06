@@ -22,7 +22,7 @@ import type { PullRequestDetailDto } from '../types';
 import { ago, anchorPanel, ATTENTION_KINDS, previewMarkdown, type AttentionItem } from './attention';
 
 const CARD_WIDTH = 500;
-const CARD_HEIGHT = 460;
+const CARD_HEIGHT = { pr: 400, issue: 460 };
 
 type Props = {
   item: AttentionItem;
@@ -58,45 +58,6 @@ function useDetail(item: AttentionItem): PullRequestDetailDto | null {
   return detail;
 }
 
-type Cell = { label: string; value: string; tone?: 'good' | 'bad' };
-
-function cells(item: AttentionItem, detail: PullRequestDetailDto | null): Cell[] {
-  if (item.type === 'issue') {
-    return [
-      {
-        label: 'DISCUSSION',
-        value: `${item.commentCount} comment${item.commentCount === 1 ? '' : 's'}`,
-      },
-      { label: 'ACTIVITY', value: `last reply ${ago(item.updatedAt)}` },
-    ];
-  }
-  const pr = item.pr;
-  const runs = detail?.checkRuns ?? [];
-  const failed = runs.filter(run => run.category === 'failing').length;
-  const failing = failed > 0 || pr?.ciStatus === 'FAILING';
-  const files = detail?.changedFiles ?? null;
-  // The list row leaves additions/deletions at 0 for pull requests it never
-  // expanded; the detail we already fetched has the real counts.
-  const additions = detail?.additions ?? pr?.additions ?? 0;
-  const deletions = detail?.deletions ?? pr?.deletions ?? 0;
-  return [
-    {
-      label: 'CHECKS',
-      value: runs.length === 0
-        ? (failing ? 'Checks failing' : 'No checks reported')
-        : failed > 0
-          ? `${failed} of ${runs.length} checks failing`
-          : `${runs.length} check${runs.length === 1 ? '' : 's'} passed`,
-      tone: failing ? 'bad' : 'good',
-    },
-    {
-      label: 'CHANGES',
-      value: `+${additions.toLocaleString()}  −${deletions.toLocaleString()}  `
-        + (files === null ? 'files loading…' : `in ${files} file${files === 1 ? '' : 's'}`),
-    },
-  ];
-}
-
 function byline(item: AttentionItem): string {
   const author = item.author ?? 'unknown';
   const updated = `updated ${ago(item.updatedAt)}`;
@@ -117,7 +78,7 @@ export default function AttentionPreview({
   const loading = item.type === 'pr' && detail === null;
   const body = previewMarkdown(item.type === 'issue' ? item.body : detail?.body);
   const labels = item.labels.slice(0, 3);
-  const { top, left } = anchorPanel(anchor, CARD_WIDTH, CARD_HEIGHT, anchor.left + 40);
+  const { top, left } = anchorPanel(anchor, CARD_WIDTH, CARD_HEIGHT[item.type], anchor.left + 40);
 
   return createPortal(
     <div
@@ -144,21 +105,23 @@ export default function AttentionPreview({
         </div>
       </div>
 
-      <div className="atn-preview__grid">
-        {cells(item, detail).map(cell => (
-          <div className="atn-preview__cell" key={cell.label}>
-            <div className="atn-preview__label">{cell.label}</div>
-            <div className={`atn-preview__value${cell.tone ? ` is-${cell.tone}` : ''}`}>
-              {cell.value}
+      {item.type === 'issue' && (
+        <div className="atn-preview__grid">
+          <div className="atn-preview__cell">
+            <div className="atn-preview__label">DISCUSSION</div>
+            <div className="atn-preview__value">
+              {item.commentCount} comment{item.commentCount === 1 ? '' : 's'}
             </div>
           </div>
-        ))}
-      </div>
-
-      <div className="atn-preview__foot">
-        <div className="atn-preview__label">
-          {item.type === 'issue' ? 'ISSUE DESCRIPTION' : 'PULL REQUEST DESCRIPTION'}
+          <div className="atn-preview__cell">
+            <div className="atn-preview__label">ACTIVITY</div>
+            <div className="atn-preview__value">last reply {ago(item.updatedAt)}</div>
+          </div>
         </div>
+      )}
+
+      <div className={`atn-preview__foot${item.type === 'pr' ? ' is-pr' : ''}`}>
+        {item.type === 'issue' && <div className="atn-preview__label">ISSUE DESCRIPTION</div>}
         <div className={`atn-preview__body${body === '' && !loading ? ' is-empty' : ''}`}>
           {loading ? null : body === '' ? 'No description.' : <MarkdownBody body={body} repository={item.repo} />}
         </div>

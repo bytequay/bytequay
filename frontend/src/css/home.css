@@ -551,11 +551,12 @@
   margin-top: 2px;
 }
 
-.atn-preview__value.is-good { color: #1a7f37; }
-.atn-preview__value.is-bad { color: #cf222e; }
-
 .atn-preview__foot {
   padding: 11px 14px 12px;
+}
+
+.atn-preview__foot.is-pr {
+  padding-top: 0;
 }
 
 /* Rendered Markdown at card scale. Descriptions run long, so the block
@@ -571,6 +572,11 @@
   max-height: 210px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.atn-preview__foot.is-pr .atn-preview__body {
+  margin-top: 0;
+  max-height: 240px;
 }
 
 .atn-preview__body.is-empty { color: #8c959f; }

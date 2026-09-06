@@ -48,7 +48,7 @@ import {
 
 /** Home stays a summary: deeper backlog belongs behind "See all". */
 const HOME_MAX_ROWS = 6;
-const HOVER_IN_MS = 240;
+const HOVER_IN_MS = 1500;
 const HOVER_OUT_MS = 90;
 const MENU_WIDTH = 210;
 /** Header plus four options; kept in step with .atn-menu in home.css. */

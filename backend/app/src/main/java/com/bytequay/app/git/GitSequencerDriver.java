@@ -15,17 +15,14 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.git.SequenceState.ConflictedPath;
-import com.bytequay.app.git.SequenceState.ConflictedPath.IndexStage;
 import com.bytequay.app.git.SequenceState.Kind;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -184,7 +181,7 @@ public final class GitSequencerDriver
 
         Optional<String> cherryPickHead = markerCommit(worktree, "CHERRY_PICK_HEAD");
         Set<String> openMarkers = openMarkers(worktree);
-        List<ConflictedPath> conflicts = conflicts(worktree);
+        List<ConflictedPath> conflicts = git.conflicts(worktree);
         boolean dirty = !git.run(worktree, "status", "--porcelain=v1", "--untracked-files=all")
                 .output().isBlank();
 
@@ -349,38 +346,6 @@ public final class GitSequencerDriver
                 : Optional.empty();
     }
 
-    private List<ConflictedPath> conflicts(Path worktree)
-    {
-        Result unmerged = git.run(worktree, "ls-files", "-u");
-        if (!unmerged.successful() || unmerged.output().isBlank()) {
-            return ImmutableList.of();
-        }
-        Map<String, List<IndexStage>> stages = new LinkedHashMap<>();
-        for (String line : unmerged.output().lines().collect(toImmutableList())) {
-            int tab = line.indexOf('\t');
-            if (tab < 0) {
-                continue;
-            }
-            String[] fields = line.substring(0, tab).strip().split("\\s+");
-            if (fields.length < 3) {
-                continue;
-            }
-            String path = line.substring(tab + 1);
-            stages.computeIfAbsent(path, key -> new java.util.ArrayList<>()).add(
-                    new IndexStage(Integer.parseInt(fields[2]), fields[0], fields[1]));
-        }
-        ImmutableList.Builder<ConflictedPath> conflicts = ImmutableList.builder();
-        stages.forEach((path, present) -> {
-            present.sort(java.util.Comparator.comparingInt(IndexStage::stage));
-            Set<Integer> stageNumbers = present.stream()
-                    .map(IndexStage::stage)
-                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-            String mode = present.getFirst().mode();
-            conflicts.add(new ConflictedPath(path, classify(stageNumbers, mode), present));
-        });
-        return conflicts.build();
-    }
-
     private String parent(Path worktree, String commit)
     {
         Result result = git.run(worktree, "rev-parse", commit + "^");
@@ -403,19 +368,6 @@ public final class GitSequencerDriver
     {
         Result result = git.run(worktree, "log", "-1", "--format=%B", commit);
         return result.successful() ? result.output() : "";
-    }
-
-    private static ConflictedPath.Type classify(Set<Integer> stages, String mode)
-    {
-        if ("160000".equals(mode)) {
-            return ConflictedPath.Type.SUBMODULE;
-        }
-        if (!stages.contains(1)) {
-            return ConflictedPath.Type.ADD_ADD;
-        }
-        return stages.contains(2) && stages.contains(3)
-                ? ConflictedPath.Type.CONTENT
-                : ConflictedPath.Type.MODIFY_DELETE;
     }
 
     private static SequenceState unsafe(String head, String diagnostics)

@@ -317,7 +317,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
           aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => toggle('assignees')}>
-          <PersonIcon /> <small>Assignees</small>{visibleDetail.assignees.length > 0 ? ` ${visibleDetail.assignees.length}` : ''}
+          <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>{visibleDetail.assignees.length > 0 ? ` ${visibleDetail.assignees.length}` : ''}
         </button>
         {open === 'assignees' && <PeoplePicker detail={visibleDetail} kind="assignees" loading={loading}
           query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
@@ -764,7 +764,7 @@ function CommitEvent({ activity }: { activity: Activity }) {
   const { payload } = activity;
   return (
     <div className="pr-commit-event">
-      <span aria-hidden="true"><CommitIcon /></span>
+      <span aria-hidden="true"><GitCommitHorizontal size={14} aria-hidden="true" /></span>
       <div>
         {payload.commitMessage?.split('\n')[0] ?? 'Committed'}
         {payload.commitSha && <code>{payload.commitSha.slice(0, 7)}</code>}
@@ -993,7 +993,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
           <span className="pr-thread-chevron" aria-hidden="true">›</span>
           <code>{threadLocation(payload.path, targetLine, payload.side,
             payload.line === null ? payload.originalStartLine : payload.startLine)}</code>
-          <span className="pr-thread-row__resolved"><ResolvedIcon /> Resolved</span>
+          <span className="pr-thread-row__resolved"><CircleCheck size={14} aria-hidden="true" /> Resolved</span>
         </summary>
         <div className="pr-thread-row__comments">
           {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
@@ -1109,7 +1109,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
   if (LABEL_EVENT_TYPES.has(activity.eventType)) {
     return (
       <div className="pr-event pr-label-event">
-        <span className="pr-label-event__marker" aria-hidden="true"><TagIcon /></span>
+        <span className="pr-label-event__marker" aria-hidden="true"><Tag size={15} strokeWidth={1.4} aria-hidden="true" /></span>
         <div className="pr-label-event__content">
           <span className="pr-label-event__actor">
             <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
@@ -1231,15 +1231,15 @@ function CardActionsMenu({ actions }: { actions: CardActions }) {
   return (
     <div ref={root} className={`pr-card-actions${open ? ' is-open' : ''}`}>
       <button type="button" className="pr-card-actions__trigger" aria-label="More actions"
-        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}><KebabIcon /></button>
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(value => !value)}><Ellipsis size={18} aria-hidden="true" /></button>
       <div className="pr-card-actions__menu" role="menu" aria-label="Comment actions">
         {actions.onEdit && <button type="button" role="menuitem" onClick={() => {
           actions.onEdit?.();
           setOpen(false);
-        }}><EditIcon />Edit description</button>}
-        <button type="button" role="menuitem" onClick={() => { void copy(actions.link); }}><LinkIcon />Copy link</button>
+        }}><Pencil size={16} strokeWidth={1.4} aria-hidden="true" />Edit description</button>}
+        <button type="button" role="menuitem" onClick={() => { void copy(actions.link); }}><Link size={16} strokeWidth={1.4} aria-hidden="true" />Copy link</button>
         <button type="button" role="menuitem" onClick={() => { void copy(actions.markdown); }}><CopyIcon />Copy Markdown</button>
-        <button type="button" role="menuitem" onClick={() => { actions.onQuote(); setOpen(false); }}><QuoteIcon />Quote reply</button>
+        <button type="button" role="menuitem" onClick={() => { actions.onQuote(); setOpen(false); }}><Quote size={16} strokeWidth={1.4} aria-hidden="true" />Quote reply</button>
       </div>
     </div>
   );
@@ -1884,7 +1884,7 @@ function ReactionPicker({ action, compact = false }: { action: ReactionAction; c
       data-reaction-target={action.target} data-reaction-comment-id={action.commentId ?? undefined}>
       <button type="button" className="pr-reaction-picker__trigger" aria-label="Add reaction" title="Add reaction"
         aria-expanded={open} aria-haspopup="menu" aria-controls={menuId} disabled={action.saving}
-        onClick={() => setOpen(value => !value)}><ReactionMenuIcon /></button>
+        onClick={() => setOpen(value => !value)}><SmilePlus size={16} strokeWidth={1.3} aria-hidden="true" /></button>
       <div className="pr-reaction-picker__menu" id={menuId} role="menu" aria-label="Choose a reaction" aria-busy={action.saving}>
         {REACTION_CHOICES.map(([content, emoji, label]) => (
           <button type="button" role="menuitemcheckbox" disabled={action.saving}
@@ -1951,10 +1951,6 @@ function CopyIcon() {
   return <Copy size={16} strokeWidth={1.5} aria-hidden="true" />;
 }
 
-function EditIcon() {
-  return <Pencil size={16} strokeWidth={1.4} aria-hidden="true" />;
-}
-
 export function CopyLinkButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<number | null>(null);
@@ -1980,42 +1976,10 @@ export function CopyLinkButton({ value, label }: { value: string; label: string 
   );
 }
 
-function PersonIcon() {
-  return <User size={15} strokeWidth={1.4} aria-hidden="true" />;
-}
-
-function ResolvedIcon() {
-  return <CircleCheck size={14} aria-hidden="true" />;
-}
-
-function CommitIcon() {
-  return <GitCommitHorizontal size={14} aria-hidden="true" />;
-}
-
-function TagIcon() {
-  return <Tag size={15} strokeWidth={1.4} aria-hidden="true" />;
-}
-
 function ReviewIcon() {
   return <Eye size={15} strokeWidth={1.4} aria-hidden="true" />;
 }
 
-function ReactionMenuIcon() {
-  return <SmilePlus size={16} strokeWidth={1.3} aria-hidden="true" />;
-}
-
-function KebabIcon() {
-  return <Ellipsis size={18} aria-hidden="true" />;
-}
-
 function CheckIcon({ size = 12 }: { size?: number }) {
   return <Check size={size} strokeWidth={2} aria-hidden="true" />;
-}
-
-function QuoteIcon() {
-  return <Quote size={16} strokeWidth={1.4} aria-hidden="true" />;
-}
-
-function LinkIcon() {
-  return <Link size={16} strokeWidth={1.4} aria-hidden="true" />;
 }

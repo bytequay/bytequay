@@ -24,20 +24,20 @@ type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
-  { page: 'recent', label: 'Recent', icon: <RecentIcon /> },
+  { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 const APP_NAV_ITEMS: NavItem[] = [
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
-  { page: 'workspaces', label: 'Workspaces', icon: <WorkspacesIcon /> },
+  { page: 'workspaces', label: 'Workspaces', icon: <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
   { tab: 'home', label: 'Workspace home', icon: <HomeIcon /> },
-  { tab: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
+  { tab: 'tasks', label: 'Tasks', icon: <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
-  { tab: 'issues', label: 'Issues', icon: <IssuesIcon /> },
-  { tab: 'commits', label: 'Commits', icon: <CommitsIcon /> },
+  { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 export default function AppSidebar({
@@ -129,7 +129,7 @@ export default function AppSidebar({
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={() => setCollapsed(value => !value)}
         >
-          <PanelIcon />
+          <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />
         </button>
         <div className="app-sidebar__spacer" />
         {!collapsed && historyControls}
@@ -210,34 +210,10 @@ function HomeIcon() {
   return <House size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
-function RecentIcon() {
-  return <History size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
 function PullsIcon() {
   return <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />;
 }
 
-function WorkspacesIcon() {
-  return <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
-function TasksIcon() {
-  return <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
-function IssuesIcon() {
-  return <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
-function CommitsIcon() {
-  return <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
 function SettingsIcon() {
   return <Settings size={16} strokeWidth={1.7} aria-hidden="true" />;
-}
-
-function PanelIcon() {
-  return <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />;
 }

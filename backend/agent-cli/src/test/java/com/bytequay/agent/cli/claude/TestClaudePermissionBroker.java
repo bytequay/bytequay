@@ -109,13 +109,13 @@ class TestClaudePermissionBroker
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory");
-        ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerCodeGraph(
+        ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
                 "task-3",
                 temporaryDirectory,
                 AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()),
-                new CodeGraphBridge(query -> "graph for " + query, "use the graph"));
+                Optional.of(new CodeGraphBridge(query -> "graph for " + query, "use the graph"))).orElseThrow();
         assertThat(registration.endpoint()).isEqualTo(URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"));
 
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""

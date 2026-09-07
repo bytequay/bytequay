@@ -176,28 +176,6 @@ public final class ClaudePermissionBroker
     }
 
     /**
-     * Registers a task that only needs the CodeGraph tool, for a provider that reaches this endpoint
-     * through its own MCP configuration. The returned token authenticates that one task; the
-     * permission tools stay hidden from it.
-     */
-    public CodeGraphRegistration registerCodeGraph(
-            String taskId,
-            Path worktree,
-            AgentPermissionPolicy permissionPolicy,
-            AgentApprovalHandler approvals,
-            SecretRedactor redactor,
-            CodeGraphBridge codeGraph)
-    {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(worktree, "worktree is null");
-        requireNonNull(permissionPolicy, "permissionPolicy is null");
-        requireNonNull(approvals, "approvals is null");
-        requireNonNull(redactor, "redactor is null");
-        requireNonNull(codeGraph, "codeGraph is null");
-        return registerTools(taskId, worktree, permissionPolicy, approvals, redactor, Optional.of(codeGraph)).orElseThrow();
-    }
-
-    /**
      * Registers a token for a provider that reaches this endpoint through its own MCP
      * configuration, exposing the CodeGraph tool and the task's review capability when it has
      * one. Empty when the task has neither, so an ordinary task keeps an empty MCP map.

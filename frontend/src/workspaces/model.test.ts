@@ -21,7 +21,6 @@ import {
   workspaceIssueRoute,
   workspaceLocationFromRoute,
   workspaceMetadataState,
-  workspacePhaseLabel,
   workspacePullRequestRoute,
   workspaceAgentTaskRoute,
   workspaceRoute,
@@ -29,15 +28,6 @@ import {
 } from './model';
 
 describe('workspace model', () => {
-  it('uses one status rule for every workspace list', () => {
-    const workspace = dto('DIRECT');
-    expect(workspacePhaseLabel(workspace)).toBe('Preparing');
-    expect(workspacePhaseLabel({
-      ...workspace,
-      lastCodeSyncAt: '2026-08-21T00:00:00Z',
-    })).toBe('Ready');
-  });
-
   it('walks a new workspace from queued through cloning to ready', () => {
     const queued = dto('DIRECT');
     const cloning = { ...queued, lastMetadataSyncAt: '2026-08-21T00:00:00Z' };

@@ -1103,7 +1103,7 @@ export function PullDetailHeader({
             type="button"
             aria-pressed={tab === 'changes'}
             onClick={() => onTab('changes')}>
-            <ChangesIcon /> Changes
+            <Diff size={14} strokeWidth={1.8} aria-hidden="true" /> Changes
             <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
             <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
           </button>
@@ -1581,8 +1581,4 @@ export function PaneIcon() {
 
 export function CommentIcon() {
   return <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function ChangesIcon() {
-  return <Diff size={14} strokeWidth={1.8} aria-hidden="true" />;
 }

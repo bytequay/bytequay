@@ -613,7 +613,7 @@ export function IssueOverview({
         <div className="pr-meta__picker">
           <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
             aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => togglePicker('assignees')}>
-            <PersonIcon /> <small>Assignees</small>{issue.assignees.length > 0 ? ` ${issue.assignees.length}` : ''}
+            <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>{issue.assignees.length > 0 ? ` ${issue.assignees.length}` : ''}
           </button>
           {open === 'assignees' && <MetadataPicker ariaLabel="assignees" placeholder="Search users..."
             query={query} setQuery={setQuery} options={assigneeOptions} loading={loadingOptions} updating={updating}
@@ -813,8 +813,4 @@ function labelColor(color?: string | null) {
 
 function IssueIcon() {
   return <CircleDot size={16} strokeWidth={1.6} aria-hidden="true" />;
-}
-
-function PersonIcon() {
-  return <User size={15} strokeWidth={1.4} aria-hidden="true" />;
 }

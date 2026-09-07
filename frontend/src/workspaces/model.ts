@@ -14,28 +14,8 @@
 
 import type { WorkspaceDto } from '../types';
 
-export type WorkspacePhase = 'preparing' | 'ready';
-
 export type WorkspaceTab =
   | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'settings';
-
-export function workspacePhase(workspace: WorkspaceDto): WorkspacePhase {
-  return workspaceHasReadableCode(workspace) ? 'ready' : 'preparing';
-}
-
-export function workspacePhaseLabel(workspace: WorkspaceDto): string {
-  return {
-    preparing: 'Preparing',
-    ready: 'Ready',
-  }[workspacePhase(workspace)];
-}
-
-export function workspacePhaseColor(workspace: WorkspaceDto): string {
-  return {
-    preparing: '#9a6700',
-    ready: '#1a7f37',
-  }[workspacePhase(workspace)];
-}
 
 export function workspaceIsUpdating(workspace: WorkspaceDto): boolean {
   return !workspaceHasReadableCode(workspace);

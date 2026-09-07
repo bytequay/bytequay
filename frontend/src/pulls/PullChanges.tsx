@@ -275,7 +275,7 @@ export function DiffViewer({
           aria-controls={fileTreeId}
           title={`${treeOpen ? 'Hide' : 'Show'} changed files`}
         >
-          <PanelIcon />
+          <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />
           <span>{files.length} changed {files.length === 1 ? 'file' : 'files'}</span>
         </button>
         {onCommitRangeChange && (
@@ -434,8 +434,8 @@ function FileTreeItems({ items, selected, onPick, depth = 0 }: {
         <li className="pull-file-tree__folder" key={`directory:${item.path}`}>
           <details open>
             <summary title={item.path} aria-label={item.path} style={rowStyle}>
-              <ChevronIcon />
-              <FolderIcon />
+              <ChevronRight className="pull-file-tree__chevron" size={12} strokeWidth={1.8} aria-hidden="true" />
+              <Folder className="pull-file-tree__folder-icon" size={16} aria-hidden="true" />
               <span className="pull-file-tree__label">{item.name}</span>
             </summary>
             <FileTreeItems items={item.children} selected={selected} onPick={onPick} depth={depth + 1} />
@@ -459,7 +459,7 @@ function FileTreeItems({ items, selected, onPick, depth = 0 }: {
             style={rowStyle}
           >
             <span className="pull-file-tree__spacer" aria-hidden="true" />
-            <FileDiffIcon kind={fileStatusBadge(item.file.status).kind} />
+            <FileDiff className={`pull-file-tree__file-icon is-${fileStatusBadge(item.file.status).kind}`} size={16} strokeWidth={1.5} aria-hidden="true" />
             <span className="pull-file-tree__label">{item.name}</span>
           </button>
         </li>
@@ -505,7 +505,7 @@ function CommitPicker({ commits, range, onChange }: {
   return (
     <details className="pull-commit-picker" ref={pickerRef}>
       <summary aria-label={`Choose commits, ${selectedCount} selected`}>
-        <CommitPickerIcon />
+        <GitCommitHorizontal size={16} strokeWidth={1.5} aria-hidden="true" />
         <span>Commits</span>
         <span>{selectedCount}</span>
       </summary>
@@ -523,7 +523,7 @@ function CommitPicker({ commits, range, onChange }: {
           }}
         >
           <span className="pull-commit-picker__check" aria-hidden="true">
-            {range === null && <CheckIcon />}
+            {range === null && <Check size={16} strokeWidth={1.8} aria-hidden="true" />}
           </span>
           <span>All commits</span>
           <span>{commits.length} {commits.length === 1 ? 'commit' : 'commits'}</span>
@@ -1329,30 +1329,6 @@ function changeBlocks(additions: number, deletions: number): Array<'add' | 'del'
   if (total === 0) return Array.from({ length: 5 }, () => 'empty');
   const added = Math.round((additions / total) * 5);
   return Array.from({ length: 5 }, (_, index) => index < added ? 'add' : 'del');
-}
-
-function ChevronIcon() {
-  return <ChevronRight className="pull-file-tree__chevron" size={12} strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function FolderIcon() {
-  return <Folder className="pull-file-tree__folder-icon" size={16} aria-hidden="true" />;
-}
-
-function FileDiffIcon({ kind }: { kind: string }) {
-  return <FileDiff className={`pull-file-tree__file-icon is-${kind}`} size={16} strokeWidth={1.5} aria-hidden="true" />;
-}
-
-function PanelIcon() {
-  return <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />;
-}
-
-function CommitPickerIcon() {
-  return <GitCommitHorizontal size={16} strokeWidth={1.5} aria-hidden="true" />;
-}
-
-function CheckIcon() {
-  return <Check size={16} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 /** Normalizes both git letter statuses (M/A/D/R) and GitHub word statuses

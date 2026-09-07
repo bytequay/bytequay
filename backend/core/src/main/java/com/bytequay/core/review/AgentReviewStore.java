@@ -1,0 +1,65 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.core.review;
+
+import java.util.List;
+import java.util.Optional;
+
+/** Durable storage for reviews and everything they own; product data, independent of task runtime logs. */
+public interface AgentReviewStore
+{
+    AgentReview insertReview(AgentReview review);
+
+    /** Optimistic update: the stored version must match the given one, and the returned review carries the next version. */
+    AgentReview updateReview(AgentReview review);
+
+    Optional<AgentReview> findReview(String reviewId);
+
+    Optional<AgentReview> findOpenReview(String workspaceId, String repo, int number);
+
+    Optional<AgentReview> findReviewByTask(String taskId);
+
+    List<AgentReview> listOpenReviews();
+
+    ReviewRun insertRun(ReviewRun run);
+
+    ReviewRun updateRun(ReviewRun run);
+
+    /** Commits a run's acceptance and the review's successful-head cursor together. */
+    void acceptRun(AgentReview review, ReviewRun run);
+
+    /** Writes a finding and the run that records the operation replaying it in one transaction. */
+    ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run);
+
+    /** Writes a message and the run that records the operation replaying it in one transaction. */
+    ReviewMessage insertMessage(ReviewMessage message, ReviewRun run);
+
+    Optional<ReviewRun> findRun(String runId);
+
+    List<ReviewRun> listRuns(String reviewId);
+
+    ReviewFinding insertFinding(ReviewFinding finding);
+
+    ReviewFinding updateFinding(ReviewFinding finding);
+
+    Optional<ReviewFinding> findFinding(String findingId);
+
+    List<ReviewFinding> listFindings(String reviewId);
+
+    ReviewMessage insertMessage(ReviewMessage message);
+
+    ReviewMessage updateMessage(ReviewMessage message);
+
+    List<ReviewMessage> listMessages(String reviewId);
+}

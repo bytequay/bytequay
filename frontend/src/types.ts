@@ -13,6 +13,14 @@
  */
 
 import { AgentEventEnvelope } from './agents/events';
+import type {
+  AgentReviewDto,
+  ReviewDraftDto,
+  ReviewEvent,
+  ReviewIneligibleDto,
+  ReviewPublishResultDto,
+  ReviewSide,
+} from './pulls/agent-review/contracts';
 
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -1464,6 +1472,86 @@ export type Bridge = {
   pasteAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
   readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
   removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
+  /** The open Agent review of a pull request, or null when it has none. */
+  findAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto | null>;
+  /** Starts a private review, or returns the open one: one review per workspace and pull request. */
+  startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
+  getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  resumeAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  /** Refreshes the pull request now and follows its head. */
+  updateAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  /** Completes the task, closes the review, then cleans the worktree. */
+  endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  /** A private question on the summary or one finding; it queues visibly while the agent is busy. */
+  askAgentReview: (
+    reviewId: string,
+    findingId: string | null,
+    targetRevision: number,
+    message: string,
+  ) => Promise<AgentReviewDto>;
+  /** A free-form message to the review agent: a turn, a steer into the running turn, or the queue. */
+  messageAgentReview: (
+    reviewId: string,
+    message: string,
+    delivery: 'TURN' | 'STEER' | 'QUEUE',
+    idempotencyKey: string,
+  ) => Promise<AgentReviewDto>;
+  removeAgentReviewQueued: (reviewId: string, queuedInputId: string) => Promise<AgentReviewDto>;
+  resolveAgentReviewFinding: (
+    reviewId: string,
+    findingId: string,
+    expectedVersion: number,
+    reason: string,
+  ) => Promise<AgentReviewDto>;
+  reopenAgentReviewFinding: (reviewId: string, findingId: string, expectedVersion: number) => Promise<AgentReviewDto>;
+  readAgentReviewEvents: (reviewId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
+  readAgentReviewHistory: (reviewId: string, taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
+  readAgentReviewApprovals: (reviewId: string, taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
+  resolveAgentReviewApproval: (
+    reviewId: string,
+    approvalId: string,
+    decision: AgentApprovalDecision,
+  ) => Promise<AgentApprovalDto>;
+  /** Streams the review task's events; the returned function stops the subscription. */
+  subscribeAgentReview: (
+    reviewId: string,
+    after: number,
+    listener: (message: AgentStreamMessage) => void,
+    statusOnly?: boolean,
+  ) => Promise<() => void>;
+
+  /** The user's local pending review for one pull request; it exists without any agent review. */
+  fetchReviewDraft: (repo: string, number: number) => Promise<ReviewDraftDto>;
+  addReviewDraftComment: (
+    repo: string,
+    number: number,
+    expectedVersion: number,
+    comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string },
+  ) => Promise<ReviewDraftDto>;
+  addReviewDraftFinding: (
+    repo: string,
+    number: number,
+    expectedVersion: number,
+    reviewId: string,
+    findingId: string,
+  ) => Promise<ReviewDraftDto>;
+  editReviewDraftComment: (
+    repo: string,
+    number: number,
+    expectedVersion: number,
+    itemId: string,
+    body: string,
+    included: boolean,
+  ) => Promise<ReviewDraftDto>;
+  removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
+  saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
+  /** Publishes one previewed comment; the backend revalidates the head and payload first. */
+  publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewPublishResultDto>;
+  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewPublishResultDto>;
+  /** Why each pending comment cannot be sent right now; an eligible one is absent. */
+  fetchReviewDraftIneligible: (repo: string, number: number) => Promise<ReviewIneligibleDto[]>;
+
   /** Streams one task's events; the returned function stops the subscription. */
   subscribeAgentTask: (
     taskId: string,

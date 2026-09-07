@@ -18,6 +18,7 @@ import {
   agentTaskReducer,
   initialAgentTaskState,
   pollAgentTask,
+  startAgentConversationSession,
   startAgentTaskSession,
   type AgentTaskAction,
   type AgentTaskState,
@@ -74,6 +75,41 @@ describe('a task window', () => {
     expect(names(bridge.commands)).toEqual(['getAgentTask', 'readAgentHistory']);
     expect(state.events).toHaveLength(14);
     expect(state.historyPages).toHaveLength(1);
+  });
+});
+
+describe('a workflow-owned conversation', () => {
+  it('uses the same bounded history and status stream without reading an interactive task', async () => {
+    vi.useFakeTimers();
+    let stop = (): void => {};
+    try {
+      const preview = createPreviewBridge('workspace-1');
+      const initial: AgentHistoryPageDto = { events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 };
+      const latest = { ...initial, events: preview.events, latestSequence: preview.events.at(-1)?.sequence ?? 0 };
+      const readAgentHistory = vi.fn().mockResolvedValueOnce(initial).mockResolvedValue(latest);
+      let notify: (message: AgentStreamMessage) => void = () => { throw new Error('subscription not open'); };
+      const subscribeAgentTask = vi.fn(async (_taskId: string, _after: number, listener: typeof notify, statusOnly?: boolean) => {
+        expect(statusOnly).toBe(true);
+        notify = listener;
+        return (): void => {};
+      });
+      let state = initialAgentTaskState();
+      const changes: AgentTaskAction[] = [];
+      stop = await startAgentConversationSession({ readAgentHistory, subscribeAgentTask }, 'task-1', action => {
+        state = agentTaskReducer(state, action);
+        if (action.type === 'live/changed') changes.push(action);
+      });
+      notify({ kind: 'changed', subscriptionId: 'review-stream', taskId: 'task-1', sequence: latest.latestSequence, turnId: 'turn-1' });
+      expect(changes).toEqual([{ type: 'live/changed', sequence: latest.latestSequence, turnId: 'turn-1' }]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(state.events).toEqual(preview.events);
+      expect(state.historyPages).toHaveLength(1);
+      expect(readAgentHistory).toHaveBeenCalledTimes(2);
+    }
+    finally {
+      stop();
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -43,6 +43,8 @@ export class AgentSubscriptions {
   constructor(
     /** Opens a task's stream from an exclusive sequence cursor. */
     private readonly request: (taskId: string, after: number, signal: AbortSignal) => Promise<Response>,
+    /** The IPC channel pushes land on, so two stream kinds never share one renderer listener. */
+    private readonly channel = 'agent:stream:message',
   ) {}
 
   start(sender: StreamSender, taskId: string, after: number, statusOnly = false): string {
@@ -62,7 +64,7 @@ export class AgentSubscriptions {
       if (sender.isDestroyed() || !this.subscriptions.has(subscriptionId)) {
         return;
       }
-      sender.send('agent:stream:message', { subscriptionId, taskId, ...message });
+      sender.send(this.channel, { subscriptionId, taskId, ...message });
     };
     let changed: { kind: 'changed'; sequence: number; turnId: string | null } | null = null;
     let flushTimer: ReturnType<typeof setTimeout> | null = null;

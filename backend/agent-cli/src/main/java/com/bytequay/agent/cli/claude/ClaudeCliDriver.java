@@ -396,6 +396,10 @@ public final class ClaudeCliDriver
                     "--disable-slash-commands",
                     "--no-session-persistence");
         }
+        else if (registration.review().isPresent()) {
+            // Keep new provider workflow/delegation tools out of root-only review sessions.
+            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop");
+        }
         if (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX) {
             allowedTools.add("mcp__bytequay__read_ci_memory");
         }
@@ -412,10 +416,10 @@ public final class ClaudeCliDriver
                     .map(ClaudeCliDriver::absoluteReadRule)
                     .iterator());
         }
-        codeGraph.ifPresent(bridge -> {
-            argv.add("--append-system-prompt", bridge.instruction());
-            allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME);
-        });
+        codeGraph.ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME));
+        registration.review().ifPresent(bridge -> bridge.tools()
+                .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
+        registration.instruction().ifPresent(instruction -> argv.add("--append-system-prompt", instruction));
         List<String> allowed = allowedTools.build();
         if (!allowed.isEmpty()) {
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));

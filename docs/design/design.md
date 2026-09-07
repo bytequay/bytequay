@@ -34,6 +34,11 @@ historical checkpoint evidence and explicitly deferred future work.
   steering, queue, Electron transport, and incremental delivery sequence. The
   linked document records commit `84af81c73cea7ae2cf7a53681827f550c598b706`
   as the approved static visual and state prototype.
+- [Agent Review](agent-review.md) locks the initial PR-owned review design:
+  a sibling PR-pane tab, reused agent tasks and PR cards, private discussions,
+  evidence-backed local findings, incremental review, and explicit user
+  publication. Its [implementation checklist](agent-review-impl-tmp.md)
+  records delivery gates; the design is not a claim of implementation.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
@@ -80,9 +85,10 @@ repository builds.
   ByteQuay responsible for product state, cross-provider events, and UI.
 - Start with the App Server's native harness, tools, approvals, and event
   stream. ByteQuay-defined model tools and workflow actions require a separate
-  later design. The CodeGraph service is the narrow exception for one
-  fixed, optional structural-exploration tool; it is not a product-action or
-  general tool framework.
+  later design. CodeGraph defines one fixed, optional structural-exploration
+  tool. Agent Review separately authorizes its fixed context/local-reporting
+  tools for review-owned tasks, subject to its implementation gates. Neither
+  creates a general tool framework or model-callable GitHub publisher.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
 

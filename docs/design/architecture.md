@@ -530,6 +530,14 @@ The detailed backend contract is in
 - Current Checkstyle, license, unit, SQLite integration, and Spring context
   checks run from the backend reactor.
 
+The separately locked [Agent Review](agent-review.md) design extends this
+implemented baseline only for review-owned task context reads and local
+review reporting. Its delivery is tracked separately. Review orchestration
+stays in `app`, durable review values/ports in `core`, and SQLite adapters in
+`persistence-sqlite`; execution remains in the existing agent modules. No
+new module, general product-tool framework, or model-callable GitHub write
+is authorized by that extension.
+
 ## 8. Extraction sequence
 
 The initial module extraction was completed in this order. Future structural

@@ -43,6 +43,7 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -248,6 +249,15 @@ public final class CodexCliDriver
      * @param workingDirectory directory the process runs in, which is also its sandbox root
      * @return the connection, which the caller must start and close
      */
+    /**
+     * Review tools are root-only by launch profile: without a proved per-caller identity on the
+     * shared token, a review session runs with no child agents at all.
+     */
+    static CodexLaunchProfile.ChildProfile childProfile(CodexLaunchProfile.ChildProfile configured, boolean textOnly, boolean review)
+    {
+        return textOnly || review ? CodexLaunchProfile.ChildProfile.NONE : configured;
+    }
+
     private CodexAppServerClient appServerClient(
             String ownerId,
             Path workingDirectory,
@@ -463,20 +473,19 @@ public final class CodexCliDriver
         // App Server's default environment confines a turn's writes to its own working directory,
         // which is why a task needs no separately registered execution environment.
         ModelProfile modelProfile = modelCatalog().select(context.model());
-        CodexLaunchProfile.ChildProfile childProfile = context.textOnly()
-                ? CodexLaunchProfile.ChildProfile.NONE
-                : modelProfile.childProfile();
-        // A code-graph token lives exactly as long as this session; the App Server reaches the
+        // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.codeGraph().map(bridge -> permissions.registerCodeGraph(
-                context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, bridge));
+        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = permissions.registerTools(
+                context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
+        boolean review = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent();
+        CodexLaunchProfile.ChildProfile childProfile = childProfile(modelProfile.childProfile(), context.textOnly(), review);
         CodexAppServerClient client;
         try {
             client = appServerClient(
                     context.taskId(),
                     context.worktree(),
                     childProfile,
-                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), context.codeGraph().orElseThrow().instruction())),
+                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
                     codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token),
                     context.textOnly());
         }
@@ -1839,6 +1848,17 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 String rawCommand = command.orElseThrow();
+                if (codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent()
+                        && ReviewBridge.deniedReason(rawCommand).isPresent()) {
+                    // A review session's remote-write guard answers before any card exists.
+                    try {
+                        return CompletableFuture.completedFuture(
+                                approvalResponse(serverRequest, ProviderApprovalDecision.deny(), expectedTurn));
+                    }
+                    catch (AgentUnavailableException failure) {
+                        return CompletableFuture.failedFuture(failure);
+                    }
+                }
                 detail = redactor.redact(rawCommand);
                 itemId = approval.params().itemId();
                 taskScope = Optional.of(TaskAllowScope.of(detail));

@@ -33,6 +33,12 @@ import {
   parseModelSettings,
 } from './agents/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
+import {
+  parseAgentReview,
+  parseReviewDraft,
+  parseReviewIneligible,
+  parseReviewPublishResult,
+} from './pulls/agent-review/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
@@ -424,6 +430,15 @@ function agentHeaders(json = false): Record<string, string> {
   return headers;
 }
 
+const reviewSubscriptions = new AgentSubscriptions(
+  (reviewId, after, signal) => fetch(
+    `${BACKEND_BASE}/api/agent-review/${encodeURIComponent(reviewId)}/stream`
+      + `?${new URLSearchParams({ after: String(after) })}`,
+    { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
+  ),
+  'review:stream:message',
+);
+
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
   `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/stream`
     + `?${new URLSearchParams({ after: String(after) })}`,
@@ -770,6 +785,123 @@ function registerIpc(): void {
   ipcMain.handle('agent:stream:unsubscribe', (_event, subscriptionId: string) => {
     agentSubscriptions.stop(subscriptionId);
   });
+
+  const reviewUrl = (path: string, query: Record<string, string> = {}): string => {
+    const url = new URL(`${BACKEND_BASE}/api/agent-review${path}`);
+    Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
+    return url.toString();
+  };
+  const review = (path: string, query: Record<string, string> = {}, init?: RequestInit) =>
+    backendJson(reviewUrl(path, query), { headers: agentHeaders(init?.body !== undefined), ...init })
+      .then(parseAgentReview);
+  const draft = (path: string, query: Record<string, string> = {}, init?: RequestInit) =>
+    backendJson(reviewUrl(path, query), { headers: agentHeaders(init?.body !== undefined), ...init })
+      .then(parseReviewDraft);
+
+  ipcMain.handle('review:find', async (_event, workspaceId: string, repo: string, number: number) => {
+    const response = await fetch(reviewUrl('', { workspaceId, repo, number: String(number) }), { headers: agentHeaders() });
+    if (response.status === 204) return null;
+    if (!response.ok) throw new Error(extractMessage(await response.text().catch(() => '')) || `Review lookup returned ${response.status}`);
+    return parseAgentReview(await response.json());
+  });
+  ipcMain.handle('review:start', (_event, workspaceId: string, repo: string, number: number) =>
+    review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }) }));
+  ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
+  ipcMain.handle('review:stop', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/stop`, {}, { method: 'POST' }));
+  ipcMain.handle('review:resume', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST' }));
+  ipcMain.handle('review:update', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST' }));
+  ipcMain.handle('review:end', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' }));
+  ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string) =>
+    review(`/${encodeURIComponent(reviewId)}/questions`, {}, {
+      method: 'POST',
+      body: JSON.stringify({ findingId, targetRevision, message }),
+    }));
+  ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string) =>
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`), {
+      method: 'POST',
+      headers: { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey },
+      body: JSON.stringify({ message, delivery }),
+    }).then(parseAgentReview));
+  ipcMain.handle('review:queue:remove', (_event, reviewId: string, queuedInputId: string) =>
+    review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}`, {}, { method: 'DELETE' }));
+  ipcMain.handle('review:finding:resolve', (_event, reviewId: string, findingId: string, expectedVersion: number, reason: string) =>
+    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/resolve`, {}, {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion, reason }),
+    }));
+  ipcMain.handle('review:finding:reopen', (_event, reviewId: string, findingId: string, expectedVersion: number) =>
+    review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/reopen`, {}, {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion }),
+    }));
+  ipcMain.handle('review:events:read', async (_event, reviewId: string, after?: number, limit?: number) => {
+    const query: Record<string, string> = {};
+    if (after !== undefined) query.after = String(after);
+    if (limit !== undefined) query.limit = String(limit);
+    const page = await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/events`, query), { headers: agentHeaders() });
+    return parseAgentEventSequence(page, after ?? 0);
+  });
+  ipcMain.handle('review:history:read', async (_event, reviewId: string, taskId: string, before?: string, after?: string) => {
+    const query: Record<string, string> = {};
+    if (before !== undefined) query.before = String(before);
+    if (after !== undefined) query.after = String(after);
+    const page = await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/history`, query), { headers: agentHeaders() });
+    return parseAgentHistoryPage(page, taskId);
+  });
+  ipcMain.handle('review:approvals:pending', async (_event, reviewId: string, taskId: string, turnId: string) => {
+    const approvals = await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/pending-approvals`), { headers: agentHeaders() });
+    return parseAgentPendingApprovals(approvals, taskId, turnId);
+  });
+  ipcMain.handle('review:approvals:resolve', (_event, reviewId: string, approvalId: string, decision: string) =>
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/approvals/${encodeURIComponent(approvalId)}`), {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ decision }),
+    }).then(parseAgentApproval));
+  ipcMain.handle('review:stream:subscribe', (event, reviewId: string, after: number, statusOnly?: boolean) =>
+    reviewSubscriptions.start(event.sender, reviewId, after, statusOnly === true));
+  ipcMain.handle('review:stream:unsubscribe', (_event, subscriptionId: string) => {
+    reviewSubscriptions.stop(subscriptionId);
+  });
+
+  ipcMain.handle('review:draft:get', (_event, repo: string, number: number) =>
+    draft('/drafts', { repo, number: String(number) }));
+  ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown) =>
+    draft('/drafts/items', { repo, number: String(number) }, {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion, ...(comment as Record<string, unknown>) }),
+    }));
+  ipcMain.handle('review:draft:add-finding', (_event, repo: string, number: number, expectedVersion: number, reviewId: string, findingId: string) =>
+    draft('/drafts/findings', { repo, number: String(number) }, {
+      method: 'POST',
+      body: JSON.stringify({ expectedVersion, reviewId, findingId }),
+    }));
+  ipcMain.handle('review:draft:edit', (_event, repo: string, number: number, expectedVersion: number, itemId: string, body: string, included: boolean) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number) }, {
+      method: 'PUT',
+      body: JSON.stringify({ expectedVersion, body, included }),
+    }));
+  ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
+  ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
+    draft('/drafts/review', { repo, number: String(number) }, {
+      method: 'PUT',
+      body: JSON.stringify({ expectedVersion, body, event }),
+    }));
+  ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
+    backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), expectedVersion: String(expectedVersion) }), {
+      method: 'POST',
+      headers: agentHeaders(),
+    }).then(parseReviewPublishResult));
+  ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
+    backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }), {
+      method: 'POST',
+      headers: agentHeaders(true),
+      body: JSON.stringify({ expectedVersion, body, event }),
+    }).then(parseReviewPublishResult));
+  ipcMain.handle('review:draft:ineligible', (_event, repo: string, number: number) =>
+    backendJson(reviewUrl('/drafts/ineligible', { repo, number: String(number) }), { headers: agentHeaders() })
+      .then(parseReviewIneligible));
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${BACKEND_BASE}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },

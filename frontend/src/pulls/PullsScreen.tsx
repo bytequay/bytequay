@@ -16,7 +16,10 @@ import { Check, Diff, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw }
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto } from '../types';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto, UserProfileDto } from '../types';
+import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
+import type { AgentReviewDto } from './agent-review/contracts';
+import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
@@ -35,7 +38,7 @@ import {
 } from './model';
 import '../css/pulls.css';
 
-type DetailTab = 'overview' | 'changes';
+type DetailTab = 'overview' | 'changes' | 'review';
 
 const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
@@ -158,6 +161,13 @@ export default function PullsScreen({
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [viewerLogin, setViewerLogin] = useState<string | null>();
+  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
+  /** The open review of the selected pull request, loaded once per selection and kept live by its tab. */
+  const [review, setReview] = useState<AgentReviewDto | null>(null);
+  /** Where Changes should scroll, set when a finding asks to be shown at its diff location. */
+  const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
+  /** A finding the Changes tab sent back to Agent review, so its card opens and scrolls. */
+  const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
@@ -211,7 +221,11 @@ export default function PullsScreen({
   useEffect(() => {
     let cancelled = false;
     void window.bridge.getUserProfile()
-      .then(profile => { if (!cancelled) setViewerLogin(profile.login); })
+      .then(profile => {
+        if (cancelled) return;
+        setViewerLogin(profile.login);
+        setViewer(profile);
+      })
       .catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
   }, []);
@@ -602,6 +616,19 @@ export default function PullsScreen({
     };
   }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
+  const workspaceId = repositoryScope?.workspaceId;
+  useEffect(() => {
+    setReview(null);
+    setReviewNavigation(null);
+    setFocusFindingId(null);
+    if (workspaceId === undefined || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
+    let cancelled = false;
+    void window.bridge.findAgentReview(workspaceId, selectedPrRepo, selectedPrNumber)
+      .then(found => { if (!cancelled) setReview(found); })
+      .catch(() => { if (!cancelled) setReview(null); });
+    return () => { cancelled = true; };
+  }, [workspaceId, selectedPrRepo, selectedPrNumber]);
+
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
     const request = ++diffRequest.current;
@@ -633,6 +660,8 @@ export default function PullsScreen({
     setDiffRange(null);
     setDiffLoading(false);
     setPendingReviewComments([]);
+    setReviewNavigation(null);
+    setFocusFindingId(null);
   };
 
   const toggleMonitor = async (row: PullRow) => {
@@ -880,6 +909,7 @@ export default function PullsScreen({
             pr={selectedPr}
             detail={detail}
             tab={detailTab}
+            review={review}
             onTab={next => {
               if (next === 'changes' && detailTab !== 'changes') recordDiffOpened();
               setDetailTab(next);
@@ -902,6 +932,24 @@ export default function PullsScreen({
               tab={detailTab}
               pr={selectedPr}
               detail={detail}
+              workspaceId={workspaceId}
+              viewer={viewer}
+              review={review}
+              reviewNavigation={reviewNavigation}
+              focusFindingId={focusFindingId}
+              onReviewChange={setReview}
+              onNavigateToChanges={target => {
+                setReviewNavigation(target);
+                setFocusFindingId(null);
+                if (detailTab !== 'changes') {
+                  recordDiffOpened();
+                  setDetailTab('changes');
+                }
+              }}
+              onOpenInReview={findingId => {
+                setFocusFindingId(findingId);
+                setDetailTab('review');
+              }}
               diffs={diffs}
               diffCommits={diffCommits}
               diffRange={diffRange}
@@ -967,6 +1015,7 @@ export function PullDetailHeader({
   pr,
   detail,
   tab,
+  review = null,
   onTab,
   onRefresh,
   onReviewSubmitted,
@@ -979,6 +1028,8 @@ export function PullDetailHeader({
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
   tab: DetailTab;
+  /** The open Agent review, when the pull request has one; its status rides on the tab. */
+  review?: AgentReviewDto | null;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
   onReviewSubmitted: (
@@ -995,7 +1046,9 @@ export function PullDetailHeader({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const canReview = canSubmitReview(pr, detail);
-  const pendingCommentCount = pendingComments.length;
+  // Promoted findings are outgoing comments too, so the count the button shows covers both.
+  const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
+  const reviewChip = review === null ? null : reviewStatus(review);
   const canMerge = detail !== null
     && detail.state?.toLowerCase() === 'open'
     && !detail.draft
@@ -1053,6 +1106,19 @@ export function PullDetailHeader({
             <ChangesIcon /> Changes
             <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
             <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
+          </button>
+          <button
+            className={tab === 'review' ? 'is-active' : ''}
+            type="button"
+            aria-pressed={tab === 'review'}
+            onClick={() => onTab('review')}>
+            <CommentIcon /> Agent review
+            {reviewChip?.chip != null && (
+              <span className={`pull-detail__review-chip is-${reviewChip.tone}`}>
+                {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}
+                {reviewChip.chip}
+              </span>
+            )}
           </button>
         </nav>
         <div className="pull-detail__header-actions">
@@ -1400,6 +1466,14 @@ function DetailBody({
   tab,
   pr,
   detail,
+  workspaceId,
+  viewer,
+  review,
+  reviewNavigation,
+  focusFindingId,
+  onReviewChange,
+  onNavigateToChanges,
+  onOpenInReview,
   diffs,
   diffCommits,
   diffRange,
@@ -1416,6 +1490,14 @@ function DetailBody({
   tab: DetailTab;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
+  workspaceId: string | undefined;
+  viewer: UserProfileDto | null;
+  review: AgentReviewDto | null;
+  reviewNavigation: ReviewNavigationTarget | null;
+  focusFindingId: string | null;
+  onReviewChange: (review: AgentReviewDto) => void;
+  onNavigateToChanges: (target: ReviewNavigationTarget) => void;
+  onOpenInReview: (findingId: string) => void;
   diffs: DiffFileDto[] | null;
   diffCommits: DiffCommitDto[];
   diffRange: CommitRange;
@@ -1429,6 +1511,17 @@ function DetailBody({
   onDiscussionPosted: (detail: PullRequestDetailDto) => void;
   onReviewPosted: (detail: PullRequestDetailDto) => void;
 }) {
+  if (tab === 'review') {
+    return <div className="pull-detail__body pull-detail__review"><AgentReviewTab
+      detail={detail}
+      workspaceId={workspaceId}
+      viewer={viewer}
+      review={review}
+      onReviewChange={onReviewChange}
+      onNavigateToChanges={onNavigateToChanges}
+      focusFindingId={focusFindingId}
+    /></div>;
+  }
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
@@ -1441,6 +1534,13 @@ function DetailBody({
       loading={diffLoading}
       canReview={canSubmitReview(pr, detail)}
       pendingComments={pendingComments}
+      agentReview={review === null ? undefined : {
+        review,
+        viewer,
+        navigation: reviewNavigation,
+        onReviewChange,
+        onOpenInReview,
+      }}
       onCommitRangeChange={onCommitRangeChange}
       reviewThreads={{
         activities: detail.recentActivity,

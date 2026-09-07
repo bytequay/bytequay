@@ -230,6 +230,16 @@ exactly one optional, fail-open structural-exploration tool,
 general tool registry. Every other business MCP, dynamic tool, and workflow
 action remains outside this contract.
 
+[Agent Review](agent-review.md) is a separately locked, not yet implemented
+extension for PR-owned tasks. It authorizes only its fixed context-read and
+local-reporting tools through the task bridge and reuses this service's
+turns, events, approvals, queue, and quiescence. Review owns its PR/run facts
+and user publication boundary. It also specifies a narrow shared worktree-sync
+claim, fixed review-session native-tool guard, and provider tool-isolation
+gates. Its implementation must preserve ordinary
+task isolation and interactive-only routes; it adds no model-callable
+GitHub write and does not make CodeGraph mandatory.
+
 SQLite stores durable task/turn lifecycle facts, provider session references,
 per-turn metrics, task totals, runtime-retention state, and the final summary. Detailed active-task
 history is an append-only JSONL file with optional blobs. Terminal task logs

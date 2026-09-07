@@ -35,11 +35,17 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-final class AgentHttpModels
+/**
+ * HTTP shapes for agent activity, shared with the review pane's own routes.
+ *
+ * <p>Public only so the sibling {@code web.review} package can render the same transcript,
+ * approval, and history shapes; this type stays internal to the application module.
+ */
+public final class AgentHttpModels
 {
     private AgentHttpModels() {}
 
-    static EventResponse event(AgentEventEnvelope envelope)
+    public static EventResponse event(AgentEventEnvelope envelope)
     {
         return new EventResponse(
                 envelope.schemaVersion(),
@@ -53,7 +59,7 @@ final class AgentHttpModels
                 envelope.payload());
     }
 
-    static ApprovalResponse approval(ApprovalDecision decision)
+    public static ApprovalResponse approval(ApprovalDecision decision)
     {
         return new ApprovalResponse(
                 decision.approvalId().toString(),
@@ -64,7 +70,7 @@ final class AgentHttpModels
                 decision.timedOut());
     }
 
-    static HistoryResponse history(AgentHistoryPage page)
+    public static HistoryResponse history(AgentHistoryPage page)
     {
         return new HistoryResponse(
                 page.events().stream().map(AgentHttpModels::event).collect(toImmutableList()),
@@ -73,7 +79,7 @@ final class AgentHttpModels
                 page.latestSequence());
     }
 
-    static PendingApprovalResponse pendingApproval(ApprovalRequest request)
+    public static PendingApprovalResponse pendingApproval(ApprovalRequest request)
     {
         ProviderApprovalRequest provider = request.providerRequest();
         ProviderAgentEventSource source = provider.source();
@@ -89,7 +95,7 @@ final class AgentHttpModels
                 provider.requestedPermissions(), provider.availableDecisions().stream().map(Enum::name).collect(toImmutableList()), true);
     }
 
-    static ProviderStatusResponse providerStatus(AgentProviderStatus status)
+    public static ProviderStatusResponse providerStatus(AgentProviderStatus status)
     {
         return new ProviderStatusResponse(
                 status.laneId().toString(),
@@ -100,7 +106,7 @@ final class AgentHttpModels
                 status.signInCommand());
     }
 
-    static CompletionResponse completion(TaskCompletion completion)
+    public static CompletionResponse completion(TaskCompletion completion)
     {
         return new CompletionResponse(
                 completion.taskId().toString(),
@@ -109,7 +115,7 @@ final class AgentHttpModels
                 completion.deleteAfter());
     }
 
-    static RuntimeStopImpactResponse stopImpact(AgentRuntimeStopImpact impact)
+    public static RuntimeStopImpactResponse stopImpact(AgentRuntimeStopImpact impact)
     {
         return new RuntimeStopImpactResponse(
                 impact.taskId().toString(),
@@ -118,7 +124,7 @@ final class AgentHttpModels
                 impact.liveProcess());
     }
 
-    static CleanupResponse cleanup(CleanupResult result)
+    public static CleanupResponse cleanup(CleanupResult result)
     {
         return new CleanupResponse(
                 result.taskId().toString(),
@@ -128,15 +134,15 @@ final class AgentHttpModels
     }
 
     /** A stored attachment's facts; the blob itself is read through its own endpoint. */
-    record AttachmentResponse(String id, String name, String mediaType, long byteSize, int width, int height) {}
+    public record AttachmentResponse(String id, String name, String mediaType, long byteSize, int width, int height) {}
 
-    static AttachmentResponse attachment(StoredAgentAttachment stored)
+    public static AttachmentResponse attachment(StoredAgentAttachment stored)
     {
         return new AttachmentResponse(
                 stored.id(), stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height());
     }
 
-    record EventResponse(
+    public record EventResponse(
             int schemaVersion,
             String eventId,
             long sequence,
@@ -147,7 +153,7 @@ final class AgentHttpModels
             String type,
             AgentEventPayload payload) {}
 
-    record ApprovalResponse(
+    public record ApprovalResponse(
             String approvalId,
             String decision,
             Optional<String> scopedPermission,
@@ -155,13 +161,13 @@ final class AgentHttpModels
             Instant resolvedAt,
             boolean timedOut) {}
 
-    record HistoryResponse(List<EventResponse> events, Optional<String> beforeCursor, Optional<String> afterCursor, long latestSequence) {}
+    public record HistoryResponse(List<EventResponse> events, Optional<String> beforeCursor, Optional<String> afterCursor, long latestSequence) {}
 
-    record PendingApprovalResponse(
+    public record PendingApprovalResponse(
             String approvalId, String taskId, String turnId, AgentEventSource source, Instant occurredAt,
             String title, String detail, String approvalKind, List<String> scope, List<String> availableDecisions, boolean actionable) {}
 
-    record ProviderStatusResponse(
+    public record ProviderStatusResponse(
             String laneId,
             AgentProviderStatus.Readiness readiness,
             Optional<String> version,
@@ -169,19 +175,19 @@ final class AgentHttpModels
             AgentCapabilities capabilities,
             Optional<String> signInCommand) {}
 
-    record CompletionResponse(
+    public record CompletionResponse(
             String taskId,
             InteractiveAgentHttpContract.TaskSummaryResponse summary,
             Instant completedAt,
             Instant deleteAfter) {}
 
-    record RuntimeStopImpactResponse(
+    public record RuntimeStopImpactResponse(
             String taskId,
             String generation,
             Optional<String> activeTurnId,
             boolean liveProcess) {}
 
-    record CleanupResponse(
+    public record CleanupResponse(
             String taskId,
             String state,
             Optional<Instant> deletedAt,

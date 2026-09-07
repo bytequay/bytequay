@@ -843,6 +843,12 @@ public class PullRequestService
         return snapshots.findHeadSha(prId).orElse(null);
     }
 
+    /** The head SHA locally recorded for a pull request, without contacting GitHub. */
+    public Optional<String> findHeadSha(String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(parseRef(repo, number).repoFullName(), number).flatMap(snapshots::findHeadSha);
+    }
+
     private static void validateReviewComment(InlineReviewComment comment, boolean requireCommit)
     {
         if (comment == null) {

@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#ffffff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#0969da;text-decoration:none}a:hover{text-decoration:underline}
+input,button,textarea{font-family:inherit}
+button{white-space:nowrap}
+button:focus-visible,a:focus-visible,textarea:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid #0969da;outline-offset:2px}
+::placeholder{color:#8c959f}
+@keyframes bqspin{to{transform:rotate(360deg)}}
+@keyframes bqblink{0%,100%{opacity:1}50%{opacity:0}}
+</style>
+</helmet>
+<div data-screen-label="PR pane" style="display:flex;flex-direction:column;position:absolute;inset:0;background:#ffffff;font-size:14px;color:#1f2328">
+
+  <!-- ===== pane header: existing PullsScreen tab row + actions ===== -->
+  <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;flex-wrap:wrap;flex:none">
+    <div role="tablist" aria-label="Pull request views" style="display:flex;align-items:center;gap:2px;flex:1 0 auto;min-width:0;flex-wrap:wrap">
+      <button role="tab" aria-selected="{{ tabPr }}" onClick="{{ goPr }}" style="display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:none;border-radius:8px;background:{{ tabPrBg }};font-size:14px;font-weight:{{ tabPrW }};color:{{ tabPrFg }};cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6" stroke="#1a7f37" stroke-width="1.4"></circle><circle cx="4" cy="12.5" r="1.6" stroke="#1a7f37" stroke-width="1.4"></circle><circle cx="12" cy="12.5" r="1.6" stroke="#1a7f37" stroke-width="1.4"></circle><path d="M4 5.2v5.6M12 10.9V7.2a2 2 0 0 0-2-2H8.5" stroke="#1a7f37" stroke-width="1.4" stroke-linecap="round"></path><path d="M10 3.4 8.4 5.2 10 7" stroke="#1a7f37" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>PR #30304</button>
+      <button role="tab" aria-selected="{{ tabCh }}" onClick="{{ goChanges }}" style="display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:none;border-radius:8px;background:{{ tabChBg }};font-size:14px;font-weight:{{ tabChW }};color:{{ tabChFg }};cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.5v7M4.5 6h7M3 13.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>Changes
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:600;color:#1a7f37;background:#dafbe1;border-radius:6px;padding:1px 6px">+4366</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:6px;padding:1px 6px">−82</span></button>
+      <button role="tab" aria-selected="{{ tabRv }}" onClick="{{ goReview }}" style="display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:none;border-radius:8px;background:{{ tabRvBg }};font-size:14px;font-weight:{{ tabRvW }};color:{{ tabRvFg }};cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path><path d="M5.5 6.5h5M5.5 8.5h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>Agent review
+        <sc-if value="{{ hasChip }}" hint-placeholder-val="{{ false }}">
+          <span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:{{ chipFg }};background:{{ chipBg }};border-radius:10px;padding:1px 8px">
+            <sc-if value="{{ chipSpin }}" hint-placeholder-val="{{ false }}"><span style="width:9px;height:9px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>{{ chipText }}</span>
+        </sc-if>
+      </button>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex:none">
+      <button aria-label="Toggle full screen" title="Full screen" style="width:34px;height:34px;border:1px solid #d0d7de;border-radius:8px;background:#ffffff;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+      <button aria-label="Refresh pull request" title="Refresh" style="width:34px;height:34px;border:1px solid #d0d7de;border-radius:8px;background:#ffffff;color:#57606a;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path><path d="M13 2.5v3h-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+      <button style="display:inline-flex;align-items:center;gap:8px;padding:0 14px;height:34px;border:1px solid rgba(31,35,40,.15);border-radius:8px;background:#1f883d;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer">Submit review<sc-if value="{{ hasDraftCount }}" hint-placeholder-val="{{ false }}"><span style="width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.22);display:inline-flex;align-items:center;justify-content:center;font-size:12px">{{ draftCount }}</span></sc-if></button>
+      <button style="display:inline-flex;align-items:center;gap:7px;padding:0 12px;height:34px;border:1px solid #d0d7de;border-radius:8px;background:#ffffff;font-size:14px;font-weight:600;color:#1f2328;cursor:pointer"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#cf222e"></circle><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"></path></svg>Checks failed</button>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden">
+
+  <!-- ===== PR tab (existing PullOverview, unchanged) ===== -->
+  <sc-if value="{{ tabPr }}" hint-placeholder-val="{{ false }}">
+    <div style="padding:22px 34px 40px">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><span style="font-size:22px;font-weight:600;letter-spacing:-.01em">Support sorted by nested fields in Iceberg</span><span style="font-size:22px;color:#8c959f">#30304</span><button aria-label="Copy PR link" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.4"></rect><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" stroke="currentColor" stroke-width="1.4"></path></svg></button></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <span style="display:inline-flex;align-items:center;gap:6px;background:#1f883d;color:#ffffff;font-size:13px;font-weight:600;border-radius:8px;padding:5px 11px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6" stroke="#fff" stroke-width="1.4"></circle><circle cx="4" cy="12.5" r="1.6" stroke="#fff" stroke-width="1.4"></circle><circle cx="12" cy="12.5" r="1.6" stroke="#fff" stroke-width="1.4"></circle><path d="M4 5.2v5.6M12 10.9V7.2a2 2 0 0 0-2-2H8.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round"></path></svg>Open</span>
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#0969da;background:#ddf4ff;border-radius:8px;padding:5px 10px">master</span><span style="color:#8c959f">←</span>
+        <span style="display:inline-flex;align-items:center;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#0969da;background:#ddf4ff;border-radius:8px;overflow:hidden"><span style="padding:5px 10px">iceberg-nested-sort-fields</span><span style="padding:5px 8px;border-left:1px solid #ffffff;color:#57606a">⧉</span></span>
+        <span style="width:16px;height:16px;border-radius:50%;background:#ffd8b5;color:#953800;font-size:9.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">e</span>
+      </div>
+      <div style="height:1px;background:#e3e3e6;margin:18px 0"></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid #d0d7de;border-radius:18px;padding:5px 12px;font-size:13px;color:#57606a">Reviewers <span style="width:16px;height:16px;border-radius:50%;background:#e7dcf9;color:#8250df;font-size:9.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">j</span><span style="color:#1f2328;font-weight:600">jackchen</span></span>
+        <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid #d0d7de;border-radius:18px;padding:5px 12px;font-size:13px;color:#57606a"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="5.5" r="2.6" stroke="currentColor" stroke-width="1.4"></circle><path d="M3 13.5c.6-2.6 2.4-4 5-4s4.4 1.4 5 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>Assignees</span>
+        <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid #d0d7de;border-radius:18px;padding:5px 12px;font-size:13px;color:#57606a"><span style="width:14px;height:10px;border-radius:5px;background:#cf8a76;display:inline-block"></span><span style="color:#1f2328">2 labels</span></span>
+      </div>
+      <div style="border:1px solid #d0d7de;border-radius:8px;margin-top:22px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de">
+          <span style="width:22px;height:22px;border-radius:50%;background:#ffd8b5;color:#953800;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">e</span>
+          <span style="font-weight:600">ezra-b</span><span style="color:#57606a;font-size:13px">· 35m ago</span><span style="flex:1"></span>
+          <button aria-label="Add reaction" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.3" stroke="currentColor" stroke-width="1.4"></circle><path d="M5.3 9.3c.6 1.1 1.6 1.7 2.7 1.7s2.1-.6 2.7-1.7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path><circle cx="6" cy="6.3" r=".8" fill="currentColor"></circle><circle cx="10" cy="6.3" r=".8" fill="currentColor"></circle></svg></button>
+          <button aria-label="More" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;font-size:16px;line-height:1">···</button>
+        </div>
+        <div style="padding:18px 20px 20px;font-size:14.5px;line-height:1.6">
+          <div style="font-size:20px;font-weight:600;padding-bottom:8px;border-bottom:1px solid #e3e3e6;margin-bottom:12px">Description</div>
+          <p style="margin:0 0 10px">Allow <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">sorted_by</code> on Iceberg tables to reference nested struct fields using dotted paths, e.g. <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">sorted_by = ARRAY['address.zip']</code>. Sort field IDs are resolved through the full schema instead of top-level columns only.</p>
+          <div style="font-size:20px;font-weight:600;padding:12px 0 8px;border-bottom:1px solid #e3e3e6;margin-bottom:12px">Release notes</div>
+          <div style="display:flex;align-items:center;gap:8px"><input type="checkbox" checked="{{ true }}" readOnly="{{ true }}" aria-label="Release notes are required" style="margin:0">Release notes are required, with the following suggested text:</div>
+          <pre style="margin:12px 0 0;background:#f6f8fa;border:1px solid #e3e3e6;border-radius:8px;padding:14px 16px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.5;color:#0969da;white-space:pre-wrap">## Iceberg
+* Add support for sorting by nested fields in `sorted_by`. ({issue}`29981`)</pre>
+        </div>
+      </div>
+      <div style="margin-top:16px;font-size:12.5px;color:#8c959f">GitHub timeline continues below — unchanged. Agent summary is never inserted here.</div>
+    </div>
+  </sc-if>
+
+  <!-- ===== Changes tab (existing PullChanges + projected finding) ===== -->
+  <sc-if value="{{ tabCh }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid #f0f0f2;flex-wrap:wrap;position:sticky;top:0;background:#ffffff;z-index:2">
+      <button style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:none;border-radius:8px;background:none;font-size:14px;color:#1f2328;cursor:pointer"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"></rect><path d="M6 2.5v11" stroke="currentColor" stroke-width="1.4"></path></svg>30 changed files</button>
+      <button style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:none;border-radius:8px;background:#eceff2;font-size:14px;font-weight:600;color:#1f2328;cursor:pointer"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="2.4" stroke="currentColor" stroke-width="1.4"></circle><path d="M2.5 8h3M10.5 8h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg>Commits <span style="font-weight:600">5</span></button>
+      <button style="padding:6px 12px;border:none;border-radius:8px;background:none;font-size:14px;color:#57606a;cursor:pointer">Collapse all</button>
+      <sc-if value="{{ hasFindings }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#57606a;padding:0 6px"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"></path></svg>{{ changesFindingsLabel }}</span></sc-if>
+      <span style="flex:1"></span>
+      <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:600;color:#1a7f37">+4366</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:600;color:#cf222e">−82</span>
+    </div>
+    <div style="padding:0 0 40px">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#f6f8fa;border-bottom:1px solid #e3e3e6;font-size:12.5px;position:sticky;top:44px;z-index:1">
+        <button aria-expanded="true" aria-label="Fold file" style="border:none;background:none;color:#57606a;cursor:pointer;padding:0;display:inline-flex"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="transform:rotate(90deg)"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+        <span style="font-family:ui-monospace,Menlo,monospace;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left"><span style="direction:ltr;unicode-bidi:bidi-override">plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java</span></span>
+        <span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,monospace;color:#1a7f37;font-weight:600">+41</span><span style="font-family:ui-monospace,Menlo,monospace;color:#cf222e;font-weight:600">−6</span>
+      </div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:20px">
+        <sc-for list="{{ diffTop }}" as="l" hint-placeholder-count="4">
+          <div style="display:flex;background:{{ l.bg }}"><span style="width:46px;flex:none;text-align:right;padding-right:8px;color:#57606a;background:{{ l.gbg }};user-select:none">{{ l.n }}</span><span style="width:22px;flex:none;text-align:center;color:{{ l.sfg }}">{{ l.s }}</span><span style="white-space:pre-wrap;word-break:break-all;flex:1;min-width:0;padding-right:12px">{{ l.t }}</span></div>
+        </sc-for>
+        <!-- projected finding card at its validated range (same finding ID + thread as Agent review) -->
+        <sc-if value="{{ f1Visible }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:10px 14px 10px 60px;background:#fcfcfd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5">
+            <div style="border:1px solid #d0d7de;border-radius:8px;background:#ffffff;overflow:hidden">
+              <button onClick="{{ toggleF1Diff }}" aria-expanded="{{ f1DiffOpen }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:#f6f8fa;padding:10px 14px;cursor:pointer;font-size:13px;color:#1f2328;border-bottom:1px solid {{ f1DiffHdrBorder }}">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a;transform:rotate({{ f1DiffRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span style="color:#57606a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Agent finding on lines <span style="font-weight:600;color:#1f2328">R118–R131</span> · <span style="color:#1f2328">{{ f1.title }}</span></span>
+                <span style="flex:1"></span>
+                <sc-if value="{{ f1.draft }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#9a6700;border:1px solid #d4a72c;border-radius:12px;padding:2px 10px;white-space:nowrap">Pending · in your review</span></sc-if>
+                <sc-if value="{{ f1.resolved }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#57606a;border:1px solid #d0d7de;border-radius:12px;padding:2px 10px;white-space:nowrap">Resolved locally</span></sc-if>
+                <sc-if value="{{ f1.plainPrivate }}" hint-placeholder-val="{{ true }}"><span style="font-size:12px;font-weight:600;color:#57606a;border:1px solid #d0d7de;border-radius:12px;padding:2px 10px;white-space:nowrap">Private</span></sc-if>
+              </button>
+              <sc-if value="{{ f1DiffOpen }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:12px 14px 14px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span style="width:20px;height:20px;border-radius:50%;background:#eceff2;color:#57606a;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">A</span><span style="font-weight:600">Agent</span><span style="color:#57606a">· Codex · {{ f1.time }}</span><span style="flex:1"></span><span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:1px 8px">Critical</span></div>
+                  <div style="margin-top:8px;color:#1f2328">{{ f1.body }}</div>
+                  <sc-for list="{{ f1.thread }}" as="m" hint-placeholder-count="0">
+                    <div style="display:flex;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f2">
+                      <span style="width:20px;height:20px;flex:none;border-radius:50%;background:{{ m.abg }};color:{{ m.afg }};font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ m.ini }}</span>
+                      <div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap"><span style="font-weight:600">{{ m.author }}</span><span style="color:#57606a">· {{ m.time }}</span><sc-if value="{{ m.queued }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px"><span style="width:8px;height:8px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Queued · runs after the current turn</span></sc-if></div><div style="margin-top:3px;font-size:13.5px;color:#1f2328;word-break:break-word">{{ m.body }}</div></div>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ f1.resolved }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 12px;background:#f6f8fa;border-radius:6px;font-size:13px;color:#57606a;flex-wrap:wrap"><span style="color:#1a7f37">✓</span><span style="flex:1;min-width:160px">Resolved locally by you · excluded from publication</span><button onClick="{{ f1.reopen }}" style="padding:3px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#1f2328;cursor:pointer">Reopen</button></div>
+                  </sc-if>
+                  <sc-if value="{{ f1.composerOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:12px;border:1px solid #d0d7de;border-radius:8px;background:#ffffff;overflow:hidden">
+                      <div style="display:flex;align-items:flex-end;gap:2px;padding:6px 8px 0;border-bottom:1px solid #d0d7de">
+                        <button onClick="{{ setWrite }}" aria-selected="{{ compWrite }}" role="tab" style="padding:7px 14px;border:1px solid {{ writeBorder }};border-bottom-color:{{ writeBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ writeW }};color:#1f2328;cursor:pointer">Write</button>
+                        <button onClick="{{ setPreview }}" aria-selected="{{ compPreview }}" role="tab" style="padding:7px 14px;border:1px solid {{ prevBorder }};border-bottom-color:{{ prevBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ prevW }};color:#1f2328;cursor:pointer">Preview</button>
+                        <span style="flex:1"></span>
+                        <div style="display:flex;align-items:center;gap:2px;padding-bottom:6px;color:#57606a;font-size:13px">
+                          <button aria-label="Heading" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">H</button><button aria-label="Bold" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">B</button><button aria-label="Italic" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-style:italic;font-family:Georgia,serif">I</button>
+                          <span style="width:1px;height:14px;background:#e3e3e6;margin:0 4px"></span>
+                          <button aria-label="Code" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button><button aria-label="Link" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.5 9.5l3-3M7 5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+                        </div>
+                      </div>
+                      <sc-if value="{{ compWrite }}" hint-placeholder-val="{{ true }}">
+                        <textarea value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ compKey }}" aria-label="{{ compAria }}" placeholder="{{ compPlaceholder }}" rows="4" style="display:block;width:100%;box-sizing:border-box;border:none;outline:none;resize:vertical;font-size:14px;line-height:1.5;padding:10px 12px;color:#1f2328;min-height:88px"></textarea>
+                      </sc-if>
+                      <sc-if value="{{ compPreview }}" hint-placeholder-val="{{ false }}">
+                        <div style="min-height:88px;padding:10px 12px;font-size:14px;line-height:1.5;color:{{ previewFg }}">{{ previewText }}</div>
+                      </sc-if>
+                      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #f0f0f2;flex-wrap:wrap">
+                        <sc-if value="{{ compIsPrivate }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#57606a;margin-right:auto"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" stroke-width="1.4"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4"></path></svg>Private — only you and the agent</span></sc-if>
+                        <sc-if value="{{ compIsPost }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#9a6700;font-weight:600;margin-right:auto">Posts to GitHub on {{ f1.pathShort }} {{ f1.range }} · head d9a0c41 re-checked on send</span></sc-if>
+                        <button onClick="{{ closeComposer }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13.5px;font-weight:600;color:#1f2328;cursor:pointer">Cancel</button>
+                        <sc-if value="{{ compIsPrivate }}" hint-placeholder-val="{{ true }}"><button onClick="{{ sendAsk }}" disabled="{{ askDisabled }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:{{ askBg }};font-size:13.5px;font-weight:600;color:{{ askFg }};cursor:pointer">{{ askLabel }}</button></sc-if>
+                        <sc-if value="{{ compIsPost }}" hint-placeholder-val="{{ false }}"><button onClick="{{ f1.confirmPost }}" disabled="{{ postDisabled }}" style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:{{ postBg }};font-size:13.5px;font-weight:600;color:#ffffff;cursor:pointer">Post now</button></sc-if>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f1.showActions }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:12px;flex-wrap:wrap">
+                      <button onClick="{{ f1.ask }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Ask agent</button>
+                      <sc-if value="{{ f1.canResolve }}" hint-placeholder-val="{{ true }}"><button onClick="{{ f1.resolve }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Resolve locally</button></sc-if>
+                      <button onClick="{{ openDiscussion }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Open in Agent review</button>
+                      <span style="flex:1"></span>
+                      <sc-if value="{{ f1.canPublish }}" hint-placeholder-val="{{ true }}">
+                        <span style="width:1px;height:18px;background:#e3e3e6;margin:0 2px"></span>
+                        <button onClick="{{ f1.addDraft }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Add to my review</button>
+                        <button onClick="{{ f1.post }}" style="padding:5px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Post comment now</button>
+                      </sc-if>
+                      <sc-if value="{{ f1.publishBlocked }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#8c959f">{{ f1.publishBlockedWhy }}</span></sc-if>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-if>
+        <sc-for list="{{ diffBottom }}" as="l" hint-placeholder-count="3">
+          <div style="display:flex;background:{{ l.bg }}"><span style="width:46px;flex:none;text-align:right;padding-right:8px;color:#57606a;background:{{ l.gbg }};user-select:none">{{ l.n }}</span><span style="width:22px;flex:none;text-align:center;color:{{ l.sfg }}">{{ l.s }}</span><span style="white-space:pre-wrap;word-break:break-all;flex:1;min-width:0;padding-right:12px">{{ l.t }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ===== Agent review tab ===== -->
+  <sc-if value="{{ tabRv }}" hint-placeholder-val="{{ true }}">
+
+    <!-- not started -->
+    <sc-if value="{{ sNone }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:22px 34px 40px">
+        <div style="border:1px solid #d0d7de;border-radius:8px;padding:36px 28px;text-align:center">
+          <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="color:#8c959f"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"></path><path d="M5.5 6.5h5M5.5 8.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg>
+          <div style="font-size:16px;font-weight:600;margin-top:10px">No agent review yet</div>
+          <div style="font-size:13.5px;color:#57606a;margin-top:6px;line-height:1.55;max-width:520px;margin-left:auto;margin-right:auto;text-wrap:pretty">ByteQuay checks out the exact PR head <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">d9a0c41</span> into a managed worktree and starts a private review task. Nothing is posted to GitHub — you decide what, if anything, becomes a comment.</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:18px;flex-wrap:wrap">
+            <button onClick="{{ startReview }}" style="padding:7px 16px;border:1px solid rgba(31,35,40,.15);border-radius:8px;background:#1f883d;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer">Start review</button>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#57606a">Codex · Auto <span style="color:#d0d7de">·</span> 5 commits, 30 files</span>
+          </div>
+          <div style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:12.5px;color:#57606a;background:#f6f8fa;border-radius:8px;padding:7px 12px;text-align:left;text-wrap:pretty"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none"><circle cx="8" cy="8" r="6.3" stroke="currentColor" stroke-width="1.4"></circle><path d="M8 7v4M8 5v.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>Private review is available on your own and closed PRs too. Publishing comments still follows the PR's normal review permissions.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ sHasReview }}" hint-placeholder-val="{{ true }}">
+
+      <!-- status strip + view switch -->
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid #f0f0f2;flex-wrap:wrap;position:sticky;top:0;background:#ffffff;z-index:2">
+        <div role="tablist" aria-label="Agent review views" style="display:inline-flex;background:#eceff2;border-radius:8px;padding:2px">
+          <button role="tab" aria-selected="{{ vSum }}" onClick="{{ goSummary }}" style="padding:4px 12px;border:none;border-radius:6px;background:{{ vSumBg }};box-shadow:{{ vSumSh }};font-size:13px;font-weight:600;color:{{ vSumFg }};cursor:pointer">Summary &amp; comments</button>
+          <button role="tab" aria-selected="{{ vAct }}" onClick="{{ goActivity }}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border:none;border-radius:6px;background:{{ vActBg }};box-shadow:{{ vActSh }};font-size:13px;font-weight:600;color:{{ vActFg }};cursor:pointer">Activity<sc-if value="{{ actDot }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;border-radius:50%;background:#9a6700;display:inline-block"></span></sc-if></button>
+        </div>
+        <span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#57606a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <sc-if value="{{ statusSpin }}" hint-placeholder-val="{{ false }}"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+          <span style="font-weight:600;color:{{ statusFg }}">{{ statusText }}</span><span style="overflow:hidden;text-overflow:ellipsis">{{ statusDetail }}</span></span>
+        <span style="flex:1"></span>
+        <span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:#8c959f;white-space:nowrap">{{ elapsed }}</span>
+        <sc-if value="{{ showStop }}" hint-placeholder-val="{{ false }}"><button onClick="{{ stopRun }}" style="padding:4px 11px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Stop</button></sc-if>
+        <sc-if value="{{ showResume }}" hint-placeholder-val="{{ false }}"><button onClick="{{ resumeRun }}" style="padding:4px 11px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Resume</button></sc-if>
+        <sc-if value="{{ showUpdate }}" hint-placeholder-val="{{ false }}"><button onClick="{{ updateReview }}" style="padding:4px 11px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Update review</button></sc-if>
+        <sc-if value="{{ showEnd }}" hint-placeholder-val="{{ false }}"><button onClick="{{ endReview }}" title="Completes the task and cleans the worktree; the summary, findings and discussion stay" style="padding:4px 11px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#57606a;cursor:pointer">End review</button></sc-if>
+      </div>
+
+      <!-- ===== Summary & comments ===== -->
+      <sc-if value="{{ vSum }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:18px 34px 40px">
+
+          <sc-if value="{{ showApprBanner }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:10px;border:1px solid rgba(154,103,0,.35);background:#fff8c5;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:600;color:#9a6700;background:#ffffff;border-radius:10px;padding:2px 9px;white-space:nowrap;margin-top:2px">Approval needed</span>
+              <div style="flex:1;min-width:200px;font-size:13px;color:#1f2328;line-height:1.5">The agent wants to run <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#ffffff;border-radius:4px;padding:1px 5px">./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergNestedSortOrder</span> with network access to fetch test dependencies. The run waits until you answer.</div>
+              <div style="display:flex;gap:6px;flex:none"><button onClick="{{ apprAllow }}" style="padding:4px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Allow once</button><button onClick="{{ apprAllow }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Deny</button><button onClick="{{ goActivity }}" style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;font-weight:600;color:#57606a;cursor:pointer">Details</button></div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sIncomplete }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:10px;border:1px solid rgba(207,34,46,.3);background:#fff5f5;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffffff;border-radius:10px;padding:2px 9px;white-space:nowrap;margin-top:2px">Incomplete</span>
+              <div style="flex:1;min-width:200px;font-size:13px;color:#1f2328;line-height:1.5">The run ended without recording coverage, and the repair turn didn't either. 1 candidate finding failed validation (range crossed files) and was skipped. What was saved is shown below; it is not a clean result.</div>
+              <div style="display:flex;gap:6px;flex:none"><button onClick="{{ retryRun }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Run review again</button><button onClick="{{ goActivity }}" style="padding:4px 10px;border:none;border-radius:6px;background:none;font-size:12.5px;font-weight:600;color:#57606a;cursor:pointer">See what happened</button></div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sOutdated }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:flex-start;gap:10px;border:1px solid rgba(154,103,0,.35);background:#fff8c5;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:600;color:#9a6700;background:#ffffff;border-radius:10px;padding:2px 9px;white-space:nowrap;margin-top:2px">New commits</span>
+              <div style="flex:1;min-width:200px;font-size:13px;color:#1f2328;line-height:1.5">2 commits were pushed since this review (<span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">d9a0c41 → 5e17b02</span>). Findings below refer to the reviewed version; 1 finding no longer maps to the new diff and can't be published until re-checked.</div>
+              <div style="display:flex;gap:6px;flex:none"><button onClick="{{ updateReview }}" style="padding:4px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Update review</button></div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ sStopped }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;border:1px solid #d0d7de;background:#f6f8fa;border-radius:8px;padding:10px 14px;margin-bottom:14px;flex-wrap:wrap">
+              <span style="font-size:11px;font-weight:600;color:#57606a;background:#ffffff;border-radius:10px;padding:2px 9px;white-space:nowrap">Stopped</span>
+              <div style="flex:1;min-width:200px;font-size:13px;color:#1f2328;line-height:1.5">You stopped the run after 2 of 5 commits. Follow-up on new commits is paused. The discussion stays open; Resume continues from the saved state.</div>
+              <div style="display:flex;gap:6px;flex:none"><button onClick="{{ resumeRun }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Resume</button><button onClick="{{ endReview }}" style="padding:4px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#57606a;cursor:pointer">End review</button></div>
+            </div>
+          </sc-if>
+
+          <!-- summary card (same card structure as PR description) -->
+          <div style="border:1px solid #d0d7de;border-radius:8px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;background:#f6f8fa;border-bottom:1px solid #d0d7de;flex-wrap:wrap">
+              <span style="width:22px;height:22px;border-radius:50%;background:#eceff2;color:#57606a;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">A</span>
+              <span style="font-weight:600">Agent</span><span style="color:#57606a;font-size:13px">· Codex · {{ summaryTime }}</span>
+              <span style="font-size:12px;font-weight:600;color:#57606a;border:1px solid #d0d7de;border-radius:12px;padding:1px 9px;white-space:nowrap">Private</span>
+              <sc-if value="{{ summaryProvisional }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:12px;padding:1px 9px;white-space:nowrap">Provisional · rev {{ summaryRev }}</span></sc-if>
+              <span style="flex:1"></span>
+              <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8c959f;white-space:nowrap">head d9a0c41 · base master@3f1e77a</span>
+            </div>
+            <sc-if value="{{ summaryMissing }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:18px 20px;font-size:13.5px;color:#57606a;line-height:1.55">No summary was saved for this run. The agent's messages are in Activity, but they are not a review result.</div>
+            </sc-if>
+            <sc-if value="{{ summaryPresent }}" hint-placeholder-val="{{ true }}">
+              <div style="padding:16px 20px 20px;font-size:14.5px;line-height:1.6">
+                <div style="font-size:17px;font-weight:600;padding-bottom:6px;border-bottom:1px solid #e3e3e6;margin-bottom:10px">What this PR does</div>
+                <p style="margin:0;text-wrap:pretty">Lets <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">sorted_by</code> name a field inside a struct column (like <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">address.zip</code>) instead of only top-level columns. Iceberg sort orders are stored by field ID, so the change is mostly about finding the right ID for a dotted path and refusing paths that can't be sorted on.</p>
+                <div style="font-size:17px;font-weight:600;padding:14px 0 6px;border-bottom:1px solid #e3e3e6;margin-bottom:6px">Commits <span style="font-size:12.5px;font-weight:500;color:#8c959f">· 5 in scope</span></div>
+                <sc-for list="{{ commits }}" as="c" hint-placeholder-count="5">
+                  <div style="display:flex;gap:12px;padding:7px 0;border-bottom:1px solid #f6f6f8;align-items:baseline">
+                    <a href="#" onClick="{{ noop }}" style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;flex:none">{{ c.sha }}</a>
+                    <div style="min-width:0;flex:1"><div style="font-weight:600;font-size:13.5px;overflow-wrap:anywhere">{{ c.msg }}</div><div style="font-size:13.5px;color:#57606a;text-wrap:pretty">{{ c.why }}</div></div>
+                    <sc-if value="{{ c.pending }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#8c959f;background:#f6f8fa;border-radius:10px;padding:1px 8px;white-space:nowrap;flex:none">not yet read</span></sc-if>
+                  </div>
+                </sc-for>
+                <div style="font-size:17px;font-weight:600;padding:14px 0 6px;border-bottom:1px solid #e3e3e6;margin-bottom:10px">Combined result</div>
+                <p style="margin:0;text-wrap:pretty">{{ combinedText }}</p>
+                <div style="font-size:17px;font-weight:600;padding:14px 0 6px;border-bottom:1px solid #e3e3e6;margin-bottom:10px">Critical issues</div>
+                <sc-if value="{{ hasCritical }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex;gap:8px;align-items:baseline;text-wrap:pretty"><span style="font-size:11px;font-weight:600;color:#cf222e;background:#ffebe9;border-radius:10px;padding:1px 8px;white-space:nowrap;flex:none">Critical</span><span><a href="#" onClick="{{ scrollF1 }}">{{ f1.title }}</a> — <span style="color:#57606a;font-size:13.5px">{{ f1.pathShort }} R118–R131</span></span></div>
+                </sc-if>
+                <sc-if value="{{ noCritical }}" hint-placeholder-val="{{ false }}">
+                  <p style="margin:0;color:#57606a">None found. The agent explicitly recorded zero inline findings for the 5 commits in scope.</p>
+                </sc-if>
+                <div style="font-size:17px;font-weight:600;padding:14px 0 6px;border-bottom:1px solid #e3e3e6;margin-bottom:10px">Limitations</div>
+                <ul style="margin:0;padding-left:22px;color:#1f2328;text-wrap:pretty">
+                  <li>Only <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">TestIcebergSortField</code> and <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#f6f8fa;border-radius:4px;padding:1px 5px">TestIcebergNestedSortOrder</code> were run; the full connector suite was not.</li>
+                  <li>Documentation commit <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px">d9a0c41</span> was read for consistency with the code only, not for prose quality.</li>
+                  <li>Behaviour with REST catalogs was not exercised; the evidence is unit-level.</li>
+                </ul>
+              </div>
+            </sc-if>
+            <!-- summary discussion (private) -->
+            <div style="border-top:1px solid #e3e3e6;background:#fcfcfd">
+              <button onClick="{{ toggleSumThread }}" aria-expanded="{{ sumThreadOpen }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:10px 16px;cursor:pointer;font-size:13px;color:#57606a">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;transform:rotate({{ sumThreadRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span>Discussion about this summary · {{ sumThreadCount }}</span>
+                <span style="display:inline-flex;align-items:center;gap:5px;margin-left:auto;font-size:12px"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" stroke-width="1.4"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4"></path></svg>Private — never published</span>
+              </button>
+              <sc-if value="{{ sumThreadOpen }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:0 16px 14px">
+                  <sc-for list="{{ sumThread }}" as="m" hint-placeholder-count="2">
+                    <div style="display:flex;gap:10px;padding:10px 0;border-top:1px solid #f0f0f2">
+                      <span style="width:22px;height:22px;flex:none;border-radius:50%;background:{{ m.abg }};color:{{ m.afg }};font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ m.ini }}</span>
+                      <div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap"><span style="font-weight:600">{{ m.author }}</span><span style="color:#57606a">· {{ m.time }}</span><sc-if value="{{ m.queued }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px"><span style="width:8px;height:8px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Queued</span></sc-if></div><div style="margin-top:3px;font-size:13.5px;line-height:1.55;word-break:break-word">{{ m.body }}</div></div>
+                    </div>
+                  </sc-for>
+                  <sc-if value="{{ sumComposerOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:8px">
+                      <div style="border:1px solid #d0d7de;border-radius:8px;background:#ffffff;overflow:hidden">
+                        <div style="display:flex;align-items:flex-end;gap:2px;padding:6px 8px 0;border-bottom:1px solid #d0d7de;background:#ffffff">
+                          <button onClick="{{ setWrite }}" aria-selected="{{ compWrite }}" role="tab" style="padding:7px 14px;border:1px solid {{ writeBorder }};border-bottom-color:{{ writeBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ writeW }};color:#1f2328;cursor:pointer">Write</button>
+                          <button onClick="{{ setPreview }}" aria-selected="{{ compPreview }}" role="tab" style="padding:7px 14px;border:1px solid {{ prevBorder }};border-bottom-color:{{ prevBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ prevW }};color:#1f2328;cursor:pointer">Preview</button>
+                          <span style="flex:1"></span>
+                          <div style="display:flex;align-items:center;gap:2px;padding-bottom:6px;color:#57606a;font-size:13px">
+                            <button aria-label="Heading" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">H</button><button aria-label="Bold" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">B</button><button aria-label="Italic" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-style:italic;font-family:Georgia,serif">I</button>
+                            <span style="width:1px;height:14px;background:#e3e3e6;margin:0 4px"></span>
+                            <button aria-label="Quote" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M6 8h7M6 12h7M3 8v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button><button aria-label="Code" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button><button aria-label="Link" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.5 9.5l3-3M7 5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+                            <span style="width:1px;height:14px;background:#e3e3e6;margin:0 4px"></span>
+                            <button aria-label="Bulleted list" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4h7M6 8h7M6 12h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path><circle cx="3.2" cy="4" r=".9" fill="currentColor"></circle><circle cx="3.2" cy="8" r=".9" fill="currentColor"></circle><circle cx="3.2" cy="12" r=".9" fill="currentColor"></circle></svg></button><button aria-label="Numbered list" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4h7M6 8h7M6 12h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path><path d="M2.5 3.2l1-.7v2.7M2.4 7.4c.3-.6 1.5-.6 1.5.1 0 .6-1.6 1-1.6 1.7h1.7M2.4 10.6h1.5l-.9 1 .9 1.1h-1.6" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"></path></svg></button><button aria-label="Task list" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx=".8" stroke="currentColor" stroke-width="1.2"></rect><rect x="2" y="9.5" width="4" height="4" rx=".8" stroke="currentColor" stroke-width="1.2"></rect><path d="M8 4.5h5M8 11.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+                          </div>
+                        </div>
+                        <sc-if value="{{ compWrite }}" hint-placeholder-val="{{ true }}">
+                          <textarea value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ compKey }}" aria-label="Ask the agent about this summary" placeholder="Ask the agent about this summary…" rows="4" style="display:block;width:100%;box-sizing:border-box;border:none;outline:none;resize:vertical;font-size:14px;line-height:1.5;padding:10px 12px;color:#1f2328;min-height:88px"></textarea>
+                        </sc-if>
+                        <sc-if value="{{ compPreview }}" hint-placeholder-val="{{ false }}">
+                          <div style="min-height:88px;padding:10px 12px;font-size:14px;line-height:1.5;color:{{ previewFg }}">{{ previewText }}</div>
+                        </sc-if>
+                        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #f0f0f2;flex-wrap:wrap">
+                          <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#57606a;margin-right:auto"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" stroke-width="1.4"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4"></path></svg>Private — only you and the agent</span>
+                          <button onClick="{{ closeComposer }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13.5px;font-weight:600;color:#1f2328;cursor:pointer">Cancel</button>
+                          <button onClick="{{ sendAsk }}" disabled="{{ askDisabled }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:{{ askBg }};font-size:13.5px;font-weight:600;color:{{ askFg }};cursor:pointer">{{ askLabel }}</button>
+                        </div>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ sumComposerClosed }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;gap:8px;margin-top:6px"><button onClick="{{ askSummary }}" disabled="{{ askDisabledGlobal }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:{{ askBtnFg }};cursor:pointer">Ask agent</button><sc-if value="{{ busyHint }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#8c959f;align-self:center">Agent is busy — your question will queue</span></sc-if></div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+
+          <!-- findings -->
+          <div style="display:flex;align-items:baseline;gap:10px;margin:26px 0 10px;flex-wrap:wrap">
+            <span style="font-size:16px;font-weight:600">Findings</span>
+            <span style="font-size:13px;color:#57606a">{{ findingsSub }}</span>
+            <span style="flex:1"></span>
+            <span style="font-size:11px;font-weight:600;letter-spacing:.4px;color:#9a6700;background:#fff8c5;border-radius:10px;padding:1px 8px;white-space:nowrap">ILLUSTRATIVE SAMPLE</span>
+          </div>
+
+          <sc-if value="{{ noFindings }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px solid #d0d7de;border-radius:8px;padding:22px;text-align:center">
+              <div style="font-size:14px;font-weight:600;color:#1a7f37">No inline findings</div>
+              <div style="font-size:13px;color:#57606a;margin-top:4px;text-wrap:pretty">Coverage recorded as complete for 5 commits and 30 files. Complete means the scope was reviewed, not that the PR is guaranteed correct.</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ findingsPending }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#57606a;margin-bottom:10px"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Findings appear here as the agent saves them. Nothing is final until the run records coverage.</div>
+          </sc-if>
+
+          <sc-for list="{{ findings }}" as="f" hint-placeholder-count="3">
+            <div id="{{ f.domId }}" style="border:1px solid {{ f.border }};border-radius:8px;overflow:hidden;margin-bottom:12px;background:#ffffff;opacity:{{ f.opacity }}">
+              <button onClick="{{ f.toggle }}" aria-expanded="{{ f.open }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:#f6f8fa;padding:10px 14px;cursor:pointer;font-size:13px;color:#1f2328;border-bottom:1px solid {{ f.hdrBorder }}">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a;transform:rotate({{ f.rot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#57606a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;flex:0 1 auto"><span style="direction:ltr;unicode-bidi:bidi-override">{{ f.path }}</span></span>
+                <span style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;font-weight:600;flex:none">{{ f.range }}</span>
+                <span style="flex:1"></span>
+                <sc-if value="{{ f.resolved }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#57606a;border:1px solid #d0d7de;border-radius:12px;padding:2px 10px;white-space:nowrap">Resolved locally</span></sc-if>
+                <sc-if value="{{ f.outdated }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#9a6700;border:1px solid #d4a72c;border-radius:12px;padding:2px 10px;white-space:nowrap">Outdated</span></sc-if>
+                <sc-if value="{{ f.draft }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#9a6700;border:1px solid #d4a72c;border-radius:12px;padding:2px 10px;white-space:nowrap">Pending · in your review</span></sc-if>
+                <sc-if value="{{ f.published }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;font-weight:600;color:#1a7f37;border:1px solid #4ac26b;border-radius:12px;padding:2px 10px;white-space:nowrap">Published</span></sc-if>
+                <sc-if value="{{ f.plainPrivate }}" hint-placeholder-val="{{ true }}"><span style="font-size:12px;font-weight:600;color:#57606a;border:1px solid #d0d7de;border-radius:12px;padding:2px 10px;white-space:nowrap">Private</span></sc-if>
+              </button>
+              <sc-if value="{{ f.open }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:14px 16px 14px">
+                  <div style="display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap">
+                    <span style="width:22px;height:22px;border-radius:50%;background:#eceff2;color:#57606a;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">A</span>
+                    <span style="font-weight:600">Agent</span><span style="color:#57606a">· Codex · {{ f.time }}</span>
+                    <span style="font-size:11px;font-weight:600;color:{{ f.sevFg }};background:{{ f.sevBg }};border-radius:10px;padding:1px 8px">{{ f.sev }}</span>
+                    <sc-if value="{{ f.provisional }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px;font-weight:600;color:#0969da;background:#ddf4ff;border-radius:10px;padding:1px 8px">Provisional</span></sc-if>
+                    <span style="flex:1"></span>
+                    <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8c959f">{{ f.id }} · rev {{ f.rev }}</span>
+                  </div>
+                  <div style="font-size:15px;font-weight:600;margin-top:10px;text-wrap:pretty">{{ f.title }}</div>
+                  <div style="font-size:14px;line-height:1.6;margin-top:6px;text-wrap:pretty">{{ f.body }}</div>
+                  <!-- evidence -->
+                  <div style="margin-top:12px">
+                    <button onClick="{{ f.toggleEv }}" aria-expanded="{{ f.evOpen }}" style="display:flex;align-items:center;gap:8px;border:none;background:none;padding:0;cursor:pointer;font-size:12.5px;color:#57606a">
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;transform:rotate({{ f.evRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>Evidence · {{ f.evLabel }}</button>
+                    <sc-if value="{{ f.evOpen }}" hint-placeholder-val="{{ false }}">
+                      <div style="margin-top:8px;border:1px solid #e3e3e6;border-radius:6px;overflow:hidden">
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f6f8fa;font-size:12px;color:#57606a;border-bottom:1px solid #e3e3e6;flex-wrap:wrap"><span style="font-family:ui-monospace,Menlo,monospace;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.evSource }}</span><span style="flex:1"></span><span style="white-space:nowrap">{{ f.evProv }}</span></div>
+                        <pre style="margin:0;padding:10px 12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.55;color:#1f2328;white-space:pre-wrap;word-break:break-word;background:#ffffff;max-height:180px;overflow:auto">{{ f.evText }}</pre>
+                        <div style="padding:8px 10px;font-size:12.5px;color:#57606a;border-top:1px solid #f0f0f2;text-wrap:pretty">{{ f.evWhy }}</div>
+                      </div>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{ f.resolved }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 12px;background:#f6f8fa;border-radius:6px;font-size:13px;color:#57606a;flex-wrap:wrap"><span style="color:#1a7f37">✓</span><span style="flex:1;min-width:160px">Resolved locally by you · “{{ f.resolveReason }}” · excluded from publication, draft text kept</span><button onClick="{{ f.reopen }}" style="padding:3px 10px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#1f2328;cursor:pointer">Reopen</button></div>
+                  </sc-if>
+                  <sc-if value="{{ f.outdated }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 12px;background:#fff8c5;border-radius:6px;font-size:13px;color:#57606a;flex-wrap:wrap"><span style="color:#9a6700">⚠</span><span style="flex:1;min-width:160px">Lines moved in <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">5e17b02</span> and no unambiguous mapping was found. View in Changes opens the recorded snapshot, not the latest diff. Not publishable until Update review re-anchors it.</span></div>
+                  </sc-if>
+                  <sc-if value="{{ f.draft }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:12px;border:1px solid #d4a72c;border-radius:6px;overflow:hidden">
+                      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff8c5;font-size:12px;color:#9a6700;font-weight:600;flex-wrap:wrap">Outgoing comment · in your pending review<span style="flex:1"></span><span style="font-weight:500;color:#57606a">Editing this never changes the finding</span><button onClick="{{ f.noop }}" style="padding:2px 9px;border:1px solid #d4a72c;border-radius:6px;background:#ffffff;font-size:12px;font-weight:600;color:#9a6700;cursor:pointer">Edit</button></div>
+                      <div style="padding:8px 12px;font-size:13.5px;line-height:1.55;color:#1f2328">{{ f.draftBody }}</div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ f.published }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 12px;background:#dafbe1;border-radius:6px;font-size:13px;color:#1a7f37;flex-wrap:wrap"><span>✓</span><span style="flex:1;min-width:160px">Posted to GitHub as a review comment · <a href="#" onClick="{{ f.noop }}">r2201456</a>. The thread below stays private.</span></div>
+                  </sc-if>
+                  <!-- private thread -->
+                  <sc-for list="{{ f.thread }}" as="m" hint-placeholder-count="0">
+                    <div style="display:flex;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f2">
+                      <span style="width:22px;height:22px;flex:none;border-radius:50%;background:{{ m.abg }};color:{{ m.afg }};font-size:10.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center">{{ m.ini }}</span>
+                      <div style="min-width:0;flex:1"><div style="display:flex;align-items:center;gap:6px;font-size:13px;flex-wrap:wrap"><span style="font-weight:600">{{ m.author }}</span><span style="color:#57606a">· {{ m.time }}</span><sc-if value="{{ m.queued }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px"><span style="width:8px;height:8px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span>Queued · runs after the current turn</span></sc-if></div><div style="margin-top:3px;font-size:13.5px;line-height:1.55;word-break:break-word;text-wrap:pretty">{{ m.body }}</div></div>
+                    </div>
+                  </sc-for>
+                  <!-- composer (reused Write/Preview) -->
+                  <sc-if value="{{ f.composerOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="margin-top:12px;border:1px solid #d0d7de;border-radius:8px;background:#ffffff;overflow:hidden">
+                      <div style="display:flex;align-items:flex-end;gap:2px;padding:6px 8px 0;border-bottom:1px solid #d0d7de">
+                        <button onClick="{{ setWrite }}" aria-selected="{{ compWrite }}" role="tab" style="padding:7px 14px;border:1px solid {{ writeBorder }};border-bottom-color:{{ writeBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ writeW }};color:#1f2328;cursor:pointer">Write</button>
+                        <button onClick="{{ setPreview }}" aria-selected="{{ compPreview }}" role="tab" style="padding:7px 14px;border:1px solid {{ prevBorder }};border-bottom-color:{{ prevBottom }};border-radius:6px 6px 0 0;background:#ffffff;margin-bottom:-1px;font-size:13.5px;font-weight:{{ prevW }};color:#1f2328;cursor:pointer">Preview</button>
+                        <span style="flex:1"></span>
+                        <div style="display:flex;align-items:center;gap:2px;padding-bottom:6px;color:#57606a;font-size:13px">
+                          <button aria-label="Heading" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">H</button><button aria-label="Bold" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-weight:700">B</button><button aria-label="Italic" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer;font-style:italic;font-family:Georgia,serif">I</button>
+                          <span style="width:1px;height:14px;background:#e3e3e6;margin:0 4px"></span>
+                          <button aria-label="Code" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button><button aria-label="Link" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6.5 9.5l3-3M7 5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+                          <span style="width:1px;height:14px;background:#e3e3e6;margin:0 4px"></span>
+                          <button aria-label="Bulleted list" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4h7M6 8h7M6 12h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path><circle cx="3.2" cy="4" r=".9" fill="currentColor"></circle><circle cx="3.2" cy="8" r=".9" fill="currentColor"></circle><circle cx="3.2" cy="12" r=".9" fill="currentColor"></circle></svg></button><button aria-label="Task list" style="width:26px;height:26px;border:none;background:none;color:inherit;cursor:pointer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx=".8" stroke="currentColor" stroke-width="1.2"></rect><rect x="2" y="9.5" width="4" height="4" rx=".8" stroke="currentColor" stroke-width="1.2"></rect><path d="M8 4.5h5M8 11.5h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"></path></svg></button>
+                        </div>
+                      </div>
+                      <sc-if value="{{ compWrite }}" hint-placeholder-val="{{ true }}">
+                        <textarea value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ compKey }}" aria-label="{{ compAria }}" placeholder="{{ compPlaceholder }}" rows="4" style="display:block;width:100%;box-sizing:border-box;border:none;outline:none;resize:vertical;font-size:14px;line-height:1.5;padding:10px 12px;color:#1f2328;min-height:88px"></textarea>
+                      </sc-if>
+                      <sc-if value="{{ compPreview }}" hint-placeholder-val="{{ false }}">
+                        <div style="min-height:88px;padding:10px 12px;font-size:14px;line-height:1.5;color:{{ previewFg }}">{{ previewText }}</div>
+                      </sc-if>
+                      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid #f0f0f2;flex-wrap:wrap">
+                        <sc-if value="{{ compIsPrivate }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#57606a;margin-right:auto"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" stroke-width="1.4"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4"></path></svg>Private — only you and the agent</span></sc-if>
+                        <sc-if value="{{ compIsPost }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#9a6700;font-weight:600;margin-right:auto">Posts to GitHub on {{ f.pathShort }} {{ f.range }} · head d9a0c41 re-checked on send</span></sc-if>
+                        <button onClick="{{ closeComposer }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:13.5px;font-weight:600;color:#1f2328;cursor:pointer">Cancel</button>
+                        <sc-if value="{{ compIsPrivate }}" hint-placeholder-val="{{ true }}"><button onClick="{{ sendAsk }}" disabled="{{ askDisabled }}" style="padding:6px 14px;border:1px solid #d0d7de;border-radius:6px;background:{{ askBg }};font-size:13.5px;font-weight:600;color:{{ askFg }};cursor:pointer">{{ askLabel }}</button></sc-if>
+                        <sc-if value="{{ compIsPost }}" hint-placeholder-val="{{ false }}"><button onClick="{{ f.confirmPost }}" disabled="{{ postDisabled }}" style="padding:6px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:{{ postBg }};font-size:13.5px;font-weight:600;color:#ffffff;cursor:pointer">Post now</button></sc-if>
+                      </div>
+                    </div>
+                  </sc-if>
+                  <!-- action row -->
+                  <sc-if value="{{ f.showActions }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:12px;flex-wrap:wrap">
+                      <button onClick="{{ f.ask }}" disabled="{{ f.askDis }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:{{ f.askFg }};cursor:pointer">Ask agent</button>
+                      <sc-if value="{{ f.canResolve }}" hint-placeholder-val="{{ true }}"><button onClick="{{ f.resolve }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Resolve locally</button></sc-if>
+                      <button onClick="{{ f.viewChanges }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">View in Changes</button>
+                      <span style="flex:1"></span>
+                      <sc-if value="{{ f.canPublish }}" hint-placeholder-val="{{ true }}">
+                        <span style="width:1px;height:18px;background:#e3e3e6;margin:0 2px"></span>
+                        <button onClick="{{ f.addDraft }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#1f2328;cursor:pointer">Add to my review</button>
+                        <button onClick="{{ f.post }}" style="padding:5px 12px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Post comment now</button>
+                      </sc-if>
+                      <sc-if value="{{ f.publishBlocked }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#8c959f">{{ f.publishBlockedWhy }}</span></sc-if>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <!-- ===== Activity (existing AgentTaskScreen transcript) ===== -->
+      <sc-if value="{{ vAct }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;min-height:calc(100% - 46px)">
+          <div style="flex:1;padding:16px 34px 8px;font-size:13.5px;line-height:1.5">
+            <!-- ByteQuay review request -->
+            <div style="display:flex;justify-content:flex-end">
+              <div style="max-width:78%;min-width:0">
+                <div style="display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:11px;color:#8c959f;margin-bottom:4px;flex-wrap:wrap"><span style="font-weight:600;color:#57606a;white-space:nowrap">ByteQuay · Review request</span><span style="white-space:nowrap">· built by ByteQuay, not typed by you</span></div>
+                <div style="background:#f0f1f3;border-radius:14px;padding:10px 14px;font-size:13px;line-height:1.5;overflow-wrap:anywhere">
+                  <button onClick="{{ toggleReq }}" aria-expanded="{{ reqOpen }}" style="display:flex;align-items:center;gap:8px;border:none;background:none;padding:0;cursor:pointer;font-size:13px;color:#1f2328;text-align:left;width:100%;white-space:normal"><span style="flex:1;min-width:0">Review PR #30304 at head <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px">d9a0c41</span> (5 commits vs master@3f1e77a)</span><svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ reqRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <sc-if value="{{ reqOpen }}" hint-placeholder-val="{{ false }}"><div style="margin-top:8px;font-size:12.5px;color:#57606a">Purpose: private review for jackchen. Scope is frozen. Use review_get_context for PR text, timeline, diff hunks and source. Report with review_save_summary / review_save_finding / review_finish; findings need anchors and evidence. Optional CodeGraph is available. No remote writes.</div></sc-if>
+                </div>
+              </div>
+            </div>
+            <!-- turn 1 -->
+            <button onClick="{{ toggleT1 }}" aria-expanded="{{ t1Open }}" style="display:flex;align-items:center;gap:8px;margin-top:18px;width:100%;text-align:left;border:none;background:none;padding:0 0 7px;border-bottom:1px solid #ececef;cursor:pointer">
+              <sc-if value="{{ statusSpin }}" hint-placeholder-val="{{ false }}"><span style="width:10px;height:10px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></sc-if>
+              <span style="font-size:12px;color:#8c959f;white-space:nowrap">{{ t1Label }}</span>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ t1Rot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            </button>
+            <sc-if value="{{ t1Open }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:14px;text-wrap:pretty">I'll read the description and the 5 commits first, then follow the sort-field resolution from the parser into <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#f6f8fa;border-radius:4px;padding:1px 5px">IcebergSortField</span> and run the new tests against the frozen head.</div>
+              <div style="margin-top:14px">
+                <button onClick="{{ toggleAct }}" aria-expanded="{{ actOpen }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:none;background:none;padding:4px 0;font-size:12.5px;color:#57606a;cursor:pointer">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ actRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Read PR context, 6 files and 2 evidence windows; saved summary rev 1</span><span style="flex:1"></span>
+                </button>
+                <sc-if value="{{ actOpen }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding-left:22px">
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">review_get_context</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">pr · commits · diff hunks 1–14</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">Read</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">IcebergSortField.java · IcebergUtil.java · IcebergMetadata.java · IcebergTableProperties.java</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">CodeGraph</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">callers of resolveNestedFieldId</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">review_save_summary</span><span style="font-size:11px;color:#1a7f37">rev 1 accepted</span><span style="flex:1"></span></div>
+                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">review_save_finding</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">F-1 · A118–A131</span><span style="font-size:11px;color:#1a7f37">accepted</span><span style="flex:1"></span></div>
+                    <sc-if value="{{ sIncomplete }}" hint-placeholder-val="{{ false }}"><div style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px"><span style="width:16px;text-align:center;color:#cf222e">✕</span><span style="color:#57606a">review_save_finding</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">A140–B22</span><span style="font-size:11px;color:#cf222e">rejected: range crosses files · repair budget used</span><span style="flex:1"></span></div></sc-if>
+                  </div>
+                </sc-if>
+              </div>
+              <!-- running command -->
+              <sc-if value="{{ showCmdRun }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:12px">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="width:11px;height:11px;flex:none;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span><span style="font-size:12px;font-weight:700;color:#0969da">Working</span><span style="font-size:12px;color:#57606a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">— running the new sort-field tests</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#57606a">{{ elapsed }}</span></div>
+                  <button onClick="{{ toggleCmd }}" aria-expanded="{{ cmdOpen }}" title="Show or hide the live output" style="display:flex;align-items:center;gap:10px;padding:4px 0;font-size:12.5px;width:100%;text-align:left;border:none;background:none;cursor:pointer;color:#1f2328"><span style="width:16px;flex:none;display:flex;justify-content:center"><span style="width:10px;height:10px;border:2px solid #b6d4f7;border-top-color:#0969da;border-radius:50%;display:inline-block;animation:bqspin 1s linear infinite"></span></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">$ ./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergSortField -q</span><svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f;transform:rotate({{ cmdRot }});transition:transform .15s"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg><span style="flex:1"></span></button>
+                  <sc-if value="{{ cmdOpen }}" hint-placeholder-val="{{ true }}">
+                    <div style="background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;margin-top:6px;padding:8px 12px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.6;color:#57606a;overflow-wrap:anywhere">[INFO] Running io.trino.plugin.iceberg.TestIcebergSortField<br>[INFO] testNestedPathResolvesFieldId ✓<br>[INFO] testDuplicateLeafNameAcrossStructs …<span style="display:inline-block;width:7px;height:12px;background:#57606a;margin-left:3px;vertical-align:-2px;animation:bqblink 1s step-end infinite"></span></div>
+                  </sc-if>
+                </div>
+              </sc-if>
+              <!-- approval card -->
+              <sc-if value="{{ showApprCard }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:16px">
+                  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:11px;font-weight:600;color:#9a6700;background:#fff8c5;border-radius:10px;padding:2px 9px;white-space:nowrap">Approval needed</span><span style="font-size:12.5px;font-weight:600">Run a command with network access</span><span style="flex:1"></span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8c959f;white-space:nowrap">Turn 1 · root agent</span></div>
+                  <div style="margin-top:6px">
+                    <div style="font-size:12.5px;color:#57606a;line-height:1.5">The sandbox blocked dependency downloads, so Auto mode asks first. Remote writes and credential access are refused before reaching this card.</div>
+                    <div style="margin-top:8px;background:#f6f8fa;border:1px solid #eceff2;border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#1f2328;overflow-wrap:anywhere">./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergNestedSortOrder</div>
+                    <div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8c959f;margin-top:6px">in worktrees/review-30304-d9a0c41</div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:11px;flex-wrap:wrap">
+                      <button onClick="{{ apprAllow }}" style="padding:5px 14px;border:1px solid rgba(31,35,40,.15);border-radius:6px;background:#1f883d;color:#ffffff;font-size:12.5px;font-weight:600;cursor:pointer">Allow once</button>
+                      <button onClick="{{ apprAllow }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#24292f;cursor:pointer">Allow for this review</button>
+                      <button onClick="{{ apprAllow }}" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:6px;background:#ffffff;font-size:12.5px;font-weight:600;color:#cf222e;cursor:pointer">Deny</button>
+                    </div>
+                  </div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ showApprRes }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:#8c959f;flex-wrap:wrap"><span style="color:#1a7f37">✓</span><span>Approved once —</span><span style="font-family:ui-monospace,Menlo,monospace;font-size:11.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergNestedSortOrder</span><span>· 4:12 PM</span></div>
+              </sc-if>
+              <!-- finished turn -->
+              <sc-if value="{{ showFinish }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:14px;text-wrap:pretty">Saved the summary and {{ finishCount }}. Tests I ran are recorded as evidence with their output; the full connector suite was not run.</div>
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 0;margin-top:8px;font-size:12.5px"><span style="width:16px;text-align:center;color:#1a7f37">✓</span><span style="color:#57606a">review_finish</span><span style="font-size:11px;color:#1a7f37;white-space:nowrap">coverage complete · 5 commits · 30 files</span></div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:#8c959f;flex-wrap:wrap"><span style="color:#1a7f37">✓</span>Turn 1 · 6m 12s · Codex · Auto · 4:15 PM</div>
+              </sc-if>
+              <sc-if value="{{ sIncomplete }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:14px;text-wrap:pretty">I've saved one finding. Reviewing the remaining files now.</div>
+                <div style="display:flex;gap:10px;margin-top:14px;font-size:12.5px;color:#cf222e;line-height:1.5;text-wrap:pretty">Turn 1 ended without review_finish. Turn 2 (completion repair) also ended without it — coverage is unknown and the review is marked Incomplete. Nothing was published.</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11.5px;color:#8c959f;flex-wrap:wrap"><span style="color:#cf222e">✕</span>Turn 2 · 48s · Codex · Auto · 4:19 PM</div>
+              </sc-if>
+              <sc-if value="{{ sStopped }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;gap:10px;margin-top:14px;font-size:12.5px;color:#57606a;line-height:1.5">You stopped turn 1 at 4:09 PM. Everything saved so far stays; nothing was published.</div>
+              </sc-if>
+            </sc-if>
+            <!-- discussion turn (asked question) -->
+            <sc-if value="{{ showAskTurn }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;justify-content:flex-end;margin-top:18px">
+                <div style="max-width:76%">
+                  <div style="background:#f0f1f3;border-radius:14px;padding:10px 14px;font-size:13.5px;line-height:1.5;overflow-wrap:anywhere">{{ askTurnText }}</div>
+                  <div style="text-align:right;font-size:10.5px;color:#8c959f;margin-top:4px">Question on {{ askTurnTarget }} · {{ askTurnStatus }}</div>
+                </div>
+              </div>
+              <sc-if value="{{ showAskReply }}" hint-placeholder-val="{{ false }}">
+                <button aria-expanded="false" style="display:flex;align-items:center;gap:8px;margin-top:18px;width:100%;text-align:left;border:none;background:none;padding:0 0 7px;border-bottom:1px solid #ececef;cursor:pointer"><span style="font-size:12px;color:#8c959f;white-space:nowrap">Turn 2 · discussion · 41s · replied to F-1</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#8c959f"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+              </sc-if>
+            </sc-if>
+          </div>
+
+          <!-- queue + composer (existing task composer) -->
+          <div style="border-top:1px solid #e3e3e6;background:#ffffff;padding:12px 34px 16px;position:sticky;bottom:0">
+            <sc-if value="{{ showQueue }}" hint-placeholder-val="{{ false }}">
+              <div style="background:#f6f8fa;border-radius:14px;padding-bottom:14px;margin-bottom:-14px;margin-left:14px;margin-right:14px">
+                <div style="display:flex;align-items:center;gap:9px;padding:9px 14px">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="flex:none;color:#57606a"><path d="M8 12.8c2.9 0 5.2-1.9 5.2-4.4S10.9 4 8 4 2.8 5.9 2.8 8.4c0 1 .4 2 1.1 2.7l-.5 2.1 2.1-.7c.8.2 1.6.3 2.5.3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg>
+                  <span style="font-size:10.5px;font-weight:600;color:#57606a;background:#eceff2;border-radius:10px;padding:1px 8px;white-space:nowrap">Queued · F-1</span>
+                  <span style="font-size:12.5px;color:#1f2328;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ queuedText }}</span>
+                  <button aria-label="Edit queued message" title="Edit" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M11.3 2.9l1.8 1.8L6 11.8l-2.4.6.6-2.4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"></path></svg></button>
+                  <button onClick="{{ removeQueued }}" aria-label="Remove from queue" title="Remove" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 4.5h9M6.5 4.5V3h3v1.5M4.5 4.5l.5 8h6l.5-8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                  <sc-if value="{{ steerSupported }}" hint-placeholder-val="{{ true }}"><button onClick="{{ steerQueued }}" aria-label="Steer now — send into the running turn" title="Steer now — send into the running turn" style="border:none;background:none;color:#57606a;cursor:pointer;padding:2px 4px;display:inline-flex"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></sc-if>
+                </div>
+              </div>
+            </sc-if>
+            <div style="position:relative;background:#ffffff;border:1px solid #d0d7de;border-radius:14px;box-shadow:0 1px 3px rgba(27,31,36,.06)">
+              <input value="{{ actDraft }}" onChange="{{ onActDraft }}" onKeyDown="{{ actKey }}" disabled="{{ actInputDis }}" aria-label="Message the review agent" placeholder="{{ actPlaceholder }}" style="width:100%;box-sizing:border-box;border:none;outline:none;font-size:13.5px;color:#1f2328;background:transparent;padding:12px 14px 4px">
+              <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 10px;flex-wrap:wrap">
+                <button disabled="{{ actInputDis }}" title="Auto asks before anything risky" style="display:inline-flex;align-items:center;gap:5px;border:none;background:none;padding:2px 5px;font-size:12.5px;color:#57606a;cursor:pointer">Auto <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6.2l4 3.9 4-3.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#8c959f"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" stroke-width="1.4"></rect><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4"></path></svg>Private</span>
+                <span style="flex:1"></span>
+                <span style="font-size:12.5px;color:#57606a;white-space:nowrap">Codex · <span style="color:#8c959f">no subagents</span></span>
+                <sc-if value="{{ statusSpin }}" hint-placeholder-val="{{ false }}">
+                  <sc-if value="{{ steerSupported }}" hint-placeholder-val="{{ true }}"><button onClick="{{ steerNow }}" disabled="{{ actSendDis }}" title="Steer now — guidance goes into the running turn" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:14px;background:#ffffff;font-size:12.5px;font-weight:600;color:{{ actBtnFg }};cursor:pointer">Steer now</button></sc-if>
+                  <sc-if value="{{ steerUnsupported }}" hint-placeholder-val="{{ false }}"><span title="This provider lane does not support steering an active turn" style="font-size:12px;color:#8c959f">Steer unavailable</span></sc-if>
+                  <button onClick="{{ runNext }}" disabled="{{ actSendDis }}" title="Run next — queues after the current turn" style="padding:5px 12px;border:1px solid #d0d7de;border-radius:14px;background:#ffffff;font-size:12.5px;font-weight:600;color:{{ actBtnFg }};cursor:pointer">Run next</button>
+                  <button onClick="{{ stopRun }}" aria-label="Stop this turn" title="Stop this turn" style="width:30px;height:30px;border:none;border-radius:50%;background:#24292f;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0"><span style="width:10px;height:10px;border-radius:2px;background:#ffffff;display:inline-block"></span></button>
+                </sc-if>
+                <sc-if value="{{ statusIdle }}" hint-placeholder-val="{{ true }}">
+                  <button onClick="{{ runNext }}" disabled="{{ actSendDis }}" aria-label="Send message — starts a turn" style="width:30px;height:30px;border:none;border-radius:50%;background:{{ actSendBg }};color:{{ actSendFg }};font-size:14px;cursor:pointer">↑</button>
+                </sc-if>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </sc-if>
+  </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:860,&quot;height&quot;:900},&quot;state&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;ready&quot;,&quot;tsType&quot;:&quot;'none'|'running'|'queued'|'approval'|'ready'|'nofindings'|'incomplete'|'resolved'|'draft'|'outdated'|'stopped'&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;running&quot;,&quot;queued&quot;,&quot;approval&quot;,&quot;ready&quot;,&quot;nofindings&quot;,&quot;incomplete&quot;,&quot;resolved&quot;,&quot;draft&quot;,&quot;outdated&quot;,&quot;stopped&quot;],&quot;section&quot;:&quot;Review&quot;},&quot;view&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;summary&quot;,&quot;tsType&quot;:&quot;'summary'|'activity'&quot;,&quot;options&quot;:[&quot;summary&quot;,&quot;activity&quot;],&quot;section&quot;:&quot;Review&quot;},&quot;tab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;review&quot;,&quot;tsType&quot;:&quot;'pr'|'changes'|'review'&quot;,&quot;options&quot;:[&quot;pr&quot;,&quot;changes&quot;,&quot;review&quot;],&quot;section&quot;:&quot;Review&quot;},&quot;steerSupported&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Provider capabilities&quot;},&quot;onStateChange&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(state: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'review', view: 'summary', folds: { req: false, t1: true, act: false, cmd: true, sumThread: true, f1Diff: true }, fOpen: { 'F-1': true, 'F-2': true, 'F-3': true }, evOpen: {}, composer: null, compMode: 'write', draft: '', actDraft: '', local: {}, extraThread: {}, queued: null, sumExtra: [], apprDone: false, lastState: null, view0: null };
+  static getDerivedStateFromProps(p, s) {
+    const st = p.state ?? 'ready';
+    if (st !== s.lastState) {
+      return { lastState: st, view: p.view ?? 'summary', tab: p.tab ?? 'review', composer: null, draft: '', local: {}, extraThread: {}, queued: null, sumExtra: [], apprDone: false, fOpen: { 'F-1': true, 'F-2': st !== 'resolved', 'F-3': true } };
+    }
+    return null;
+  }
+  set(patch) { this.setState(patch); }
+  fold(k) { this.setState(s => ({ folds: { ...s.folds, [k]: !s.folds[k] } })); }
+  renderVals() {
+    const S = this.props.state ?? 'ready';
+    const s = this.state;
+    const steerSupported = this.props.steerSupported ?? true;
+    const running = ['running', 'queued', 'approval'].includes(S) && !s.apprDone || (S === 'approval' && s.apprDone);
+    const busy = running;
+    const rot = b => b ? '90deg' : '0deg';
+    const tab = s.tab, view = s.view;
+    const tabStyle = on => ({ bg: on ? '#eceff2' : 'transparent', fg: on ? '#1f2328' : '#57606a', w: on ? 600 : 500 });
+    const tp = tabStyle(tab === 'pr'), tc = tabStyle(tab === 'changes'), tr = tabStyle(tab === 'review');
+
+    // chip
+    const chips = {
+      none: null, running: ['Running', '#0969da', '#ddf4ff', true], queued: ['Running · 1 queued', '#0969da', '#ddf4ff', true],
+      approval: s.apprDone ? ['Running', '#0969da', '#ddf4ff', true] : ['Needs approval', '#9a6700', '#fff8c5', false],
+      ready: ['3 findings', '#57606a', '#eceff2', false], resolved: ['2 open', '#57606a', '#eceff2', false], draft: ['3 findings', '#57606a', '#eceff2', false],
+      nofindings: ['No findings', '#1a7f37', '#dafbe1', false], incomplete: ['Incomplete', '#cf222e', '#ffebe9', false],
+      outdated: ['New commits', '#9a6700', '#fff8c5', false], stopped: ['Stopped', '#57606a', '#eceff2', false]
+    };
+    const chip = chips[S];
+
+    // status strip
+    const statusMap = {
+      running: ['Running', '#0969da', 'reading IcebergSortField.java and running tests', '2m 14s'],
+      queued: ['Running', '#0969da', '1 question queued for F-1', '3m 02s'],
+      approval: s.apprDone ? ['Running', '#0969da', 'downloading test dependencies', '3m 40s'] : ['Waiting for approval', '#9a6700', 'run blocked until you answer', '3m 31s'],
+      ready: ['Ready', '#1a7f37', 'complete coverage · 5 commits · 30 files', 'finished 4:15 PM'],
+      resolved: ['Ready', '#1a7f37', 'complete coverage · 1 finding resolved locally', 'finished 4:15 PM'],
+      draft: ['Ready', '#1a7f37', '1 in your review · 1 posted', 'finished 4:15 PM'],
+      nofindings: ['Ready', '#1a7f37', 'complete coverage · no inline findings', 'finished 4:11 PM'],
+      incomplete: ['Incomplete', '#cf222e', 'coverage not recorded', 'ended 4:19 PM'],
+      outdated: ['New commits', '#9a6700', 'reviewed d9a0c41 · remote head 5e17b02', 'finished 4:15 PM'],
+      stopped: ['Stopped', '#57606a', 'follow-up paused · discussion open', 'stopped 4:09 PM']
+    };
+    const stt = statusMap[S] || statusMap.ready;
+
+    const you = { author: 'jackchen', ini: 'j', abg: '#e7dcf9', afg: '#8250df' };
+    const agent = { author: 'Agent', ini: 'A', abg: '#eceff2', afg: '#57606a' };
+
+    const commits = [
+      { sha: 'a41f2c0', msg: 'Parse dotted paths in sorted_by', why: 'Splits “address.zip” into a path instead of treating it as one column name.', pending: false },
+      { sha: '7be9d13', msg: 'Resolve nested field IDs in IcebergUtil.getSortFields', why: 'Walks the struct schema to find the leaf field ID Iceberg stores in the sort order.', pending: false },
+      { sha: 'f03e8a7', msg: 'Reject list/map paths in setTableProperties', why: 'Blocks paths through repeated elements, which Iceberg cannot sort on.', pending: S === 'running' || S === 'stopped' },
+      { sha: '2c6d9be', msg: 'Add TestIcebergNestedSortOrder', why: 'Covers two-level struct paths end to end.', pending: S === 'running' || S === 'stopped' },
+      { sha: 'd9a0c41', msg: 'Document nested sorted_by', why: 'Adds the dotted-path syntax to the Iceberg connector docs.', pending: S === 'running' || S === 'stopped' }
+    ];
+
+    const f1Thread = [
+      ...(['ready', 'resolved', 'draft', 'outdated', 'queued'].includes(S) ? [
+        { ...you, time: '4:21 PM', body: 'Doesn’t Iceberg’s schema already forbid duplicate names inside one struct?' },
+        ...(S === 'queued' ? [] : [{ ...agent, time: '4:22 PM', body: 'Inside one struct, yes. The collision here is across levels: address.zip and shipping.address.zip both end in a field named zip, and resolveNestedFieldId matches on the leaf name once it has descended past the first segment. The frozen test in evidence shows it returning the shipping field ID for the address path.' }])
+      ] : []),
+      ...(s.extraThread['F-1'] || []),
+      ...(S === 'queued' ? [{ ...you, time: 'just now', queued: true, body: 'Does this also affect the sort order that is written into the table metadata, or only query planning?' }] : [])
+    ];
+
+    const local = s.local;
+    const mk = (id, base) => {
+      const open = s.fOpen[id] !== false;
+      const resolved = !!(local[id]?.resolved ?? base.resolved);
+      const outdated = !!base.outdated;
+      const draft = !!(local[id]?.draft ?? base.draft) && !resolved;
+      const published = !!base.published;
+      const provisional = ['running', 'queued', 'approval', 'stopped'].includes(S);
+      const canPublish = !resolved && !outdated && !draft && !published && !provisional;
+      const blockedWhy = provisional ? 'Publishing unlocks when the run records coverage' : outdated ? 'Not publishable until re-anchored' : resolved ? 'Excluded from publication' : '';
+      const f = {
+        ...base, id, domId: 'finding-' + id, open, rot: rot(open), resolved, outdated, draft, published, provisional,
+        notDraft: !draft, plainPrivate: !resolved && !outdated && !draft && !published,
+        border: draft ? '#d4a72c' : '#d0d7de', hdrBorder: open ? '#d0d7de' : 'transparent', opacity: resolved || outdated ? .85 : 1,
+        evOpen: !!s.evOpen[id], evRot: rot(!!s.evOpen[id]),
+        composerOpen: s.composer === id || s.composer === 'post:' + id,
+        showActions: !(s.composer === id || s.composer === 'post:' + id),
+        canResolve: !resolved && !published, canPublish, publishBlocked: !canPublish && !draft && !published, publishBlockedWhy: blockedWhy,
+        askDis: false, askFg: '#1f2328',
+        toggle: () => this.setState(st => ({ fOpen: { ...st.fOpen, [id]: !open } })),
+        toggleEv: () => this.setState(st => ({ evOpen: { ...st.evOpen, [id]: !st.evOpen[id] } })),
+        ask: () => this.set({ composer: id, compMode: 'write', draft: '' }),
+        post: () => this.set({ composer: 'post:' + id, compMode: 'write', draft: base.draftBody }),
+        confirmPost: () => this.setState(st => ({ composer: null, local: { ...st.local, [id]: { ...st.local[id], published: true } } })),
+        resolve: () => this.setState(st => ({ local: { ...st.local, [id]: { ...st.local[id], resolved: true } } })),
+        reopen: () => this.setState(st => ({ local: { ...st.local, [id]: { ...st.local[id], resolved: false } } })),
+        addDraft: () => this.setState(st => ({ local: { ...st.local, [id]: { ...st.local[id], draft: true } } })),
+        viewChanges: () => this.set({ tab: 'changes' }),
+        noop: e => { if (e && e.preventDefault) e.preventDefault(); }
+      };
+      if (local[id]?.published) { f.published = true; f.plainPrivate = false; f.canPublish = false; f.publishBlocked = false; f.draft = false; f.notDraft = true; }
+      return f;
+    };
+
+    const F1 = mk('F-1', {
+      title: 'Nested sort-field lookup matches leaf names across struct levels', sev: 'Critical', sevFg: '#cf222e', sevBg: '#ffebe9', rev: S === 'outdated' ? 2 : 1, time: '4:06 PM',
+      path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java', pathShort: 'IcebergSortField.java', range: 'R118–R131',
+      body: 'resolveNestedFieldId descends by the first path segment, then falls back to matching the remaining path by leaf name anywhere below. With two structs that both contain a zip field (address.zip and shipping.address.zip), sorted_by = ARRAY[\'address.zip\'] resolves to the shipping field ID. The table is then created with a sort order on the wrong column and no error is raised.',
+      evLabel: '1 source window · 1 test run', evSource: 'IcebergSortField.java R118–R131 (frozen head d9a0c41)', evProv: 'agent-added test, run in the worktree',
+      evText: '118  private static int resolveNestedFieldId(Types.StructType struct, List<String> path)\n119  {\n120      Types.NestedField head = struct.field(path.get(0));\n121      if (path.size() == 1) {\n122          return head.fieldId();\n123      }\n124      // fall back to any descendant whose name matches the leaf\n125      for (Types.NestedField field : struct.fields()) {\n126          Optional<Integer> match = findByLeafName(field, path.get(path.size() - 1));\n...\n$ ./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergSortField#testDuplicateLeafNameAcrossStructs\nexpected: 7 (address.zip)  but was: 12 (shipping.address.zip)  FAILED',
+      evWhy: 'The test was added by the agent in its worktree and asserts against the original snapshot; the production code under test is unchanged from the PR head.',
+      thread: f1Thread, draftBody: 'resolveNestedFieldId falls back to leaf-name matching once past the first segment, so `address.zip` can resolve to `shipping.address.zip` when both structs have a `zip` field. Could this match the full path instead?',
+      draft: S === 'draft', resolved: false, outdated: false, published: false
+    });
+    const F2 = mk('F-2', {
+      title: 'sorted_by accepts a path through a list element without an error', sev: 'Medium', sevFg: '#9a6700', sevBg: '#fff8c5', rev: 1, time: '4:09 PM',
+      path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java', pathShort: 'IcebergMetadata.java', range: 'R2412–R2418',
+      body: 'The new check rejects map paths but only inspects the first segment for lists. A path like items.price (items is a list<struct>) passes validation and later fails deep inside Iceberg with an unrelated message.',
+      evLabel: '1 source window', evSource: 'IcebergMetadata.java R2412–R2418 (frozen head d9a0c41)', evProv: 'source read, no test run',
+      evText: '2412  if (field.type().isMapType()) {\n2413      throw new TrinoException(INVALID_TABLE_PROPERTY, "Cannot sort by map field: " + path);\n2414  }\n2415  // lists are not checked below the first segment\n2416  for (int i = 1; i < segments.size(); i++) {\n2417      field = ((Types.StructType) field.type()).field(segments.get(i));\n2418  }',
+      evWhy: 'The cast on line 2417 assumes every intermediate field is a struct; a list element type would throw a ClassCastException rather than the intended INVALID_TABLE_PROPERTY.',
+      thread: s.extraThread['F-2'] || [], draftBody: 'Only the first segment is checked for list types; `items.price` through a list<struct> passes validation and fails later with a ClassCastException.',
+      draft: false, resolved: S === 'resolved', resolveReason: 'Known limitation, tracked in #29981', outdated: S === 'outdated', published: false
+    });
+    const F3 = mk('F-3', {
+      title: 'Only two-level nesting is tested', sev: 'Low', sevFg: '#57606a', sevBg: '#eceff2', rev: 1, time: '4:13 PM',
+      path: 'plugin/trino-iceberg/src/test/java/io/trino/plugin/iceberg/TestIcebergNestedSortOrder.java', pathShort: 'TestIcebergNestedSortOrder.java', range: 'R84',
+      body: 'The new test creates a struct one level deep. The resolution loop in IcebergUtil is recursive, so a three-level path (a.b.c) exercises a branch that currently has no coverage.',
+      evLabel: '1 source window', evSource: 'TestIcebergNestedSortOrder.java R84 (frozen head d9a0c41)', evProv: 'source read',
+      evText: '84  assertUpdate("CREATE TABLE " + table + " (id INT, address ROW(zip VARCHAR)) WITH (sorted_by = ARRAY[\'address.zip\'])");',
+      evWhy: 'Single fixture in the file; no other test references a path with more than one dot.',
+      thread: s.extraThread['F-3'] || [], draftBody: 'Consider adding a three-level path (a.b.c) case — the resolution loop is recursive but only depth 1 is covered here.',
+      draft: false, resolved: false, outdated: false, published: S === 'draft'
+    });
+
+    const findingsByState = {
+      none: [], running: [F1], queued: [F1], approval: [F1], ready: [F1, F2, F3], resolved: [F1, F2, F3], draft: [F1, F2, F3],
+      nofindings: [], incomplete: [F1], outdated: [F1, F2, F3], stopped: [F1, F2]
+    };
+    const findings = findingsByState[S] || [];
+    const openCount = findings.filter(f => !f.resolved).length;
+
+    const sumThread = [
+      ...(['ready', 'resolved', 'draft', 'outdated', 'nofindings'].includes(S) ? [
+        { ...you, time: '4:18 PM', body: 'Why does 7be9d13 change IcebergUtil rather than the parser in a41f2c0?' },
+        { ...agent, time: '4:18 PM', body: 'The parser only splits the string. The field ID lookup needs the live table schema, which is only available where getSortFields already runs — so the author kept the parsing pure and put schema-aware resolution next to the existing sort-field code.' }
+      ] : []),
+      ...s.sumExtra
+    ];
+
+    const compTarget = s.composer;
+    const compIsPost = typeof compTarget === 'string' && compTarget.startsWith('post:');
+    const compF = compIsPost ? compTarget.slice(5) : compTarget;
+    const hasText = s.draft.trim().length > 0;
+    const askLabel = busy ? 'Queue question' : 'Ask agent';
+
+    const sendAsk = () => {
+      if (!hasText) return;
+      const msg = { ...you, time: 'just now', body: s.draft, queued: busy };
+      if (compF === 'summary') this.setState(st => ({ sumExtra: [...st.sumExtra, msg], composer: null, draft: '' }));
+      else this.setState(st => ({ extraThread: { ...st.extraThread, [compF]: [...(st.extraThread[compF] || []), msg] }, composer: null, draft: '', queued: busy ? s.draft : st.queued }));
+    };
+
+    const diff = (n, s_, t, kind) => ({ n, s: s_, t, bg: kind === 'add' ? '#e6ffec' : kind === 'del' ? '#ffebe9' : '#ffffff', gbg: kind === 'add' ? '#ccffd8' : kind === 'del' ? '#ffd7d5' : '#f6f8fa', sfg: kind === 'add' ? '#1a7f37' : kind === 'del' ? '#cf222e' : '#8c959f' });
+    const diffTop = [
+      diff('116', '', '    }', 'ctx'), diff('117', '', '', 'ctx'),
+      diff('118', '+', '    private static int resolveNestedFieldId(Types.StructType struct, List<String> path)', 'add'),
+      diff('119', '+', '    {', 'add'),
+      diff('120', '+', '        Types.NestedField head = struct.field(path.get(0));', 'add'),
+      diff('121', '+', '        if (path.size() == 1) {', 'add'),
+      diff('122', '+', '            return head.fieldId();', 'add'),
+      diff('123', '+', '        }', 'add'),
+      diff('124', '+', '        // fall back to any descendant whose name matches the leaf', 'add'),
+      diff('125', '+', '        for (Types.NestedField field : struct.fields()) {', 'add'),
+      diff('126', '+', '            Optional<Integer> match = findByLeafName(field, path.get(path.size() - 1));', 'add'),
+      diff('127', '+', '            if (match.isPresent()) {', 'add'),
+      diff('128', '+', '                return match.get();', 'add'),
+      diff('129', '+', '            }', 'add'),
+      diff('130', '+', '        }', 'add'),
+      diff('131', '+', '        throw new TrinoException(INVALID_TABLE_PROPERTY, "Unknown sort field: " + String.join(".", path));', 'add')
+    ];
+    const diffBottom = [diff('132', '+', '    }', 'add'), diff('133', '', '', 'ctx'), diff('134', '', '    private static Optional<Integer> findByLeafName(Types.NestedField field, String leaf)', 'ctx')];
+
+    const write = s.compMode === 'write';
+    const t1LabelMap = { running: 'Turn 1 · running · 2m 14s', queued: 'Turn 1 · running · 3m 02s', approval: s.apprDone ? 'Turn 1 · running · 3m 40s' : 'Turn 1 · waiting for approval · 3m 31s', incomplete: 'Turn 1 · ended without result · 5m 03s', stopped: 'Turn 1 · stopped · 1m 48s' };
+    const actHasText = s.actDraft.trim().length > 0;
+    const idleAct = !running;
+
+    return {
+      tabPr: tab === 'pr', tabCh: tab === 'changes', tabRv: tab === 'review',
+      tabPrBg: tp.bg, tabPrFg: tp.fg, tabPrW: tp.w, tabChBg: tc.bg, tabChFg: tc.fg, tabChW: tc.w, tabRvBg: tr.bg, tabRvFg: tr.fg, tabRvW: tr.w,
+      goPr: () => this.set({ tab: 'pr' }), goChanges: () => this.set({ tab: 'changes' }), goReview: () => this.set({ tab: 'review' }),
+      hasChip: !!chip, chipText: chip?.[0], chipFg: chip?.[1], chipBg: chip?.[2], chipSpin: !!chip?.[3],
+      hasDraftCount: findings.some(f => f.draft), draftCount: findings.filter(f => f.draft).length,
+      hasFindings: findings.length > 0, changesFindingsLabel: findings.length + (findings.length === 1 ? ' agent finding' : ' agent findings') + ' · private',
+      f1Visible: findings.includes(F1), f1: F1, f1DiffOpen: s.folds.f1Diff, f1DiffRot: rot(s.folds.f1Diff), f1DiffHdrBorder: s.folds.f1Diff ? '#d0d7de' : 'transparent',
+      toggleF1Diff: () => this.fold('f1Diff'), openDiscussion: () => this.set({ tab: 'review', view: 'summary' }),
+      diffTop, diffBottom,
+      sNone: S === 'none', sHasReview: S !== 'none', sIncomplete: S === 'incomplete', sOutdated: S === 'outdated', sStopped: S === 'stopped',
+      startReview: () => this.props.onStateChange?.('running'),
+      vSum: view === 'summary', vAct: view === 'activity',
+      vSumBg: view === 'summary' ? '#ffffff' : 'transparent', vSumSh: view === 'summary' ? '0 1px 2px rgba(27,31,36,.12)' : 'none', vSumFg: view === 'summary' ? '#1f2328' : '#57606a',
+      vActBg: view === 'activity' ? '#ffffff' : 'transparent', vActSh: view === 'activity' ? '0 1px 2px rgba(27,31,36,.12)' : 'none', vActFg: view === 'activity' ? '#1f2328' : '#57606a',
+      actDot: S === 'approval' && !s.apprDone && view !== 'activity',
+      goSummary: () => this.set({ view: 'summary' }), goActivity: () => this.set({ view: 'activity' }),
+      statusSpin: running, statusIdle: !running, statusText: stt[0], statusFg: stt[1], statusDetail: '· ' + stt[2], elapsed: stt[3],
+      showStop: running, showResume: S === 'stopped', showUpdate: S === 'outdated' ? false : ['ready', 'resolved', 'draft', 'nofindings', 'incomplete'].includes(S), showEnd: !running && S !== 'stopped',
+      stopRun: () => this.props.onStateChange?.('stopped'), resumeRun: () => this.props.onStateChange?.('running'), updateReview: () => this.props.onStateChange?.('running'), endReview: () => this.props.onStateChange?.('none'), retryRun: () => this.props.onStateChange?.('running'),
+      showApprBanner: S === 'approval' && !s.apprDone, showApprCard: S === 'approval' && !s.apprDone, showApprRes: S === 'approval' && s.apprDone, apprAllow: () => this.set({ apprDone: true }),
+      summaryTime: S === 'running' ? '2m ago' : '4:15 PM', summaryProvisional: ['running', 'queued', 'approval', 'stopped'].includes(S), summaryRev: 1,
+      summaryMissing: S === 'incomplete', summaryPresent: S !== 'incomplete',
+      commits, combinedText: ['running', 'stopped'].includes(S) ? 'Not yet written — the agent has read 2 of 5 commits.' : 'sorted_by accepts dotted struct paths end to end: parse → resolve to a field ID → validate → write the Iceberg sort order. Top-level behaviour is unchanged. The result depends on resolveNestedFieldId returning the right ID, which finding F-1 questions.',
+      hasCritical: S !== 'nofindings' && findings.includes(F1), noCritical: S === 'nofindings',
+      scrollF1: e => { e.preventDefault(); const el = document.getElementById('finding-F-1'); if (el) el.parentElement?.parentElement?.scrollTo?.({ top: el.offsetTop - 60, behavior: 'smooth' }); },
+      sumThreadOpen: s.folds.sumThread, sumThreadRot: rot(s.folds.sumThread), sumThreadCount: sumThread.length === 0 ? 'no messages yet' : sumThread.length + (sumThread.length === 1 ? ' message' : ' messages'), sumThread,
+      toggleSumThread: () => this.fold('sumThread'),
+      sumComposerOpen: compTarget === 'summary', sumComposerClosed: compTarget !== 'summary', askSummary: () => this.set({ composer: 'summary', compMode: 'write', draft: '' }),
+      askDisabledGlobal: false, askBtnFg: '#1f2328', busyHint: busy,
+      compWrite: write, compPreview: !write, setWrite: () => this.set({ compMode: 'write' }), setPreview: () => this.set({ compMode: 'preview' }),
+      writeBorder: write ? '#d0d7de' : 'transparent', writeBottom: write ? '#ffffff' : 'transparent', writeW: write ? 600 : 500,
+      prevBorder: !write ? '#d0d7de' : 'transparent', prevBottom: !write ? '#ffffff' : 'transparent', prevW: !write ? 600 : 500,
+      draft: s.draft, onDraft: e => this.set({ draft: e.target.value }),
+      compKey: e => { if (e.key === 'Escape') this.set({ composer: null }); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendAsk(); },
+      previewText: hasText ? s.draft : 'Nothing to preview', previewFg: hasText ? '#1f2328' : '#8c959f',
+      compAria: compIsPost ? 'Outgoing comment text' : 'Ask the agent about this finding', compPlaceholder: compIsPost ? 'Comment text (edits here never change the finding)' : 'Ask the agent about this finding…',
+      compIsPrivate: !compIsPost, compIsPost,
+      closeComposer: () => this.set({ composer: null }), sendAsk, askDisabled: !hasText, askLabel, askBg: hasText ? '#f6f8fa' : '#ffffff', askFg: hasText ? '#1f2328' : '#8c959f',
+      postDisabled: !hasText, postBg: hasText ? '#1f883d' : '#94d3a2',
+      findingsSub: S === 'nofindings' ? 'none' : `${findings.length} from this run · ${openCount} open`, noFindings: S === 'nofindings', findingsPending: ['running', 'queued', 'approval'].includes(S) && !s.apprDone || S === 'running',
+      findings,
+      // activity
+      reqOpen: s.folds.req, reqRot: rot(s.folds.req), toggleReq: () => this.fold('req'),
+      t1Open: s.folds.t1, t1Rot: rot(s.folds.t1), toggleT1: () => this.fold('t1'), t1Label: t1LabelMap[S] || 'Turn 1 · 6m 12s · 3 findings',
+      actOpen: s.folds.act, actRot: rot(s.folds.act), toggleAct: () => this.fold('act'),
+      showCmdRun: (S === 'running' || S === 'queued') || (S === 'approval' && s.apprDone), cmdOpen: s.folds.cmd, cmdRot: rot(s.folds.cmd), toggleCmd: () => this.fold('cmd'),
+      showFinish: ['ready', 'resolved', 'draft', 'nofindings', 'outdated'].includes(S), finishCount: S === 'nofindings' ? 'an explicit zero-finding result' : '3 findings',
+      showAskTurn: ['ready', 'resolved', 'draft', 'outdated', 'queued'].includes(S), askTurnText: S === 'queued' ? 'Does this also affect the sort order that is written into the table metadata, or only query planning?' : 'Doesn’t Iceberg’s schema already forbid duplicate names inside one struct?', askTurnTarget: 'F-1 rev 1', askTurnStatus: S === 'queued' ? 'queued behind turn 1' : '4:21 PM', showAskReply: S !== 'queued',
+      showQueue: S === 'queued' && s.queued !== false, queuedText: s.queued || 'Does this also affect the sort order written into table metadata?', removeQueued: () => this.set({ queued: false }), steerQueued: () => this.set({ queued: false }),
+      steerSupported, steerUnsupported: !steerSupported,
+      actDraft: s.actDraft, onActDraft: e => this.set({ actDraft: e.target.value }), actKey: e => { if (e.key === 'Enter' && actHasText) this.set({ actDraft: '' }); },
+      actInputDis: false, actPlaceholder: running ? 'Steer the running turn or queue a message…' : 'Ask the agent about this review…',
+      actSendDis: !actHasText, actBtnFg: actHasText ? '#1f2328' : '#8c959f', actSendBg: actHasText ? '#24292f' : '#eceff2', actSendFg: actHasText ? '#ffffff' : '#8c959f',
+      steerNow: () => this.set({ actDraft: '' }), runNext: () => this.set({ actDraft: '' }),
+      noop: e => { if (e && e.preventDefault) e.preventDefault(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

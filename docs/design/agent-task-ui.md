@@ -1,5 +1,14 @@
 # Agent Task UI Design
 
+## Shared conversation presentation (2026-09-07)
+
+Tasks and PR review Activity use `AgentConversation` for the transcript,
+approvals, live activity, queue, composer, and history scrolling. They also use
+the same bounded-history session and event reducer. Each screen supplies its
+own real state, available controls, and scoped actions; review Activity does
+not mount the interactive Tasks route or manufacture an interactive task DTO.
+Changes to conversation behavior belong in this shared implementation.
+
 ## Bounded history correction (2026-09-06)
 
 Opening a task shows a bounded recent window, not a replay of its whole log.

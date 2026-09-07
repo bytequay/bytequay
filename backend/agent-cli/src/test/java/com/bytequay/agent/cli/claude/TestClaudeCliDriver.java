@@ -35,6 +35,9 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ReviewBridge;
+import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -265,6 +268,33 @@ class TestClaudeCliDriver
                 .at("/sandbox/network/allowedDomains")).isEmpty();
         textSession.close();
         assertThat(settingsFile).doesNotExist();
+        driver.close();
+    }
+
+    @Test
+    void restrictsNativeReviewToolsOnInitialAndResumedSessions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
+        ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review));
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+        await(session.start(command("review")));
+        AgentSessionRef reference = session.reference();
+        session.close();
+        AgentSession resumed = driver.open(context(Optional.of(reference)), event -> {});
+        await(resumed.start(command("review-again")));
+
+        for (ScriptedTurn turn : supervisor.turns()) {
+            List<String> argv = turn.spec().argv();
+            assertThat(argv).contains("--disable-slash-commands");
+            String nativeTools = argv.get(argv.indexOf("--tools") + 1);
+            assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
+                    .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
+            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__review_finish");
+        }
+        resumed.close();
         driver.close();
     }
 
@@ -708,10 +738,16 @@ class TestClaudeCliDriver
 
     private ClaudeCliDriver driver(ProcessSupervisor supervisor)
     {
+        return driver(supervisor, taskId -> Optional.empty());
+    }
+
+    private ClaudeCliDriver driver(ProcessSupervisor supervisor, ReviewBridgeResolver reviews)
+    {
         ClaudePermissionBroker permissions = new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
-                (taskId, query) -> "memory");
+                (taskId, query) -> "memory",
+                reviews);
         return new ClaudeCliDriver(
                 "/fake/claude",
                 objectMapper,

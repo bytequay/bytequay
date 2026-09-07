@@ -24,14 +24,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
-final class AgentSseSubscriber
+public final class AgentSseSubscriber
         implements Flow.Subscriber<AgentEventEnvelope>
 {
     private final SseEmitter emitter;
     private final AtomicReference<Flow.Subscription> subscription = new AtomicReference<>();
     private final AtomicBoolean stopped = new AtomicBoolean();
 
-    AgentSseSubscriber(SseEmitter emitter)
+    public AgentSseSubscriber(SseEmitter emitter)
     {
         this.emitter = requireNonNull(emitter, "emitter is null");
         emitter.onCompletion(this::cancel);

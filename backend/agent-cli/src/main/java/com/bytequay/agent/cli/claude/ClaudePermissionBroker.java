@@ -20,6 +20,9 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ReviewBridge;
+import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.ReviewTool;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -49,6 +52,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -71,6 +76,7 @@ public final class ClaudePermissionBroker
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
     private final CiMemoryReader ciMemoryReader;
+    private final ReviewBridgeResolver reviews;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public ClaudePermissionBroker(
@@ -78,12 +84,22 @@ public final class ClaudePermissionBroker
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader)
     {
+        this(endpoint, objectMapper, ciMemoryReader, ReviewBridgeResolver.NONE);
+    }
+
+    public ClaudePermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
                 .registerModule(new Jdk8Module())
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.ciMemoryReader = requireNonNull(ciMemoryReader, "ciMemoryReader is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
     }
 
     Registration register(
@@ -129,6 +145,7 @@ public final class ClaudePermissionBroker
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         requireNonNull(codeGraph, "codeGraph is null");
+        Optional<ReviewBridge> review = reviews.resolve(taskId);
         contexts.put(token, new PermissionContext(
                 taskId,
                 worktree,
@@ -136,7 +153,8 @@ public final class ClaudePermissionBroker
                 approvals,
                 redactor.withSecret(token),
                 true,
-                codeGraph));
+                codeGraph,
+                review));
         try {
             Files.createDirectories(providerDirectory);
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
@@ -146,8 +164,8 @@ public final class ClaudePermissionBroker
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token)))));
             writeOwnerOnly(configFile, json);
-            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, runtimeDirectory.toRealPath()));
-            return new Registration(configFile, settingsFile, token);
+            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath()));
+            return new Registration(configFile, settingsFile, token, codeGraph, review);
         }
         catch (IOException e) {
             contexts.remove(token);
@@ -176,9 +194,45 @@ public final class ClaudePermissionBroker
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
         requireNonNull(codeGraph, "codeGraph is null");
+        return registerTools(taskId, worktree, permissionPolicy, approvals, redactor, Optional.of(codeGraph)).orElseThrow();
+    }
+
+    /**
+     * Registers a token for a provider that reaches this endpoint through its own MCP
+     * configuration, exposing the CodeGraph tool and the task's review capability when it has
+     * one. Empty when the task has neither, so an ordinary task keeps an empty MCP map.
+     */
+    public Optional<CodeGraphRegistration> registerTools(
+            String taskId,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor,
+            Optional<CodeGraphBridge> codeGraph)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(permissionPolicy, "permissionPolicy is null");
+        requireNonNull(approvals, "approvals is null");
+        requireNonNull(redactor, "redactor is null");
+        requireNonNull(codeGraph, "codeGraph is null");
+        Optional<ReviewBridge> review = reviews.resolve(taskId);
+        if (codeGraph.isEmpty() && review.isEmpty()) {
+            return Optional.empty();
+        }
         String token = token();
-        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, Optional.of(codeGraph)));
-        return new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"));
+        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review));
+        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review));
+    }
+
+    /** The managed guidance for a session's instruction channel: CodeGraph's, the review policy, or both. */
+    static Optional<String> managedInstruction(Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review)
+    {
+        String joined = Stream.concat(
+                        review.map(ReviewBridge::instruction).stream(),
+                        codeGraph.map(CodeGraphBridge::instruction).stream())
+                .collect(Collectors.joining("\n\n"));
+        return joined.isBlank() ? Optional.empty() : Optional.of(joined);
     }
 
     /**
@@ -223,14 +277,57 @@ public final class ClaudePermissionBroker
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> context.permissionTools() ? readCiMemory(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
-            default -> error(request.id(), -32602, "Unknown tool");
+            default -> reviewTool(request.id(), params, context);
         };
+    }
+
+    /**
+     * Runs one review tool for the task the token names. Validation failures come back as tool
+     * text the model can repair from; an unexpected failure is an error result, never a thrown
+     * exception that would drop the provider's connection.
+     */
+    private McpHttpResponse reviewTool(JsonNode id, ToolCallParams params, PermissionContext context)
+            throws JsonProcessingException
+    {
+        Optional<ReviewTool> tool = context.review().flatMap(bridge -> bridge.tool(params.name()));
+        if (tool.isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        JsonNode arguments = params.arguments().isObject() ? params.arguments() : objectMapper.createObjectNode();
+        String text;
+        boolean failed = false;
+        try {
+            text = tool.orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
+        }
+        catch (RuntimeException failure) {
+            text = "The review operation failed: " + Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            failed = true;
+        }
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), failed));
     }
 
     private McpHttpResponse permission(JsonNode id, JsonNode input, PermissionContext context)
             throws JsonProcessingException
     {
         PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
+        Optional<String> refused = Optional.empty();
+        if (context.review().isPresent()) {
+            if (arguments.toolName().equalsIgnoreCase("Agent")
+                    || arguments.toolName().equalsIgnoreCase("Task")
+                    || arguments.toolName().equalsIgnoreCase("Skill")
+                    || arguments.toolName().equalsIgnoreCase("Workflow")
+                    || arguments.toolName().equalsIgnoreCase("SendMessage")) {
+                refused = Optional.of("Review sessions cannot start or resume subagents because review tools require the root agent");
+            }
+            else if (arguments.toolName().equalsIgnoreCase("Bash")) {
+                refused = ReviewBridge.deniedReason(Optional.ofNullable(arguments.input().get("command")).filter(JsonNode::isTextual).map(JsonNode::asText).orElse(""));
+            }
+        }
+        if (refused.isPresent()) {
+            // Refused before any card exists: review authority is not extended by a tool approval.
+            PermissionResult denied = new PermissionResult("deny", Optional.empty(), refused);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(denied))), false));
+        }
         if (context.permissionPolicy().unattended()) {
             PermissionResult decision = sandboxedPermission(
                     arguments, context.worktree(), context.permissionPolicy());
@@ -363,6 +460,7 @@ public final class ClaudePermissionBroker
         if (context.codeGraph().isPresent()) {
             tools.add(codeGraphTool());
         }
+        context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
         if (context.permissionTools() && context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
@@ -441,6 +539,7 @@ public final class ClaudePermissionBroker
     private String sandboxSettings(
             AgentPermissionPolicy permissionPolicy,
             boolean textOnly,
+            boolean reviewSession,
             Path runtimeDirectory)
             throws IOException
     {
@@ -454,6 +553,11 @@ public final class ClaudePermissionBroker
                 "Read(~/.git-credentials)",
                 "Read(~/.netrc)",
                 "Read(~/.ssh/**)");
+        if (reviewSession) {
+            // This task's MCP token does not distinguish a root agent from a child caller.
+            // Skills and workflows can start children; SendMessage can resume earlier children.
+            deny.add("Agent", "Task", "Skill", "Workflow", "SendMessage");
+        }
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
@@ -528,12 +632,28 @@ public final class ClaudePermissionBroker
         private final Path configFile;
         private final Path settingsFile;
         private final String token;
+        private final Optional<CodeGraphBridge> codeGraph;
+        private final Optional<ReviewBridge> review;
 
-        private Registration(Path configFile, Path settingsFile, String token)
+        private Registration(Path configFile, Path settingsFile, String token, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review)
         {
             this.configFile = requireNonNull(configFile, "configFile is null");
             this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
             this.token = requireNonNull(token, "token is null");
+            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+            this.review = requireNonNull(review, "review is null");
+        }
+
+        /** The review capability this token exposes, resolved from the task when it registered. */
+        Optional<ReviewBridge> review()
+        {
+            return review;
+        }
+
+        /** The managed guidance this session's instruction channel carries, if any tool needs one. */
+        Optional<String> instruction()
+        {
+            return managedInstruction(codeGraph, review);
         }
 
         Path configFile()
@@ -567,11 +687,27 @@ public final class ClaudePermissionBroker
     {
         private final String token;
         private final URI endpoint;
+        private final Optional<CodeGraphBridge> codeGraph;
+        private final Optional<ReviewBridge> review;
 
-        private CodeGraphRegistration(String token, URI endpoint)
+        private CodeGraphRegistration(String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review)
         {
             this.token = requireNonNull(token, "token is null");
             this.endpoint = requireNonNull(endpoint, "endpoint is null");
+            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+            this.review = requireNonNull(review, "review is null");
+        }
+
+        /** The review capability this token exposes, resolved from the task when it registered. */
+        public Optional<ReviewBridge> review()
+        {
+            return review;
+        }
+
+        /** The managed guidance for the launch's instruction channel; empty only for a token without any guidance. */
+        public String instruction()
+        {
+            return managedInstruction(codeGraph, review).orElse("");
         }
 
         public String token()
@@ -606,7 +742,8 @@ public final class ClaudePermissionBroker
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             boolean permissionTools,
-            Optional<CodeGraphBridge> codeGraph)
+            Optional<CodeGraphBridge> codeGraph,
+            Optional<ReviewBridge> review)
     {
         private PermissionContext
         {
@@ -616,6 +753,7 @@ public final class ClaudePermissionBroker
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
             requireNonNull(codeGraph, "codeGraph is null");
+            requireNonNull(review, "review is null");
         }
     }
 

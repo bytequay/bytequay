@@ -299,7 +299,7 @@
   padding: 15px 20px 0;
 }
 .pull-detail__header--tabs { border-bottom: 0; padding: 10px; }
-.pull-detail__toolbar { display: flex; min-width: 0; align-items: center; gap: 14px; }
+.pull-detail__toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 
 .pull-detail__title-row { display: flex; align-items: flex-start; gap: 16px; }
 .pull-detail__title-row h1 { min-width: 0; flex: 1; margin: 0; color: #17191c; font-size: 15px; font-weight: 500; line-height: 1.4; }
@@ -555,7 +555,7 @@
 .pr-merge-sheet button,
 .pr-review-sheet button { font-weight: 400; }
 
-.pull-detail__tabs { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; }
+.pull-detail__tabs { display: flex; min-width: 0; flex: 1 0 auto; align-items: center; flex-wrap: wrap; gap: 6px; }
 .pull-detail__tabs button { display: inline-flex; min-height: 32px; align-items: center; gap: 8px; border: 0; border-radius: 12px; background: transparent; color: #59636e; padding: 6px 11px; font-size: var(--ui-font-size); font-weight: 500; white-space: nowrap; }
 .pull-detail__tabs button:hover { background: #f6f8fa; color: #24292f; }
 .pull-detail__tabs button.is-active { background: #f1f2f3; color: #24292f; }

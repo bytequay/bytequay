@@ -271,7 +271,7 @@ class TestPullRequestRefreshService
         AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
         when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
         PullRequestRefreshService service = new PullRequestRefreshService(
-                pullRequests, credentials, noWorkspaces());
+                pullRequests, credentials, noWorkspaces(), event -> {});
 
         service.refreshDashboard();
         current.set(secondCredential);
@@ -298,7 +298,7 @@ class TestPullRequestRefreshService
             return null;
         }).when(pullRequests).syncFromGitHub();
         PullRequestRefreshService service = new PullRequestRefreshService(
-                pullRequests, credentials, noWorkspaces());
+                pullRequests, credentials, noWorkspaces(), event -> {});
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(service::refreshDashboard);
@@ -452,7 +452,7 @@ class TestPullRequestRefreshService
             WorkspaceStore workspaces)
     {
         return new PullRequestRefreshService(
-                pullRequests, credentials(credential("token-a", "alice")), workspaces);
+                pullRequests, credentials(credential("token-a", "alice")), workspaces, event -> {});
     }
 
     private static WorkspaceStore noWorkspaces()

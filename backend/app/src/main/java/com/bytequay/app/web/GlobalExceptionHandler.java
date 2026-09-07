@@ -29,6 +29,8 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
+import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.review.ReviewNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,13 +114,14 @@ public class GlobalExceptionHandler
             QueuedInputNotFoundException.class,
             ApprovalNotFoundException.class,
             CherryPickNotFoundException.class,
-            CiAutofixNotFoundException.class})
+            CiAutofixNotFoundException.class,
+            ReviewNotFoundException.class})
     public ResponseEntity<ErrorResponse> handleAgentNotFound(RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }
 
-    @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class, CherryPickConflictException.class})
+    @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class, CherryPickConflictException.class, ReviewConflictException.class})
     public ResponseEntity<ErrorResponse> handleAgentConflict(
             RuntimeException exception, HttpServletRequest request)
     {

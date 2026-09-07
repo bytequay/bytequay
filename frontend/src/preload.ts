@@ -292,6 +292,65 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:stop-impact', taskId, workspaceId),
   stopAgentRuntime: (taskId, workspaceId, generation) =>
     ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
+  findAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:find', workspaceId, repo, number),
+  startAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:start', workspaceId, repo, number),
+  getAgentReview: reviewId => ipcRenderer.invoke('review:get', reviewId),
+  stopAgentReview: reviewId => ipcRenderer.invoke('review:stop', reviewId),
+  resumeAgentReview: reviewId => ipcRenderer.invoke('review:resume', reviewId),
+  updateAgentReview: reviewId => ipcRenderer.invoke('review:update', reviewId),
+  endAgentReview: reviewId => ipcRenderer.invoke('review:end', reviewId),
+  askAgentReview: (reviewId, findingId, targetRevision, message) =>
+    ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message),
+  messageAgentReview: (reviewId, message, delivery, idempotencyKey) =>
+    ipcRenderer.invoke('review:message', reviewId, message, delivery, idempotencyKey),
+  removeAgentReviewQueued: (reviewId, queuedInputId) => ipcRenderer.invoke('review:queue:remove', reviewId, queuedInputId),
+  resolveAgentReviewFinding: (reviewId, findingId, expectedVersion, reason) =>
+    ipcRenderer.invoke('review:finding:resolve', reviewId, findingId, expectedVersion, reason),
+  reopenAgentReviewFinding: (reviewId, findingId, expectedVersion) =>
+    ipcRenderer.invoke('review:finding:reopen', reviewId, findingId, expectedVersion),
+  readAgentReviewEvents: (reviewId, after, limit) => ipcRenderer.invoke('review:events:read', reviewId, after, limit),
+  readAgentReviewHistory: (reviewId, taskId, before, after) => ipcRenderer.invoke('review:history:read', reviewId, taskId, before, after),
+  readAgentReviewApprovals: (reviewId, taskId, turnId) => ipcRenderer.invoke('review:approvals:pending', reviewId, taskId, turnId),
+  resolveAgentReviewApproval: (reviewId, approvalId, decision) =>
+    ipcRenderer.invoke('review:approvals:resolve', reviewId, approvalId, decision),
+  subscribeAgentReview: async (reviewId, after, listener, statusOnly) => {
+    // Main pushes every review on one channel, so each listener keeps only what it asked for.
+    const receiver = createAgentStreamReceiver(listener);
+    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
+    ipcRenderer.on('review:stream:message', receive);
+    let subscriptionId: string | null = null;
+    try {
+      subscriptionId = await ipcRenderer.invoke('review:stream:subscribe', reviewId, after, statusOnly);
+      receiver.activate(subscriptionId);
+    }
+    catch (failure) {
+      ipcRenderer.removeListener('review:stream:message', receive);
+      if (subscriptionId !== null) void ipcRenderer.invoke('review:stream:unsubscribe', subscriptionId);
+      throw failure;
+    }
+    return () => {
+      ipcRenderer.removeListener('review:stream:message', receive);
+      void ipcRenderer.invoke('review:stream:unsubscribe', subscriptionId);
+    };
+  },
+
+  fetchReviewDraft: (repo, number) => ipcRenderer.invoke('review:draft:get', repo, number),
+  addReviewDraftComment: (repo, number, expectedVersion, comment) =>
+    ipcRenderer.invoke('review:draft:add-comment', repo, number, expectedVersion, comment),
+  addReviewDraftFinding: (repo, number, expectedVersion, reviewId, findingId) =>
+    ipcRenderer.invoke('review:draft:add-finding', repo, number, expectedVersion, reviewId, findingId),
+  editReviewDraftComment: (repo, number, expectedVersion, itemId, body, included) =>
+    ipcRenderer.invoke('review:draft:edit', repo, number, expectedVersion, itemId, body, included),
+  removeReviewDraftComment: (repo, number, expectedVersion, itemId) =>
+    ipcRenderer.invoke('review:draft:remove', repo, number, expectedVersion, itemId),
+  saveReviewDraft: (repo, number, expectedVersion, body, event) =>
+    ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
+  publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>
+    ipcRenderer.invoke('review:draft:publish', repo, number, expectedVersion, itemId),
+  submitReviewDraft: (repo, number, expectedVersion, body, event) =>
+    ipcRenderer.invoke('review:draft:submit', repo, number, expectedVersion, body, event),
+  fetchReviewDraftIneligible: (repo, number) => ipcRenderer.invoke('review:draft:ineligible', repo, number),
+
   subscribeAgentTask: async (taskId, after, listener, statusOnly) => {
     // Main pushes every task on one channel, so each listener keeps only what it asked for.
     const receiver = createAgentStreamReceiver(listener);

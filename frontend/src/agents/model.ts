@@ -378,10 +378,23 @@ export async function startAgentTaskSession(
   const task = await bridge.getAgentTask(taskId, workspaceId);
   if (!isActive()) return noop;
   dispatch({ type: 'task/loaded', task });
+  return startAgentConversationSession(bridge, taskId, dispatch, isActive, isFollowing, task.state === 'OPEN');
+}
+
+/** Shared bounded history and live transport; each caller supplies its own authorized routes. */
+export async function startAgentConversationSession(
+  bridge: Pick<Bridge, 'readAgentHistory' | 'subscribeAgentTask'>,
+  taskId: string,
+  dispatch: (action: AgentTaskAction) => void,
+  isActive: () => boolean = () => true,
+  isFollowing: () => boolean = () => true,
+  subscribe = true,
+): Promise<() => void> {
+  const noop = (): void => {};
   const { page, earlier } = await readRecentAgentHistory(bridge, taskId);
   if (!isActive()) return noop;
   dispatch({ type: 'history/loaded', page, earlier, direction: 'latest' });
-  if (task.state !== 'OPEN') {
+  if (!subscribe) {
     dispatch({ type: 'connection/changed', state: 'open' });
     return noop;
   }

@@ -29,9 +29,29 @@ import { useResizablePane } from '../useResizablePane';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody from './MarkdownBody';
 import { CopyLinkButton, remoteErrorMessage, ReviewThread, type PullDetailUpdater } from './PullOverview';
+import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
+import type { AgentReviewDto } from './agent-review/contracts';
+import ReviewFindingCard from './agent-review/ReviewFindingCard';
+import { useFindingActions } from './agent-review/useFindingActions';
 import { relativeTime } from '../relativeTime';
 
 export type CommitRange = { start: number; end: number } | null;
+
+/**
+ * The Agent review findings projected onto this diff.
+ *
+ * <p>A finding renders at the validated end line of its range, as the same card the Agent review
+ * tab draws: one finding ID and one discussion, shown in two places. An outdated finding has no
+ * trustworthy location here, so it stays in the tab with its recorded snapshot instead.
+ */
+export type AgentReviewProjection = {
+  review: AgentReviewDto;
+  viewer: UserProfileDto | null;
+  /** The range Agent review asked to show; a new token re-scrolls even to the same lines. */
+  navigation: ReviewNavigationTarget | null;
+  onReviewChange: (review: AgentReviewDto) => void;
+  onOpenInReview: (findingId: string) => void;
+};
 
 const SINGLE_FILE_MODE_THRESHOLD = 20;
 
@@ -55,6 +75,7 @@ type PullChangesProps = {
   canReview: boolean;
   pendingComments: InlineReviewCommentDto[];
   reviewThreads: ReviewThreads;
+  agentReview?: AgentReviewProjection;
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   onDetailChange: (detail: PullRequestDetailDto) => void;
@@ -78,6 +99,7 @@ export type DiffViewerProps = {
   onCommitRangeChange?: (range: CommitRange) => void;
   review?: ReviewOptions;
   reviewThreads?: ReviewThreads;
+  agentReview?: AgentReviewProjection;
   loadFileContent?: (
     path: string,
     baseSha?: string,
@@ -96,6 +118,7 @@ export default function PullChanges({
   canReview,
   pendingComments,
   reviewThreads,
+  agentReview,
   onCommitRangeChange,
   onPendingCommentsChange,
   onDetailChange,
@@ -107,6 +130,7 @@ export default function PullChanges({
       commitRange={commitRange}
       loading={loading}
       reviewThreads={reviewThreads}
+      agentReview={agentReview}
       onCommitRangeChange={onCommitRangeChange}
       review={{
         repo,
@@ -145,6 +169,7 @@ export function DiffViewer({
   onCommitRangeChange,
   review,
   reviewThreads,
+  agentReview,
   loadFileContent,
 }: DiffViewerProps) {
   const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length));
@@ -178,6 +203,34 @@ export function DiffViewer({
     setClosed(new Set());
     setAllFilesOpen(false);
   }, [files]);
+
+  // Opening a finding's range: the file first, so a single-file view has it mounted, then the row.
+  const navigation = agentReview?.navigation ?? null;
+  const navigationToken = navigation?.token ?? null;
+  useEffect(() => {
+    if (navigation === null) return;
+    if (!files.some(file => file.filename === navigation.path)) return;
+    setSelected(navigation.path);
+    setClosed(previous => {
+      if (!previous.has(navigation.path)) return previous;
+      const next = new Set(previous);
+      next.delete(navigation.path);
+      return next;
+    });
+    const scroll = () => {
+      const container = scrollRef.current;
+      const row = container?.querySelector(
+        `[data-diff-row="${CSS.escape(`${navigation.path}:${navigation.side}:${navigation.startLine}`)}"]`);
+      const card = container?.querySelector(`[data-file-card="${CSS.escape(navigation.path)}"]`);
+      const target = row ?? card;
+      if (!container || !target) return;
+      const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top
+        + container.scrollTop - 96;
+      container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    };
+    // Two frames: the first mounts the file the click may just have opened, the second measures it.
+    requestAnimationFrame(() => requestAnimationFrame(scroll));
+  }, [files, navigation, navigationToken]);
 
   const pick = (filename: string) => {
     setSelected(filename);
@@ -284,6 +337,7 @@ export function DiffViewer({
               headSha={headSha}
               review={review}
               reviewThreads={reviewThreads}
+              agentReview={agentReview}
               fullDiff={commitRange === null}
               viewer={viewer}
               loadFileContent={loadFileContent}
@@ -641,6 +695,7 @@ function DiffFileCard({
   headSha,
   review,
   reviewThreads,
+  agentReview,
   fullDiff,
   viewer,
   loadFileContent,
@@ -652,6 +707,7 @@ function DiffFileCard({
   headSha?: string;
   review?: ReviewOptions;
   reviewThreads?: ReviewThreads;
+  agentReview?: AgentReviewProjection;
   fullDiff: boolean;
   viewer?: UserProfileDto | null;
   loadFileContent?: DiffViewerProps['loadFileContent'];
@@ -683,6 +739,18 @@ function DiffFileCard({
   const fileThreads = reviewThreads?.activities.filter(activity =>
     activity.eventType === 'review_thread' && activity.payload.path === file.filename) ?? [];
   const placedThreads = new Set<PullRequestDetailDto['recentActivity'][number]>();
+  // An outdated finding has no trustworthy line here; its card stays in Agent review with its
+  // recorded snapshot rather than pointing at an unrelated line of the current diff.
+  const fileFindings = (fullDiff && agentReview !== undefined
+    ? agentReview.review.findings.filter(finding =>
+      finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated)
+    : []);
+  const findingActions = useFindingActions({
+    review: agentReview?.review ?? PLACEHOLDER_REVIEW,
+    onReviewChange: agentReview?.onReviewChange ?? (() => {}),
+    onNavigate: finding => agentReview?.onOpenInReview(finding.id),
+    onAskReason: () => window.prompt('Why are you resolving this finding locally? (optional)'),
+  });
 
   useEffect(() => {
     if (!selectingRange) return;
@@ -820,6 +888,19 @@ function DiffFileCard({
     const selectionPrefix = selection?.side === 'RIGHT' ? 'R' : 'L';
     const rowComments = pendingReviewCommentsForLine(
       review?.pendingComments ?? [], file.filename, oldLine, newLine);
+    const rowSide: ReviewSide | null = newLine !== null ? 'RIGHT' : oldLine !== null ? 'LEFT' : null;
+    const rowLine = rowSide === 'RIGHT' ? newLine : oldLine;
+    const rowFindings = rowSide === null || rowLine === null
+      ? []
+      : fileFindings.filter(finding => finding.side === rowSide && finding.endLine === rowLine);
+    const navigation = agentReview?.navigation ?? null;
+    const inNavigatedRange = navigation !== null
+      && rowSide !== null
+      && rowLine !== null
+      && navigation.path === file.filename
+      && navigation.side === rowSide
+      && rowLine >= navigation.startLine
+      && rowLine <= navigation.endLine;
     const rowThreads = fullDiff ? fileThreads.filter(activity => !activity.payload.outdated
       && activity.payload.line !== null
       && (activity.payload.side === 'LEFT' ? activity.payload.line === oldLine
@@ -827,7 +908,9 @@ function DiffFileCard({
     rowThreads.forEach(activity => placedThreads.add(activity));
     return (
       <Fragment key={displayRow.key}>
-        <tr className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}`}
+        <tr
+          className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}${inNavigatedRange ? ' is-review-target' : ''}`}
+          data-diff-row={rowSide === null || rowLine === null ? undefined : `${file.filename}:${rowSide}:${rowLine}`}
           onMouseEnter={() => extendLineSelection(oldLine, newLine, row)}>
           <td className="is-line">
             {oldLine !== null && canReview && (
@@ -884,6 +967,19 @@ function DiffFileCard({
             <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span>{displayRow.content || ' '}
           </td>
         </tr>
+        {agentReview !== undefined && rowFindings.map(finding => (
+          <tr className="is-review-finding" key={`finding:${finding.id}`}><td colSpan={3}>
+            <ReviewFindingCard
+              review={agentReview.review}
+              finding={finding}
+              viewerLogin={agentReview.viewer?.login ?? ''}
+              viewerAvatarUrl={agentReview.viewer?.avatarUrl ?? null}
+              projection="changes"
+              actions={findingActions.actions}
+              busy={findingActions.busy} />
+            {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
+          </td></tr>
+        ))}
         {reviewThreads && rowThreads.map(activity => (
           <tr className="is-review-thread" key={`thread:${activity.githubId}`}><td colSpan={3}>
             <ReviewThread {...reviewThreads} activity={activity} showCode={false} />
@@ -1143,6 +1239,9 @@ export async function submitInlineReviewComment(
 }
 
 type ReviewSide = 'LEFT' | 'RIGHT';
+
+/** Stands in while a file card has no review; its actions are unreachable without one. */
+const PLACEHOLDER_REVIEW = { id: '', repo: '', number: 0, draft: null } as unknown as AgentReviewDto;
 type LineSelection = { side: ReviewSide; start: number; end: number; rowStart: number; rowEnd: number };
 type ReviewTarget = { side: ReviewSide; line: number };
 type DragAnchor = {

@@ -230,6 +230,49 @@ class TestDefaultWorkspaceProvisioningService
     }
 
     @Test
+    void fetchingUpstreamPreservesLocalMainAndExistingTaskWorktree()
+            throws IOException
+    {
+        Remote origin = remote("origin");
+        Remote upstream = remote("upstream");
+        GitCommandRunner git = routedGit(
+                ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()),
+                temporary.resolve("git-commands.log"));
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        Workspace workspace = store.createOrGet(workspace("preserve-fork", true));
+        DefaultWorkspaceProvisioningService service = service(store, git);
+        assertThat(service.provision(workspace.id()).successful()).isTrue();
+        Path repository = directPath(workspace);
+        String localMainHead = git(repository, "rev-parse", "refs/heads/main");
+        Path localFile = Files.writeString(repository.resolve("local.txt"), "local work", StandardCharsets.UTF_8);
+        Path taskWorktree = temporary.resolve("task-worktree");
+        String taskBranch = "bytequay/task/existing-task";
+        git(repository, "worktree", "add", "-b", taskBranch, taskWorktree.toString(), "upstream/main");
+        String taskHead = git(taskWorktree, "rev-parse", "HEAD");
+        Path taskFile = Files.writeString(taskWorktree.resolve("README.md"), "task changes", StandardCharsets.UTF_8);
+        Files.writeString(upstream.source().resolve("README.md"), "upstream update", StandardCharsets.UTF_8);
+        git(upstream.source(), "add", "README.md");
+        git(upstream.source(), "commit", "-m", "upstream update");
+        git(upstream.source(), "push", upstream.bare().toUri().toString(), "main");
+        String upstreamHead = git(upstream.source(), "rev-parse", "HEAD");
+        assertThat(upstreamHead).isNotEqualTo(taskHead);
+
+        WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
+
+        assertThat(result.successful()).isTrue();
+        assertThat(git(repository, "rev-parse", "refs/remotes/upstream/main")).isEqualTo(upstreamHead);
+        assertThat(git(repository, "branch", "--show-current")).isEqualTo("main");
+        assertThat(git(repository, "rev-parse", "refs/heads/main")).isEqualTo(localMainHead);
+        assertThat(localFile).hasContent("local work");
+        assertThat(git(repository, "status", "--porcelain")).contains("?? local.txt");
+        assertThat(git(repository, "rev-parse", "refs/heads/" + taskBranch)).isEqualTo(taskHead);
+        assertThat(git(taskWorktree, "branch", "--show-current")).isEqualTo(taskBranch);
+        assertThat(git(taskWorktree, "rev-parse", "HEAD")).isEqualTo(taskHead);
+        assertThat(taskFile).hasContent("task changes");
+        assertThat(git(taskWorktree, "status", "--porcelain")).contains("M README.md");
+    }
+
+    @Test
     void reportsBrokenCustomRemoteWithoutFailingTheWorkspace()
             throws IOException
     {

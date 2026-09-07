@@ -211,12 +211,16 @@ but never the internal path.
 
 ### Interactive agent task
 
-The application resolves the monitored repository's fetched default branch:
+For a new task, the application synchronously fetches the workspace remotes,
+requires a successful synchronization, then resolves the monitored repository's default branch:
 `refs/remotes/upstream/<upstream-default-branch>^{commit}` when linked, otherwise
 `refs/remotes/origin/<default-branch>^{commit}`. It validates the interactive
 client-generated task ID, provisions its worktree, and stores the returned
 facts with the task. The selected write repository remains the physical worktree
-identity in both cases. All turns reuse it. Each active Codex turn gets a
+identity in both cases. Fetch leaves local branches and existing worktrees
+unchanged. A failed fetch prevents new task allocation; a replayed creation
+request or later turn reuses its recorded worktree and starting commit without
+fetching or choosing another base. Each active Codex turn gets a
 task-owned App Server in that worktree. Its immutable model snapshot selects
 the `NONE`, V1, or V2 launch profile; no execution environment or loopback
 executor is registered, and `experimentalApi` is true only for the

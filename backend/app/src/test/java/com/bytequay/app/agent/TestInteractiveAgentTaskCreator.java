@@ -28,8 +28,11 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
@@ -38,8 +41,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -48,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -66,6 +72,7 @@ class TestInteractiveAgentTaskCreator
     private AgentDriver driver;
     private ModelSettingsService models;
     private WorkspaceRepositoryService workspaces;
+    private WorkspaceProvisioningService provisioning;
     private GitCommandRunner git;
     private InteractiveAgentTaskCreator creator;
 
@@ -78,6 +85,9 @@ class TestInteractiveAgentTaskCreator
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         models = mock(ModelSettingsService.class);
         workspaces = mock(WorkspaceRepositoryService.class);
+        provisioning = mock(WorkspaceProvisioningService.class);
+        when(provisioning.synchronizeCode("workspace-1"))
+                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(Instant.now())));
         git = mock(GitCommandRunner.class);
         when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
@@ -85,7 +95,7 @@ class TestInteractiveAgentTaskCreator
             throw new AgentTaskNotFoundException(invocation.getArgument(1));
         });
         ready();
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, git);
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git);
     }
 
     @Test
@@ -109,6 +119,11 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().physicalRepository())
                 .isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        InOrder order = inOrder(provisioning, workspaces, git, tasks);
+        order.verify(provisioning).synchronizeCode("workspace-1");
+        order.verify(workspaces).requireReadyRepository("workspace-1");
+        order.verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
+        order.verify(tasks).createInteractive(any());
     }
 
     @Test
@@ -139,8 +154,26 @@ class TestInteractiveAgentTaskCreator
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
-        verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/upstream/master^{commit}");
+        InOrder order = inOrder(provisioning, workspaces, git, tasks);
+        order.verify(provisioning).synchronizeCode("workspace-1");
+        order.verify(workspaces).requireReadyRepository("workspace-1");
+        order.verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/upstream/master^{commit}");
+        order.verify(tasks).createInteractive(any());
         verify(git, never()).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
+    }
+
+    @Test
+    void failedFetchDoesNotUsePreviouslySynchronizedRefOrCreateTask()
+    {
+        when(provisioning.synchronizeCode("workspace-1"))
+                .thenReturn(new WorkspaceCodeSyncResult("workspace-1", false, Optional.of(Instant.now().minusSeconds(300))));
+
+        assertThatThrownBy(() -> create(defaults()))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("synchronization failed");
+
+        verifyNoInteractions(workspaces, git);
+        verify(tasks, never()).createInteractive(any());
     }
 
     @Test
@@ -158,7 +191,7 @@ class TestInteractiveAgentTaskCreator
                         assertThat(failure.status().readiness())
                                 .isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED));
 
-        verifyNoInteractions(workspaces, git);
+        verifyNoInteractions(provisioning, workspaces, git);
     }
 
     @Test
@@ -177,7 +210,7 @@ class TestInteractiveAgentTaskCreator
                 .hasMessageContaining("unknown model");
 
         verify(driver).probe();
-        verifyNoInteractions(workspaces, git);
+        verifyNoInteractions(provisioning, workspaces, git);
     }
 
     @Test
@@ -196,7 +229,7 @@ class TestInteractiveAgentTaskCreator
                 .hasMessageContaining("unknown effort");
 
         verify(driver).probe();
-        verifyNoInteractions(workspaces, git);
+        verifyNoInteractions(provisioning, workspaces, git);
     }
 
     @Test

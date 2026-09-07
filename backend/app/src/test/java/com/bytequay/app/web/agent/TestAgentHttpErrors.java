@@ -52,6 +52,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GlobalExceptionHandler;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.store.PullRequestStore;
 import org.junit.jupiter.api.BeforeEach;
@@ -110,6 +111,7 @@ class TestAgentHttpErrors
                         driverRegistry,
                         mock(ModelSettingsService.class),
                         workspaces,
+                        mock(WorkspaceProvisioningService.class),
                         git),
                 startupRecovery,
                 turnService,

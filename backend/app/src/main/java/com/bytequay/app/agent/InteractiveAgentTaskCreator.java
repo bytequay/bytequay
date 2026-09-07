@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.google.common.util.concurrent.Striped;
@@ -56,6 +57,7 @@ public final class InteractiveAgentTaskCreator
     private final AgentDriverRegistry drivers;
     private final ModelSettingsService models;
     private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
     private final Striped<Lock> creationLocks = Striped.lock(64);
 
@@ -65,6 +67,7 @@ public final class InteractiveAgentTaskCreator
             AgentDriverRegistry drivers,
             ModelSettingsService models,
             WorkspaceRepositoryService workspaces,
+            WorkspaceProvisioningService provisioning,
             GitCommandRunner git)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -72,6 +75,7 @@ public final class InteractiveAgentTaskCreator
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.models = requireNonNull(models, "models is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
     }
 
@@ -136,6 +140,10 @@ public final class InteractiveAgentTaskCreator
                 defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                 defaults.effort(),
                 defaults.serviceTier());
+        if (!provisioning.synchronizeCode(workspaceId).successful()) {
+            throw new AgentUnavailableException(
+                    "Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
+        }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
         String startRef = "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}";
         Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);

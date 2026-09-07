@@ -43,7 +43,9 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
@@ -105,6 +107,10 @@ import java.util.stream.StreamSupport;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -140,6 +146,13 @@ class TestAgentHttpApi
             codeGraph.available = false;
             return codeGraph;
         }
+
+        @Bean
+        @Primary
+        WorkspaceProvisioningService workspaceProvisioningService()
+        {
+            return mock(WorkspaceProvisioningService.class);
+        }
     }
 
     private static final String SESSION_TOKEN = "test-session";
@@ -174,6 +187,9 @@ class TestAgentHttpApi
 
     @Autowired
     private WorkspaceStore workspaces;
+
+    @Autowired
+    private WorkspaceProvisioningService provisioning;
 
     @Autowired
     private ModelSettingsService models;
@@ -219,6 +235,7 @@ class TestAgentHttpApi
     {
         driver.reset();
         claudeDriver.reset();
+        reset(provisioning);
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
@@ -258,6 +275,7 @@ class TestAgentHttpApi
                 0,
                 now,
                 now));
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, true, Optional.of(now)));
     }
 
     @Test
@@ -358,6 +376,21 @@ class TestAgentHttpApi
         assertThat(unknownModel.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
         assertThat(workspacePaths.worktrees(workspaceId)).doesNotExist();
+    }
+
+    @Test
+    void rejectsTaskCreationWhenRepositorySynchronizationFails()
+            throws Exception
+    {
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.of(Instant.now())));
+
+        ResponseEntity<JsonNode> response = post("/agent/tasks", createTaskBody("codex"), null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().required("message").asText()).contains("synchronization failed");
+        assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
+        assertThat(workspacePaths.worktrees(workspaceId)).doesNotExist();
+        verify(provisioning).synchronizeCode(workspaceId);
     }
 
     @Test
@@ -898,6 +931,8 @@ class TestAgentHttpApi
         Map<String, Object> request = createTaskBody("codex");
 
         ResponseEntity<JsonNode> first = post("/agent/tasks", request, null);
+        verify(provisioning).synchronizeCode(workspaceId);
+        when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, false, Optional.empty()));
         ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
 
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
@@ -915,6 +950,7 @@ class TestAgentHttpApi
         changed = new HashMap<>(request);
         changed.put("idempotencyKey", "a-different-first-turn-key");
         assertThat(post("/agent/tasks", changed, null).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        verify(provisioning).synchronizeCode(workspaceId);
     }
 
     @Test

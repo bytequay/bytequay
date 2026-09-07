@@ -7,7 +7,7 @@ zero to reconstruct every message. `readHistory(taskId, before, after)` uses
 exclusive, opaque byte-offset cursors into the task's append-only JSONL file.
 No cursor selects the latest page; `before` and `after` select adjacent older
 and newer pages. Exactly one cursor or neither is accepted. Pages contain at
-most 200 events and 2 MiB of stored JSON, ascending events, older/newer
+most 1,000 events and 2 MiB of stored JSON, ascending events, older/newer
 cursors, and the log's latest sequence at the read snapshot. Reads validate
 cursor boundaries, skip an incomplete final line, and allocate only bounded
 record/page buffers. A page validates its selected records and adjacent sequence
@@ -18,7 +18,7 @@ HTTP normalization can add defaulted fields to older records. A separate
 12 MiB limit applies to each page's normalized event JSON, allowing an existing
 2 MiB record to remain readable without splitting or truncating it. The largest
 measured expansion from the accepted DTO defaults is 11,247,337 bytes. Three
-retained pages represent at most 6 MiB of stored JSON and 36 MiB of normalized
+retained pages represent at most 3,000 events, 6 MiB of stored JSON and 36 MiB of normalized
 event JSON; JavaScript objects, DOM nodes, and image buffers have additional
 memory costs and their own retention limits.
 

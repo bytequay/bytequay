@@ -742,7 +742,7 @@ class TestAgentHttpApi
         awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId)
                 .getBody().required("titleSource").asText().equals("AGENT"));
         long latestSequence = 0;
-        for (int index = 0; index < 401; index++) {
+        for (int index = 0; index < 2001; index++) {
             latestSequence = events.append(new UnsequencedAgentEvent(
                     EventId.random(), TaskId.valueOf(taskId), Optional.empty(), AgentEventSource.root(),
                     new AgentEventPayload.AssistantMessage(
@@ -754,18 +754,18 @@ class TestAgentHttpApi
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         JsonNode latest = response.getBody();
-        assertThat(latest.required("events")).hasSize(200);
+        assertThat(latest.required("events")).hasSize(1000);
         assertThat(latest.required("latestSequence").asLong()).isEqualTo(latestSequence);
         assertThat(latest.required("beforeCursor").isTextual()).isTrue();
         assertThat(latest.required("afterCursor").isNull()).isTrue();
-        assertThat(latest.required("events").get(0).required("sequence").asLong()).isEqualTo(latestSequence - 199);
-        assertThat(latest.required("events").get(199).required("sequence").asLong()).isEqualTo(latestSequence);
-        assertThat(latest.required("events").get(199).required("type").asText()).isEqualTo("assistant_message");
-        assertThat(latest.required("events").get(199).required("payload").required("text").asText()).isEqualTo("history 400");
+        assertThat(latest.required("events").get(0).required("sequence").asLong()).isEqualTo(latestSequence - 999);
+        assertThat(latest.required("events").get(999).required("sequence").asLong()).isEqualTo(latestSequence);
+        assertThat(latest.required("events").get(999).required("type").asText()).isEqualTo("assistant_message");
+        assertThat(latest.required("events").get(999).required("payload").required("text").asText()).isEqualTo("history 2000");
 
         JsonNode older = get(historyPath + "?before=" + latest.required("beforeCursor").asText()).getBody();
-        assertThat(older.required("events")).hasSize(200);
-        assertThat(older.required("events").get(199).required("sequence").asLong()).isEqualTo(latestSequence - 200);
+        assertThat(older.required("events")).hasSize(1000);
+        assertThat(older.required("events").get(999).required("sequence").asLong()).isEqualTo(latestSequence - 1000);
         assertThat(older.required("latestSequence").asLong()).isEqualTo(latestSequence);
         assertThat(older.required("afterCursor").isTextual()).isTrue();
         JsonNode forward = get(historyPath + "?after=" + older.required("afterCursor").asText()).getBody();

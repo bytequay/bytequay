@@ -199,8 +199,8 @@ export function parseAgentHistoryPage(value: unknown, expectedTaskId: string): A
   const rawEvents = arrayValue(page.events, 'history.events');
   // The store caps original JSON at 2 MiB. Defaulted legacy action fields can expand
   // it to 11,247,337 bytes (measured with accepted numeric enum ordinals), so wire
-  // JSON has its own fixed 12 MiB cap; the 200-event and three-page limits still apply.
-  if (rawEvents.length > 200
+  // JSON has its own fixed 12 MiB cap; the 1000-event and three-page limits still apply.
+  if (rawEvents.length > 1000
     || new TextEncoder().encode(JSON.stringify(rawEvents)).byteLength > 12 * 1024 * 1024) {
     throw new Error('History page exceeds its count or byte limit');
   }

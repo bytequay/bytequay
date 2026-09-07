@@ -20,7 +20,8 @@ import type { AgentTurnDto } from '../types';
  * nothing is persisted, so a folded summary can never disagree with the events it came from.
  */
 
-export type ActivityState = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED';
+/** UNKNOWN is a display-only state when an item's outcome is outside the retained history. */
+export type ActivityState = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED' | 'UNKNOWN';
 
 export type CommandAction = { kind: 'READ' | 'LIST_FILES' | 'SEARCH' | 'OTHER'; name?: string | null; path: string | null; query: string | null };
 
@@ -64,8 +65,10 @@ export type TextBlock = {
   id: string;
   role: 'commentary' | 'reasoning' | 'planText';
   text: string;
-  /** False while the text is still streaming; a completed item replaces every delta before it. */
+  /** True when authoritative completed text is retained; it replaces every delta before it. */
   complete: boolean;
+  /** An incomplete historical item is not evidence of text currently streaming. */
+  historical?: boolean;
 };
 
 export type PlanStep = { text: string; state: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' };
@@ -78,7 +81,7 @@ export type ActivityBlock = {
   id: string;
   members: ActivityMember[];
   startedAt: string;
-  /** When the last member reached a terminal state; null while any member is still running. */
+  /** When the last member reached a terminal state; null if running or the outcome is unloaded. */
   endedAt: string | null;
 };
 
@@ -143,7 +146,7 @@ export type TranscriptTurn = {
   ordinal: number;
   users: UserBlock[];
   blocks: TurnBlock[];
-  answer: { id: string; anchorId?: string; text: string; complete: boolean } | null;
+  answer: { id: string; anchorId?: string; text: string; complete: boolean; historical?: boolean } | null;
   startedAt: string | null;
   endedAt: string | null;
   outcome: 'completed' | 'interrupted' | null;
@@ -263,12 +266,21 @@ function agentName(source: AgentEventEnvelope['source']): string {
   return source.logicalAgentPath ?? (source.parentProviderThreadId === null ? 'root agent' : 'subagent');
 }
 
-function isTerminal(member: ActivityMember): boolean {
-  return member.kind === 'file' || member.state === 'COMPLETED' || member.state === 'FAILED';
+function memberRunning(member: ActivityMember): boolean {
+  return member.kind !== 'file' && (member.state === 'STARTED' || member.state === 'PROGRESS');
 }
 
 export function activityRunning(block: ActivityBlock): boolean {
-  return block.members.some((member) => !isTerminal(member));
+  return block.members.some(memberRunning);
+}
+
+/** A finished turn or older page cannot prove that its last loaded progress is still live. */
+function withHistoricalActivity(turn: TranscriptTurn): TranscriptTurn {
+  return { ...turn, answer: turn.answer === null || turn.answer.complete ? turn.answer : { ...turn.answer, historical: true }, blocks: turn.blocks.map((block) => {
+    if (block.kind === 'text' && !block.complete) return { ...block, historical: true };
+    if (block.kind !== 'activity' || !activityRunning(block)) return block;
+    return { ...block, members: block.members.map((member) => memberRunning(member) ? { ...member, state: 'UNKNOWN' } : member) };
+  }) };
 }
 
 function uniqueCommandActions(actions: CommandAction[]): CommandAction[] {
@@ -496,11 +508,19 @@ class TurnBuilder {
   private lifecycle(event: AgentEventEnvelope & { type: 'lifecycle' }): void {
     switch (event.payload.phase) {
       case 'TURN_STARTED':
+      case 'AGENT_STARTED':
         this.turn.startedAt = event.occurredAt;
+        this.turn.endedAt = null;
+        this.turn.outcome = null;
         break;
       case 'TURN_COMPLETED':
+      case 'AGENT_COMPLETED':
         this.turn.endedAt = event.occurredAt;
         this.turn.outcome = 'completed';
+        break;
+      case 'AGENT_FAILED':
+        this.turn.endedAt = event.occurredAt;
+        this.turn.outcome = 'interrupted';
         break;
       case 'INTERRUPTED':
         this.turn.endedAt = event.occurredAt;
@@ -531,6 +551,7 @@ export function projectTranscript(
   agentThread: string | null = null,
   durableTurns: Record<string, AgentTurnDto> = {},
   completeHistory = true,
+  atLatest = true,
 ): TranscriptTurn[] {
   const builders = new Map<string | null, TurnBuilder>();
   const order: TurnBuilder[] = [];
@@ -572,7 +593,7 @@ export function projectTranscript(
       turn.endedAt = durable.endedAt ?? turn.endedAt;
       if (durable.endedAt !== null) turn.outcome = durable.state === 'COMPLETED' ? 'completed' : 'interrupted';
     }
-    return turn;
+    return !atLatest || turn.endedAt !== null || durable?.endedAt != null ? withHistoricalActivity(turn) : turn;
   });
 }
 
@@ -679,8 +700,9 @@ export function turnElapsedMs(turn: TranscriptTurn, now: number): number | null 
  * cannot keep calling completed work "Working" or run its elapsed clock forever.
  */
 export function settleFinalTurn(turn: TranscriptTurn, terminalAt: string | null, completed: boolean): TranscriptTurn {
-  if (turn.endedAt !== null || terminalAt === null) return turn;
-  return { ...turn, endedAt: terminalAt, outcome: completed ? 'completed' : 'interrupted' };
+  if (turn.endedAt !== null) return withHistoricalActivity(turn);
+  if (terminalAt === null) return turn;
+  return withHistoricalActivity({ ...turn, endedAt: terminalAt, outcome: completed ? 'completed' : 'interrupted' });
 }
 
 /** "Turn 1 · Working for 38s", "Turn 1 · Worked for 4m 51s", "Turn 2 · Interrupted after 12s". */

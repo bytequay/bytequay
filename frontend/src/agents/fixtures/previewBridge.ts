@@ -217,8 +217,8 @@ export function createPreviewBridge(
     readAgentHistory: async (taskId, before, after) => {
       record('readAgentHistory', taskId, before, after);
       const all = FIXTURE_EVENTS.filter((event) => event.sequence <= replayThrough);
-      const start = after === undefined ? Math.max(0, (before === undefined ? all.length : Number(before)) - 200) : Number(after);
-      const end = before === undefined ? Math.min(all.length, start + 200) : Number(before);
+      const start = after === undefined ? Math.max(0, (before === undefined ? all.length : Number(before)) - 1000) : Number(after);
+      const end = before === undefined ? Math.min(all.length, start + 1000) : Number(before);
       return { events: all.slice(start, end), beforeCursor: start > 0 ? String(start) : null, afterCursor: end < all.length ? String(end) : null, latestSequence: all.at(-1)?.sequence ?? 0 };
     },
     readAgentPendingApprovals: async (taskId, turnId) => {

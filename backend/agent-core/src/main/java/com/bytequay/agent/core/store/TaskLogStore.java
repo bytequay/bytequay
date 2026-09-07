@@ -54,7 +54,7 @@ public interface TaskLogStore
     List<AgentEventEnvelope> readAfter(TaskId taskId, long afterSequence, int limit);
 
     /**
-     * Reads at most 200 events and 2 MiB of serialized JSON in ascending order.
+     * Reads at most 1000 events and 2 MiB of serialized JSON in ascending order.
      *
      * <p>No cursor reads the latest page. A before or after cursor reads the adjacent
      * older or newer page. Cursors are committed JSONL byte boundaries; incomplete

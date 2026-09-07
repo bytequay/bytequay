@@ -6,12 +6,17 @@ Opening a task shows a bounded recent window, not a replay of its whole log.
 The same rule applies to open, completed, and failed tasks and to task cards.
 History comes from ByteQuay's JSONL event store, never provider transcript reads.
 
-Each history page contains at most 200 events and 2 MiB of stored event JSON.
+The 2026-09-07 transcript follow-up expands the original 200-event page and
+600-event window allowances to the count limits below, keeping the byte caps.
+
+Each history page contains at most 1,000 events and 2 MiB of stored event JSON.
 Normalizing defaulted fields in old records can expand the response, so the
 renderer separately enforces a 12 MiB cap on each page's normalized event JSON.
 Opaque byte cursors load adjacent older or newer pages. Scrolling near
-the top loads one older page and preserves the visible scroll anchor. The
-renderer retains at most three pages (600 events, 6 MiB of stored JSON, and
+the top loads one older page and preserves the visible scroll anchor. Opening
+or following a task fills the recent three-page window, so small streamed output
+deltas do not crowd out most of the conversation. The
+renderer retains at most three pages (3,000 events, 6 MiB of stored JSON, and
 36 MiB of normalized event JSON),
 evicts content away from the viewport, and can reload evicted pages. Returning
 to the latest view requests a fresh bounded page. Live updates keep their own
@@ -28,12 +33,19 @@ header are icons with matching hover tooltips and accessible names.
 These JSON budgets do not include JavaScript object, DOM, or decoded-image
 overhead; attachment and UI caches must also remain bounded.
 
-A page can cut through a turn or a streamed item. The UI identifies unloaded
-earlier content, uses durable turn facts for controls and headers, and never
+A page can cut through a turn or a streamed item. The UI shows loading text only
+while fetching earlier content, with no instruction to scroll up. It uses durable
+turn facts for controls and headers, and never
 calls unloaded subagent activity expired. Historical approval cards cannot
 become actionable because their resolution lies outside the window. Attachment
 previews and fold/turn caches follow the retained window and have explicit
 memory bounds. Cards replace their recent page instead of accumulating events.
+An unresolved command or tool in an older window, or a durably ended turn,
+has unknown item outcome until its terminal event is loaded. It never shows a
+running spinner or invents a successful exit. Partial historical text also
+stops displaying a live cursor. Wheel gestures over shell or diff output move
+the conversation directly; inspecting the output's own scroll range requires
+explicit scrollbar or keyboard interaction.
 Retained image previews are limited to sixteen thumbnails of at most 512 pixels
 per side. Opening the image viewer fetches its original separately and releases
 that object URL when closed. Turn logs stay open on completion so commentary and

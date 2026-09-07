@@ -74,6 +74,7 @@ import {
   confirmCompletion,
   createDraftSubmissionTracker,
   initialAgentTaskState,
+  readRecentAgentHistory,
   historyBefore,
   historyAfter,
   runtimeStatus,
@@ -214,8 +215,9 @@ function Glyph({ icon: Icon, className = '' }: { icon: LucideIcon; className?: s
   return <span className={`agt-icon${className === '' ? '' : ` ${className}`}`} aria-hidden="true"><Icon /></span>;
 }
 
-function memberState(member: ActivityMember): 'running' | 'ok' | 'failed' {
+function memberState(member: ActivityMember): 'running' | 'ok' | 'failed' | 'unknown' {
   if (member.kind === 'file') return 'ok';
+  if (member.state === 'UNKNOWN') return 'unknown';
   if (member.state === 'STARTED' || member.state === 'PROGRESS') return 'running';
   if (member.state === 'FAILED') return 'failed';
   return member.kind === 'command' && member.exitCode !== null && member.exitCode !== 0 ? 'failed' : 'ok';
@@ -267,6 +269,23 @@ function ActivityIcon({ member, action }: { member: ActivityMember; action?: Com
   if (member.kind === 'command') return <Glyph icon={ACTION_ICONS[action ?? 'OTHER']} />;
   if (member.kind === 'file') return <Glyph icon={FilePenLine} />;
   return <Glyph icon={TOOL_ICONS[member.name] ?? Wrench} />;
+}
+
+function useOutputWheel(containerRef: React.RefObject<HTMLElement | null>, scrollIntent?: React.RefObject<number>): void {
+  useEffect(() => {
+    const container = containerRef.current;
+    if (container === null) return;
+    // Wheel gestures navigate messages; an output scrollbar remains an explicit choice.
+    const scrollOutput = (event: WheelEvent): void => {
+      if (!(event.target instanceof Element) || event.target.closest('.agt-pre') === null || event.deltaY === 0) return;
+      event.preventDefault();
+      if (scrollIntent !== undefined) scrollIntent.current = Math.sign(event.deltaY);
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? container.clientHeight : 1;
+      container.scrollTop += event.deltaY * scale;
+    };
+    container.addEventListener('wheel', scrollOutput, { passive: false });
+    return () => container.removeEventListener('wheel', scrollOutput);
+  }, [containerRef, scrollIntent]);
 }
 
 /** A command has one result, even when the provider describes several actions within it. */
@@ -488,17 +507,17 @@ function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDec
   switch (block.kind) {
     case 'text':
       if (block.role === 'reasoning') {
-        return <div className="agt-reasoning">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
+        return <div className="agt-reasoning">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
       }
       if (block.role === 'planText') {
         return (
           <div className="agt-plan">
             <div className="agt-plan__head"><Glyph icon={ListChecks} /><span className="agt-label">Plan</span></div>
-            <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
+            <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
           </div>
         );
       }
-      return <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && <span className="agt-cursor" aria-hidden="true" />}</div>;
+      return <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
     case 'plan':
       return (
         <div className="agt-plan">
@@ -641,7 +660,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         /></div>
       ))}
       {turn.answer !== null && (
-        <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>{renderMarkdown(turn.answer.text)}{!turn.answer.complete && <span className="agt-cursor" aria-hidden="true" />}</div>
+        <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>{renderMarkdown(turn.answer.text)}{!turn.answer.complete && !turn.answer.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
       )}
       {turn.endedAt !== null && <TurnFooter turn={turn} durable={turn.turnId === null ? undefined : durableTurns[turn.turnId]} models={models} />}
     </section>
@@ -1110,10 +1129,12 @@ function PanelFrame({ label, tabs, width, children }: {
   width: number;
   children: React.ReactNode;
 }): React.JSX.Element {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useOutputWheel(scrollRef);
   return (
     <aside className="agt-panel" aria-label={label} style={{ width }}>
       {tabs}
-      <div className="agt-panel__scroll">{children}</div>
+      <div className="agt-panel__scroll" ref={scrollRef}>{children}</div>
     </aside>
   );
 }
@@ -1451,6 +1472,7 @@ export function AgentTaskBody({
   const [following, setFollowing] = useState(true);
   const scrollIntent = useRef(0);
   const previousScrollTop = useRef(0);
+  useOutputWheel(transcriptRef, scrollIntent);
   const anchor = useRef<HistoryScrollAnchor | null>(null);
   // Restore the anchor only when a page changes, even if the follow callback was re-rendered.
   const followingChange = useRef<(next: boolean) => void>(() => {});
@@ -1484,7 +1506,8 @@ export function AgentTaskBody({
   }, [following]);
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
-    const projected = projectTranscript(state.events, threadId, state.turns, before === null);
+    const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);
+    const projected = projectTranscript(state.events, threadId, state.turns, before === null, atLatest);
     return state.historyPages.length > 0 ? withApprovalAuthority(projected, pendingIds) : projected;
   };
   const projectedTurns = project(null);
@@ -1510,7 +1533,7 @@ export function AgentTaskBody({
     if (direction < 0) {
       if (container.scrollTop <= 0 && scrollIntent.current === -1) scrollIntent.current = 0;
       if (!atBottom || container.scrollHeight > container.clientHeight || before !== null) changeFollowing(false);
-      if (container.scrollTop < 80 && before !== null) loadHistory('older');
+      if (container.scrollTop < 400 && before !== null) loadHistory('older');
     }
     else if (atBottom) {
       // A wheel/key gesture at the edge may never produce a native scroll event.
@@ -1664,8 +1687,8 @@ export function AgentTaskBody({
           scrollHistory(event.currentTarget, intent);
         }}
       >
-        {before !== null && <div className="agt-history-edge">
-          {historyLoading ? 'Loading earlier activity…' : 'Scroll up for earlier activity'}
+        {before !== null && historyLoading && <div className="agt-history-edge" role="status">
+          Loading earlier activity…
         </div>}
         {(pendingApprovals ?? []).filter((approval) => !turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.approvalId === approval.approvalId))).map((approval) => (
           <ApprovalView key={approval.approvalId} block={pendingApprovalBlock(approval)} onDecide={onDecide} />
@@ -2099,8 +2122,10 @@ export default function AgentTaskScreen({
     setHistoryLoading(true);
     followingHistory.current = direction === 'latest';
     try {
-      const page = await live().readAgentHistory(taskId, before ?? undefined, after ?? undefined);
-      if (mountedRef.current) dispatch({ type: 'history/loaded', page, direction });
+      const history = direction === 'latest'
+        ? await readRecentAgentHistory(live(), taskId)
+        : { page: await live().readAgentHistory(taskId, before ?? undefined, after ?? undefined) };
+      if (mountedRef.current) dispatch({ type: 'history/loaded', ...history, direction });
     }
     catch (failure) {
       if (mountedRef.current) dispatch({ type: 'notice/changed', notice: failureText(failure) });

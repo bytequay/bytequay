@@ -201,7 +201,7 @@ class TestDefaultAgentEventService
 
         subscriber.request(Long.MAX_VALUE);
         assertThat(page.latestSequence()).isEqualTo(5000);
-        assertThat(page.events()).hasSize(200);
+        assertThat(page.events()).hasSize(1000);
         assertThat(subscriber.events()).isEmpty();
         assertThat(logStore.readLimits).isEmpty();
         assertThat(logStore.lastSequenceReads).isEqualTo(validations);
@@ -712,7 +712,7 @@ class TestDefaultAgentEventService
         {
             historyBefore = before;
             historyAfter = after;
-            List<AgentEventEnvelope> page = events.subList(Math.max(0, events.size() - 200), events.size());
+            List<AgentEventEnvelope> page = events.subList(Math.max(0, events.size() - 1000), events.size());
             return new AgentHistoryPage(page, OptionalLong.empty(), OptionalLong.empty(), events.size());
         }
 

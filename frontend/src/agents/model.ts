@@ -114,7 +114,7 @@ export type AgentTaskAction =
   | { type: 'events/applied'; events: AgentEventEnvelope[] }
   | { type: 'events/observed'; events: AgentEventEnvelope[] }
   | { type: 'live/changed'; sequence: number; turnId: string | null }
-  | { type: 'history/loaded'; page: AgentHistoryPageDto; direction: 'latest' | 'older' | 'newer' }
+  | { type: 'history/loaded'; page: AgentHistoryPageDto; earlier?: AgentHistoryPageDto[]; direction: 'latest' | 'older' | 'newer' }
   | { type: 'connection/changed'; state: AgentStreamConnectionState; detail?: string }
   | { type: 'composer/changed'; text: string }
   | { type: 'attachments/added'; attachments: AgentAttachmentDto[] }
@@ -208,7 +208,7 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
     case 'live/changed':
       return action.sequence <= state.lastSequence ? state : { ...state, lastSequence: action.sequence, latestTurnId: action.turnId ?? state.latestTurnId, latestTurnSettled: action.turnId !== null && action.turnId !== state.latestTurnId ? false : state.latestTurnSettled, lifecycleEpoch: state.lifecycleEpoch + 1 };
     case 'history/loaded':
-      return applyHistoryPage(state, action.page, action.direction);
+      return applyHistoryPage(state, action.page, action.direction, action.earlier);
     default:
       return state;
   }
@@ -232,10 +232,10 @@ function observeEvents(state: AgentTaskState, events: AgentEventEnvelope[]): Age
   return { ...state, lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch };
 }
 
-/** Three pages retain at most 600 events: 6 MiB stored JSON and 36 MiB normalized JSON. */
-function applyHistoryPage(state: AgentTaskState, page: AgentHistoryPageDto, direction: 'latest' | 'older' | 'newer'): AgentTaskState {
+/** Three pages retain at most 3,000 events: 6 MiB stored JSON and 36 MiB normalized JSON. */
+function applyHistoryPage(state: AgentTaskState, page: AgentHistoryPageDto, direction: 'latest' | 'older' | 'newer', earlier: AgentHistoryPageDto[] = []): AgentTaskState {
   if (direction === 'latest' && historyAfter(state) === null && page.latestSequence < (state.historyPages.at(-1)?.latestSequence ?? 0)) return state;
-  const pages = direction === 'latest' ? [page]
+  const pages = direction === 'latest' ? [...earlier, page].slice(-3)
     : direction === 'older' ? [page, ...state.historyPages].slice(0, 3)
     : [...state.historyPages, page].slice(-3);
   const events = pages.flatMap((entry) => entry.events);
@@ -349,7 +349,23 @@ export function approvalDecisions(row: Pick<ApprovalBlock, 'actionable' | 'outco
 
 type AgentTaskSessionBridge = Pick<Bridge, 'getAgentTask' | 'readAgentHistory' | 'subscribeAgentTask'>;
 
-/** Opens only the latest page, then observes live events without retaining their payloads. */
+/** Fill the existing bounded window so streamed output does not crowd out the conversation. */
+export async function readRecentAgentHistory(bridge: Pick<Bridge, 'readAgentHistory'>, taskId: string): Promise<{
+  page: AgentHistoryPageDto;
+  earlier: AgentHistoryPageDto[];
+}> {
+  const page = await bridge.readAgentHistory(taskId);
+  const earlier: AgentHistoryPageDto[] = [];
+  let before = page.beforeCursor;
+  while (before !== null && earlier.length < 2) {
+    const older = await bridge.readAgentHistory(taskId, before);
+    earlier.unshift(older);
+    before = older.beforeCursor;
+  }
+  return { page, earlier };
+}
+
+/** Opens a bounded recent window, then observes live events without retaining their payloads. */
 export async function startAgentTaskSession(
   bridge: AgentTaskSessionBridge,
   taskId: string,
@@ -362,9 +378,9 @@ export async function startAgentTaskSession(
   const task = await bridge.getAgentTask(taskId, workspaceId);
   if (!isActive()) return noop;
   dispatch({ type: 'task/loaded', task });
-  const page = await bridge.readAgentHistory(taskId);
+  const { page, earlier } = await readRecentAgentHistory(bridge, taskId);
   if (!isActive()) return noop;
-  dispatch({ type: 'history/loaded', page, direction: 'latest' });
+  dispatch({ type: 'history/loaded', page, earlier, direction: 'latest' });
   if (task.state !== 'OPEN') {
     dispatch({ type: 'connection/changed', state: 'open' });
     return noop;
@@ -379,8 +395,8 @@ export async function startAgentTaskSession(
     reading = true;
     dirty = false;
     try {
-      const latest = await bridge.readAgentHistory(taskId);
-      if (!stopped && isActive() && isFollowing()) dispatch({ type: 'history/loaded', page: latest, direction: 'latest' });
+      const latest = await readRecentAgentHistory(bridge, taskId);
+      if (!stopped && isActive() && isFollowing()) dispatch({ type: 'history/loaded', ...latest, direction: 'latest' });
     }
     catch (failure) {
       if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: failure instanceof Error ? failure.message : String(failure) });

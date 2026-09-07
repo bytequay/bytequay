@@ -31,6 +31,7 @@ import {
   historyBefore,
   historyAfter,
   isIdle,
+  readRecentAgentHistory,
   retryableInput,
   runtimeStatus,
   unloadedTurnIds,
@@ -643,6 +644,32 @@ describe('bounded history pages', () => {
       latestSequence: watermark,
     };
   }
+
+  it('fills the recent window before display, with a fixed three-page ceiling', async () => {
+    const readAgentHistory = vi.fn()
+      .mockResolvedValueOnce(page(4001, 5000, 5000))
+      .mockResolvedValueOnce(page(3001, 4000, 5000))
+      .mockResolvedValueOnce(page(2001, 3000, 5000));
+    const history = await readRecentAgentHistory({ readAgentHistory }, 'task-1');
+    const state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', ...history, direction: 'latest' });
+    expect(readAgentHistory.mock.calls).toEqual([['task-1'], ['task-1', 'byte-4001'], ['task-1', 'byte-3001']]);
+    expect(state.events).toHaveLength(3000);
+    expect(state.events[0].sequence).toBe(2001);
+    expect(state.events.at(-1)?.sequence).toBe(5000);
+    expect(state.lastSequence).toBe(5000);
+    expect(state.historyPages).toHaveLength(3);
+    expect(historyBefore(state)).toBe('byte-2001');
+    expect(historyAfter(state)).toBeNull();
+  });
+
+  it('stops filling at the beginning and leaves cached pages visible until replacement arrives', async () => {
+    const readAgentHistory = vi.fn().mockResolvedValue(page(1, 30, 30));
+    const history = await readRecentAgentHistory({ readAgentHistory }, 'task-1');
+    expect(readAgentHistory).toHaveBeenCalledTimes(1);
+    expect(history.earlier).toEqual([]);
+    const state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', ...history, direction: 'latest' });
+    expect(agentTaskReducer(state, { type: 'live/changed', sequence: 31, turnId: 'turn-1' }).events).toBe(state.events);
+  });
 
   it('opens a tail above sequence one and retains only three adjacent pages while browsing', () => {
     let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(801, 1000), direction: 'latest' });

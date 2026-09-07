@@ -14,6 +14,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
+import type { AgentTurnDto } from '../types';
 import {
   activeAgents,
   activityExpanded,
@@ -26,6 +27,7 @@ import {
   planSummary,
   projectAgents,
   projectTranscript,
+  settleFinalTurn,
   turnElapsedMs,
   turnLabel,
   withApprovalAuthority,
@@ -415,6 +417,90 @@ describe('projecting the transcript', () => {
 
 
 describe('bounded transcript windows', () => {
+  const completedTurn: AgentTurnDto = {
+    id: TURN,
+    taskId: 'task-1',
+    state: 'COMPLETED',
+    version: 1,
+    createdAt: '2026-08-20T10:00:00Z',
+    startedAt: '2026-08-20T10:00:00Z',
+    endedAt: '2026-08-20T10:05:00Z',
+    cancellationRequestedAt: null,
+    delivered: true,
+    knownUnsent: false,
+    settings: null,
+    terminalReason: null,
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT5M' },
+  };
+
+  it.each(['COMPLETED', 'FAILED', 'CANCELLED'])('does not keep page-local activity live after the durable turn is %s', (state) => {
+    const events = [
+      command('PROGRESS', { output: 'Compiling files\n' }, { itemId: 'long-build' }),
+      event('tool', { name: 'Tool', state: 'STARTED', summary: 'Inspecting', durationMs: null }, { itemId: 'tool' }),
+      command('FAILED', { exitCode: 1 }, { itemId: 'failed' }),
+      command('COMPLETED', { exitCode: 0 }, { itemId: 'done' }),
+      event('assistant_message', { messageKind: 'COMMENTARY', phase: 'PARTIAL', text: 'Earlier text' }, { itemId: 'text', complete: false }),
+    ];
+    const turn = projectTranscript(events, null, { [TURN]: { ...completedTurn, state } }, false)[0];
+    const activity = turn.blocks[0] as ActivityBlock;
+
+    expect(turn.endedAt).toBe(completedTurn.endedAt);
+    expect(activityRunning(activity)).toBe(false);
+    expect(activityExpanded(activity, undefined)).toBe(false);
+    expect(activity.members).toMatchObject([
+      { kind: 'command', state: 'UNKNOWN', output: 'Compiling files\n', exitCode: null },
+      { kind: 'tool', state: 'UNKNOWN' },
+      { kind: 'command', state: 'FAILED', exitCode: 1 },
+      { kind: 'command', state: 'COMPLETED', exitCode: 0 },
+    ]);
+    expect(activity.endedAt).toBeNull();
+    expect(turn.blocks[1]).toMatchObject({ kind: 'text', complete: false, historical: true, text: 'Earlier text' });
+    expect(events[0].payload).toMatchObject({ state: 'PROGRESS' });
+  });
+
+  it('keeps historical progress neutral while another page holds the actual command outcome', () => {
+    const progress = command('PROGRESS', { output: 'Compiling\n' }, { itemId: 'build' });
+    const completion = command('FAILED', { output: 'Compile failed\n', exitCode: 1 }, { itemId: 'build' });
+    const runningTurn: AgentTurnDto = { ...completedTurn, state: 'RUNNING', endedAt: null };
+    const project = (events: AgentEventEnvelope[], atLatest: boolean): ActivityBlock =>
+      projectTranscript(events, null, { [TURN]: runningTurn }, false, atLatest)[0].blocks[0] as ActivityBlock;
+
+    expect(activityRunning(project([progress], true))).toBe(true);
+    expect(activityRunning(project([progress], false))).toBe(false);
+    expect(project([progress], false).members[0]).toMatchObject({ state: 'UNKNOWN', exitCode: null });
+    expect(project([progress, completion], true).members[0]).toMatchObject({ state: 'FAILED', output: 'Compile failed\n', exitCode: 1 });
+  });
+
+  it('uses retained turn completion and terminal task facts without inventing an item outcome', () => {
+    const progress = command('STARTED', { argv: ['build'] }, { itemId: 'build' });
+    const completion = event('lifecycle', { phase: 'TURN_COMPLETED', message: 'done' });
+    const lifecycleTurn = projectTranscript([progress, completion])[0];
+    const terminalTaskTurn = settleFinalTurn(projectTranscript([progress])[0], completedTurn.endedAt, true);
+    for (const turn of [lifecycleTurn, terminalTaskTurn]) {
+      const activity = turn.blocks[0] as ActivityBlock;
+      expect(activityRunning(activity)).toBe(false);
+      expect(activity.members[0]).toMatchObject({ state: 'UNKNOWN', exitCode: null });
+    }
+    const partialAnswer = { ...terminalTaskTurn, answer: { id: 'answer', text: 'Partial answer', complete: false } };
+    expect(settleFinalTurn(partialAnswer, completedTurn.endedAt, true).answer).toMatchObject({ complete: false, historical: true });
+  });
+
+  it('does not keep child items live after child or durable root completion', () => {
+    const progress = childEvent('tool', { name: 'Inspect', state: 'STARTED', summary: '', durationMs: null }, 'child');
+    const completion = childEvent('lifecycle', { phase: 'AGENT_COMPLETED', message: 'done' }, 'child');
+    const childEnded = projectTranscript([progress, completion], 'child')[0];
+    const rootEnded = projectTranscript([progress], 'child', { [TURN]: completedTurn })[0];
+    for (const turn of [childEnded, rootEnded]) {
+      const activity = turn.blocks[0] as ActivityBlock;
+      expect(activityRunning(activity)).toBe(false);
+      expect(activity.members[0]).toMatchObject({ state: 'UNKNOWN' });
+    }
+    const restarted = childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'follow-up' }, 'child');
+    const resumed = projectTranscript([completion, restarted, progress], 'child')[0];
+    expect(resumed.endedAt).toBeNull();
+    expect(activityRunning(resumed.blocks[0] as ActivityBlock)).toBe(true);
+  });
+
   it('omits invented turn numbers and keeps item anchors stable when older deltas arrive', () => {
     const first = event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'Earlier ' }, { itemId: 'streamed', complete: false });
     const later = event('assistant_message', { messageKind: 'ANSWER', phase: 'PARTIAL', text: 'later' }, { itemId: 'streamed', complete: false });

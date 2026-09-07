@@ -172,7 +172,11 @@ describe('bounded history contract', () => {
   });
 
   it('enforces both the event count and serialized byte budget', () => {
-    expect(() => parseAgentHistoryPage({ ...page(), events: Array(201).fill(fixture.events[0]) }, taskId))
+    const events = Array.from({ length: 1000 }, (_, index) => ({
+      ...fixture.events[0], sequence: index + 1, eventId: `event-${index + 1}`,
+    }));
+    expect(parseAgentHistoryPage({ ...page(), events, latestSequence: 1000 }, taskId).events).toHaveLength(1000);
+    expect(() => parseAgentHistoryPage({ ...page(), events: [...events, events[0]], latestSequence: 1001 }, taskId))
       .toThrow('count or byte limit');
     const oversized = structuredClone(fixture.events[0]);
     oversized.payload.text = '界'.repeat(4 * 1024 * 1024);

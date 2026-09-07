@@ -47,7 +47,7 @@ final class InMemoryTaskLogStore
     public synchronized AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after)
     {
         long latest = lastSequence(taskId);
-        return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 200), 200), OptionalLong.empty(), OptionalLong.empty(), latest);
+        return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 1000), 1000), OptionalLong.empty(), OptionalLong.empty(), latest);
     }
 
     @Override

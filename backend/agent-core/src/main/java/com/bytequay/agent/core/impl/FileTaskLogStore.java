@@ -65,7 +65,7 @@ public final class FileTaskLogStore
         implements TaskLogStore
 {
     private static final int DEFAULT_MAX_BLOB_BYTES = 10 * 1024 * 1024;
-    private static final int HISTORY_MAX_EVENTS = 200;
+    private static final int HISTORY_MAX_EVENTS = 1000;
     private static final int HISTORY_MAX_BYTES = AgentEventEnvelope.MAX_SERIALIZED_BYTES;
     private static final int READ_BLOCK_BYTES = 8192;
 

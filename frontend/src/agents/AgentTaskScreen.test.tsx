@@ -174,7 +174,8 @@ describe('agent task layout', () => {
       connection: 'open',
       historyPages: [{ events: [], beforeCursor: 'older', afterCursor: 'newer', latestSequence: 10 }],
     });
-    expect(markup).toContain('Scroll up for earlier activity');
+    expect(markup).not.toContain('Scroll up');
+    expect(markup).not.toContain('Loading earlier activity');
     expect(markup).toContain('aria-label="Task transcript" tabindex="0"');
     expect(markup).not.toContain('Load newer activity');
     expect(markup).not.toContain('Jump to latest');
@@ -1028,7 +1029,8 @@ describe('agent task detail', () => {
   });
 
   it('keeps unnamed reads truthful and running results open without activity clocks', () => {
-    const reading = events.map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({
+    const reading = events.filter((event) => event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
+      .map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({
       ...event,
       payload: {
         ...event.payload,

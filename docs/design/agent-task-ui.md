@@ -4,8 +4,10 @@
 
 Tasks and PR review Activity use `AgentConversation` for the transcript,
 approvals, live activity, queue, composer, and history scrolling. They also use
-the same bounded-history session and event reducer. Each screen supplies its
-own real state, available controls, and scoped actions; review Activity does
+the same bounded-history session and event reducer. The shared composer owns
+the complete input box, including image drafts, Attach, Auto, the model picker,
+and delivery buttons. Screens supply real values and supported callbacks,
+not custom control rows or review-specific labels. Review Activity does
 not mount the interactive Tasks route or manufacture an interactive task DTO.
 Changes to conversation behavior belong in this shared implementation.
 

@@ -12,19 +12,15 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
   CircleCheck,
   CircleX,
-  CornerDownRight,
   ListChecks,
-  MessageSquare,
   PanelRight,
-  Trash2,
   TriangleAlert,
-  X,
 } from 'lucide-react';
 import {
   laneLabel,
@@ -35,16 +31,14 @@ import {
 import { useResizablePane } from '../useResizablePane';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
-import { ModelPicker } from './ModelPicker';
 import { renderMarkdown } from './markdown';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
-import { captureHistoryAnchor, restoreHistoryAnchor, type HistoryScrollAnchor } from './historyScroll';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
 import '../css/agents.css';
-import { ApprovalView,AttachmentTile,BlockView,currentActivityLabel,Glyph,LiveActivity,pendingApprovalBlock,PlanSteps,QUEUE_LABELS,Spinner,TurnView,clock,codeGraphText,modelName,permissionLabel,serviceTierName,shortDate,stateClass,useOutputWheel,type AttachmentPreview } from './AgentConversation';
+import { AgentConversation, BlockView, clock, codeGraphText, ConversationComposer, ConversationQueue, Glyph, modelName, PlanSteps, serviceTierName, shortDate, Spinner, stateClass, useConversationHistory, useOutputWheel, type AttachmentPreview } from './AgentConversation';
 import {
   acceptsImages,
   agentTaskReducer,
@@ -216,67 +210,6 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
     default:
       return 'Available when the task is idle';
   }
-}
-
-function QueueStrip({ queue, running, idle, resumeBlocked, models, onRemove, onResume }: {
-  queue: AgentQueuedInputDto[];
-  running: boolean;
-  idle: boolean;
-  resumeBlocked: boolean;
-  models: ModelOptionDto[];
-  onRemove: (queuedInputId: string) => void;
-  onResume: () => void;
-}): React.JSX.Element | null {
-  if (queue.length === 0) return null;
-  const head = queue[0];
-  return (
-    <div className={`agt-queue${running ? ' is-attached' : ''}`} aria-label="Queued messages">
-      {queue.map((input) => {
-        const state = input.state;
-        return (
-          <div key={input.id} className={`agt-queue__row is-${state.toLowerCase()}`}>
-            {state === 'QUEUED' || state === 'STARTING'
-              ? <MessageSquare aria-hidden="true" className="agt-queue__icon" />
-              : <CornerDownRight aria-hidden="true" className="agt-queue__icon" />}
-            {state in QUEUE_LABELS && (
-              <span className="agt-queue__pill" title={input.pauseReason ?? undefined}>{QUEUE_LABELS[state]}</span>
-            )}
-            {state === 'STARTING' && <Spinner />}
-            <span className="agt-queue__text" title={input.preview}>
-              {input.preview}
-              {state === 'UNCERTAIN' && <span className="agt-muted"> — never re-sends by itself</span>}
-            </span>
-            {input.settings.attachments.length > 0 && (
-              <span className="agt-mono agt-queue__meta">{input.settings.attachments.length} {input.settings.attachments.length === 1 ? 'image' : 'images'}</span>
-            )}
-            <span className="agt-mono agt-queue__meta">
-              {modelName(models, input.settings.model)}{input.settings.effort === null ? '' : ` ${input.settings.effort}`}
-              {input.settings.serviceTier != null && ` · ${serviceTierName(models, input.settings.model, input.settings.serviceTier)}`}
-            </span>
-            {state === 'PAUSED' && input.id === head.id && idle && (
-              <button
-                type="button"
-                className="agt-queue__link"
-                disabled={resumeBlocked}
-                title={resumeBlocked ? 'Check provider readiness before resuming the queue' : undefined}
-                onClick={onResume}
-              >
-                Resume queue
-              </button>
-            )}
-            {state === 'UNCERTAIN' && (
-              <button type="button" className="agt-queue__link is-danger" onClick={() => onRemove(input.id)}>Discard</button>
-            )}
-            {(state === 'QUEUED' || state === 'PAUSED') && (
-              <button type="button" className="agt-queue__remove" aria-label="Remove from queue" title="Remove" onClick={() => onRemove(input.id)}>
-                <Trash2 aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 /**
@@ -946,46 +879,13 @@ export function AgentTaskBody({
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
   onCleanup?: () => void;
 }): React.JSX.Element {
-  const transcriptRef = useRef<HTMLDivElement>(null);
   const sidePanel = useResizablePane(300, 240, 1600, 'start');
-  // Stuck to the bottom like a terminal until the user scrolls up, and stuck again once they return;
-  // a task with no events yet is a fresh one, so it starts stuck.
-  const follow = useRef(true);
-  const [following, setFollowing] = useState(true);
-  const scrollIntent = useRef(0);
-  const previousScrollTop = useRef(0);
-  useOutputWheel(transcriptRef, scrollIntent);
-  const anchor = useRef<HistoryScrollAnchor | null>(null);
-  // Restore the anchor only when a page changes, even if the follow callback was re-rendered.
-  const followingChange = useRef<(next: boolean) => void>(() => {});
   const before = historyBefore(state);
   const after = historyAfter(state);
-  const loadHistory = (direction: 'older' | 'newer' | 'latest'): void => {
-    if (historyLoading) return;
-    scrollIntent.current = 0;
-    const container = transcriptRef.current;
-    changeFollowing(direction === 'latest');
-    if (container !== null && direction !== 'latest') {
-      anchor.current = captureHistoryAnchor(container);
-    }
-    else anchor.current = null;
-    onLoadHistory(direction);
-  };
-  useLayoutEffect(() => {
-    const container = transcriptRef.current;
-    if (container === null) return;
-    if (anchor.current !== null) {
-      restoreHistoryAnchor(container, anchor.current);
-      anchor.current = null;
-      if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
-    }
-    else if (follow.current) container.scrollTop = container.scrollHeight;
-    else if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
-  }, [state.events, after, state.turn?.endedAt]);
-  useLayoutEffect(() => {
-    const container = transcriptRef.current;
-    if (following && container !== null) container.scrollTop = container.scrollHeight;
-  }, [following]);
+  const scroll = useConversationHistory(state.events, state.turn?.endedAt, {
+    before, after, loading: historyLoading, onLoad: onLoadHistory, onFollow: onFollowHistory,
+  });
+  const { following, changeFollowing, loadHistory } = scroll;
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
     const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);
@@ -999,32 +899,8 @@ export function AgentTaskBody({
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
-  const changeFollowing = (next: boolean): void => {
-    follow.current = next;
-    setFollowing(next);
-    onFollowHistory(next);
-  };
-  followingChange.current = changeFollowing;
   const onSend = (): void => { changeFollowing(true); send(); };
   const onSteer = (): void => { changeFollowing(true); steer(); };
-  const scrollHistory = (container: HTMLDivElement, direction: number): void => {
-    // DOM growth, folding and our own scroll anchoring also emit scroll events.
-    // Only the user's scrolling may pause live updates.
-    if (direction === 0) return;
-    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 32;
-    if (direction < 0) {
-      if (container.scrollTop <= 0 && scrollIntent.current === -1) scrollIntent.current = 0;
-      if (!atBottom || container.scrollHeight > container.clientHeight || before !== null) changeFollowing(false);
-      if (container.scrollTop < 400 && before !== null) loadHistory('older');
-    }
-    else if (atBottom) {
-      // A wheel/key gesture at the edge may never produce a native scroll event.
-      if (scrollIntent.current === 1) scrollIntent.current = 0;
-      if (after !== null) loadHistory('newer');
-      else changeFollowing(true);
-    }
-    else changeFollowing(false);
-  };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
   const agents = supportsNestedAgents ? projectAgents(state.events, state.historyPages.length === 0 ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null, after === null) : [];
   const agentLabels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
@@ -1062,12 +938,6 @@ export function AgentTaskBody({
   const providerRecoveryRequired = status === 'idle' && (authenticationFailure || providerBlocked);
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
-  const liveTurn = turns.find((turn) => turn.turnId === (state.turn?.id ?? state.latestTurnId));
-  const liveLabel = state.connection !== 'open' || state.gap ? 'Reconnecting…'
-    : waiting ? 'Waiting for approval'
-      : state.turn?.cancellationRequestedAt != null ? 'Stopping…'
-        : state.turn?.state === 'ACCEPTED' ? 'Starting…'
-          : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
@@ -1141,82 +1011,18 @@ export function AgentTaskBody({
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <div className="agt-body">
-      <div className="agt-conversation">
-      <div
-        className="agt-transcript"
-        role="log"
-        aria-label="Task transcript"
-        tabIndex={0}
-        ref={transcriptRef}
-        onWheel={(event) => {
-          scrollIntent.current = Math.sign(event.deltaY);
-          scrollHistory(event.currentTarget, scrollIntent.current);
-        }}
-        onPointerDown={() => { scrollIntent.current = 2; }}
-        onPointerUp={() => { scrollIntent.current = 0; }}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          const direction = ['ArrowUp', 'PageUp', 'Home'].includes(event.key) ? -1
-            : ['ArrowDown', 'PageDown', 'End', ' '].includes(event.key) ? 1 : 0;
-          scrollIntent.current = direction;
-          scrollHistory(event.currentTarget, direction);
-        }}
-        onScroll={(event) => {
-          const { scrollTop } = event.currentTarget;
-          const intent = scrollIntent.current === 2 ? Math.sign(scrollTop - previousScrollTop.current) : scrollIntent.current;
-          previousScrollTop.current = scrollTop;
-          if (scrollIntent.current !== 2) scrollIntent.current = 0;
-          scrollHistory(event.currentTarget, intent);
-        }}
-      >
-        {before !== null && historyLoading && <div className="agt-history-edge" role="status">
-          Loading earlier activity…
-        </div>}
-        {(pendingApprovals ?? []).filter((approval) => !turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.approvalId === approval.approvalId))).map((approval) => (
-          <ApprovalView key={approval.approvalId} block={pendingApprovalBlock(approval)} onDecide={onDecide} />
-        ))}
-        {turns.length === 0 && state.connection === 'connecting' && (
-          <div className="agt-skeleton">
-            <div className="agt-skeleton__note">Connecting — loading task history…</div>
-            <div className="agt-skeleton__bar is-1" /><div className="agt-skeleton__bar is-2" />
-            <div className="agt-skeleton__bar is-3" /><div className="agt-skeleton__block" />
-          </div>
-        )}
-        {turns.length === 0 && state.connection !== 'connecting'
-          ? <div className="agt-empty">No activity yet.</div>
-          : turns.map((turn, index) => {
-            const id = turn.turnId ?? `turn-${turn.ordinal}`;
-            const open = turnChoice[id] ?? true;
-            return (
-              <TurnView
-                key={id}
-                turn={turn}
-                first={index === 0}
-                open={open}
-                now={now}
-                models={models}
-                durableTurns={state.turns}
-                activityChoice={activityChoice}
-                previews={previews}
-                agentLabels={agentLabels}
-                onToggle={() => onToggleTurn(id, !open)}
-                onToggleActivity={onToggleActivity}
-                onDecide={onDecide}
-                onOpenAgent={onOpenAgent}
-              />
-            );
-          })}
-        {status === 'running' && after === null && following && <LiveActivity label={liveLabel} animated={!waiting && state.connection === 'open' && !state.gap} />}
-        {after !== null && historyLoading && <div className="agt-history-edge">Loading activity…</div>}
-        {working.length > 0 && (
+      <AgentConversation
+        turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
+        connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
+        waiting={waiting} gap={state.gap} activityChoice={activityChoice} turnChoice={turnChoice}
+        previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}
+        onToggleTurn={onToggleTurn} onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
+        transcriptFooter={working.length > 0 && (
           <div className="agt-barrier">
             {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
             {' — Send, queued messages, and Complete unlock when every agent and command finishes.'}
           </div>
-        )}
-      </div>
-
-      <div className="agt-bottom">
+        )}>
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
       <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
 
@@ -1225,12 +1031,15 @@ export function AgentTaskBody({
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
       {!terminal && (
-        <QueueStrip
-          queue={state.queue}
+        <ConversationQueue
+          queue={state.queue.map(input => ({
+            ...input,
+            attachmentCount: input.settings.attachments.length,
+            modelLabel: `${modelName(models, input.settings.model)}${input.settings.effort === null ? '' : ` ${input.settings.effort}`}${input.settings.serviceTier == null ? '' : ` · ${serviceTierName(models, input.settings.model, input.settings.serviceTier)}`}`,
+          }))}
           running={status === 'running'}
           idle={status === 'idle'}
           resumeBlocked={providerStartBlocked}
-          models={models}
           onRemove={onRemoveQueued}
           onResume={onResumeQueue}
         />
@@ -1257,124 +1066,25 @@ export function AgentTaskBody({
 
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
-        <div className="agt-compose-dock is-task">
-          <div className="agt-compose" aria-busy={state.sending}>
-            <span className="agt-compose__streamer" aria-hidden="true" />
-            {state.attachments.length > 0 && (
-              <div className="agt-drafts" aria-label="Images to send">
-                {state.attachments.map((attachment) => (
-                  <span className="agt-draft" key={attachment.id}>
-                    <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
-                    <button
-                      type="button"
-                      className="agt-draft__remove"
-                      aria-label={`Remove image ${attachment.name}`}
-                      disabled={state.sending}
-                      onClick={() => onRemoveAttachment(attachment.id)}
-                    >
-                      <X aria-hidden="true" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <textarea
-              ref={composerRef}
-              className="agt-compose__input"
-              rows={1}
-              value={state.composer}
-              aria-label="Message the agent"
-              placeholder={state.connection === 'connecting' ? 'Connecting…' : status === 'closing' ? 'Closing…' : 'Message the agent'}
-              disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
-              onChange={(event) => onCompose(event.target.value)}
-              onPaste={(event) => pasteImage(event, imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  if (canSend(state)) onSend();
-                }
-              }}
-            />
-            <div className="agt-compose__row">
-              <button
-                type="button"
-                className="agt-attach"
-                aria-label="Attach an image"
-                title={attachTitle}
-                disabled={!imagesAccepted || status === 'closing' || state.sending}
-                onClick={onAttach}
-              >
-                +
-              </button>
-              <span className="agt-compose__chip is-fact" title="Routine work proceeds automatically; other actions may need your authorization">
-                {permissionLabel(state.task?.defaults.permissionPolicy ?? 'AUTO')}
-              </span>
-              <span className="agt-spacer" />
-              <ModelPicker
-                ariaLabel="Model and effort for the next message"
-                disabled={models.length === 0 || state.sending}
-                models={models}
-                provider={provider}
-                selectedModel={state.task?.defaults.model ?? ''}
-                selectedEffort={state.task?.defaults.effort ?? undefined}
-                selectedServiceTier={state.task?.defaults.serviceTier}
-                onSelect={onSelectModel}
-              />
-              {status === 'running' && state.composer.trim() !== '' && (
-                <>
-                  <button
-                    type="button"
-                    className="agt-steer"
-                    disabled={!canSteer(state) || steerImageBlocked}
-                    title={steerImageBlocked
-                      ? 'The running turn’s model does not accept images'
-                      : state.capabilities?.steering === true ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
-                    onClick={onSteer}
-                  >
-                    Steer
-                  </button>
-                  <button
-                    type="button"
-                    className="agt-compose__chip"
-                    disabled={!canQueue(state) || queueImageBlocked}
-                    title={queueImageBlocked ? 'The next-turn model does not accept images' : 'Runs after this turn finishes'}
-                    onClick={onQueue}
-                  >
-                    Run next
-                  </button>
-                </>
-              )}
-              {status === 'running'
-                ? (
-                  <button
-                    type="button"
-                    className="agt-send is-stop"
-                    aria-label="Stop this turn"
-                    title="Interrupts the running turn and waits for its work to stop"
-                    onClick={onCancel}
-                  >
-                    <span className="agt-stop-square" aria-hidden="true" />
-                  </button>
-                )
-                : (
-                  <button
-                    type="button"
-                    className="agt-send"
-                    aria-label="Send message"
-                    title="Send"
-                    onClick={onSend}
-                    disabled={!canSend(state)}
-                  >
-                    ↑
-                  </button>
-                )}
-            </div>
-          </div>
-          <TaskStats task={state.task} turns={turns} now={now} />
-        </div>
+        <ConversationComposer
+          value={state.composer} onChange={onCompose} onSend={onSend} onStop={onCancel} onSteer={onSteer} onQueue={onQueue}
+          running={status === 'running'} sending={state.sending}
+          disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
+          sendEnabled={canSend(state)} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked}
+          connection={state.connection} closing={status === 'closing'}
+          composerRef={composerRef}
+          onPaste={event => pasteImage(event, imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
+          steerTitle={steerImageBlocked ? 'The running turn’s model does not accept images'
+            : state.capabilities?.steering === true ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
+          queueTitle={queueImageBlocked ? 'The next-turn model does not accept images' : 'Runs after this turn finishes'}
+          attachments={state.attachments} previews={previews} onRemoveAttachment={onRemoveAttachment}
+          onAttach={onAttach} attachEnabled={imagesAccepted} attachTitle={attachTitle}
+          permissionPolicy={state.task?.defaults.permissionPolicy ?? 'AUTO'}
+          models={models} provider={provider} model={state.task?.defaults.model ?? null}
+          effort={state.task?.defaults.effort} serviceTier={state.task?.defaults.serviceTier} onSelectModel={onSelectModel}
+          footer={<TaskStats task={state.task} turns={turns} now={now} />} />
       )}
-      </div>
-      </div>
+      </AgentConversation>
       {panelOpen && state.task !== null && (
         <>
           <div

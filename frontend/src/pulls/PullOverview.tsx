@@ -2004,7 +2004,7 @@ function ReviewIcon() {
 }
 
 function ReactionMenuIcon() {
-  return <SmilePlus size={21} strokeWidth={1.3} aria-hidden="true" />;
+  return <SmilePlus size={16} strokeWidth={1.3} aria-hidden="true" />;
 }
 
 function KebabIcon() {

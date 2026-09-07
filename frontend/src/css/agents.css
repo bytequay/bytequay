@@ -2987,6 +2987,12 @@
   box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
 }
 
+/* The Home composer sits near the top of its scrollport, where upward overflow is clipped. */
+.agt-home__composer .agt-picker__card {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
 .agt-starts {
   display: flex;
   gap: 8px;

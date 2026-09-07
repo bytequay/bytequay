@@ -372,6 +372,10 @@
 .wss-input.is-wide { width: 100%; max-width: 540px; color: #57606a; font-size: var(--ui-font-size); }
 .wss-input.is-narrow { width: 200px; }
 .wss-input[readonly] { background: #fafbfc; }
+.wss-commits-target { align-items: flex-end; flex-wrap: wrap; }
+.wss-commits-target label { display: grid; gap: 6px; }
+.wss-commits-target .wss-input { width: 100%; }
+.wss-commits-description { padding-top: 12px; padding-bottom: 0; }
 .wss-remote-form { display: flex; align-items: flex-end; gap: 10px; padding: 11px 14px; border-top: 1px solid #f0f0f2; }
 .wss-remote-form label { display: flex; flex-direction: column; gap: 4px; font-size: var(--ui-font-size); font-weight: 600; color: #57606a; }
 .wss-remote-form label:first-child { width: 150px; }

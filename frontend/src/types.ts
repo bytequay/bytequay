@@ -966,8 +966,15 @@ export type WorkspaceTokenDto = {
   login: string;
 };
 
+export type WorkspaceCommitsTargetDto = {
+  remote: 'origin' | 'upstream';
+  branch: string;
+  overridden: boolean;
+};
+
 export type WorkspaceSettingsDto = {
   remotes: WorkspaceRemoteDto[];
+  commitsTarget: WorkspaceCommitsTargetDto;
   agentModelOverride?: WorkspaceAgentModelDto | null;
   mainModel: WorkspaceAgentModelDto;
   githubToken?: WorkspaceTokenDto | null;
@@ -1377,6 +1384,8 @@ export type Bridge = {
   deleteGitHubToken: () => Promise<void>;
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
+  setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
+  clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
   addWorkspaceRemote: (workspaceId: string, name: string, url: string) => Promise<WorkspaceRemoteDto[]>;
   removeWorkspaceRemote: (workspaceId: string, name: string) => Promise<WorkspaceRemoteDto[]>;

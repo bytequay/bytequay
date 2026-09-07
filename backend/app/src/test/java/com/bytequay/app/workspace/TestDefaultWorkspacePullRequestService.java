@@ -124,6 +124,24 @@ class TestDefaultWorkspacePullRequestService
     }
 
     @Test
+    void forkDeliveryKeepsTheConfirmedReleaseBranchInsteadOfTheCurrentDefault()
+    {
+        Fixture fixture = fixture(forkWorkspace(), forkRepository(true), "release/478");
+        assertThat(fixture.workspace().upstreamDefaultBranch()).contains("main");
+        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).baseBranch()).isEqualTo("release/478");
+
+        assertThat(fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)).remote()).isEqualTo("origin");
+        PullRequestResult result = fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true));
+
+        verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
+        verify(fixture.pullRequests()).createPullRequest(
+                "token", RepoRef.of("upstream", "project"), "contributor:" + WORK_BRANCH, "release/478", "PR title", "PR body");
+        assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThat(result.baseBranch()).isEqualTo("release/478");
+        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).baseBranch()).isEqualTo("release/478");
+    }
+
+    @Test
     void retriesLocalActivationWithoutCreatingASecondRemotePullRequest()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
@@ -192,10 +210,15 @@ class TestDefaultWorkspacePullRequestService
 
     private Fixture fixture(Workspace workspace, UserRepo selected)
     {
+        return fixture(workspace, selected, "main");
+    }
+
+    private Fixture fixture(Workspace workspace, UserRepo selected, String targetBranch)
+    {
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
         AtomicReference<Workspace> storedWorkspace = new AtomicReference<>(workspace);
         when(workspaceStore.findById("workspace")).thenAnswer(ignored -> Optional.of(storedWorkspace.get()));
-        CherryPickExecution initial = completedExecution(workspace);
+        CherryPickExecution initial = completedExecution(workspace, targetBranch);
         AtomicReference<CherryPickExecution> current = new AtomicReference<>(initial);
         CherryPickExecutionStore executionStore = mock(CherryPickExecutionStore.class);
         when(executionStore.find(initial.id())).thenAnswer(ignored -> Optional.of(current.get()));
@@ -252,7 +275,7 @@ class TestDefaultWorkspacePullRequestService
                 ciAutofix);
     }
 
-    private CherryPickExecution completedExecution(Workspace workspace)
+    private CherryPickExecution completedExecution(Workspace workspace, String targetBranch)
     {
         CherryPickItem item = CherryPickItem.planned(
                 1, SHA, PARENT_SHA, "Already present", Optional.empty(), Disposition.ALREADY_ON_TARGET);
@@ -265,7 +288,7 @@ class TestDefaultWorkspacePullRequestService
                                 Optional.empty(),
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
-                                "main",
+                                targetBranch,
                                 "bytequay-base",
                                 WORK_BRANCH,
                                 temporaryDirectory,

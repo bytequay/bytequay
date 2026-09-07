@@ -13,19 +13,39 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { CommitRefreshStatusDto, WorkspaceDto } from '../types';
+import type { CommitRefreshStatusDto, WorkspaceDto, WorkspaceSettingsDto } from '../types';
 import CommitsTab, {
+  CommitsBrowser,
   availableCommitSource,
   commitRefreshChanged,
   commitRefreshRefs,
   commitSyncLabel,
+  commitTargetRef,
   selectableCommitSources,
 } from './CommitsTab';
 
 describe('workspace commits tab', () => {
+  it('waits for the saved target before reading history or offering cherry-pick', () => {
+    const html = renderToStaticMarkup(<CommitsTab workspace={workspace()}
+      onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+
+    expect(html).toContain('Loading commits target…');
+    expect(html).not.toContain('cmt-repo-chip');
+    expect(html).not.toContain('Cherry pick');
+  });
+
+  it('opens existing execution progress independently of default target settings', () => {
+    const html = renderToStaticMarkup(<CommitsTab workspace={workspace()} initialExecutionId="saved-execution"
+      onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+
+    expect(html).not.toContain('Loading commits target…');
+    expect(html).toContain('Loading');
+  });
+
   it('keeps the workspace branch separate from the remote source switcher', () => {
-    const html = renderToStaticMarkup(<CommitsTab
+    const html = renderToStaticMarkup(<CommitsBrowser
       workspace={workspace()}
+      settings={directSettings}
       onSourceSelectionChange={() => {}}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
@@ -58,9 +78,10 @@ describe('workspace commits tab', () => {
   });
 
   it('keeps a remembered remote source while validating it', () => {
-    const html = renderToStaticMarkup(<CommitsTab
+    const html = renderToStaticMarkup(<CommitsBrowser
       workspace={workspace()}
-      initialSourceSelection={{ source: 'oss', viewingSource: true }}
+      settings={directSettings}
+      initialSourceSelection={{ source: 'oss' }}
       onSourceSelectionChange={() => {}}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
@@ -72,42 +93,92 @@ describe('workspace commits tab', () => {
     expect(html).not.toContain('read-only');
   });
 
-  it('opens on the linked upstream browser when asked to start there', () => {
+  it.each([false, true])('uses the first branch control for the fork destination (override=%s)', overridden => {
     const linked: WorkspaceDto = {
       ...workspace(),
-      upstreamDefaultBranch: 'main',
+      upstreamDefaultBranch: 'master',
       upstreamRepositoryId: 200,
       upstreamOwner: 'upstream',
       upstreamRepo: 'project',
       topology: 'FORK',
     };
-    const html = renderToStaticMarkup(<CommitsTab
+    const targetBranch = overridden ? 'release/479' : 'master';
+    const html = renderToStaticMarkup(<CommitsBrowser
       workspace={linked}
-      initialRepo="upstream"
+      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: targetBranch, overridden } }}
       onSourceSelectionChange={() => {}}
       onOpenPullRequest={() => {}}
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('cmt-split-chip is-active');
+    expect(html).toMatch(new RegExp(`class="cmt-repo-chip is-active"[^>]*title="Cherry-pick target: upstream/project · upstream/${targetBranch}"[^>]*aria-pressed="true"`));
+    expect(html).not.toContain('cmt-split-chip is-active');
     expect(html).toContain('title="View the selected remote source"');
     expect(html).toContain('Source: upstream');
     expect(html).toContain('title="Branch of the selected source"');
-    expect(html).toContain('read-only');
+    expect(html).toContain(`cmt-repo-chip__label cmt-mono">upstream/${targetBranch}</span>`);
+    expect(html).toContain(`Target · upstream/${targetBranch}`);
+    expect(html).not.toContain('Check out');
   });
 
-  it('refreshes the workspace, a linked upstream, and the browsed remote source', () => {
-    expect(commitRefreshRefs('feature', 'main', false)).toEqual([
-      { source: 'WORKSPACE', branch: 'feature' },
+  it.each([
+    { initialSourceSelection: { source: null } },
+    { initialSourceSelection: { source: 'upstream' } },
+    { initialRepo: 'workspace' as const },
+  ])('opens the selected target when the source browser is inactive: %j', selection => {
+    const html = renderToStaticMarkup(<CommitsBrowser
+      workspace={{ ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' }}
+      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: 'master', overridden: false } }}
+      {...selection}
+      onSourceSelectionChange={() => {}}
+      onOpenPullRequest={() => {}}
+      onOpenSettings={() => {}}
+    />);
+
+    expect(html).not.toContain('cmt-split-chip is-active');
+    expect(html).not.toContain('read-only');
+    expect(html).toMatch(/class="cmt-repo-chip is-active"[^>]*aria-pressed="true"/);
+  });
+
+  it('uses the direct repository target branch without an upstream prefix', () => {
+    const html = renderToStaticMarkup(<CommitsBrowser workspace={workspace()}
+      settings={{ ...directSettings, commitsTarget: { remote: 'origin', branch: 'release/1', overridden: true } }}
+      onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+
+    expect(html).toContain('title="Cherry-pick target: example/project · release/1"');
+    expect(html).toContain('cmt-repo-chip__label cmt-mono">release/1</span>');
+    expect(html).not.toContain('upstream/');
+  });
+
+  it('opens the source for a cherry-pick while retaining a separate configured destination', () => {
+    const html = renderToStaticMarkup(<CommitsBrowser
+      workspace={{ ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' }}
+      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } }}
+      initialRepo="upstream" onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+
+    expect(html).toContain('cmt-split-chip is-active');
+    expect(html).toContain('cmt-repo-chip__label cmt-mono">upstream/release/479</span>');
+    expect(html).toContain('then cherry-pick the range into upstream/release/479');
+  });
+
+  it('reads and refreshes the target separately from the selected source', () => {
+    const direct = { remote: 'origin' as const, branch: 'release/1', overridden: true };
+    const fork = { remote: 'upstream' as const, branch: 'release/479', overridden: true };
+    expect(commitTargetRef(direct)).toEqual({ source: 'WORKSPACE', branch: 'release/1' });
+    expect(commitTargetRef(fork)).toEqual({ source: 'UPSTREAM', branch: 'release/479' });
+    expect(commitRefreshRefs(direct)).toEqual([
+      { source: 'WORKSPACE', branch: 'release/1' },
     ]);
-    expect(commitRefreshRefs('feature', 'release', true)).toEqual([
-      { source: 'WORKSPACE', branch: 'feature' },
-      { source: 'UPSTREAM', branch: 'release' },
+    expect(commitRefreshRefs(fork, { source: 'UPSTREAM', branch: 'master' })).toEqual([
+      { source: 'UPSTREAM', branch: 'release/479' },
+      { source: 'UPSTREAM', branch: 'master' },
     ]);
-    expect(commitRefreshRefs('feature', 'release', true, { name: 'oss', branch: 'master' })).toEqual([
-      { source: 'WORKSPACE', branch: 'feature' },
-      { source: 'UPSTREAM', branch: 'release' },
+    expect(commitRefreshRefs(fork, { source: 'REMOTE', branch: 'master', remote: 'oss' })).toEqual([
+      { source: 'UPSTREAM', branch: 'release/479' },
       { source: 'REMOTE', branch: 'master', remote: 'oss' },
+    ]);
+    expect(commitRefreshRefs(fork, { source: 'UPSTREAM', branch: 'release/479' })).toEqual([
+      { source: 'UPSTREAM', branch: 'release/479' },
     ]);
   });
 
@@ -135,6 +206,11 @@ describe('workspace commits tab', () => {
     })).toBe(true);
   });
 });
+
+const directSettings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'> = {
+  remotes: [],
+  commitsTarget: { remote: 'origin', branch: 'main', overridden: false },
+};
 
 function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto {
   return {

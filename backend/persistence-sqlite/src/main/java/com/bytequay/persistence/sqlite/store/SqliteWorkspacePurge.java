@@ -123,7 +123,8 @@ final class SqliteWorkspacePurge
         for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata")) {
             sql.update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }
-        sql.update("DELETE FROM app_settings WHERE setting_key = :key", ImmutableMap.of("key", "workspace.agentModel." + id));
+        sql.update("DELETE FROM app_settings WHERE setting_key IN (:keys)",
+                ImmutableMap.of("keys", ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id)));
         for (Map.Entry<Long, RepoRef> repository : repositories.entrySet()) {
             if (!referencedElsewhere(id, repository.getKey(), repository.getValue(), others, remotes)) {
                 deleteRepositoryData(repository.getKey(), repository.getValue());

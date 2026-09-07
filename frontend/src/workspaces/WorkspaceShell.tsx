@@ -47,7 +47,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
-  const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>({ source: null, viewingSource: false });
+  const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
   const [overviewOpen, setOverviewOpen] = useState(false);
   const agentScreens = tab === 'home' || tab === 'tasks';

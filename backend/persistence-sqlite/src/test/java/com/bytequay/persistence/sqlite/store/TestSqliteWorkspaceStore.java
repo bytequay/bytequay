@@ -88,6 +88,9 @@ class TestSqliteWorkspaceStore
     @Autowired
     private SqliteRecentStore recent;
 
+    @Autowired
+    private SqliteAppSettingsStore settings;
+
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
@@ -173,6 +176,27 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
+    void commitsTargetBranchSurvivesUnwatchAndRewatchUntilWorkspaceDeletion()
+    {
+        Workspace workspace = store.createOrGet(direct("target-settings", 100, 0));
+        String key = "workspace.commitsTargetBranch." + workspace.id();
+        settings.put(key, "release/next");
+
+        store.setWatched(workspace.id(), false);
+        entities.flush();
+        entities.clear();
+        assertThat(settings.get(key)).contains("release/next");
+
+        store.setWatched(workspace.id(), true);
+        entities.flush();
+        entities.clear();
+        assertThat(settings.get(key)).contains("release/next");
+
+        store.delete(workspace.id());
+        assertThat(settings.get(key)).isEmpty();
+    }
+
+    @Test
     void deletePurgesOwnedDataAndPreservesRetainedSharedAndAccountData()
     {
         Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
@@ -183,6 +207,7 @@ class TestSqliteWorkspaceStore
         for (Workspace workspace : ImmutableList.of(removed, retained)) {
             jdbc.update("INSERT INTO workspace_credentials (workspace_id, ciphertext, login) VALUES (?, 'encrypted', 'owner')", workspace.id());
             jdbc.update("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, 'model')", "workspace.agentModel." + workspace.id());
+            settings.put("workspace.commitsTargetBranch." + workspace.id(), "release/next");
             jdbc.update("INSERT INTO commit_refresh_metadata (workspace_id, error) VALUES (?, 'retained')", workspace.id());
             jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES (?, ?, 'extra', 'https://github.com/extra/project.git')",
                     workspace.id() + ":extra", workspace.id());
@@ -207,7 +232,8 @@ class TestSqliteWorkspaceStore
         for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources")) {
             assertThat(jdbc.queryForList("SELECT workspace_id FROM " + table, String.class)).containsExactly(retained.id());
         }
-        assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class)).containsExactly("workspace.agentModel." + retained.id());
+        assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class))
+                .containsExactlyInAnyOrder("workspace.agentModel." + retained.id(), "workspace.commitsTargetBranch." + retained.id());
         assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
         assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
         assertThat(jdbc.queryForList("SELECT id FROM pull_requests ORDER BY id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);

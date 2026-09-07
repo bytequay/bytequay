@@ -20,6 +20,7 @@ import type { WorkspaceDto } from '../types';
 import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import WorkspaceSettings from './WorkspaceSettings';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
+import WorkspaceCommitsTargetCard from './WorkspaceCommitsTargetCard';
 import WorkspaceShell from './WorkspaceShell';
 
 describe('watched repository workspace UI', () => {
@@ -214,6 +215,25 @@ describe('watched repository workspace UI', () => {
     expect(issues).toContain('upstream/project');
   });
 
+  it('loads the saved target before opening fork workspace commits', () => {
+    const html = renderToStaticMarkup(<WorkspaceShell
+      workspace={{ ...workspace('FORK'), lastCodeSyncAt: '2026-09-07T00:00:00Z', upstreamDefaultBranch: 'master' }}
+      tab="commits"
+      onSelectTab={() => {}}
+      onWorkspaceChanged={() => {}}
+      initialPullRequestNumber={null}
+      initialIssueNumber={null}
+      initialAgentTaskId={null}
+      onSelectAgentTask={() => {}}
+      onSelectPullRequest={() => {}}
+      onSelectIssue={() => {}}
+      onRemoved={() => {}}
+    />);
+
+    expect(html).toContain('Loading commits target…');
+    expect(html).not.toContain('cmt-repo-chip');
+  });
+
   it('shows workspace fields and lets a watched repository fill a remote URL', () => {
     const html = renderToStaticMarkup(<WorkspaceSettings
       workspace={workspace('FORK')}
@@ -233,6 +253,41 @@ describe('watched repository workspace UI', () => {
     expect(html).not.toContain('Every source appears');
     expect(html).not.toContain('Stops watching this repository');
     expect(html).not.toContain('Linked upstream');
+  });
+
+  it('shows the automatic upstream Commits target without offering a repository override', () => {
+    const html = renderToStaticMarkup(<WorkspaceCommitsTargetCard
+      workspace={{ ...workspace('FORK'), upstreamDefaultBranch: 'master' }}
+      target={{ remote: 'upstream', branch: 'master', overridden: false }}
+      onChanged={vi.fn()}
+    />);
+
+    expect(html).toContain('Commits default target branch');
+    expect(html).toContain('Cherry-picks use it as their default destination.');
+    expect(html).toContain('<strong>upstream/project</strong>');
+    expect(html).toContain('Automatic target: <span class="sets-mono">upstream/master</span>');
+    expect(html).toContain('value="master"');
+    expect(html).toContain('type="submit">Save</button>');
+    expect(html).toContain('Enter a branch name such as master or release/479; the remote is selected automatically.');
+    expect(html).toContain('maxLength="512"');
+    expect(html).not.toContain('Reset to automatic');
+    expect(html).not.toContain('<select');
+  });
+
+  it('lets a direct workspace keep an override before local branch suggestions load', () => {
+    const html = renderToStaticMarkup(<WorkspaceCommitsTargetCard
+      workspace={workspace('DIRECT')}
+      target={{ remote: 'origin', branch: 'release/479', overridden: true }}
+      onChanged={vi.fn()}
+    />);
+
+    expect(html).toContain('WORKSPACE OVERRIDE');
+    expect(html).toContain('value="release/479"');
+    expect(html).toContain('<strong>contributor/project</strong>');
+    expect(html).toContain('Automatic target: <span class="sets-mono">origin/main</span>');
+    expect(html).toContain('>Reset to automatic</button>');
+    expect(html).toMatch(/<input[^>]*aria-label="Commits default target branch"[^>]*list=/);
+    expect(html).not.toContain('readonly');
   });
 });
 

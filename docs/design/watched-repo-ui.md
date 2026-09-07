@@ -35,6 +35,14 @@ task history, and settings. The restored card keeps its durable identity; the UI
 syncing rather than claiming a new clone. The older foreign direct checkout exception above
 still applies when routing resolves a different physical write repository.
 
+The first Commits branch control is the cherry-pick destination and default history view.
+It displays the upstream PR target for a linked fork, such as `upstream/master` for Trino, and
+the own repository's default branch for a direct workspace. The source control stays separate.
+Workspace Settings offers **Commits default target branch**, with a branch-only override and
+Reset to automatic. Loading Commits waits for that saved preference; the target control,
+history, refresh, and cherry-pick destination then use the same branch. Choosing a different
+target in Commits applies to the current visit; the setting controls subsequent visits.
+
 ## Watched and Retired workspaces
 
 Workspaces offers **Watched** and **Retired** tabs with separate counts. Retired means the

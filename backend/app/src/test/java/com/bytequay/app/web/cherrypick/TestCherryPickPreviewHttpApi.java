@@ -216,6 +216,30 @@ class TestCherryPickPreviewHttpApi
     }
 
     @Test
+    void keepsTheLinkedUpstreamWhilePreviewingTheRequestedReleaseBranch()
+            throws Exception
+    {
+        doThrow(new CherryPickInvalidRequestException("stop after capture"))
+                .when(previewService).preview(any());
+
+        mvc.perform(post("/api/workspaces/workspace-id/cherry-pick/preview")
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"sourceBaseRef":"477","sourceTipRef":"478","targetRemote":"origin","targetBranch":"release/478"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands = ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        verify(previewService).preview(commands.capture());
+        assertThat(commands.getValue()).satisfies(command -> {
+            assertThat(command.targetRemote()).isEqualTo("upstream");
+            assertThat(command.targetBranch()).isEqualTo("release/478");
+            assertThat(command.remoteTrackingRef()).isEqualTo("upstream/release/478");
+        });
+    }
+
+    @Test
     void passesAnIdentifiedCustomRemoteRepositoryToThePreview()
             throws Exception
     {

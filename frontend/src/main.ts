@@ -998,6 +998,14 @@ function registerIpc(): void {
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
+  ipcMain.handle('workspaces:commits-target:set', (_event, workspaceId: string, branch: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch }),
+    }));
+  ipcMain.handle('workspaces:commits-target:clear', (_event, workspaceId: string) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, { method: 'DELETE' }));
   ipcMain.handle('workspaces:rename', (_event, workspaceId: string, name: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'PATCH',

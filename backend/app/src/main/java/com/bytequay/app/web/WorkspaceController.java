@@ -21,6 +21,8 @@ import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
 import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
+import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
+import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
@@ -73,6 +75,7 @@ public class WorkspaceController
     private final WorkspaceRemoteSourceService remoteSources;
     private final ModelSettingsService models;
     private final CredentialService credentials;
+    private final WorkspaceCommitsSettingsService commitsSettings;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
@@ -84,7 +87,8 @@ public class WorkspaceController
             WorkspaceIssueRefreshService issueRefresh,
             WorkspaceRemoteSourceService remoteSources,
             ModelSettingsService models,
-            CredentialService credentials)
+            CredentialService credentials,
+            WorkspaceCommitsSettingsService commitsSettings)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.deletion = requireNonNull(deletion, "deletion is null");
@@ -96,6 +100,7 @@ public class WorkspaceController
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.models = requireNonNull(models, "models is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
     }
 
     @PostMapping
@@ -275,7 +280,20 @@ public class WorkspaceController
                 remoteSources.list(workspaceId),
                 models.workspaceOverride(workspaceId).orElse(null),
                 models.mainModel(),
-                credentials.workspaceGitHubToken(workspaceId).orElse(null));
+                credentials.workspaceGitHubToken(workspaceId).orElse(null),
+                commitsSettings.get(workspaceId));
+    }
+
+    @PutMapping("/{workspaceId}/commits-target")
+    public WorkspaceCommitsTarget setCommitsTarget(@PathVariable String workspaceId, @RequestBody CommitsTargetRequest request)
+    {
+        return commitsSettings.save(workspaceId, request.branch());
+    }
+
+    @DeleteMapping("/{workspaceId}/commits-target")
+    public WorkspaceCommitsTarget resetCommitsTarget(@PathVariable String workspaceId)
+    {
+        return commitsSettings.reset(workspaceId);
     }
 
     @PostMapping("/{workspaceId}/remotes")
@@ -353,11 +371,14 @@ public class WorkspaceController
 
     public record AgentModelRequest(String configId, String model, String effort) {}
 
+    public record CommitsTargetRequest(String branch) {}
+
     public record TokenRequest(String value) {}
 
     public record WorkspaceSettingsResponse(
             List<WorkspaceRemote> remotes,
             WorkspaceAgentModel agentModelOverride,
             MainModel mainModel,
-            CredentialService.WorkspaceToken githubToken) {}
+            CredentialService.WorkspaceToken githubToken,
+            WorkspaceCommitsTarget commitsTarget) {}
 }

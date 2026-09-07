@@ -219,6 +219,8 @@ const bridge: Bridge = {
   deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),
 
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
+  setWorkspaceCommitsTarget: (workspaceId, branch) => ipcRenderer.invoke('workspaces:commits-target:set', workspaceId, branch),
+  clearWorkspaceCommitsTarget: workspaceId => ipcRenderer.invoke('workspaces:commits-target:clear', workspaceId),
   renameWorkspace: (workspaceId, name) => ipcRenderer.invoke('workspaces:rename', workspaceId, name),
   addWorkspaceRemote: (workspaceId, name, url) =>
     ipcRenderer.invoke('workspaces:remotes:add', workspaceId, name, url),

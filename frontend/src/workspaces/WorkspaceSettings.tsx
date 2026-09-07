@@ -28,6 +28,7 @@ import type {
 } from '../types';
 import DeleteWorkspaceDialog from './DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
+import WorkspaceCommitsTargetCard from './WorkspaceCommitsTargetCard';
 import '../css/settings.css';
 import '../css/workspaces.css';
 
@@ -107,6 +108,11 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
           }}
           onError={report}
         />
+        {settings && <WorkspaceCommitsTargetCard
+          workspace={workspace}
+          target={settings.commitsTarget}
+          onChanged={commitsTarget => setSettings(previous => previous === null ? previous : { ...previous, commitsTarget })}
+        />}
         <AgentModelCard
           workspaceId={workspace.id}
           settings={settings}

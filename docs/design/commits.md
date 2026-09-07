@@ -541,6 +541,34 @@ sequenceDiagram
 
 ## 10. UI display logic
 
+The first branch control is the cherry-pick destination and the initial history view. Its
+automatic target follows pull-request routing: a linked workspace uses
+`UPSTREAM + upstreamDefaultBranch`, displayed as `upstream/master` for Trino; a direct workspace
+uses `WORKSPACE + defaultBranch`, displayed as `main` or `master`. It stays distinct from the
+source control used to select commits for a cherry-pick. A cached remote HEAD or branch list
+must not silently replace the configured target.
+
+Workspace Settings exposes **Commits default target branch**. It persists one branch-only
+override in `app_settings` under `workspace.commitsTargetBranch.<workspaceId>`. The remote is
+always derived from current routing, and Reset to automatic removes the override. Unwatch
+retains the preference; workspace data deletion removes it. Saving validates branch syntax
+locally and works before cloning or while offline; fetching and preview validate that the
+selected branch exists.
+
+`GET /api/workspaces/{workspaceId}/settings` includes
+`commitsTarget: {remote, branch, overridden}`. `PUT .../commits-target` accepts `{branch}`;
+`DELETE .../commits-target` resets the preference. Both return the resolved target. The browser
+waits for this local settings read before loading history or allowing a cherry-pick. A failure
+offers Retry instead of guessing a destination. The first control lists fetched branches from
+the destination remote, and an explicit selection changes the target for this visit. Settings
+controls the default on the next visit. Source choices remain separate and may be remembered.
+
+History, the manual refresh refs, the cherry-pick preview's `targetBranch`, and the destination
+shown in the range action use the same selected target. Refresh enriches that target and the
+browsed source, deduplicating an identical ref. The preview freezes the repository, remote,
+branch, and SHA, and existing execution/delivery uses that frozen target even if defaults change
+later. Work branches still push to `origin`; a linked workspace's PR targets upstream.
+
 On mount or branch change, `CommitsTab` calls only the local history endpoint.
 It no longer starts a separate `fetchPrs` request for commit cards because the
 history snapshot already contains each persisted association and title.

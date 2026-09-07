@@ -779,11 +779,23 @@ The Flow view no longer asks for `worktreeParent`. The backend derives the manag
 The target base defaults from routing, while the user still chooses the target branch where the
 current cherry-pick design permits it.
 
+The first branch control displays this destination: `upstream/<branch>` for a linked fork,
+and the branch name for a direct repository. Normal visits initially show its history; the
+separate source control selects commits to apply. The target selector reads branches from its
+destination remote. An explicit target selection is temporary for that visit.
+
 When no upstream is linked, the repository chip says **No upstream linked** and opens Workspace
 Settings. Existing commit cards retain their pull-request association and avatar presentation.
 
 ### Workspace Settings
 
+- **Commits default target branch** saves a branch-only workspace override and offers Reset to
+  automatic. The automatic branch is the linked upstream default or the direct repository
+  default; routing always determines the destination repository. The resolved target is returned
+  in workspace settings and read before history or cherry-pick preview becomes available.
+- The setting is stored through `AppSettingsStore` in `app_settings` at
+  `workspace.commitsTargetBranch.<workspaceId>`. Unwatch retains it, Delete removes it, and later
+  setting changes never retarget an existing frozen preview or execution.
 - Reuse repository search to list repositories readable by the connected GitHub account.
 - Save `None` to unlink or a stable GitHub repository ID to link.
 - Exclude the workspace's selected repository and show the current upstream even when it is not

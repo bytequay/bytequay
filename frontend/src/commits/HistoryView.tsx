@@ -73,6 +73,8 @@ function CommitByline({ commit }: { commit: GitCommitDto }) {
 export default function HistoryView({
   workspaceId,
   branch,
+  targetLabel = branch,
+  readOnlyTarget = false,
   logRef,
   isUpstream,
   canRewrite,
@@ -86,6 +88,8 @@ export default function HistoryView({
 }: {
   workspaceId: string;
   branch: string;
+  targetLabel?: string;
+  readOnlyTarget?: boolean;
   /** The ref the commits were listed from (branch, or remote/branch). */
   logRef: string;
   isUpstream: boolean;
@@ -118,8 +122,8 @@ export default function HistoryView({
     () => (span ? commits.slice(span.lo, span.hi + 1) : []),
     [commits, span],
   );
-  const single = !isUpstream && spanCommits.length === 1 ? spanCommits[0] : null;
-  const multi = !isUpstream && spanCommits.length > 1;
+  const single = !isUpstream && !readOnlyTarget && spanCommits.length === 1 ? spanCommits[0] : null;
+  const multi = !isUpstream && !readOnlyTarget && spanCommits.length > 1;
   const viewedIndex = Math.max(0, commits.findIndex(commit => commit.sha === viewedSha));
   const viewed = commits[viewedIndex] ?? null;
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
@@ -290,15 +294,20 @@ export default function HistoryView({
         className="cmt-history-left"
         style={{ width: commitPane.width, flexBasis: commitPane.width }}
       >
-        {(isUpstream || (spanCommits.length > 0 && !canRewrite)) && (
+        {(isUpstream || readOnlyTarget || (spanCommits.length > 0 && !canRewrite)) && (
           <div className="cmt-range-bar">
             {isUpstream && (
               <div className="cmt-hint is-upstream">
                 <strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs),
-                then cherry-pick the range into {branch}.
+                then cherry-pick the range into {targetLabel}.
               </div>
             )}
-            {!isUpstream && spanCommits.length > 0 && !canRewrite && (
+            {readOnlyTarget && (
+              <div className="cmt-hint">
+                <strong>Target · {targetLabel}</strong> — choose a source to cherry-pick commits into this branch.
+              </div>
+            )}
+            {!isUpstream && !readOnlyTarget && spanCommits.length > 0 && !canRewrite && (
               <div className="cmt-hint">
                 Check out {branch} to edit messages or squash; {logRef} is only being viewed.
               </div>

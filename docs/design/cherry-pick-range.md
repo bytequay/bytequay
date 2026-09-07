@@ -12,6 +12,15 @@ feature; it does not restore the deleted generic development-flow system.
 
 ## 1. Product flow
 
+The first branch control in Commits selects the destination. Its automatic default is the
+linked upstream's default branch for forks and origin's default branch for direct workspaces.
+Workspace Settings can override the branch name. The separate source control selects commits
+to apply, and preview receives the displayed destination branch. The server derives its remote
+from workspace routing; it does not accept a renderer override of the destination repository.
+The preview and execution freeze this target, so changing settings later cannot retarget work
+already confirmed. Delivery pushes the generated branch to origin and uses the frozen target
+repository and branch as the PR base.
+
 1. The backend fetches the source and target and creates a frozen preview.
 2. The UI shows commits in cherry-pick order. It may fold adjacent commits by
    pull request and provide a pull-request checkbox, but the durable selection

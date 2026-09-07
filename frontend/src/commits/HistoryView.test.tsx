@@ -208,6 +208,8 @@ describe('workspace commit history', () => {
     now.mockRestore();
 
     expect(html).toContain('Commits on Aug 25, 2026');
+    expect(html).toContain('lucide-git-commit-horizontal');
+    expect(html).not.toContain('⑂');
     expect(html).not.toContain('Commits on Aug 13, 2026');
     expect(html).toContain(
       '<strong>example-author</strong> authored and <strong>example-committer</strong> committed <time',

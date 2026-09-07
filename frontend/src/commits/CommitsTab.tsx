@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, GitBranch, GitCompareArrows, ListChecks, RefreshCw, Search } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 import type {
   CherryPickPreview,
@@ -534,9 +535,9 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
               aria-pressed={!isRemote}
               onClick={wsChipClick}
             >
-              <span className="cmt-mono">⑂</span>
+              <GitBranch className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
               <span className="cmt-repo-chip__label cmt-mono">{targetLabel}</span>
-              <span className="cmt-caret">▾</span>
+              <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
             </button>
             {branchMenu && (
               <div className="cmt-menu">
@@ -580,7 +581,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                 aria-pressed={isRemote}
                 onClick={activateSource}
               >
-                <span className="cmt-mono">⇅</span>
+                <GitCompareArrows className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
                 <span className="cmt-repo-chip__label">Source: {sourceLabel}</span>
                 {isRemote && <span className="cmt-readonly">read-only</span>}
               </button>
@@ -591,7 +592,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                 aria-label="Choose remote source"
                 onClick={sourceChipClick}
               >
-                <span className="cmt-caret">▾</span>
+                <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
               </button>
               {source !== null && (
                 <button
@@ -600,9 +601,9 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                   title="Branch of the selected source"
                   onClick={sourceBranchChipClick}
                 >
-                  <span className="cmt-mono">⑂</span>
+                  <GitBranch className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
                   <span className="cmt-repo-chip__label cmt-mono">{upBranch}</span>
-                  <span className="cmt-caret">▾</span>
+                  <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -677,7 +678,10 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
           {historyVisible && (
             <div className="cmt-chip-wrap">
               <details className="cmt-range">
-                <summary title="Select a commit range by SHA">⇲ select range</summary>
+                <summary title="Select a commit range by SHA">
+                  <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />
+                  <span>select range</span>
+                </summary>
                 <div className="cmt-range-panel">
                   <input
                     value={rangeFrom}
@@ -699,15 +703,20 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
           <div className="cmt-sync">
             <button
               type="button"
-              title="Fetch latest for this branch and the selected remote source"
+              title={syncing
+                ? 'Syncing commit history'
+                : `Sync commit history · ${commitSyncLabel(refreshStatus)}`}
+              aria-label={syncing ? 'Syncing commit history' : 'Sync commit history'}
               disabled={syncing}
               onClick={() => { void sync(); }}
             >
-              <span className={syncing ? 'is-spinning' : ''}>⟳</span>
+              <RefreshCw
+                className={syncing ? 'is-spinning' : undefined}
+                size={18}
+                strokeWidth={1.8}
+                aria-hidden="true"
+              />
             </button>
-            <span title={refreshStatus?.error ?? undefined}>
-              {syncing ? 'syncing…' : commitSyncLabel(refreshStatus)}
-            </span>
           </div>
 
           <div className="cmt-tab-divider" />
@@ -751,10 +760,10 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
 
       {showTabBar && historyVisible && (
         <div className="cmt-search">
-          <span>⌕</span>
+          <Search size={18} strokeWidth={1.8} aria-hidden="true" />
           <input
             value={searchQuery}
-            placeholder="Search — PR title, #number, or SHA"
+            aria-label="Search commits by pull request title, number, or SHA"
             onChange={event => setSearchQuery(event.target.value)}
           />
         </div>
@@ -772,7 +781,6 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
         <HistoryView
           workspaceId={workspace.id}
           branch={branch}
-          targetLabel={targetLabel}
           readOnlyTarget={!isRemote && targetUpstream}
           logRef={logRef}
           isUpstream={isRemote}

@@ -117,8 +117,30 @@ describe('workspace commits tab', () => {
     expect(html).toContain('Source: upstream');
     expect(html).toContain('title="Branch of the selected source"');
     expect(html).toContain(`cmt-repo-chip__label cmt-mono">upstream/${targetBranch}</span>`);
-    expect(html).toContain(`Target · upstream/${targetBranch}`);
+    expect(html).not.toContain(`Target · upstream/${targetBranch}`);
     expect(html).not.toContain('Check out');
+  });
+
+  it('uses the existing Lucide icons throughout the commit toolbar', () => {
+    const html = renderToStaticMarkup(<CommitsBrowser
+      workspace={workspace()}
+      settings={directSettings}
+      onSourceSelectionChange={() => {}}
+      onOpenPullRequest={() => {}}
+      onOpenSettings={() => {}}
+    />);
+
+    expect(html).toContain('lucide-refresh-cw');
+    expect(html).toContain('lucide-search');
+    expect(html).toContain('lucide-git-branch');
+    expect(html).toContain('lucide-git-compare-arrows');
+    expect(html).toContain('lucide-chevron-down');
+    expect(html).toContain('lucide-list-checks');
+    expect(html).toContain('aria-label="Sync commit history"');
+    expect(html).toContain('aria-label="Search commits by pull request title, number, or SHA"');
+    expect(html).not.toContain('Search — PR title, #number, or SHA');
+    expect(html).not.toContain('not synced yet</span>');
+    expect(html).not.toMatch(/[⑂⇅⇲▾]/);
   });
 
   it.each([
@@ -158,7 +180,8 @@ describe('workspace commits tab', () => {
 
     expect(html).toContain('cmt-split-chip is-active');
     expect(html).toContain('cmt-repo-chip__label cmt-mono">upstream/release/479</span>');
-    expect(html).toContain('then cherry-pick the range into upstream/release/479');
+    expect(html).not.toContain('Upstream · read-only');
+    expect(html).not.toContain('then cherry-pick the range into upstream/release/479');
   });
 
   it('reads and refreshes the target separately from the selected source', () => {

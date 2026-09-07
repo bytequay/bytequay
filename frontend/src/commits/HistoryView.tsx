@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState, type UIEvent as ReactUIEvent } from 'react';
+import { GitCommitHorizontal } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import Avatar from '../Avatar';
@@ -73,7 +74,6 @@ function CommitByline({ commit }: { commit: GitCommitDto }) {
 export default function HistoryView({
   workspaceId,
   branch,
-  targetLabel = branch,
   readOnlyTarget = false,
   logRef,
   isUpstream,
@@ -88,7 +88,6 @@ export default function HistoryView({
 }: {
   workspaceId: string;
   branch: string;
-  targetLabel?: string;
   readOnlyTarget?: boolean;
   /** The ref the commits were listed from (branch, or remote/branch). */
   logRef: string;
@@ -294,24 +293,11 @@ export default function HistoryView({
         className="cmt-history-left"
         style={{ width: commitPane.width, flexBasis: commitPane.width }}
       >
-        {(isUpstream || readOnlyTarget || (spanCommits.length > 0 && !canRewrite)) && (
+        {!isUpstream && !readOnlyTarget && spanCommits.length > 0 && !canRewrite && (
           <div className="cmt-range-bar">
-            {isUpstream && (
-              <div className="cmt-hint is-upstream">
-                <strong>Upstream · read-only</strong> — check a start and end commit (or type SHAs),
-                then cherry-pick the range into {targetLabel}.
-              </div>
-            )}
-            {readOnlyTarget && (
-              <div className="cmt-hint">
-                <strong>Target · {targetLabel}</strong> — choose a source to cherry-pick commits into this branch.
-              </div>
-            )}
-            {!isUpstream && !readOnlyTarget && spanCommits.length > 0 && !canRewrite && (
-              <div className="cmt-hint">
-                Check out {branch} to edit messages or squash; {logRef} is only being viewed.
-              </div>
-            )}
+            <div className="cmt-hint">
+              Check out {branch} to edit messages or squash; {logRef} is only being viewed.
+            </div>
           </div>
         )}
         <div ref={commitList} className="cmt-commit-list" onScroll={scrollCommits}>
@@ -323,7 +309,7 @@ export default function HistoryView({
           {visibleGroups.map(group => (
             <div className="cmt-day-card" key={group.commits[0].commit.sha}>
               <div className="cmt-day-head">
-                <span className="cmt-day-icon">⑂</span>
+                <GitCommitHorizontal className="cmt-day-icon" size={15} strokeWidth={1.7} aria-hidden="true" />
                 <span>{group.label}</span>
                 <span className="cmt-day-count">
                   {group.totalCommits} {group.totalCommits === 1 ? 'commit' : 'commits'}

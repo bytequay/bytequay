@@ -187,15 +187,15 @@ such cache remains reconstructable and is never durable ownership state.
 Expected operational failures use one narrow `CodeGraphException`.
 `refreshBaseline` and `explore` throw it, and their callers catch it at the
 optional-capability boundary: the fetch hook logs a failed refresh, and the
-tool wrapper turns a failed query into tool text. `prepare`, `deleteIndex`,
-and `deleteBaseline` are best-effort inside the adapter, which logs and
-swallows their expected failures, because `agent-core` has no logging
-facility by design. Programming errors remain visible rather than being
+tool wrapper turns a failed query into tool text. `prepare` and `deleteIndex` are best-effort inside the adapter, which logs and
+swallows their expected failures, because `agent-core` has no logging facility by design.
+`deleteBaseline` propagates cleanup failures: explicit workspace Delete keeps its durable record
+for retry until baseline cleanup succeeds. Programming errors remain visible rather than being
 mislabeled as graph unavailability.
 
-Any later application workflow that calls this port follows the same rule:
-catch `CodeGraphException` at its optional-capability boundary, record the
-bounded diagnostic, and continue without graph data. It must not catch
+Optional graph workflows catch `CodeGraphException` at their capability boundary, record the
+bounded diagnostic, and continue without graph data. Explicit workspace deletion requires baseline
+cleanup to succeed before reporting that local data was removed. It must not catch
 arbitrary `RuntimeException` or make CodeGraph a hidden prerequisite.
 
 The port belongs in `agent-core`, where task and completion orchestration use
@@ -273,8 +273,8 @@ operation can start once cleanup owns the task boundary.
 Index-deletion failure is reported but creates no graph-specific state
 machine. The derived index remains inside the task runtime and is removed
 when the existing `AgentResourceService.delete(taskId)` retention cleanup
-deletes that runtime. The repository baseline is deleted when its workspace
-is removed; a staleness sweep is not part of the first version.
+deletes that runtime. The repository baseline is deleted by explicit workspace Delete; Unwatch retains it.
+A staleness sweep is not part of the first version.
 
 ### Performance baseline and consequence
 
@@ -465,7 +465,8 @@ without becoming unavailable.
 | Explore synchronization, rebuild, or query | Return a recoverable tool error; agent continues |
 | Corrupt/incompatible task index | Discard the derived index and rebuild it inside the same call; the result is the query or a bounded tool error |
 | Helper absent or task arm off | Open the provider session without the CodeGraph tool or instruction and start the turn normally |
-| Index or baseline deletion | Keep the successfully cleaned worktree or removed workspace result; task-runtime retention later removes a leftover task index |
+| Index deletion | Keep the successfully cleaned worktree result; task-runtime retention later removes a leftover task index |
+| Baseline deletion | Keep the workspace record for retry until explicit Delete completes |
 
 No graph failure creates a task recovery mode. Repeated graph failure does not
 cause an automatic retry loop. The graph may be absent for an entire task
@@ -535,8 +536,7 @@ insufficient.
    graph managed instruction; a legacy bare path is never adopted.
 9. Successful worktree cleanup requests task-index deletion; failed worktree
    cleanup skips that immediate deletion, and normal retention may later
-   delete either derived index with the task runtime. Removing a workspace
-   deletes its baseline.
+   delete either derived index with the task runtime. Deleting workspace data deletes its baseline; Unwatch retains it.
 10. Missing graph binaries and refresh, preparation, and query failures
     become bounded unavailable/tool-error results without terminating the
     provider turn or changing lane readiness.
@@ -544,8 +544,9 @@ insufficient.
     tool and the graph managed instruction omitted.
 12. Completion owns the task-local execution boundary across worktree cleanup
     and best-effort graph deletion, so no graph query races worktree removal.
-13. Graph deletion failure is observable but does not fail already-successful
-    agent or worktree behavior or add graph-specific retry state.
+13. Task-index deletion failure is observable but does not fail already-successful
+    agent or worktree behavior or add graph-specific retry state. Workspace Delete preserves
+    its record for retry when baseline deletion fails.
 14. No code-graph type depends on pull-request review, GitHub, diff, or comment
     types.
 15. A task that never calls the graph costs one clone and one same-commit
@@ -805,7 +806,7 @@ One baseline per repository plus one index per task: 1.3 GB and 1.3 GB per
 active task after its first divergence on Trino, 111 MB each here, plus a
 transient 190 MB checkout while a Trino refresh runs. The task
 index is deleted after successful worktree cleanup, otherwise by task-runtime
-retention. The baseline is deleted when its workspace is removed; a
+retention. The baseline is deleted by explicit workspace Delete; Unwatch retains it; a
 staleness sweep is not part of the first version.
 
 ### Provider bridge, metrics, packaging

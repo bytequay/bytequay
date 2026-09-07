@@ -21,6 +21,7 @@ import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
 import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
+import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -63,6 +64,7 @@ import static java.util.Objects.requireNonNull;
 public class WorkspaceController
 {
     private final WorkspaceRepositoryService workspaces;
+    private final WorkspaceDeletionService deletion;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
@@ -74,6 +76,7 @@ public class WorkspaceController
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
+            WorkspaceDeletionService deletion,
             PullRequestService pullRequests,
             PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
@@ -84,6 +87,7 @@ public class WorkspaceController
             CredentialService credentials)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.deletion = requireNonNull(deletion, "deletion is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -116,6 +120,12 @@ public class WorkspaceController
         return workspaces.listWorkspaces();
     }
 
+    @GetMapping("/retired")
+    public List<WorkspaceSummary> retired()
+    {
+        return workspaces.listRetiredWorkspaces();
+    }
+
     @GetMapping("/{workspaceId}")
     public WorkspaceDetails get(@PathVariable String workspaceId)
     {
@@ -138,9 +148,7 @@ public class WorkspaceController
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void syncPullRequests(@PathVariable String workspaceId)
     {
-        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
-        RepoRef repository = RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo());
-        pullRequestRefresh.refreshRepository(repository);
+        pullRequestRefresh.refreshWorkspace(workspaceId);
     }
 
     @GetMapping("/{workspaceId}/metadata")
@@ -248,6 +256,12 @@ public class WorkspaceController
         return ImmutableMap.of("result", "removed");
     }
 
+    @DeleteMapping("/{workspaceId}/data")
+    public void delete(@PathVariable String workspaceId, @RequestBody DeleteWorkspaceRequest request)
+    {
+        deletion.delete(workspaceId, request.confirmed(), request.repositoryName());
+    }
+
     @PatchMapping("/{workspaceId}")
     public WorkspaceSummary rename(@PathVariable String workspaceId, @RequestBody RenameRequest request)
     {
@@ -318,6 +332,8 @@ public class WorkspaceController
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND, "No workspace token is stored.")));
     }
+
+    public record DeleteWorkspaceRequest(boolean confirmed, String repositoryName) {}
 
     public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name, boolean allowForkCreation) {}
 

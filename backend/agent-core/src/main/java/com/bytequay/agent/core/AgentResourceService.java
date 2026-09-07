@@ -43,6 +43,9 @@ public interface AgentResourceService
      */
     TaskResources require(TaskId taskId);
 
+    /** Resolves owned paths for deletion without creating files or requiring already deleted children. */
+    TaskResources pathsForDeletion(TaskId taskId);
+
     /**
      * Verifies and stores one user-selected image as a task-owned blob.
      *

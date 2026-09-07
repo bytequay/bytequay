@@ -75,6 +75,9 @@ public interface AgentTaskStore
      */
     List<AgentTask> listRecentInteractive(String workspaceId, int limit);
 
+    /** Lists every task owned by the workspace, including archived and workflow tasks, oldest first. */
+    List<AgentTask> listByWorkspace(String workspaceId);
+
     /**
      * Reports whether a persisted task still owns managed worktree facts for a workspace.
      *

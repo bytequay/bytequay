@@ -21,12 +21,13 @@ interface ConfirmDialogProps {
   children: ReactNode;
   confirmLabel: string;
   busy?: boolean;
+  confirmDisabled?: boolean;
   destructive?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title, children, confirmLabel, busy = false, destructive = false, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, children, confirmLabel, busy = false, confirmDisabled = false, destructive = false, onConfirm, onCancel }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -60,7 +61,7 @@ export function ConfirmDialog({ title, children, confirmLabel, busy = false, des
       <div id={`${id}-body`} className="bq-confirm-dialog__body">{children}</div>
       <div className="bq-confirm-dialog__actions">
         <button ref={cancelRef} type="button" className="bq-button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="button" className={`bq-button ${destructive ? 'bq-confirm-dialog__confirm is-destructive' : 'bq-button--primary'}`} disabled={busy} onClick={onConfirm}>
+        <button type="button" className={`bq-button ${destructive ? 'bq-confirm-dialog__confirm is-destructive' : 'bq-button--primary'}`} disabled={busy || confirmDisabled} onClick={onConfirm}>
           {busy && <LoaderCircle size={14} className="bq-confirm-dialog__spinner" aria-hidden="true" />}
           {confirmLabel}
         </button>

@@ -48,4 +48,15 @@ describe('ConfirmDialog', () => {
     expect(html).toContain('is-destructive');
     expect(html).toContain('Marking failed…</button>');
   });
+
+  it('keeps cancellation available when confirmation requirements are incomplete', () => {
+    const html = renderToStaticMarkup(
+      <ConfirmDialog title="Delete local data?" confirmLabel="Delete" confirmDisabled onConfirm={() => {}} onCancel={() => {}}>
+        <p>Enter the repository name to confirm.</p>
+      </ConfirmDialog>,
+    );
+
+    expect(html.match(/disabled=""/g)).toHaveLength(1);
+    expect(html).toContain('class="bq-button">Cancel</button>');
+  });
 });

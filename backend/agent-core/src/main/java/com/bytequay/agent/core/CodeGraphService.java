@@ -62,6 +62,6 @@ public interface CodeGraphService
     /** Deletes the task's derived index. Best-effort: a missing index is not an error and a failure is logged, since retention removes leftovers. */
     void deleteIndex(TaskResources resources);
 
-    /** Deletes the repository baseline. Best-effort: a missing baseline is not an error and a failure is logged. */
+    /** Deletes the repository baseline; throws {@link CodeGraphException} if cleanup cannot finish. Missing files are harmless. */
     void deleteBaseline(RepositoryIdentity repository);
 }

@@ -254,6 +254,7 @@ class TestDefaultAgentCompletionService
         // Delete, not cleanup: the branch goes with the checkout, dirty or not.
         assertThat(worktrees.deleted).hasSize(1);
         assertThat(worktrees.cleaned).isEmpty();
+        assertThat(codeGraph.deletedIndexes).hasSize(1);
         assertThat(resources.deletions).isEqualTo(1);
         assertThat(stores.find(taskId)).isEmpty();
         assertThat(stores.listQueued(taskId)).isEmpty();
@@ -720,6 +721,12 @@ class TestDefaultAgentCompletionService
             // Completion hands these paths to the code graph for index deletion; nothing here touches the disk.
             Path runtime = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-completion-test", taskId.toString()).toAbsolutePath().normalize();
             return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider").resolve("scratch"));
+        }
+
+        @Override
+        public TaskResources pathsForDeletion(TaskId taskId)
+        {
+            return require(taskId);
         }
 
         @Override

@@ -31,19 +31,54 @@ public class SqliteWorkspaceStore
         implements WorkspaceStore
 {
     private final WorkspaceJpaRepository repository;
+    private final SqliteWorkspacePurge purge;
 
-    public SqliteWorkspaceStore(WorkspaceJpaRepository repository)
+    public SqliteWorkspaceStore(WorkspaceJpaRepository repository, SqliteWorkspacePurge purge)
     {
         this.repository = requireNonNull(repository, "repository is null");
+        this.purge = requireNonNull(purge, "purge is null");
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<Workspace> findAll()
     {
+        return repository.findAllByWatchedTrueOrderByDisplayOrderAscCreatedAtAsc().stream()
+                .map(WorkspaceEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Workspace> findAllRetained()
+    {
         return repository.findAllByOrderByDisplayOrderAscCreatedAtAsc().stream()
                 .map(WorkspaceEntity::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional
+    public void setWatched(String workspaceId, boolean watched)
+    {
+        WorkspaceEntity entity = repository.findById(workspaceId)
+                .orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
+        entity.setWatched(watched);
+        repository.saveAndFlush(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isWatched(String workspaceId)
+    {
+        return repository.existsByIdAndWatchedTrue(workspaceId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasActiveWorkflows(String workspaceId)
+    {
+        return purge.hasActiveWorkflows(workspaceId);
     }
 
     @Override
@@ -86,6 +121,6 @@ public class SqliteWorkspaceStore
     @Transactional
     public void delete(String workspaceId)
     {
-        repository.deleteById(workspaceId);
+        findById(workspaceId).ifPresent(purge::delete);
     }
 }

@@ -76,6 +76,18 @@ public class WorkspaceIssueRefreshService
 
     public RepositoryIssuePage refreshIssues(String workspaceId)
     {
+        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+        workspaceLock.lock();
+        try {
+            return refreshIssuesLocked(workspaceId);
+        }
+        finally {
+            workspaceLock.unlock();
+        }
+    }
+
+    private RepositoryIssuePage refreshIssuesLocked(String workspaceId)
+    {
         Workspace workspace = requireWorkspace(workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
@@ -93,6 +105,18 @@ public class WorkspaceIssueRefreshService
     }
 
     public RepositoryIssueDetail refreshDetail(String workspaceId, int issueNumber)
+    {
+        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+        workspaceLock.lock();
+        try {
+            return refreshDetailLocked(workspaceId, issueNumber);
+        }
+        finally {
+            workspaceLock.unlock();
+        }
+    }
+
+    private RepositoryIssueDetail refreshDetailLocked(String workspaceId, int issueNumber)
     {
         Workspace workspace = requireWorkspace(workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");

@@ -55,8 +55,9 @@ class TestPullRequestSyncJob
 
         var order = inOrder(refreshService);
         order.verify(refreshService).refreshDashboard();
-        order.verify(refreshService).refreshRepository(shared);
-        order.verify(refreshService).refreshRepository(other);
+        order.verify(refreshService).refreshWorkspace(first.id());
+        order.verify(refreshService).refreshWorkspace(third.id());
+        verify(refreshService, never()).refreshWorkspace(second.id());
         verify(metadata).synchronize(first.id());
         verify(metadata, never()).synchronize(second.id());
         verify(metadata).synchronize(third.id());

@@ -25,6 +25,7 @@ import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -48,7 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -76,7 +77,6 @@ class CommitHistoryRefresher
     private final CherryPickPullRequestLookup pullRequests;
     private final AvatarCache avatars;
     private final Clock clock;
-    private final Map<String, Object> workspaceRefreshLocks = new ConcurrentHashMap<>();
 
     CommitHistoryRefresher(
             WorkspaceRepositoryService workspaces,
@@ -141,9 +141,14 @@ class CommitHistoryRefresher
 
     private CommitRefreshStatus withWorkspaceLock(String workspaceId, Supplier<CommitRefreshStatus> action)
     {
-        Object refreshLock = workspaceRefreshLocks.computeIfAbsent(workspaceId, ignored -> new Object());
-        synchronized (refreshLock) {
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            workspaces.getWorkspace(workspaceId);
             return action.get();
+        }
+        finally {
+            lock.unlock();
         }
     }
 

@@ -25,6 +25,7 @@ import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -64,6 +65,7 @@ import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -117,6 +119,18 @@ class TestCommitHistoryRefresher
         when(provisioning.synchronizeCode(WORKSPACE_ID))
                 .thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW)));
         when(credentials.resolveGitHubToken()).thenReturn("test-token");
+    }
+
+    @Test
+    void deletedWorkspaceDoesNotRecreateRefreshMetadata()
+    {
+        when(workspaces.getWorkspace(WORKSPACE_ID)).thenThrow(WorkspaceException.notFound(WORKSPACE_ID));
+
+        assertThatThrownBy(() -> newRefresher().refresh(WORKSPACE_ID, ImmutableList.of())).isInstanceOf(WorkspaceException.class);
+
+        assertThat(store.metadata).isEmpty();
+        assertThat(store.enrichment).isEmpty();
+        verifyNoInteractions(provisioning, gitHub);
     }
 
     @Test

@@ -1241,6 +1241,7 @@ export type Bridge = {
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
+  listRetiredWorkspaces: () => Promise<WorkspaceDto[]>;
   getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
@@ -1263,6 +1264,7 @@ export type Bridge = {
     upstreamRepositoryId: number | null,
   ) => Promise<WorkspaceDto>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
+  deleteWorkspace: (workspaceId: string, confirmed: boolean, repositoryName: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
   getGitHubUserProfile: (login: string) => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;

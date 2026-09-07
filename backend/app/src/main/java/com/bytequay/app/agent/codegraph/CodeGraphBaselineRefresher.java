@@ -18,16 +18,21 @@ import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Executor;
+import java.util.concurrent.locks.Lock;
 
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -45,19 +50,21 @@ public class CodeGraphBaselineRefresher
     private final CodeGraphService codeGraph;
     private final WorkspacePaths paths;
     private final GitCommandRunner git;
+    private final WorkspaceStore workspaces;
     private final Executor executor;
 
     @Autowired
-    public CodeGraphBaselineRefresher(CodeGraphService codeGraph, WorkspacePaths paths, GitCommandRunner git)
+    public CodeGraphBaselineRefresher(CodeGraphService codeGraph, WorkspacePaths paths, GitCommandRunner git, WorkspaceStore workspaces)
     {
-        this(codeGraph, paths, git, command -> Thread.ofVirtual().name("bytequay-codegraph-baseline").start(command));
+        this(codeGraph, paths, git, workspaces, command -> Thread.ofVirtual().name("bytequay-codegraph-baseline").start(command));
     }
 
-    public CodeGraphBaselineRefresher(CodeGraphService codeGraph, WorkspacePaths paths, GitCommandRunner git, Executor executor)
+    public CodeGraphBaselineRefresher(CodeGraphService codeGraph, WorkspacePaths paths, GitCommandRunner git, WorkspaceStore workspaces, Executor executor)
     {
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.git = requireNonNull(git, "git is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -79,11 +86,18 @@ public class CodeGraphBaselineRefresher
         String commit = head.output().strip();
         RepositoryIdentity identity = new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo());
         executor.execute(() -> {
+            Lock lock = WorkspaceOperationLocks.get(workspace.id());
+            lock.lock();
             try {
-                codeGraph.refreshBaseline(identity, repository, commit);
+                if (workspaces.findById(workspace.id()).isPresent() && Files.isDirectory(repository, NOFOLLOW_LINKS)) {
+                    codeGraph.refreshBaseline(identity, repository, commit);
+                }
             }
             catch (CodeGraphException e) {
                 LOG.warn("CodeGraph baseline refresh for {} failed: {}", identity, e.getMessage());
+            }
+            finally {
+                lock.unlock();
             }
         });
     }

@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ButtonHTMLAttributes, MouseEvent, ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import AppSidebar from '../AppSidebar';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
-import { WorkspaceCards } from './WorkspacesPage';
+import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import WorkspaceSettings from './WorkspaceSettings';
+import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import WorkspaceShell from './WorkspaceShell';
 
 describe('watched repository workspace UI', () => {
@@ -66,6 +68,96 @@ describe('watched repository workspace UI', () => {
     }
     // Nothing has synced yet, so the card reports the queued state.
     expect(list).toContain('queued');
+  });
+
+  it('asks before unwatching and explains that local data is kept', () => {
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    const props: Parameters<typeof UnwatchWorkspaceDialog>[0] = { workspace: workspace('FORK'), busy: false, error: null, onConfirm, onCancel };
+    const view = UnwatchWorkspaceDialog(props);
+    const html = renderToStaticMarkup(view);
+
+    expect(html).toContain('>Cancel</button>');
+    expect(html).toContain('>Unwatch</button>');
+    expect(html).toContain('local checkout, tasks, settings, and history will be kept');
+    expect(html).toContain('moves the workspace to Retired');
+    expect(html).toContain('Open it from Retired to access saved tasks and files');
+    expect(html).toContain('watch it again to rerun setup');
+    expect(onConfirm).not.toHaveBeenCalled();
+    view.props.onCancel();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onConfirm).not.toHaveBeenCalled();
+    view.props.onConfirm();
+    expect(onConfirm).toHaveBeenCalledOnce();
+
+    UnwatchWorkspaceDialog({ ...props, busy: true }).props.onConfirm();
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(renderToStaticMarkup(UnwatchWorkspaceDialog({ ...props, error: 'Try again' })))
+      .toContain('role="alert">Try again</p>');
+  });
+
+  it('keeps Unwatch and Delete as separate actions outside the workspace link', () => {
+    const value = workspace('FORK');
+    const onOpen = vi.fn();
+    const onUnwatch = vi.fn();
+    const onDelete = vi.fn();
+    const cards = WorkspaceCards({ workspaces: [value], onOpen, onUnwatch, onDelete });
+    const card = cards.props.children[0][0] as ReactElement<{ children: ReactElement[] }>;
+    const actions = card.props.children[7] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
+    const html = renderToStaticMarkup(cards);
+
+    expect(html).toMatch(/<a[^>]*aria-label="Open contributor\/project"[^>]*><\/a>/);
+    expect(html).toContain('aria-label="Unwatch contributor/project"');
+    expect(html).toContain('aria-label="Delete contributor/project local data"');
+    expect(html).toContain('Move to Retired and keep all local data');
+
+    actions.props.children[0].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onUnwatch).toHaveBeenCalledWith(value);
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    actions.props.children[1].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onDelete).toHaveBeenCalledWith(value);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('opens retired data by its original workspace ID and keeps watch and delete actions separate', () => {
+    const value = { ...workspace('DIRECT'), id: 'original-upstream-workspace', name: 'My saved Trino tasks', selectedOwner: 'trinodb', selectedRepo: 'trino' };
+    const onOpen = vi.fn();
+    const onWatch = vi.fn();
+    const onDelete = vi.fn();
+    const cards = RetiredWorkspaceCards({ workspaces: [value], onOpen, onWatch, onDelete });
+    const card = cards.props.children[0] as ReactElement<{ children: ReactElement[] }>;
+    const actions = card.props.children[3] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
+    const html = renderToStaticMarkup(cards);
+
+    expect(html).toContain('My saved Trino tasks');
+    expect(html).toContain('trinodb/trino · main');
+    expect(html).toContain('Local data kept. Open to access saved tasks and files.');
+    expect(html).not.toMatch(/queued|syncing|cloning|Retry|ws-chip|ws-spark/);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onWatch).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    actions.props.children[0].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onOpen).toHaveBeenCalledWith('original-upstream-workspace');
+    expect(onWatch).not.toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+
+    actions.props.children[1].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onWatch).toHaveBeenCalledWith(value);
+    expect(onDelete).not.toHaveBeenCalled();
+
+    actions.props.children[2].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
+    expect(onDelete).toHaveBeenCalledWith(value);
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('explains where unwatched repositories are kept when Retired is empty', () => {
+    const html = renderToStaticMarkup(<RetiredWorkspaceCards workspaces={[]} onOpen={vi.fn()} onWatch={vi.fn()} onDelete={vi.fn()} />);
+
+    expect(html).toContain('No retired workspaces. Repositories you unwatch will appear here with their local data kept.');
+    expect(html).not.toContain('<button');
   });
 
   it('ships the agent task surfaces in every build', () => {
@@ -135,7 +227,8 @@ describe('watched repository workspace UI', () => {
     expect(html).toContain('aria-label="Select workspace repository"');
     expect(html).toContain('Select repo…');
     expect(html).toContain('value="https://github.com/contributor/project.git"');
-    expect(html).toContain('Remove workspace');
+    expect(html).toContain('Unwatch workspace');
+    expect(html).toContain('Delete workspace local data');
     expect(html).not.toContain('extra remotes for browsing history');
     expect(html).not.toContain('Every source appears');
     expect(html).not.toContain('Stops watching this repository');

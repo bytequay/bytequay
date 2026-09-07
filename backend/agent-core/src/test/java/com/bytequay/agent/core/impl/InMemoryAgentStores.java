@@ -206,6 +206,15 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public synchronized List<AgentTask> listByWorkspace(String workspaceId)
+    {
+        return tasks.values().stream()
+                .filter(task -> task.workspaceId().filter(workspaceId::equals).isPresent())
+                .sorted(Comparator.comparing(AgentTask::createdAt))
+                .collect(toImmutableList());
+    }
+
+    @Override
     public synchronized boolean hasWorktreeReference(String workspaceId)
     {
         return tasks.values().stream()

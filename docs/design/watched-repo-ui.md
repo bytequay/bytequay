@@ -1,6 +1,7 @@
 # Watched Repository / Workspace UI Design
 
-Status: proposed mockups for the four changed surfaces. Canonical behavior:
+Status: original mockups for the four changed surfaces, with current watch routing and workspace
+retention behavior updated on 2026-09-07. Canonical behavior:
 [watched-repo.md](watched-repo.md). Mockups live in
 [watched-repo-ui/](watched-repo-ui/) as interactive HTML state boards (open in a
 browser) plus PNG exports.
@@ -26,6 +27,65 @@ Only the resolved preview can offer **Open workspace**. A search result's stored
 still be an older direct checkout; it must not skip the routing preview. Existing task worktrees
 keep their original identities. Watching an older foreign direct workspace establishes the
 personal-fork workspace without rewriting that checkout or its tasks.
+
+An unwatched workspace is retained locally and does not offer **Open workspace** in the preview.
+Watching its upstream or fork again runs the normal routing preview and confirmation, then
+restores the retained workspace for the resolved physical repository, including its checkout,
+task history, and settings. The restored card keeps its durable identity; the UI says it is
+syncing rather than claiming a new clone. The older foreign direct checkout exception above
+still applies when routing resolves a different physical write repository.
+
+## Watched and Retired workspaces
+
+Workspaces offers **Watched** and **Retired** tabs with separate counts. Retired means the
+repository is no longer watched but its local data is retained; it is not deleted. Home continues
+to show only watched repositories.
+
+The Retired tab reads `GET /api/workspaces/retired`. Its rows name the saved workspace and physical
+repository, and offer **Open**, **Watch again**, and **Delete…**. Open uses the retained workspace
+ID to access its existing tasks, files, history, and settings without changing watched membership.
+Retired rows do not show clone progress, stale-sync badges, or automatic retry controls.
+
+Watch again loads the normal watch preview for the selected repository and requires its existing
+confirmation, including consent if a fork must be created. After watching, both lists reload.
+When the returned workspace has the same ID, it moves from Retired to Watched. If an older direct
+upstream checkout resolves to a separate fork workspace, the original remains in Retired with its
+saved data accessible. Nothing moves tasks or rewrites checkout ownership implicitly.
+
+Delete from Retired uses the same two confirmations and local-data cleanup as Delete from Watched.
+It removes the exact selected workspace only after successful cleanup. Shared repository data and
+GitHub repositories/forks retain the existing protection. An empty Retired tab explains that
+unwatched repositories will appear there.
+
+## Unwatch and delete
+
+Workspaces cards and Workspace Settings expose separate **Unwatch** and **Delete…** actions.
+
+- **Unwatch** opens one confirmation dialog naming the repository, with **Cancel** and
+  **Unwatch** actions. It explains that the workspace will move to Retired while its checkout,
+  worktrees, task history, and settings are retained. Users can open saved data from Retired
+  or watch again to rerun setup.
+  Opening or cancelling the dialog does not change watched membership. The request starts only
+  after confirmation; both actions are disabled while it runs. A failure stays in the dialog
+  with an accessible error and restores Cancel and retry controls. The card moves from Watched
+  to Retired only after success. Settings uses the same dialog and returns to the workspace list
+  on success.
+- **Delete…** opens a disclosure dialog naming the repository and the local data to remove:
+  checkout, worktrees, task history, and workspace settings. It offers **Cancel** and **Continue**,
+  and explains that Unwatch keeps local data.
+- **Continue** opens a separate final confirmation dialog. It warns that unsaved and unpushed
+  work will be lost, and requires the exact physical repository name, such as `octocat/trino`.
+  **Delete local data** stays disabled until that text matches. The button sends the deletion
+  request only after this second confirmation.
+- Both deletion dialogs state that the GitHub repository and fork will be kept. Cancellation
+  at either stage performs no deletion. Reopening Delete starts at the first disclosure again.
+- While deletion runs, both dialog actions and the text field are disabled. A failure stays in
+  the final dialog as an accessible error, preserves the entered name, and restores Cancel and
+  retry controls. The workspace card is removed only after successful deletion.
+
+Card action buttons are siblings of the stretched workspace link, with separate keyboard stops.
+Clicking Unwatch, Watch again, or Delete does not open the workspace. Polling responses started before either
+operation cannot restore a removed card.
 
 ## UI principles
 
@@ -76,7 +136,10 @@ Workspaces ── click any card (any state) ──► /workspaces/:id  Workspac
 | --- | --- | --- |
 | `AddRepoModal.tsx` | Watch modal steps 1–3 | Enriched result rows (fork/visibility/already-watched chips); new confirm step |
 | `WatchedReposGrid.tsx` (Home) | Home cards | New status-chip row; retry button; same card as Workspaces |
-| `WorkspacesPage.tsx` | Workspaces grid | Data from `GET /api/workspaces`; local-path line and folder picker removed |
+| `WorkspacesPage.tsx` | Workspaces grid | Watched rows from `GET /api/workspaces`; separate Unwatch and Delete actions |
+| `WorkspaceSettings.tsx` | Workspace settings | Unwatch and Delete use the same confirmation dialogs as cards |
+| `UnwatchWorkspaceDialog.tsx` / `ConfirmDialog.tsx` | Unwatch confirmation | One Cancel/Unwatch dialog explains retained data and rewatch; accessible cancellation, busy, and error states |
+| `DeleteWorkspaceDialog.tsx` / `ConfirmDialog.tsx` | Workspace deletion | Separate disclosure and typed final confirmation; accessible cancellation, busy, and error states |
 | `WorkspaceShell.tsx` sidebar | Unchanged | Disabled tabs get 45 % opacity + reason text on Home |
 | `WorkspaceShell.tsx` Home | Evolved | Keeps title, stat cards, activity, Browse commits; adds Repository + Status cards |
 | `PullsScreen.tsx` | Workspace PR tab | Optional repository scope prop; scope chip in the tab toolbar; repo-specific loading/empty/stale/error. Tabs and card anatomy unchanged. The **filter box is a new enhancement** (the current PullsScreen has none) — tracked as its own checklist item, droppable for the minimal slice |
@@ -125,8 +188,8 @@ projection because contributors and labels/topics have different refresh interva
 | jackchen/arrow | metadata failed while code green · **Retry sync** |
 
 Each card is an `<article>`; its primary link (the workspace name, stretched over the
-card) routes to `/workspaces/:id`. Retry is a sibling button beside the footer text —
-not nested inside the click target.
+card) routes to `/workspaces/:id`. Retry, Unwatch, and Delete are sibling buttons outside
+the primary link. Unwatch and Delete appear in their own action row beneath the footer.
 
 ### 3. Workspace Home (frames A–D)
 
@@ -178,8 +241,8 @@ enhancement (or is dropped for the minimal implementation).
   the new card at its saved position.
 - **Already watched**: primary action navigates to the existing workspace; nothing is
   created.
-- **Cards**: each card is an `<article>` with a stretched primary workspace link; Retry is
-  a sibling button outside that link. Status chips are not interactive.
+- **Cards**: each card is an `<article>` with a stretched primary workspace link; Retry,
+  Unwatch, and Delete are sibling buttons outside that link. Status chips are not interactive.
 - **Retry**: retries only the failed track (clone vs metadata); button shows a spinner
   and the chip transitions to its blue in-progress form.
 - **Sync now** (Workspace Home): fetches code and refreshes the workspace's PR data;
@@ -200,6 +263,12 @@ enhancement (or is dropped for the minimal implementation).
 ## Exact important UI copy
 
 - Modal title: **Watch a repository**
+- Unwatch confirmation title: **Unwatch workspace name?** / actions **Cancel** and **Unwatch**
+- Unwatch explanation: *Hide it and keep all local data. Watch it again to restore.*
+- First deletion title: **Delete owner/repo from ByteQuay?** / button **Continue**
+- Final deletion title: **Permanently delete owner/repo?** / button **Delete local data**
+- Deletion confirmation label: *Type **owner/repo** to confirm.*
+- Deletion remote scope: *Your GitHub repository and fork will be kept.*
 - Search placeholder: *Search your GitHub repositories…*
 - Empty search: *Find a repository to watch* / *Search by name or owner/name. ByteQuay
   clones it for you and keeps it in sync — no folder picking.*
@@ -241,8 +310,11 @@ enhancement (or is dropped for the minimal implementation).
   opens the preview, `Esc` steps back (confirm → results → close). Watch button is the
   default action on the confirm step (`Enter`).
 - Cards are `<article>` elements, not buttons: the workspace name is the primary link,
-  stretched to make the whole card surface clickable; Retry is a **sibling** `<button>`
-  (its own tab stop), never nested inside another interactive element.
+  stretched to make the whole card surface clickable; Retry, Unwatch, and Delete are **sibling**
+  `<button>` elements with their own tab stops, never nested inside another interactive element.
+- Unwatch and each deletion step use a modal native dialog and initially focus Cancel. Escape
+  cancels before a request starts. The final deletion text input has a visible label; an incomplete
+  name disables only the destructive action, leaving Cancel available. Errors use `role="alert"`.
 - Status is never color-only: every chip pairs color with a word and (for failures/
   success) a `✓`/`✕` glyph; spinners have `aria-live="polite"` labels ("Cloning
   repository…").
@@ -297,10 +369,8 @@ enhancement (or is dropped for the minimal implementation).
    status line.
 4. **Retry granularity.** Proposed: per-track retry (clone vs metadata) everywhere;
    a combined "Retry all" appears only when both tracks failed.
-5. **Unwatch entry point.** Settings-only (existing danger zone) vs also a card context
-   menu. Proposed: Settings-only for the first slice.
-6. **PR scope toggle.** Should the workspace PR tab offer "include my fork's own PRs"
+5. **PR scope toggle.** Should the workspace PR tab offer "include my fork's own PRs"
    for forks? Proposed: no for v1 — upstream only, matching the monitored-repository
    rule.
-7. **Naming**: "labels & people" as the user-facing term for reference metadata —
+6. **Naming**: "labels & people" as the user-facing term for reference metadata —
    confirm with product; alternative "repository info".

@@ -14,7 +14,7 @@
 import type { ButtonHTMLAttributes, MouseEvent, ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { WatchRepositoryConfirmation } from './AddRepoModal';
+import AddRepoModal, { WatchRepositoryConfirmation } from './AddRepoModal';
 import type { WatchRepositoryPreviewDto } from './types';
 
 const upstream = { owner: 'trinodb', repo: 'trino' };
@@ -56,6 +56,18 @@ function confirmation(overrides: Partial<WatchRepositoryPreviewDto> = {}, adding
 }
 
 describe('watch repository fork consent', () => {
+  it('starts Watch again with a routing preview before offering any watch action', () => {
+    const onAdded = vi.fn();
+    const onOpenWorkspace = vi.fn();
+    const html = renderToStaticMarkup(<AddRepoModal initialRepositoryId={1} onAdded={onAdded} onOpenWorkspace={onOpenWorkspace} onClose={vi.fn()} />);
+
+    expect(html).toContain('Checking repository routing…');
+    expect(html).not.toContain('Search your GitHub repositories');
+    expect(html).not.toContain('modal-preview__confirm');
+    expect(onAdded).not.toHaveBeenCalled();
+    expect(onOpenWorkspace).not.toHaveBeenCalled();
+  });
+
   it('discloses the exact fork and upstream without creating anything on preview or Back', () => {
     const { html, onWatch, onBack, back, confirm } = confirmation();
 

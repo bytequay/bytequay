@@ -404,17 +404,12 @@ public interface WorkspaceRepositoryService
     Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId);
 
     /**
-     * Stops watching and removes a workspace from ByteQuay.
+     * Hides a workspace from watched repositories while retaining its local data.
      *
-     * <p>Removal is refused while an interactive, cherry-pick, or CI Autofix
-     * task still references a worktree, or while the managed worktree root is
-     * non-empty. Unwatch and worktree provisioning are serialized for that
-     * workspace so a new worktree cannot appear after removal begins. Managed
-     * repository and worktree directories are removed only after ownership and
-     * path checks succeed.</p>
+     * <p>Tasks, checkout, settings, and cached history remain available by workspace ID.
+     * Watching again reruns preview validation and routing setup for the retained workspace.</p>
      *
      * @param workspaceId ByteQuay workspace ID
-     * @throws WorkspaceBusyException if active work still references the workspace
      */
     void unwatch(String workspaceId);
 }
@@ -619,7 +614,10 @@ delivery first attempts the same synchronous provisioning path used by code refr
 1. Load the repository again by stable GitHub ID.
 2. Recompute routing and compare it with the confirmed preview/version.
 3. Reuse the signed-in user's fork, or create it only with explicit permission when required.
-4. Insert or return the durable workspace for the resolved write repository and canonical source.
+4. Insert or restore the durable workspace for the resolved write repository and canonical source.
+   An unwatched workspace retains its ID, checkout, tasks, settings, and history. It must pass a
+   fresh watch preview and routing resolution before becoming watched again. Rewatch forces code
+   synchronization and schedules the usual metadata and pull-request refreshes.
 5. Commit.
 6. Schedule provisioning and metadata synchronization independently.
 
@@ -646,10 +644,12 @@ GET    /api/repository-search?q=...&limit=...
 POST   /api/workspaces/watch-preview
 POST   /api/workspaces
 GET    /api/workspaces
+GET    /api/workspaces/retired
 GET    /api/workspaces/{workspaceId}
 POST   /api/workspaces/{workspaceId}/sync
 PUT    /api/workspaces/{workspaceId}/upstream
 DELETE /api/workspaces/{workspaceId}
+DELETE /api/workspaces/{workspaceId}/data
 
 GET    /api/workspaces/{workspaceId}/metadata
 GET    /api/workspaces/{workspaceId}/issues
@@ -729,9 +729,21 @@ contain tokens, authenticated clone URLs, or arbitrary command output with secre
 ### Workspaces
 
 - Replace the `localStorage` workspace list with `GET /api/workspaces`.
+- **Watched** uses `GET /api/workspaces`; **Retired** uses `GET /api/workspaces/retired`.
+  Both are local reads; listing retired workspaces never schedules synchronization or changes
+  watched membership. Home continues to use the watched-only list.
+- Retired rows expose Open, Watch again, and Delete. Open keeps the saved workspace ID, so its
+  tasks, files, history, and settings remain accessible while unwatched. Watch again uses the
+  normal preview/confirmation flow; Delete uses the same two-stage local cleanup confirmation.
+- Rewatch moves the retained row back only if it resolves to that same physical workspace. An
+  older direct upstream checkout stays accessible in Retired when watching creates or opens a
+  different personal-fork workspace. No implicit task migration occurs.
 - Remove the local-folder picker from the watched-repository path.
 - A workspace row is clickable in every state.
 - Clicking it routes to the existing workspace shell and Workspace Home.
+- Unwatch opens one **Cancel** / **Unwatch** confirmation describing retained local data,
+  access from Retired, and watching again to rerun setup. Workspace Settings uses the same confirmation.
+- Delete remains separate and requires the disclosure and typed final confirmation described below.
 
 ### Workspace Home
 
@@ -799,7 +811,7 @@ scratch:
 | Commits and cherry-pick | Implemented | Workspace-ID data source and managed-base messaging |
 | Workspace Pull Requests | Global `PullsScreen` is already mounted | Repository-scoped header/list, empty/stale/error states; reuse all detail UI |
 | Workspace Tasks | Implemented for cherry-pick executions | Replace path-derived scope with workspace ID |
-| Workspace Settings | Implemented | Searchable GitHub-repository upstream selector and guarded unwatch |
+| Workspace Settings | Implemented | Searchable GitHub-repository upstream selector, Unwatch, and confirmed Delete |
 | Workspace Issues | Placeholder only | Complete list/detail/filter interaction design and implementation |
 | Workspace Memory | Placeholder only | Future design; not required for watched-repo/commits delivery |
 | Reviewer/assignee picker | Implemented | Reads the weekly local assignable-user and avatar snapshot |
@@ -877,8 +889,24 @@ sequenceDiagram
 - Repository renames are reconciled by stable GitHub ID and update displayed coordinates/remotes
   only through an explicit, validated sync path.
 - Deleted or inaccessible repositories remain visible with a recoverable/authentication state.
-- Unwatch is blocked while a task/workflow references a worktree or the managed
-  worktree root is non-empty.
+- Unwatch requires one UI confirmation with **Cancel** and **Unwatch** actions, explaining that
+  local data is accessible from Retired and watching again reruns setup. Opening or cancelling the
+  dialog makes no change; watched membership changes only after the confirmed request succeeds.
+  It moves the workspace from Watched to Retired and excludes its repository-only PRs from Home,
+  without losing local data or stopping active tasks.
+  Queued automatic refreshes skip unwatched workspaces; an already running refresh may finish.
+- Delete is a separate local-data action. The UI first explains the loss, then requires typing the
+  exact write repository name in a second dialog. The backend requires both confirmation and the
+  matching name. `DELETE /api/workspaces/{workspaceId}/data` accepts
+  `{confirmed: true, repositoryName: "owner/repo"}`.
+- Delete refuses active tasks/workflows or unverified directories/worktrees. It uses the existing
+  task deletion path for owned worktrees, branches, task history, logs, and attachments, then removes
+  the managed checkout, workspace settings, remote sources, workflow history, and workspace record.
+  Filesystem failures retain the record for retry.
+- Repository caches are removed only when no other retained workspace or extra remote references
+  that repository. Dashboard/explicitly monitored PR data and independent review drafts survive.
+  GitHub repositories/forks and provider-owned session history/global settings are outside local
+  workspace deletion.
 
 ## Security and write policy
 

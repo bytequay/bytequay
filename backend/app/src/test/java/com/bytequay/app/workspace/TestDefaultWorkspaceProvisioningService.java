@@ -327,7 +327,7 @@ class TestDefaultWorkspaceProvisioningService
                 new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
                 gitHub,
                 credentials,
-                new CodeGraphBaselineRefresher(new FakeCodeGraphService(), paths, git, Runnable::run),
+                new CodeGraphBaselineRefresher(new FakeCodeGraphService(), paths, git, store, Runnable::run),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

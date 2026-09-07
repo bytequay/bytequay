@@ -1349,6 +1349,7 @@ function registerIpc(): void {
     body: JSON.stringify(command),
   }));
   ipcMain.handle('workspaces:list', () => backendJson(`${BACKEND_BASE}/api/workspaces`));
+  ipcMain.handle('workspaces:list-retired', () => backendJson(`${BACKEND_BASE}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`));
   ipcMain.handle('workspaces:metadata', (_event, workspaceId: string) =>
@@ -1415,6 +1416,12 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
+    }));
+  ipcMain.handle('workspaces:delete', (_event, workspaceId: string, confirmed: boolean, repositoryName: string) =>
+    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/data`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed, repositoryName }),
     }));
   ipcMain.handle('repos:profile', () => backendJson(`${BACKEND_BASE}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>

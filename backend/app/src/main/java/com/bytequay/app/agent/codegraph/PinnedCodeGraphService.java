@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.util.Objects.requireNonNull;
 
@@ -176,6 +177,9 @@ public final class PinnedCodeGraphService
         ReentrantLock taskLock = lockFor(resources);
         taskLock.lock();
         try {
+            if (!Files.isDirectory(source, NOFOLLOW_LINKS)) {
+                return;
+            }
             if (!usable(indexDirectory(resources), headFile(resources))) {
                 cloneBaseline(worktree.physicalRepository(), resources);
             }
@@ -241,10 +245,19 @@ public final class PinnedCodeGraphService
         ReentrantLock lock = lockFor(repository);
         lock.lock();
         try {
-            deleteRecursively(baselineDirectory(repository));
+            Path base = baselineDirectory(repository).normalize();
+            if (!base.startsWith(baselineRoot) || !base.getParent().getParent().equals(baselineRoot)) {
+                throw new CodeGraphException("CodeGraph baseline path is invalid");
+            }
+            for (Path path : ImmutableList.of(baselineRoot, base.getParent(), base)) {
+                if (!Files.notExists(path, NOFOLLOW_LINKS) && !Files.isDirectory(path, NOFOLLOW_LINKS)) {
+                    throw new CodeGraphException("CodeGraph baseline path is not an owned directory");
+                }
+            }
+            deleteRecursively(base);
         }
         catch (IOException e) {
-            LOG.warn("CodeGraph baseline for {} was not deleted: {}", repository, e.getMessage());
+            throw new CodeGraphException("CodeGraph baseline could not be deleted: " + repository, e);
         }
         finally {
             lock.unlock();
@@ -504,7 +517,7 @@ public final class PinnedCodeGraphService
     private static void deleteRecursively(Path directory)
             throws IOException
     {
-        if (Files.exists(directory)) {
+        if (Files.exists(directory, NOFOLLOW_LINKS)) {
             MoreFiles.deleteRecursively(directory, RecursiveDeleteOption.ALLOW_INSECURE);
         }
     }

@@ -15,6 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
@@ -34,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -44,6 +46,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestPullRequestRefreshService
@@ -105,6 +108,10 @@ class TestPullRequestRefreshService
         Workspace duplicate = workspace("duplicate", 2, firstRepository, 1);
         Workspace second = workspace("second", 3, secondRepository, 2);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(first, duplicate, second));
+        when(workspaces.isWatched(first.id())).thenReturn(true);
+        when(workspaces.isWatched(second.id())).thenReturn(true);
+        when(workspaces.findById(first.id())).thenReturn(Optional.of(first));
+        when(workspaces.findById(second.id())).thenReturn(Optional.of(second));
         PullRequestRefreshService service = service(pullRequests, workspaces);
 
         service.refreshDashboardRows();
@@ -113,6 +120,68 @@ class TestPullRequestRefreshService
         order.verify(pullRequests).syncFromGitHub(false);
         order.verify(pullRequests).syncRepository(firstRepository);
         order.verify(pullRequests).syncRepository(secondRepository);
+    }
+
+    @Test
+    void skipsUnwatchedOrDeletedWorkspaceRefreshes()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        when(workspaces.isWatched("unwatched")).thenReturn(false);
+        when(workspaces.isWatched("deleted")).thenReturn(false);
+        PullRequestRefreshService service = service(pullRequests, workspaces);
+
+        service.refreshWorkspace("unwatched");
+        service.refreshWorkspace("deleted");
+
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void toolbarUsesCurrentRoutingInsteadOfItsWorkspaceListSnapshot()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        RepoRef previousRepository = RepoRef.of("owner", "old");
+        RepoRef currentRepository = RepoRef.of("upstream", "current");
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("workspace", 1, previousRepository, 0)));
+        when(workspaces.isWatched("workspace")).thenReturn(true);
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", 2, currentRepository, 0)));
+
+        service(pullRequests, workspaces).refreshDashboardRows();
+
+        verify(pullRequests).syncRepository(currentRepository);
+        verify(pullRequests, never()).syncRepository(previousRepository);
+    }
+
+    @Test
+    void toolbarReleasesTheRefreshLockBeforeWaitingForAWorkspace()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        Workspace workspace = workspace("workspace", 1, RepoRef.of("owner", "repo"), 0);
+        CountDownLatch listed = new CountDownLatch(1);
+        when(workspaces.findAll()).thenAnswer(invocation -> {
+            listed.countDown();
+            return ImmutableList.of(workspace);
+        });
+        PullRequestRefreshService service = service(pullRequests, workspaces);
+        Lock workspaceLock = WorkspaceOperationLocks.get(workspace.id());
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            workspaceLock.lock();
+            try {
+                var toolbar = executor.submit(service::refreshDashboardRows);
+                assertThat(listed.await(5, TimeUnit.SECONDS)).isTrue();
+                executor.submit(() -> service.refreshRepository(RepoRef.of("other", "repo"))).get(5, TimeUnit.SECONDS);
+                assertThat(toolbar.isDone()).isFalse();
+            }
+            finally {
+                workspaceLock.unlock();
+            }
+        }
+        verify(pullRequests).syncRepository(RepoRef.of("other", "repo"));
     }
 
     @Test

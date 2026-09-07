@@ -189,4 +189,44 @@ class TestFileAgentResourceService
         assertThatThrownBy(() -> service.require(TaskId.random()))
                 .isInstanceOf(AgentStorageException.class);
     }
+
+    @Test
+    void resolvesDeletionPathsWithoutAllocatingMissingOrPartiallyDeletedResources()
+            throws IOException
+    {
+        Path runtime = temporaryDirectory.resolve("runtime");
+        FileAgentResourceService service = new FileAgentResourceService(runtime);
+        TaskId taskId = TaskId.random();
+        TaskResources missing = service.pathsForDeletion(taskId);
+        assertThat(runtime).doesNotExist();
+        assertThat(service.allocate(taskId)).isEqualTo(missing);
+        Files.delete(missing.eventsFile());
+        Files.delete(missing.providerDirectory());
+
+        assertThat(service.pathsForDeletion(taskId)).isEqualTo(missing);
+        assertThat(missing.eventsFile()).doesNotExist();
+        assertThat(missing.providerDirectory()).doesNotExist();
+
+        service.delete(taskId);
+        assertThat(service.pathsForDeletion(taskId)).isEqualTo(missing);
+        assertThat(missing.runtimeDirectory()).doesNotExist();
+    }
+
+    @Test
+    void deletionPathsRefuseSymlinkedRuntimeOrTaskDirectory()
+            throws IOException
+    {
+        Path outside = Files.createDirectory(temporaryDirectory.resolve("outside"));
+        Path runtime = temporaryDirectory.resolve("runtime");
+        FileAgentResourceService service = new FileAgentResourceService(runtime);
+        TaskId taskId = TaskId.random();
+        Files.createSymbolicLink(runtime, outside);
+        assertThatThrownBy(() -> service.pathsForDeletion(taskId)).isInstanceOf(AgentStorageException.class);
+
+        Files.delete(runtime);
+        Files.createDirectory(runtime);
+        Files.createSymbolicLink(runtime.resolve(taskId.toString()), outside);
+        assertThatThrownBy(() -> service.pathsForDeletion(taskId)).isInstanceOf(AgentStorageException.class);
+        assertThat(outside).isEmptyDirectory();
+    }
 }

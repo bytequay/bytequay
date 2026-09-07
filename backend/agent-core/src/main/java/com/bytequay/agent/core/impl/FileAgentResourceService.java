@@ -274,20 +274,34 @@ public final class FileAgentResourceService
     }
 
     @Override
+    public TaskResources pathsForDeletion(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        try {
+            if (!Files.notExists(runtimeRoot, NOFOLLOW_LINKS)) {
+                requireDirectory(runtimeRoot);
+            }
+            Path taskDirectory = checkedTaskDirectory(runtimeRoot, taskId);
+            rejectSymbolicLinks(runtimeRoot, taskDirectory);
+            if (!Files.notExists(taskDirectory, NOFOLLOW_LINKS)) {
+                requireDirectory(taskDirectory);
+            }
+            return new TaskResources(taskDirectory, taskDirectory.resolve("events.jsonl"), taskDirectory.resolve("blobs"),
+                    taskDirectory.resolve("provider").resolve("scratch"));
+        }
+        catch (IOException e) {
+            throw new AgentStorageException("Cannot resolve resources for task deletion " + taskId, e);
+        }
+    }
+
+    @Override
     public void delete(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         try {
-            if (!Files.exists(runtimeRoot, NOFOLLOW_LINKS)) {
-                return;
-            }
-            Path root = requireDirectory(runtimeRoot);
-            Path taskDirectory = checkedTaskDirectory(root, taskId);
+            Path taskDirectory = pathsForDeletion(taskId).runtimeDirectory();
             if (!Files.exists(taskDirectory, NOFOLLOW_LINKS)) {
                 return;
-            }
-            if (Files.isSymbolicLink(taskDirectory)) {
-                throw new AgentStorageException("Task resource directory is a symbolic link");
             }
             Files.walkFileTree(taskDirectory, new SimpleFileVisitor<>()
             {

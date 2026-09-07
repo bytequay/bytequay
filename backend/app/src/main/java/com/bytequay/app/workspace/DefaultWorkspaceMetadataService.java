@@ -89,6 +89,18 @@ public final class DefaultWorkspaceMetadataService
     @Override
     public WorkspaceMetadataSyncResult synchronize(String workspaceId)
     {
+        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+        workspaceLock.lock();
+        try {
+            return synchronizeLocked(workspaceId);
+        }
+        finally {
+            workspaceLock.unlock();
+        }
+    }
+
+    private WorkspaceMetadataSyncResult synchronizeLocked(String workspaceId)
+    {
         Workspace workspace = requireWorkspace(workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
@@ -226,7 +238,7 @@ public final class DefaultWorkspaceMetadataService
     private Optional<Workspace> findWorkspace(RepoRef repository)
     {
         requireNonNull(repository, "repository is null");
-        return workspaces.findAll().stream()
+        return workspaces.findAllRetained().stream()
                 .filter(workspace -> workspace.monitoredRepository().owner().equalsIgnoreCase(repository.owner())
                         && workspace.monitoredRepository().repo().equalsIgnoreCase(repository.repo()))
                 .findFirst();

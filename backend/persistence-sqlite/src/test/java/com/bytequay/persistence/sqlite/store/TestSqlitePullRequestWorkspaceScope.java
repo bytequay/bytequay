@@ -173,7 +173,7 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void currentWorkspaceRowsAppearInTheGlobalListWithoutLeakingRemovedWorkspaces()
+    void unwatchHidesWorkspaceOnlyPullRequestsAndRewatchRestoresThem()
     {
         FetchedPullRequest global = pullRequest(1, "account/repo", 1);
         FetchedPullRequest shared = pullRequest(2, "owner/project", 2);
@@ -214,12 +214,21 @@ class TestSqlitePullRequestWorkspaceScope
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
 
-        workspaceStore.delete(workspace.id());
+        workspaceStore.setWatched(workspace.id(), false);
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L);
         assertThat(store.findPage(0, 50, "#3").pullRequests()).isEmpty();
+        assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(2);
+        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isZero();
+        assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
+                .extracting(PullRequest::id).containsExactlyInAnyOrder(2L, 3L);
+
+        workspaceStore.setWatched(workspace.id(), true);
+
+        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L, 3L);
+        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isEqualTo(1);
     }
 
     @Test

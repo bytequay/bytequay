@@ -38,6 +38,9 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +80,37 @@ class TestWorkspaceIssueRefreshService
                 issueReads,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void deletionCannotAcquireWorkspaceWhileIssueRefreshWritesItsCache()
+            throws Exception
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        CountDownLatch fetching = new CountDownLatch(1);
+        CountDownLatch finishFetch = new CountDownLatch(1);
+        when(gitHub.fetchOpenIssuesPage("token", UPSTREAM, 1)).thenAnswer(invocation -> {
+            fetching.countDown();
+            assertThat(finishFetch.await(5, TimeUnit.SECONDS)).isTrue();
+            return new GitHubRepoClient.IssuePage(ImmutableList.of(issue(1)), false);
+        });
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var refresh = executor.submit(() -> service.refreshIssues("fork"));
+            try {
+                assertThat(fetching.await(5, TimeUnit.SECONDS)).isTrue();
+                var lock = WorkspaceOperationLocks.get("fork");
+                boolean acquired = lock.tryLock();
+                if (acquired) {
+                    lock.unlock();
+                }
+                assertThat(acquired).isFalse();
+            }
+            finally {
+                finishFetch.countDown();
+            }
+            refresh.get(5, TimeUnit.SECONDS);
+        }
+        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), anyString(), org.mockito.ArgumentMatchers.eq(NOW));
     }
 
     @Test

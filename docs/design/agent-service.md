@@ -3369,6 +3369,22 @@ Failed tasks use the same seven-day period, measured from their terminal
 timestamp. The product owner accepted this seven-day detailed-runtime window
 for the first release on 2026-09-04.
 
+### Explicit workspace deletion
+
+The Workspaces Delete action uses the existing confirmed task-deletion path for every retained
+workspace task, without list limits. Active turns, process cleanup, worktree mutation claims, or
+active workflows block deletion. Each owned task's worktree, branch, runtime files, and durable
+records are removed before the managed workspace checkout and workspace data are purged. Unknown
+worktrees and unverified paths are preserved. Unwatch only hides watched membership and leaves
+these task resources intact.
+
+Workspace deletion does not hold the workspace filesystem lock while deleting tasks, because task
+deletion acquires its task lock first. It rechecks the complete task/worktree inventory under the
+workspace lock before final cleanup. Queued workspace refreshes and CodeGraph preparation must
+recheck their retained workspace/worktree under the corresponding deletion lock, so they cannot
+recreate removed data. Runtime deletion resolves safe paths without recreating missing files, so
+partial cleanup can be retried.
+
 ### 10.3 Provider-owned history
 
 ByteQuay does not delete provider-owned session history in the first release.

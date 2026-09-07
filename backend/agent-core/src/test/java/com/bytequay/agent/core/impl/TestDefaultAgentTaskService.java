@@ -523,6 +523,12 @@ class TestDefaultAgentTaskService
         }
 
         @Override
+        public TaskResources pathsForDeletion(TaskId taskId)
+        {
+            return resources(taskId);
+        }
+
+        @Override
         public void delete(TaskId taskId)
         {
             deleted.add(taskId);

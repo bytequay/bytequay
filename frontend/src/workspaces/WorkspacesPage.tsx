@@ -19,6 +19,8 @@ import { relativeTime } from '../relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
 import type { CherryPickExecution, PullRequestDto, WorkspaceDto } from '../types';
+import DeleteWorkspaceDialog from './DeleteWorkspaceDialog';
+import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import {
   commitsPerDay,
   metadataAgeDays,
@@ -54,6 +56,9 @@ export type WorkspaceFailure = { at: number; message: string };
 
 export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: string) => void }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
+  const [retired, setRetired] = useState<WorkspaceDto[]>([]);
+  const [tab, setTab] = useState<'watched' | 'retired'>('watched');
+  const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
@@ -62,18 +67,31 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
   const [failures, setFailures] = useState<Record<string, WorkspaceFailure>>({});
   const [retrying, setRetrying] = useState<string[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [watchRepositoryId, setWatchRepositoryId] = useState<number | undefined>();
+  const [deleting, setDeleting] = useState<WorkspaceDto | null>(null);
+  const [unwatching, setUnwatching] = useState<string[]>([]);
+  const [unwatchTarget, setUnwatchTarget] = useState<WorkspaceDto | null>(null);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const firstSeen = useRef<Record<string, number>>({});
   const toastId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    window.bridge.listWorkspaces()
-      .then(rows => { if (!cancelled) setWorkspaces(rows); })
+    Promise.all([window.bridge.listWorkspaces(), window.bridge.listRetiredWorkspaces()])
+      .then(([watchedRows, retiredRows]) => {
+        if (cancelled) return;
+        setWorkspaces(watchedRows);
+        setRetired(retiredRows);
+      })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
     window.bridge.fetchPrs(undefined, 0, 100)
       .then(page => { if (!cancelled) setPrs(page.pullRequests); })
       .catch(() => { /* Cards fall back to zeroed counts. */ });
@@ -84,14 +102,15 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
   }, []);
 
   useEffect(() => {
-    if (!workspaces.some(workspaceIsUpdating)) return;
+    if (tab === 'retired' || !workspaces.some(workspaceIsUpdating) || unwatchTarget !== null || deleting !== null) return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       void window.bridge.listWorkspaces()
-        .then(setWorkspaces)
+        .then(rows => { if (!cancelled) setWorkspaces(rows); })
         .catch(() => {});
     }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [workspaces]);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [deleting, tab, unwatchTarget, workspaces]);
 
   // Commit history is a local read, so it only runs once the clone exists.
   useEffect(() => {
@@ -129,6 +148,31 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
   function flash(text: string) {
     toastId.current += 1;
     setToast({ id: toastId.current, text });
+  }
+
+  function openWatch(repositoryId?: number) {
+    setWatchRepositoryId(repositoryId);
+    setShowModal(true);
+  }
+
+  async function unwatch(workspace: WorkspaceDto) {
+    if (unwatching.includes(workspace.id)) return;
+    setUnwatching(previous => [...previous, workspace.id]);
+    setError(null);
+    try {
+      await window.bridge.removeWorkspace(workspace.id);
+      setUnwatchTarget(null);
+      setWorkspaces(previous => previous.filter(row => row.id !== workspace.id));
+      setRetired(previous => [workspace, ...previous.filter(row => row.id !== workspace.id)]);
+      setRefresh(previous => previous + 1);
+      flash(`Moved ${workspace.selectedOwner}/${workspace.selectedRepo} to Retired. Open it there to access saved tasks and files.`);
+    }
+    catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    }
+    finally {
+      setUnwatching(previous => previous.filter(id => id !== workspace.id));
+    }
   }
 
   async function retrySync(workspace: WorkspaceDto) {
@@ -181,46 +225,116 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
     <div className="ws-page">
       <div className="ws-head">
         <h1>Workspaces</h1>
-        <span className="ws-count">
-          {workspaces.length} watched repositor{workspaces.length === 1 ? 'y' : 'ies'}
-        </span>
         <div className="ws-spacer" />
-        <button className="ws-new" type="button" onClick={() => setShowModal(true)}>
+        <button className="ws-new" type="button" onClick={() => openWatch()}>
           <span aria-hidden="true">＋</span> New workspace
         </button>
       </div>
+      <div className="ws-tabs" aria-label="Workspace views">
+        <button type="button" aria-pressed={tab === 'watched'} onClick={() => setTab('watched')}>
+          Watched <span>{workspaces.length}</span>
+        </button>
+        <button type="button" aria-pressed={tab === 'retired'} onClick={() => setTab('retired')}>
+          Retired <span>{retired.length}</span>
+        </button>
+      </div>
       <p className="ws-lede">
-        A workspace is a repository you watch. ByteQuay clones it and keeps code, pull requests
-        and people in sync.
+        {tab === 'watched'
+          ? 'A workspace is a repository you watch. ByteQuay clones it and keeps code, pull requests and people in sync.'
+          : 'These repositories are no longer watched. Their local data is kept. Open a workspace to access saved tasks and files.'}
       </p>
 
       {error && <div className="ws-error" role="alert">{error}</div>}
       {loading && <div className="ws-empty">Loading workspaces…</div>}
 
-      <WorkspaceCards
+      {tab === 'watched' ? <WorkspaceCards
         workspaces={workspaces}
         onOpen={onOpen}
-        onWatch={() => setShowModal(true)}
+        onWatch={() => openWatch()}
         activity={activity}
         failures={failures}
         retrying={retrying}
         slow={slow}
         onRetry={workspace => { void retrySync(workspace); }}
-      />
+        onUnwatch={workspace => { setError(null); setUnwatchTarget(workspace); }}
+        onDelete={setDeleting}
+        unwatching={unwatching}
+      /> : !loading && <RetiredWorkspaceCards
+        workspaces={retired}
+        onOpen={onOpen}
+        onWatch={workspace => openWatch(workspace.selectedRepositoryId)}
+        onDelete={setDeleting}
+      />}
 
       {showModal && (
         <AddRepoModal
+          initialRepositoryId={watchRepositoryId}
           onAdded={dto => {
             setWorkspaces(previous => [dto, ...previous.filter(row => row.id !== dto.id)]
               .sort((left, right) => left.displayOrder - right.displayOrder));
-            flash(`Watching ${dto.selectedOwner}/${dto.selectedRepo} — cloning in the background`);
+            setRetired(previous => previous.filter(row => row.id !== dto.id));
+            setRefresh(previous => previous + 1);
+            setTab('watched');
+            flash(`Watching ${dto.selectedOwner}/${dto.selectedRepo} — syncing in the background`);
           }}
           onOpenWorkspace={onOpen}
           onClose={() => setShowModal(false)}
         />
       )}
 
+      {unwatchTarget && <UnwatchWorkspaceDialog
+        workspace={unwatchTarget}
+        busy={unwatching.includes(unwatchTarget.id)}
+        error={error}
+        onConfirm={() => { void unwatch(unwatchTarget); }}
+        onCancel={() => setUnwatchTarget(null)}
+      />}
+
+      {deleting && <DeleteWorkspaceDialog
+        workspace={deleting}
+        onDeleted={() => {
+          setWorkspaces(previous => previous.filter(row => row.id !== deleting.id));
+          setRetired(previous => previous.filter(row => row.id !== deleting.id));
+          setRefresh(previous => previous + 1);
+          flash(`Deleted local data for ${deleting.selectedOwner}/${deleting.selectedRepo}.`);
+          setDeleting(null);
+        }}
+        onCancel={() => setDeleting(null)}
+      />}
+
       {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)} />}
+    </div>
+  );
+}
+
+export function RetiredWorkspaceCards({ workspaces, onOpen, onWatch, onDelete }: {
+  workspaces: WorkspaceDto[];
+  onOpen: (workspaceId: string) => void;
+  onWatch: (workspace: WorkspaceDto) => void;
+  onDelete: (workspace: WorkspaceDto) => void;
+}) {
+  if (workspaces.length === 0) {
+    return <div className="ws-empty">No retired workspaces. Repositories you unwatch will appear here with their local data kept.</div>;
+  }
+  return (
+    <div className="ws-grid">
+      {workspaces.map(workspace => {
+        const repository = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
+        return <article className="ws-card" key={workspace.id} data-workspace-id={workspace.id}>
+          <div className="ws-card-title">
+            <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={20} />
+            <span className="ws-card-name">{workspace.name}</span>
+            <span className="ws-topo">Retired</span>
+          </div>
+          <div className="ws-card-path" title={repository}>{repository} · {workspace.defaultBranch}</div>
+          <p className="ws-retired-note">Local data kept. Open to access saved tasks and files.</p>
+          <div className="ws-card-actions">
+            <button type="button" aria-label={`Open ${repository}`} onClick={() => onOpen(workspace.id)}>Open</button>
+            <button type="button" aria-label={`Watch ${repository} again`} onClick={() => onWatch(workspace)}>Watch again</button>
+            <button type="button" className="is-danger" aria-label={`Delete ${repository} local data`} onClick={() => onDelete(workspace)}>Delete…</button>
+          </div>
+        </article>;
+      })}
     </div>
   );
 }
@@ -272,10 +386,13 @@ type CardsProps = {
   retrying?: string[];
   slow?: Record<string, boolean>;
   onRetry?: (workspace: WorkspaceDto) => void;
+  onUnwatch?: (workspace: WorkspaceDto) => void;
+  onDelete?: (workspace: WorkspaceDto) => void;
+  unwatching?: string[];
 };
 
 export function WorkspaceCards({
-  workspaces, onOpen, onWatch, activity = {}, failures = {}, retrying = [], slow = {}, onRetry,
+  workspaces, onOpen, onWatch, activity = {}, failures = {}, retrying = [], slow = {}, onRetry, onUnwatch, onDelete, unwatching = [],
 }: CardsProps) {
   const now = Date.now();
   return (
@@ -385,6 +502,22 @@ export function WorkspaceCards({
                 </button>
               )}
             </div>
+            {(onUnwatch || onDelete) && <div className="ws-card-actions">
+              {onUnwatch && <button
+                type="button"
+                disabled={unwatching.includes(workspace.id)}
+                title="Move to Retired and keep all local data"
+                aria-label={`Unwatch ${name}`}
+                onClick={() => onUnwatch(workspace)}
+              >{unwatching.includes(workspace.id) ? 'Unwatching…' : 'Unwatch'}</button>}
+              {onDelete && <button
+                type="button"
+                className="is-danger"
+                disabled={unwatching.includes(workspace.id)}
+                aria-label={`Delete ${name} local data`}
+                onClick={() => onDelete(workspace)}
+              >Delete…</button>}
+            </div>}
           </article>
         );
       })}

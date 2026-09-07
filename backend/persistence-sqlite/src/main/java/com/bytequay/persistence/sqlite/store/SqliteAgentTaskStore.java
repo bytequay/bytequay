@@ -35,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,6 +66,7 @@ public class SqliteAgentTaskStore
     private final AgentInputDeliveryJpaRepository deliveries;
     private final AgentEventOutboxJpaRepository outbox;
     private final AgentProcessLaunchJpaRepository launches;
+    private final JdbcTemplate jdbc;
 
     public SqliteAgentTaskStore(
             AgentTaskJpaRepository repository,
@@ -73,7 +75,8 @@ public class SqliteAgentTaskStore
             AgentQueuedInputJpaRepository queue,
             AgentInputDeliveryJpaRepository deliveries,
             AgentEventOutboxJpaRepository outbox,
-            AgentProcessLaunchJpaRepository launches)
+            AgentProcessLaunchJpaRepository launches,
+            JdbcTemplate jdbc)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -82,6 +85,7 @@ public class SqliteAgentTaskStore
         this.deliveries = requireNonNull(deliveries, "deliveries is null");
         this.outbox = requireNonNull(outbox, "outbox is null");
         this.launches = requireNonNull(launches, "launches is null");
+        this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
     @Override
@@ -164,6 +168,17 @@ public class SqliteAgentTaskStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<AgentTask> listByWorkspace(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        return repository.findByWorkspaceIdOrderByCreatedAtAsc(workspaceId).stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public boolean hasWorktreeReference(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
@@ -231,6 +246,13 @@ public class SqliteAgentTaskStore
     {
         requireNonNull(taskId, "taskId is null");
         String id = taskId.toString();
+        if (Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM branch_rebase WHERE agent_task_id = ? AND terminal_at IS NULL)", Boolean.class, id))) {
+            throw new AgentConflictException("Task has an active branch rebase: " + taskId);
+        }
+        jdbc.update("DELETE FROM branch_rebase WHERE agent_task_id = ?", id);
+        jdbc.update("DELETE FROM recent_touch WHERE item_key = ?", "task:" + id);
+        jdbc.update("DELETE FROM recent_text WHERE item_key = ?", "task:" + id);
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

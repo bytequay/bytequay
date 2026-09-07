@@ -8,6 +8,24 @@
 
 .ws-count { font-size: 13px; color: #8c959f; }
 
+.ws-tabs { display: flex; gap: 6px; margin: 20px 0 12px; }
+.ws-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ws-tabs button[aria-pressed="true"] { background: #eceff2; color: #1f2328; font-weight: 600; }
+.ws-tabs button span { font-size: 11px; color: #6e7781; }
+.ws-retired-note { margin: 14px 0; font-size: 12px; color: #57606a; }
+
 .ws-spacer { flex: 1; }
 
 .ws-error {
@@ -68,8 +86,7 @@
 
 .ws-card.is-failed { border-color: rgba(207, 34, 46, 0.4); }
 
-/* The whole card is the link; the retry button sits above it rather than
-   inside it, so a failed card stays openable and still offers the retry. */
+/* The whole card is the link; action buttons sit above it as siblings. */
 .ws-card__hit {
   position: absolute;
   inset: 0;
@@ -80,6 +97,46 @@
 .ws-card__hit:focus-visible {
   outline: 2px solid #0969da;
   outline-offset: 2px;
+}
+
+.ws-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.ws-card-actions button {
+  position: relative;
+  z-index: 2;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ws-card-actions button:hover { text-decoration: underline; }
+.ws-card-actions button:disabled { opacity: 0.5; cursor: default; }
+.ws-card-actions button.is-danger { color: #cf222e; }
+
+.wss-delete-confirmation {
+  display: grid;
+  gap: 8px;
+  margin-bottom: var(--space-3);
+}
+
+.wss-delete-confirmation input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font: inherit;
 }
 
 .ws-card-title {

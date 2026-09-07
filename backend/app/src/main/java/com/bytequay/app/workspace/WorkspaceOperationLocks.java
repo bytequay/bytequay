@@ -19,14 +19,14 @@ import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
 
-/** Serializes short filesystem ownership changes for one managed workspace. */
-final class WorkspaceOperationLocks
+/** Serializes workspace operations with provisioning and deletion. */
+public final class WorkspaceOperationLocks
 {
     private static final Striped<Lock> LOCKS = Striped.lock(64);
 
     private WorkspaceOperationLocks() {}
 
-    static Lock get(String workspaceId)
+    public static Lock get(String workspaceId)
     {
         return LOCKS.get(requireNonNull(workspaceId, "workspaceId is null"));
     }

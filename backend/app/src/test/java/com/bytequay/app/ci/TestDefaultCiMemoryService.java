@@ -283,6 +283,12 @@ class TestDefaultCiMemoryService
         }
 
         @Override
+        public TaskResources pathsForDeletion(TaskId taskId)
+        {
+            return task(taskId);
+        }
+
+        @Override
         public void delete(TaskId taskId) {}
 
         private TaskResources task(TaskId taskId)

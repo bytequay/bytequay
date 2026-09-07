@@ -31,6 +31,7 @@ import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -375,7 +376,10 @@ public final class DefaultAgentCompletionService
                 return;
             }
             AgentTask task = requireTask(taskId);
+            TaskResources resources = resourceService.pathsForDeletion(taskId);
             task.taskWorktree().ifPresent(worktreeService::delete);
+            // Wait for an in-flight graph preparation before removing its runtime files.
+            codeGraph.deleteIndex(resources);
             resourceService.delete(taskId);
             unitOfWork.execute(() -> {
                 taskStore.delete(taskId);

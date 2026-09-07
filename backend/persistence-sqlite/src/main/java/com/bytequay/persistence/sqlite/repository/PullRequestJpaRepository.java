@@ -38,12 +38,12 @@ public interface PullRequestJpaRepository
     @Query("SELECT e FROM PullRequestEntity e WHERE "
             + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))")
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))")
     Page<PullRequestEntity> findDashboardPage(Pageable pageable);
 
     @Query("SELECT e FROM PullRequestEntity e WHERE ((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
     Page<PullRequestEntity> searchDashboardPage(
             @Param("search") String search,
@@ -71,14 +71,14 @@ public interface PullRequestJpaRepository
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
             + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (e.state IS NULL OR e.state = 'open')")
     long countOpenDashboard();
 
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
             + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (e.state IS NULL OR e.state = 'open') "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
     long countOpenDashboardSearch(@Param("search") String search, @Param("number") Integer number);

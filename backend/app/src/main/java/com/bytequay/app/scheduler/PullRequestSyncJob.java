@@ -75,10 +75,10 @@ public class PullRequestSyncJob
         configuredWorkspaces.stream()
                 .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
                 .forEach(workspace -> metadata.synchronize(workspace.id()));
+        Set<Long> pullRequestRepositories = new HashSet<>();
         configuredWorkspaces.stream()
-                .map(Workspace::monitoredRepository)
-                .distinct()
-                .forEach(repository -> refresh(repository.fullName(), () -> refreshService.refreshRepository(repository)));
+                .filter(workspace -> pullRequestRepositories.add(workspace.monitoredRepositoryId()))
+                .forEach(workspace -> refresh(workspace.monitoredRepository().fullName(), () -> refreshService.refreshWorkspace(workspace.id())));
     }
 
     private void refresh(String scope, Runnable action)

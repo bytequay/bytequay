@@ -13,21 +13,14 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.agent.core.CodeGraphService;
-import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
-import com.bytequay.core.cherrypick.CherryPickExecution;
-import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.RemoteSourceStore;
-import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -37,11 +30,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -60,6 +50,7 @@ import java.util.concurrent.locks.Lock;
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -70,11 +61,7 @@ public class DefaultWorkspaceRepositoryService
     private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
 
     private final WorkspaceStore store;
-    private final AgentTaskStore agentTasks;
-    private final CherryPickExecutionStore executions;
-    private final RemoteSourceStore remoteSources;
     private final RepositoryEnrichmentService enrichment;
-    private final WorkspaceCredentialStore workspaceCredentials;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
     private final Clock clock;
@@ -83,17 +70,12 @@ public class DefaultWorkspaceRepositoryService
     private final WorkspaceMetadataService metadata;
     private final PullRequestRefreshService pullRequestRefresh;
     private final Executor executor;
-    private final CodeGraphService codeGraph;
     private final Set<String> codeRefreshes = ConcurrentHashMap.newKeySet();
     private final Set<String> metadataRefreshes = ConcurrentHashMap.newKeySet();
 
     public DefaultWorkspaceRepositoryService(
             WorkspaceStore store,
-            AgentTaskStore agentTasks,
-            CherryPickExecutionStore executions,
-            RemoteSourceStore remoteSources,
             RepositoryEnrichmentService enrichment,
-            WorkspaceCredentialStore workspaceCredentials,
             GitHubAccountClient gitHub,
             CredentialService credentials,
             Clock clock,
@@ -101,15 +83,10 @@ public class DefaultWorkspaceRepositoryService
             WorkspaceProvisioningService provisioning,
             WorkspaceMetadataService metadata,
             PullRequestRefreshService pullRequestRefresh,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
-            CodeGraphService codeGraph)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
-        this.agentTasks = requireNonNull(agentTasks, "agentTasks is null");
-        this.executions = requireNonNull(executions, "executions is null");
-        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
-        this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -118,7 +95,6 @@ public class DefaultWorkspaceRepositoryService
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.executor = requireNonNull(executor, "executor is null");
-        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
     }
 
     @Override
@@ -166,7 +142,7 @@ public class DefaultWorkspaceRepositoryService
         var credential = credentials.resolveGitHubCredential();
         WatchRouting routing = resolveWatch(command.selectedRepositoryId(), credential.token(), credential.profile().login());
         Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()));
-        if (existing.filter(value -> matchesWatch(value, routing)).isPresent()) {
+        if (existing.filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
             scheduleIncompleteWork(workspace);
             return workspace;
@@ -186,7 +162,17 @@ public class DefaultWorkspaceRepositoryService
             throw WorkspaceException.invalidRepository("GitHub did not return your fork of the monitored repository. Review the watch preview and retry.");
         }
         if (existing.isPresent()) {
-            return setUpstream(existing.orElseThrow().id(), routing.upstream().map(UserRepo::id));
+            Workspace workspace = existing.orElseThrow();
+            Lock lock = WorkspaceOperationLocks.get(workspace.id());
+            lock.lock();
+            try {
+                setUpstream(workspace.id(), routing.upstream().map(UserRepo::id));
+                store.setWatched(workspace.id(), true);
+                return requestSyncAfterConfigurationChange(workspace.id());
+            }
+            finally {
+                lock.unlock();
+            }
         }
         return createWorkspace(pushRepository, routing.upstream(), command.name());
     }
@@ -195,6 +181,16 @@ public class DefaultWorkspaceRepositoryService
     public List<WorkspaceSummary> listWorkspaces()
     {
         return store.findAll().stream().map(WorkspaceSummary::of).collect(toImmutableList());
+    }
+
+    @Override
+    public List<WorkspaceSummary> listRetiredWorkspaces()
+    {
+        Set<String> watchedIds = store.findAll().stream().map(Workspace::id).collect(toImmutableSet());
+        return store.findAllRetained().stream()
+                .filter(workspace -> !watchedIds.contains(workspace.id()))
+                .map(WorkspaceSummary::of)
+                .collect(toImmutableList());
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -257,7 +253,7 @@ public class DefaultWorkspaceRepositoryService
     {
         Workspace workspace = requireWorkspace(workspaceId);
         scheduleRefreshes(workspace, false);
-        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspaceId);
+        submit(() -> pullRequestRefresh.refreshWorkspace(workspaceId), workspaceId);
         return workspace;
     }
 
@@ -266,7 +262,7 @@ public class DefaultWorkspaceRepositoryService
     {
         Workspace workspace = requireWorkspace(workspaceId);
         scheduleRefreshes(workspace, true);
-        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspaceId);
+        submit(() -> pullRequestRefresh.refreshWorkspace(workspaceId), workspaceId);
         return workspace;
     }
 
@@ -278,7 +274,7 @@ public class DefaultWorkspaceRepositoryService
         if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }
-        if (codeRefreshes.contains(workspace.id()) || hasActiveExecution(workspace)) {
+        if (codeRefreshes.contains(workspace.id()) || store.hasActiveWorkflows(workspace.id())) {
             throw WorkspaceException.busy();
         }
         Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
@@ -327,54 +323,8 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public void unwatch(String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
-            Workspace workspace = requireWorkspace(workspaceId);
-            if (codeRefreshes.contains(workspace.id())
-                    || hasActiveExecution(workspace)
-                    || agentTasks.hasWorktreeReference(workspace.id())
-                    || hasManagedWorktrees(workspace.id())) {
-                throw WorkspaceException.busy();
-            }
-            store.delete(workspace.id());
-            remoteSources.deleteByWorkspace(workspace.id());
-            workspaceCredentials.delete(workspace.id());
-            codeGraph.deleteBaseline(new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo()));
-        }
-        finally {
-            lock.unlock();
-        }
-    }
-
-    private boolean hasManagedWorktrees(String workspaceId)
-    {
-        var worktrees = paths.worktrees(workspaceId);
-        if (Files.notExists(worktrees, LinkOption.NOFOLLOW_LINKS)) {
-            return false;
-        }
-        if (!Files.exists(worktrees, LinkOption.NOFOLLOW_LINKS)
-                || Files.isSymbolicLink(worktrees)
-                || !Files.isDirectory(worktrees, LinkOption.NOFOLLOW_LINKS)) {
-            return true;
-        }
-        try (var children = Files.list(worktrees)) {
-            return children.findAny().isPresent();
-        }
-        catch (IOException failure) {
-            return true;
-        }
-    }
-
-    private boolean hasActiveExecution(Workspace workspace)
-    {
-        return executions.listRecent(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
-                .filter(execution -> execution.terminalAt().isEmpty())
-                .map(CherryPickExecution::workspace)
-                .anyMatch(executionWorkspace -> executionWorkspace.workspaceId()
-                        .map(workspace.id()::equals)
-                        .orElseGet(() -> executionWorkspace.repository().equals(workspace.selectedRepository())
-                                || executionWorkspace.repository().equals(workspace.monitoredRepository())));
+        requireWorkspace(workspaceId);
+        store.setWatched(workspaceId, false);
     }
 
     private Workspace createWorkspace(
@@ -389,7 +339,7 @@ public class DefaultWorkspaceRepositoryService
             return existing.orElseThrow();
         }
 
-        int displayOrder = store.findAll().stream().mapToInt(Workspace::displayOrder).max().orElse(-1) + 1;
+        int displayOrder = store.findAllRetained().stream().mapToInt(Workspace::displayOrder).max().orElse(-1) + 1;
         String id = UUID.randomUUID().toString();
         Instant now = clock.instant();
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
@@ -451,7 +401,7 @@ public class DefaultWorkspaceRepositoryService
         Optional<RepoRef> upstream = repository.upstream()
                 .map(value -> RepoRef.of(value.owner(), value.name()));
         Optional<String> existingWorkspaceId = store.findBySelectedRepositoryId(repository.id())
-                .map(Workspace::id);
+                .filter(value -> store.isWatched(value.id())).map(Workspace::id);
         return new RepositorySearchResult(
                 repository.id(),
                 RepoRef.of(repository.owner(), repository.name()),
@@ -526,7 +476,7 @@ public class DefaultWorkspaceRepositoryService
                 fingerprint(routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
                         + routing.pushRepository().map(DefaultWorkspaceRepositoryService::fingerprint).orElse("create-fork")),
                 routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()))
-                        .filter(value -> matchesWatch(value, routing)).map(Workspace::id));
+                        .filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).map(Workspace::id));
     }
 
     private static boolean matchesWatch(Workspace workspace, WatchRouting routing)
@@ -642,11 +592,14 @@ public class DefaultWorkspaceRepositoryService
     private void scheduleIncompleteWork(Workspace workspace)
     {
         scheduleRefreshes(workspace, false);
-        submit(() -> pullRequestRefresh.refreshRepository(workspace.monitoredRepository()), workspace.id());
+        submit(() -> pullRequestRefresh.refreshWorkspace(workspace.id()), workspace.id());
     }
 
     private void scheduleRefreshes(Workspace workspace, boolean forceCode)
     {
+        if (!store.isWatched(workspace.id())) {
+            return;
+        }
         Instant now = clock.instant();
         if (forceCode || stale(workspace.lastCodeSyncAt(), now, CODE_FRESHNESS)) {
             submitUnique(codeRefreshes, workspace.id(), workspace.lastCodeSyncAt().isPresent()
@@ -670,8 +623,12 @@ public class DefaultWorkspaceRepositoryService
         }
         try {
             executor.execute(() -> {
+                Lock lock = WorkspaceOperationLocks.get(workspaceId);
+                lock.lock();
                 try {
-                    task.run();
+                    if (store.isWatched(workspaceId)) {
+                        task.run();
+                    }
                 }
                 catch (RuntimeException failure) {
                     log.warn("Workspace {} background synchronization stopped: {}",
@@ -679,6 +636,7 @@ public class DefaultWorkspaceRepositoryService
                 }
                 finally {
                     active.remove(workspaceId);
+                    lock.unlock();
                 }
             });
         }
@@ -693,12 +651,19 @@ public class DefaultWorkspaceRepositoryService
     {
         try {
             executor.execute(() -> {
+                Lock lock = WorkspaceOperationLocks.get(workspaceId);
+                lock.lock();
                 try {
-                    task.run();
+                    if (store.isWatched(workspaceId)) {
+                        task.run();
+                    }
                 }
                 catch (RuntimeException failure) {
                     log.warn("Workspace {} background synchronization stopped: {}",
                             workspaceId, failure.getMessage());
+                }
+                finally {
+                    lock.unlock();
                 }
             });
         }

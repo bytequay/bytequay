@@ -76,7 +76,7 @@ public final class WorkspaceException
     {
         return new WorkspaceException(
                 "WORKSPACE_BUSY", HttpStatus.CONFLICT,
-                "Workspace has active synchronization or cherry-pick work.", true);
+                "Workspace has active synchronization, tasks, or workflows. Stop them before retrying.", true);
     }
 
     public static WorkspaceException invalidUpstream(String message)

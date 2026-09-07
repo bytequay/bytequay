@@ -21,8 +21,20 @@ import java.util.Optional;
 /** Persists the single authoritative watched-repository workspace model. */
 public interface WorkspaceStore
 {
-    /** Returns workspaces in user display order. */
+    /** Returns watched workspaces in user display order. */
     List<Workspace> findAll();
+
+    /** Returns watched and unwatched workspaces whose durable data is retained. */
+    List<Workspace> findAllRetained();
+
+    /** Changes watch-list membership without deleting or restoring any workspace data. */
+    void setWatched(String workspaceId, boolean watched);
+
+    /** Returns whether the workspace exists and belongs to the watch list. */
+    boolean isWatched(String workspaceId);
+
+    /** Checks every durable workflow associated with the workspace, without a recent-history limit. */
+    boolean hasActiveWorkflows(String workspaceId);
 
     /** Finds a workspace by its ByteQuay-owned identifier. */
     Optional<Workspace> findById(String workspaceId);
@@ -36,9 +48,9 @@ public interface WorkspaceStore
      */
     Workspace createOrGet(Workspace workspace);
 
-    /** Saves lifecycle state changes for an existing workspace. */
+    /** Saves an existing workspace without changing its watch-list membership. */
     Workspace save(Workspace workspace);
 
-    /** Removes the workspace row after application-level busy checks pass. */
+    /** Purges workspace-owned data after tasks are removed, retaining independently referenced repository data. */
     void delete(String workspaceId);
 }

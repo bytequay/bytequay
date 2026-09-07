@@ -378,12 +378,14 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask expected = newTask(now, Optional.of("workspace-a"), true);
         AgentTask otherWorkspace = newTask(now.plusSeconds(1), Optional.of("workspace-b"), true);
-        AgentTask internal = newTask(now.plusSeconds(2), Optional.of("workspace-a"), false);
+        AgentTask internal = newTask(now.plusSeconds(2), Optional.of("workspace-a"), false).withArchived(true, now.plusSeconds(3));
         taskStore.insert(expected);
         taskStore.insert(otherWorkspace);
         taskStore.insert(internal);
 
         assertThat(taskStore.listRecentInteractive("workspace-a", 10)).containsExactly(expected);
+        assertThat(taskStore.listByWorkspace("workspace-a")).containsExactly(expected, internal);
+        assertThat(taskStore.listByWorkspace("workspace-b")).containsExactly(otherWorkspace);
     }
 
     @Test

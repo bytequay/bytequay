@@ -53,11 +53,18 @@ public interface WorkspaceRepositoryService
     Workspace watch(WatchRepositoryCommand command);
 
     /**
-     * Lists the authoritative workspaces used by both Home and the Workspaces page.
+     * Lists watched workspaces used by both Home and the Workspaces page.
      *
      * @return summaries in retained user display order
      */
     List<WorkspaceSummary> listWorkspaces();
+
+    /**
+     * Lists retained, unwatched workspaces without scheduling synchronization or changing membership.
+     *
+     * @return summaries in retained user display order
+     */
+    List<WorkspaceSummary> listRetiredWorkspaces();
 
     /**
      * Loads routing, path ownership, and independent sync state for Workspace Home.
@@ -121,10 +128,10 @@ public interface WorkspaceRepositoryService
     Workspace rename(String workspaceId, String name);
 
     /**
-     * Stops watching a workspace after verifying that no active cherry-pick references it.
+     * Hides a workspace from watched lists while retaining its repository, settings, tasks, and history.
      *
      * @param workspaceId ByteQuay workspace identifier
-     * @throws WorkspaceException when the workspace is missing or busy
+     * @throws WorkspaceException when the workspace is missing
      */
     void unwatch(String workspaceId);
 }

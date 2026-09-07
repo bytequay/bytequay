@@ -17,7 +17,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.app.workspace.WorkspaceDetails;
+import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
@@ -26,7 +26,6 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -41,10 +40,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -226,6 +228,7 @@ class TestPullRequestRefreshControllers
         WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         WorkspaceController controller = new WorkspaceController(
                 mock(WorkspaceRepositoryService.class),
+                mock(WorkspaceDeletionService.class),
                 mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class),
@@ -242,15 +245,73 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void unwatchAndDeleteUseSeparateEndpoints()
+            throws Exception
+    {
+        WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
+        WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
+        WorkspaceController controller = new WorkspaceController(
+                workspaces, deletion, mock(PullRequestService.class), mock(PullRequestRefreshService.class),
+                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), mock(CredentialService.class));
+        var mvc = standaloneSetup(controller).build();
+
+        mvc.perform(delete("/api/workspaces/workspace-id"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value("removed"));
+        verify(workspaces).unwatch("workspace-id");
+        verifyNoInteractions(deletion);
+
+        mvc.perform(delete("/api/workspaces/workspace-id/data").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"confirmed":true,"repositoryName":"owner/repo"}
+                                """))
+                .andExpect(status().isOk());
+        verify(deletion).delete("workspace-id", true, "owner/repo");
+    }
+
+    @Test
+    void retiredEndpointReturnsRetainedIdentitiesSeparatelyFromWatchedWorkspaces()
+            throws Exception
+    {
+        WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
+        when(workspaces.listRetiredWorkspaces()).thenReturn(ImmutableList.of(workspaceSummary("retired-id", 100)));
+        when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(workspaceSummary("watched-id", 200)));
+        WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        WorkspaceController controller = new WorkspaceController(
+                workspaces, deletion, mock(PullRequestService.class), refresh,
+                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), credentials);
+        var mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/api/workspaces/retired"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value("retired-id"))
+                .andExpect(jsonPath("$[0].selectedRepositoryId").value(100))
+                .andExpect(jsonPath("$[0].localRepositoryPath").value("/tmp/bytequay-workspaces/retired-id/repository"));
+        mvc.perform(get("/api/workspaces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value("watched-id"));
+
+        verify(workspaces).listRetiredWorkspaces();
+        verify(workspaces).listWorkspaces();
+        verifyNoMoreInteractions(workspaces);
+        verifyNoInteractions(deletion, refresh, credentials);
+    }
+
+    @Test
     void workspaceRefreshCompletesBeforeTheRequestReturns()
     {
-        RepoRef repository = RepoRef.of("upstream", "project");
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(workspaces.getWorkspace("workspace-id")).thenReturn(details(repository));
         WorkspaceController controller = new WorkspaceController(
                 workspaces,
+                mock(WorkspaceDeletionService.class),
                 pullRequests,
                 refresh,
                 mock(WorkspaceMetadataService.class),
@@ -262,38 +323,15 @@ class TestPullRequestRefreshControllers
 
         controller.syncPullRequests("workspace-id");
 
-        var order = inOrder(workspaces, refresh);
-        order.verify(workspaces).getWorkspace("workspace-id");
-        order.verify(refresh).refreshRepository(repository);
+        verify(refresh).refreshWorkspace("workspace-id");
+        verifyNoInteractions(workspaces);
     }
 
-    private static WorkspaceDetails details(RepoRef repository)
+    private static WorkspaceSummary workspaceSummary(String id, long repositoryId)
     {
-        WorkspaceSummary summary = new WorkspaceSummary(
-                "workspace-id",
-                "Project",
-                1,
-                "owner",
-                "project",
-                2L,
-                repository.owner(),
-                repository.repo(),
-                2,
-                repository.owner(),
-                repository.repo(),
-                Topology.FORK,
-                "main",
-                "main",
-                "/tmp/workspace-id",
-                NOW,
-                NOW,
-                0);
-        return new WorkspaceDetails(
-                summary,
-                "https://github.com/owner/project.git",
-                "https://github.com/upstream/project.git",
-                NOW,
-                NOW);
+        return new WorkspaceSummary(id, "owner/repo", repositoryId, "owner", "repo", null, null, null,
+                repositoryId, "owner", "repo", Topology.DIRECT, "main", null,
+                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0);
     }
 
     private static PullRequestDetail detail()

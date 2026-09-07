@@ -23,12 +23,15 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
 import java.util.Optional;
 
 @Entity
 @Table(name = "watched_repo_workspaces")
+@DynamicUpdate
 public class WorkspaceEntity
 {
     @Id
@@ -37,6 +40,11 @@ public class WorkspaceEntity
 
     @Column(nullable = false)
     private String name;
+
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    @Getter
+    @Setter
+    private boolean watched = true;
 
     @Column(name = "selected_repository_id", nullable = false, unique = true)
     @Getter

@@ -71,7 +71,7 @@ class TestDefaultWorkspaceMetadataService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
+        when(workspaceStore.findAllRetained()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.save(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     Workspace workspace = invocation.getArgument(0);

@@ -40,6 +40,11 @@ import static java.util.Collections.synchronizedList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestCodeGraphBaselines
 {
@@ -214,6 +219,87 @@ class TestCodeGraphBaselines
         service.deleteBaseline(REPOSITORY);
         assertThat(service.baselineDirectory(REPOSITORY)).doesNotExist();
         service.deleteBaseline(REPOSITORY);
+    }
+
+    @Test
+    void queuedPreparationDoesNotRecreateADeletedTasksRuntime(@TempDir Path temp)
+            throws IOException
+    {
+        Repository repository = Repository.create(temp, git);
+        Task task = repository.task(temp, repository.head());
+        CodeGraphCli cli = mock(CodeGraphCli.class);
+        when(cli.available()).thenReturn(true);
+        PinnedCodeGraphService service = service(cli, temp);
+        Path base = service.baselineDirectory(REPOSITORY);
+        Files.createDirectories(base.resolve("codegraph"));
+        Files.writeString(base.resolve("codegraph").resolve("codegraph.db"), "cached index");
+        Files.writeString(base.resolve("HEAD"), repository.head());
+        repository.git("worktree", "remove", "--force", task.worktree.canonicalWorktree().toString());
+        Files.delete(task.resources.runtimeDirectory());
+
+        service.prepare(task.worktree, task.resources);
+
+        assertThat(task.resources.runtimeDirectory()).doesNotExist();
+        verify(cli, never()).run(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void indexDeletionWaitsForRunningPreparation(@TempDir Path temp)
+            throws Exception
+    {
+        Repository repository = Repository.create(temp, git);
+        Task task = repository.task(temp, repository.head());
+        CodeGraphCli cli = mock(CodeGraphCli.class);
+        when(cli.available()).thenReturn(true);
+        CountDownLatch preparing = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(cli.run(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            preparing.countDown();
+            assertThat(release.await(30, TimeUnit.SECONDS)).isTrue();
+            Path index = invocation.getArgument(1);
+            Files.createDirectories(index);
+            Files.writeString(index.resolve("codegraph.db"), "index");
+            return new Result(0, "", false);
+        });
+        PinnedCodeGraphService service = service(cli, temp);
+        CompletableFuture<Void> prepare = CompletableFuture.runAsync(() -> service.prepare(task.worktree, task.resources));
+        assertThat(preparing.await(30, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Void> deletion = CompletableFuture.runAsync(() -> service.deleteIndex(task.resources));
+        try {
+            assertThat(deletion).isNotDone();
+        }
+        finally {
+            release.countDown();
+        }
+        prepare.join();
+        deletion.join();
+        assertThat(task.resources.runtimeDirectory().resolve("codegraph")).doesNotExist();
+        assertThat(task.resources.runtimeDirectory().resolve("codegraph.head")).doesNotExist();
+    }
+
+    @Test
+    void baselineDeletionRefusesSymlinkedDirectoriesAndPathEscape(@TempDir Path temp)
+            throws IOException
+    {
+        PinnedCodeGraphService service = service(new CodeGraphCli(Optional.empty(), git), temp);
+        Path base = service.baselineDirectory(REPOSITORY);
+        Path external = Files.createDirectory(temp.resolve("outside"));
+        Path preserved = Files.writeString(external.resolve("keep.txt"), "keep");
+        Files.createDirectories(base.getParent());
+        Files.createSymbolicLink(base, external);
+        assertThatThrownBy(() -> service.deleteBaseline(REPOSITORY)).isInstanceOf(CodeGraphException.class);
+
+        Files.delete(base);
+        Files.delete(base.getParent());
+        Files.createSymbolicLink(base.getParent(), external);
+        assertThatThrownBy(() -> service.deleteBaseline(REPOSITORY)).isInstanceOf(CodeGraphException.class);
+
+        Files.delete(base.getParent());
+        Files.delete(temp.resolve("baselines"));
+        Files.createSymbolicLink(temp.resolve("baselines"), external);
+        assertThatThrownBy(() -> service.deleteBaseline(REPOSITORY)).isInstanceOf(CodeGraphException.class);
+        assertThatThrownBy(() -> service.deleteBaseline(new RepositoryIdentity("..", "outside"))).isInstanceOf(CodeGraphException.class);
+        assertThat(preserved).hasContent("keep");
     }
 
     private PinnedCodeGraphService service(CodeGraphCli cli, Path temp)

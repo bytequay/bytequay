@@ -22,6 +22,7 @@ import type {
 } from './types';
 
 type Props = {
+  initialRepositoryId?: number;
   onAdded: (workspace: WorkspaceDto) => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onClose: () => void;
@@ -133,13 +134,13 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
   );
 }
 
-export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Props) {
+export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorkspace, onClose }: Props) {
   const [repos, setRepos] = useState<RepositorySearchResultDto[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<RepositorySearchResultDto | null>(null);
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<number | null>(initialRepositoryId ?? null);
   const [preview, setPreview] = useState<WatchRepositoryPreviewDto | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(initialRepositoryId !== undefined);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -149,6 +150,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
   }, []);
 
   useEffect(() => {
+    if (selectedRepositoryId !== null) return;
     const trimmed = query.trim();
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -163,24 +165,24 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, selectedRepositoryId]);
 
   useEffect(() => {
-    if (!selected) return;
+    if (selectedRepositoryId === null) return;
     let cancelled = false;
     setPreviewLoading(true);
-    window.bridge.previewWatch(selected.id)
+    window.bridge.previewWatch(selectedRepositoryId)
       .then(result => { if (!cancelled) setPreview(result); })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setPreviewLoading(false); });
     return () => { cancelled = true; };
-  }, [selected]);
+  }, [selectedRepositoryId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || adding) return;
-      if (selected) {
-        setSelected(null);
+      if (selectedRepositoryId !== null) {
+        setSelectedRepositoryId(null);
         setPreview(null);
         setError(null);
       } else {
@@ -189,10 +191,10 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [adding, onClose, selected]);
+  }, [adding, onClose, selectedRepositoryId]);
 
   const pick = (repo: RepositorySearchResultDto) => {
-    setSelected(repo);
+    setSelectedRepositoryId(repo.id);
     setPreview(null);
     setError(null);
   };
@@ -219,7 +221,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
   };
 
   const back = () => {
-    setSelected(null);
+    setSelectedRepositoryId(null);
     setPreview(null);
     setError(null);
     window.setTimeout(() => inputRef.current?.focus());
@@ -228,7 +230,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
   return (
     <div className="modal-overlay" onClick={() => { if (!adding) onClose(); }}>
       <div className="modal" onClick={event => event.stopPropagation()}>
-        {!selected && (
+        {selectedRepositoryId === null && (
           <>
             <div className="modal__header">
               <h2 className="modal__title">Watch a repository</h2>
@@ -290,7 +292,7 @@ export default function AddRepoModal({ onAdded, onOpenWorkspace, onClose }: Prop
           </>
         )}
 
-        {selected && (
+        {selectedRepositoryId !== null && (
           <>
             <div className="modal__header">
               <button className="modal__back" disabled={adding} onClick={back} type="button">‹ Search</button>

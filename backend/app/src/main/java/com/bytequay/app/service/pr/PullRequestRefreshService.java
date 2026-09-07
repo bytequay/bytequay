@@ -15,6 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -28,7 +29,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -113,14 +116,15 @@ public class PullRequestRefreshService
         }
         try {
             pullRequests.syncFromGitHub(false);
-            workspaces.findAll().stream()
-                    .map(Workspace::monitoredRepository)
-                    .distinct()
-                    .forEach(pullRequests::syncRepository);
         }
         finally {
             refreshLock.unlock();
         }
+        // Workspace refreshes take their workspace lock before the shared PR refresh lock.
+        Set<RepoRef> repositories = new HashSet<>();
+        workspaces.findAll().stream()
+                .filter(workspace -> repositories.add(workspace.monitoredRepository()))
+                .forEach(workspace -> refreshWorkspace(workspace.id()));
     }
 
     private void refreshDashboardIfStale()
@@ -141,6 +145,21 @@ public class PullRequestRefreshService
     {
         requireNonNull(repository, "repository is null");
         refresh(() -> pullRequests.syncRepository(repository));
+    }
+
+    /** Rechecks current workspace membership and routing while excluding local workspace deletion. */
+    public void refreshWorkspace(String workspaceId)
+    {
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            if (workspaces.isWatched(workspaceId)) {
+                workspaces.findById(workspaceId).map(Workspace::monitoredRepository).ifPresent(this::refreshRepository);
+            }
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     private void refresh(Runnable action)

@@ -26,6 +26,8 @@ import type {
   WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
+import DeleteWorkspaceDialog from './DeleteWorkspaceDialog';
+import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import '../css/settings.css';
 import '../css/workspaces.css';
 
@@ -38,6 +40,9 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [workspaceChoices, setWorkspaceChoices] = useState<WorkspaceDto[]>([workspace]);
   const [error, setError] = useState<string | null>(null);
+  const [unwatching, setUnwatching] = useState(false);
+  const [confirmUnwatch, setConfirmUnwatch] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const report = (failure: unknown) =>
     setError(failure instanceof Error ? failure.message : String(failure));
@@ -59,15 +64,20 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
     void window.bridge.listWorkspaces().then(setWorkspaceChoices).catch(() => {});
   }, [workspace.id]);
 
-  const remove = async () => {
-    if (!window.confirm(`Remove ${workspace.name} from ByteQuay?`)) return;
+  const unwatch = async () => {
+    if (unwatching) return;
+    setUnwatching(true);
     setError(null);
     try {
       await window.bridge.removeWorkspace(workspace.id);
+      setConfirmUnwatch(false);
       onRemoved();
     }
     catch (failure) {
       report(failure);
+    }
+    finally {
+      setUnwatching(false);
     }
   };
 
@@ -114,14 +124,36 @@ export default function WorkspaceSettings({ workspace, onWorkspaceChanged, onRem
         <section className="sets-card wss-danger">
           <div className="sets-row">
             <div className="sets-row-main">
-              <div className="sets-name">Remove workspace</div>
+              <div className="sets-name">Unwatch workspace</div>
+              <div className="sets-row-sub">Move it to Retired and keep all local data. Open saved tasks and files there, or watch it again.</div>
             </div>
-            <button type="button" className="sets-btn is-danger" onClick={() => { void remove(); }}>
-              Remove…
+            <button type="button" className="sets-btn" disabled={unwatching} onClick={() => { setError(null); setConfirmUnwatch(true); }}>
+              {unwatching ? 'Unwatching…' : 'Unwatch'}
+            </button>
+          </div>
+          <div className="sets-row">
+            <div className="sets-row-main">
+              <div className="sets-name">Delete workspace local data</div>
+              <div className="sets-row-sub">Delete the checkout, tasks, and settings. Keep the GitHub repository and fork.</div>
+            </div>
+            <button type="button" className="sets-btn is-danger" disabled={unwatching} onClick={() => setDeleting(true)}>
+              Delete…
             </button>
           </div>
         </section>
       </div>
+      {confirmUnwatch && <UnwatchWorkspaceDialog
+        workspace={workspace}
+        busy={unwatching}
+        error={error}
+        onConfirm={() => { void unwatch(); }}
+        onCancel={() => setConfirmUnwatch(false)}
+      />}
+      {deleting && <DeleteWorkspaceDialog
+        workspace={workspace}
+        onDeleted={onRemoved}
+        onCancel={() => setDeleting(false)}
+      />}
     </div>
   );
 }

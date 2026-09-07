@@ -93,6 +93,7 @@ const bridge: Bridge = {
   previewWatch: selectedRepositoryId => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId),
   watchRepository: command => ipcRenderer.invoke('workspaces:watch', command),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
+  listRetiredWorkspaces: () => ipcRenderer.invoke('workspaces:list-retired'),
   getWorkspace: workspaceId => ipcRenderer.invoke('workspaces:get', workspaceId),
   getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
   fetchWorkspaceIssues: (workspaceId, page, pageSize) => ipcRenderer.invoke('workspaces:issues', workspaceId, page, pageSize),
@@ -114,6 +115,8 @@ const bridge: Bridge = {
   setWorkspaceUpstream: (workspaceId, upstreamRepositoryId) =>
     ipcRenderer.invoke('workspaces:upstream', workspaceId, upstreamRepositoryId),
   removeWorkspace: workspaceId => ipcRenderer.invoke('workspaces:remove', workspaceId),
+  deleteWorkspace: (workspaceId, confirmed, repositoryName) =>
+    ipcRenderer.invoke('workspaces:delete', workspaceId, confirmed, repositoryName),
   getUserProfile: () => ipcRenderer.invoke('repos:profile'),
   getGitHubUserProfile: login => ipcRenderer.invoke('repos:user-profile', login),
   getContributionCalendar: login => ipcRenderer.invoke('repos:contribution', login),

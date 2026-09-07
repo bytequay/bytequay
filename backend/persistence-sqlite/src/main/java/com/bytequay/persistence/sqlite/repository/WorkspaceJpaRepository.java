@@ -22,7 +22,11 @@ import java.util.Optional;
 public interface WorkspaceJpaRepository
         extends JpaRepository<WorkspaceEntity, String>
 {
+    List<WorkspaceEntity> findAllByWatchedTrueOrderByDisplayOrderAscCreatedAtAsc();
+
     List<WorkspaceEntity> findAllByOrderByDisplayOrderAscCreatedAtAsc();
+
+    boolean existsByIdAndWatchedTrue(String workspaceId);
 
     Optional<WorkspaceEntity> findBySelectedRepositoryId(long selectedRepositoryId);
 

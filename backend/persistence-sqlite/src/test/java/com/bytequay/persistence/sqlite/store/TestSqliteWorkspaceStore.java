@@ -13,12 +13,33 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.core.ci.CiAutofixAttempt;
+import com.bytequay.core.ci.CiAutofixAttemptId;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.rebase.BranchRebase;
+import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
+import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
+import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
+import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
+import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
+import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -57,6 +78,15 @@ class TestSqliteWorkspaceStore
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private EntityManager entities;
+
+    @Autowired
+    private SqliteAgentTaskStore tasks;
+
+    @Autowired
+    private SqliteRecentStore recent;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -98,6 +128,251 @@ class TestSqliteWorkspaceStore
 
         assertThat(repeated.id()).isEqualTo(first.id());
         assertThat(repository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void unwatchRetainsIdentityAndRoutingUntilExplicitlyWatchedAgain()
+    {
+        Workspace direct = store.createOrGet(direct("direct", 100, 0));
+        Workspace fork = store.createOrGet(fork("fork", 200, 300, 1));
+        assertThat(store.isWatched(fork.id())).isTrue();
+
+        store.setWatched(fork.id(), false);
+
+        assertThat(store.isWatched(fork.id())).isFalse();
+        assertThat(jdbc.queryForObject("SELECT watched FROM watched_repo_workspaces WHERE id = ?", Boolean.class, fork.id())).isFalse();
+        assertThat(store.findAll()).containsExactly(direct);
+        assertThat(store.findAllRetained()).containsExactly(direct, fork);
+        assertThat(store.findById(fork.id())).contains(fork);
+        assertThat(store.findBySelectedRepositoryId(fork.selectedRepositoryId())).contains(fork);
+        assertThat(store.createOrGet(fork("replacement", 200, 300, 2))).isEqualTo(fork);
+        assertThat(store.isWatched(fork.id())).isFalse();
+
+        Workspace renamed = store.save(fork.withName("Retained local work", NOW.plusSeconds(60)));
+        assertThat(store.findAll()).containsExactly(direct);
+        assertThat(store.isWatched(fork.id())).isFalse();
+
+        store.setWatched(fork.id(), true);
+
+        assertThat(store.isWatched(fork.id())).isTrue();
+        assertThat(store.findAll()).containsExactly(direct, renamed);
+        assertThat(renamed.id()).isEqualTo(fork.id());
+        assertThat(renamed.localRepositoryPath()).isEqualTo(fork.localRepositoryPath());
+        assertThat(renamed.upstreamRepositoryId()).isEqualTo(fork.upstreamRepositoryId());
+        assertThat(repository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void unknownWorkspaceCannotBeWatched()
+    {
+        assertThat(store.isWatched("missing")).isFalse();
+        assertThatThrownBy(() -> store.setWatched("missing", true))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Workspace not found: missing");
+        assertThat(store.findAllRetained()).isEmpty();
+    }
+
+    @Test
+    void deletePurgesOwnedDataAndPreservesRetainedSharedAndAccountData()
+    {
+        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
+        Workspace retained = store.createOrGet(workspace(
+                "retained", 201, RepoRef.of("other", "project"), Optional.of(300L), Optional.of(RepoRef.of("upstream", "project")),
+                300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
+        store.setWatched(retained.id(), false);
+        for (Workspace workspace : ImmutableList.of(removed, retained)) {
+            jdbc.update("INSERT INTO workspace_credentials (workspace_id, ciphertext, login) VALUES (?, 'encrypted', 'owner')", workspace.id());
+            jdbc.update("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, 'model')", "workspace.agentModel." + workspace.id());
+            jdbc.update("INSERT INTO commit_refresh_metadata (workspace_id, error) VALUES (?, 'retained')", workspace.id());
+            jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES (?, ?, 'extra', 'https://github.com/extra/project.git')",
+                    workspace.id() + ":extra", workspace.id());
+        }
+        for (long repositoryId : ImmutableList.of(200L, 201L, 300L)) {
+            jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (?, ?)", repositoryId, NOW.toString());
+            jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
+        }
+        long ownedPr = insertPullRequest("contributor/project", 1, false, false);
+        long sharedPr = insertPullRequest("upstream/project", 2, false, false);
+        long dashboardPr = insertPullRequest("contributor/project", 3, true, false);
+        long monitoredPr = insertPullRequest("contributor/project", 4, false, true);
+        for (long prId : ImmutableList.of(ownedPr, sharedPr, dashboardPr, monitoredPr)) {
+            jdbc.update("INSERT INTO pr_view_state (pr_id, viewed_at) VALUES (?, ?)", prId, NOW.toString());
+        }
+
+        store.delete(removed.id());
+
+        assertThat(store.findById(removed.id())).isEmpty();
+        assertThat(store.findAllRetained()).containsExactly(retained);
+        assertThat(store.isWatched(retained.id())).isFalse();
+        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources")) {
+            assertThat(jdbc.queryForList("SELECT workspace_id FROM " + table, String.class)).containsExactly(retained.id());
+        }
+        assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class)).containsExactly("workspace.agentModel." + retained.id());
+        assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
+        assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
+        assertThat(jdbc.queryForList("SELECT id FROM pull_requests ORDER BY id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
+        assertThat(jdbc.queryForList("SELECT pr_id FROM pr_view_state ORDER BY pr_id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
+    }
+
+    @Test
+    void extraRemoteProtectsRepositoryCacheWithoutResolvedProviderIdentity()
+    {
+        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
+        Workspace retained = store.createOrGet(direct("retained", 100, 1));
+        jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES ('remote', ?, 'extra', 'git@github.com:contributor/project.git')",
+                retained.id());
+        jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (200, ?)", NOW.toString());
+
+        store.delete(removed.id());
+
+        assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync", Long.class)).containsExactly(200L);
+        assertThat(jdbc.queryForList("SELECT id FROM workspace_remote_sources", String.class)).containsExactly("remote");
+    }
+
+    @Test
+    void recentWordsAndTouchesFollowIssueAndPullRequestOwnership()
+    {
+        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
+        Workspace retained = store.createOrGet(workspace(
+                "retained", 201, RepoRef.of("other", "project"), Optional.of(300L), Optional.of(RepoRef.of("upstream", "project")),
+                300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
+        long removedPr = insertPullRequest("contributor/project", 1, false, false);
+        long dashboardPr = insertPullRequest("contributor/project", 2, true, false);
+        insertPullRequest("contributor/project", 3, false, true);
+        insertPullRequest("upstream/project", 4, false, false);
+        jdbc.update("UPDATE pull_requests SET repo = 'Contributor/Project' WHERE id IN (?, ?)", removedPr, dashboardPr);
+        entities.clear();
+        insertRecent("issue:Contributor/Project#10", "ISSUE", "Contributor/Project", 10, removed.id());
+        insertRecent("issue:upstream/project#11", "ISSUE", "upstream/project", 11, removed.id());
+        insertRecent("pr:Contributor/Project#1", "PULL_REQUEST", "Contributor/Project", 1, removed.id());
+        insertRecent("pr:Contributor/Project#2", "PULL_REQUEST", "Contributor/Project", 2, removed.id());
+        insertRecent("pr:contributor/project#3", "PULL_REQUEST", "contributor/project", 3, removed.id());
+        insertRecent("pr:upstream/project#4", "PULL_REQUEST", "upstream/project", 4, removed.id());
+
+        store.delete(removed.id());
+
+        assertThat(recent.findTextContaining("words", 30)).extracting(RecentText::itemKey)
+                .containsOnly("issue:upstream/project#11", "pr:Contributor/Project#2", "pr:contributor/project#3", "pr:upstream/project#4");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recent_text", Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForList("SELECT item_key FROM recent_touch", String.class))
+                .containsExactlyInAnyOrder("issue:upstream/project#11", "pr:Contributor/Project#2", "pr:contributor/project#3", "pr:upstream/project#4");
+        assertThat(jdbc.queryForObject("SELECT workspace_id FROM recent_touch WHERE item_key = 'issue:upstream/project#11'", String.class)).isEqualTo(retained.id());
+        assertThat(jdbc.queryForObject("SELECT workspace_id FROM recent_touch WHERE item_key = 'pr:Contributor/Project#2'", String.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_requests WHERE id = ?", Integer.class, removedPr)).isZero();
+        assertThat(jdbc.queryForObject("SELECT workspace_visible FROM pull_requests WHERE id = ?", Boolean.class, dashboardPr)).isFalse();
+    }
+
+    private void insertRecent(String key, String type, String repo, int number, String workspaceId)
+    {
+        jdbc.update("""
+                INSERT INTO recent_touch (id, item_type, item_key, touch_day, touched_at, reason, reason_count, item_number, title, repo, workspace_id, mine)
+                VALUES (?, ?, ?, '2026-08-21', ?, 'COMMENTED', 1, ?, 'Title', ?, ?, 1)
+                """, key + "@2026-08-21", type, key, NOW.toString(), number, repo, workspaceId);
+        for (String kind : ImmutableList.of("COMMENT", "DRAFT")) {
+            jdbc.update("""
+                    INSERT INTO recent_text (id, item_type, item_key, kind, body, written_at, item_number, repo)
+                    VALUES (?, ?, ?, ?, 'words', ?, ?, ?)
+                    """, key + ":" + kind, type, key, kind, NOW.toString(), number, repo);
+        }
+    }
+
+    @Test
+    void allWorkflowHistoryIsCheckedAndPurgedWithoutRecentListLimits()
+    {
+        Workspace workspace = store.createOrGet(direct("workflow", 100, 0));
+        CiAutofixRun active = ciRun(workspace.id(), 0);
+        entities.persist(CiAutofixRunEntity.fromDomain(active));
+        for (int index = 1; index <= 205; index++) {
+            CiAutofixRun run = ciRun(workspace.id(), index).finish(CiAutofixRun.FinishReason.CANCELLED, "finished", NOW.plusSeconds(index));
+            entities.persist(CiAutofixRunEntity.fromDomain(run));
+            CiAutofixAttempt attempt = CiAutofixAttempt.create(
+                    CiAutofixAttemptId.random(), run.id(), 1, "a".repeat(40),
+                    ImmutableList.of(new CiAutofixAttempt.FailureEvidence("failure", "Failed", 1, 1, 1, 1, Optional.empty())), NOW);
+            entities.persist(CiAutofixAttemptEntity.fromDomain(attempt));
+        }
+        entities.flush();
+        assertThat(store.hasActiveWorkflows(workspace.id())).isTrue();
+        assertThatThrownBy(() -> store.delete(workspace.id())).isInstanceOf(IllegalStateException.class).hasMessageContaining("active workflow");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ci_autofix_run", Integer.class)).isEqualTo(206);
+        jdbc.update("UPDATE ci_autofix_run SET terminal_at = ?, status = 'FINISHED', active_branch_slot = NULL WHERE id = ?", NOW.toString(), active.id().toString());
+        entities.clear();
+        assertThat(store.hasActiveWorkflows(workspace.id())).isFalse();
+
+        store.delete(workspace.id());
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ci_autofix_run", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ci_autofix_attempt", Integer.class)).isZero();
+        assertThat(store.findAllRetained()).isEmpty();
+    }
+
+    @Test
+    void legacyCiPathRetainsTheWorkspaceAssociation()
+    {
+        Workspace workspace = store.createOrGet(direct("legacy-ci", 100, 0));
+        CiAutofixRun run = ciRun(workspace.id(), 0);
+        entities.persist(CiAutofixRunEntity.fromDomain(run));
+        entities.flush();
+        jdbc.update("UPDATE ci_autofix_run SET workspace_id = NULL, worktree = ? WHERE id = ?", workspace.localRepositoryPath(), run.id().toString());
+        entities.clear();
+
+        assertThat(store.hasActiveWorkflows(workspace.id())).isTrue();
+        jdbc.update("UPDATE ci_autofix_run SET terminal_at = ?, status = 'FINISHED', active_branch_slot = NULL WHERE id = ?", NOW.toString(), run.id().toString());
+
+        store.delete(workspace.id());
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ci_autofix_run", Integer.class)).isZero();
+    }
+
+    @Test
+    void taskDeletionRejectsActiveRebasesAndRemovesFinishedRebaseAssociations()
+    {
+        Workspace workspace = store.createOrGet(direct("with-task", 100, 0));
+        AgentTask task = AgentTask.created(TaskId.random(), Optional.of(workspace.id()), false, "Retained task", AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("owner", "project"), Path.of("/tmp/task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        tasks.insert(task);
+        BranchRebase rebase = BranchRebase.create(BranchRebaseId.random(), "rebase", task.id().toString(), RepoRef.of("owner", "project"),
+                task.worktree(), "feature", "main", "a".repeat(40), "b".repeat(40), NOW);
+        entities.persist(BranchRebaseEntity.fromDomain(rebase));
+        entities.flush();
+
+        assertThat(store.hasActiveWorkflows(workspace.id())).isTrue();
+        assertThatThrownBy(() -> tasks.delete(task.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("active branch rebase");
+        jdbc.update("UPDATE branch_rebase SET terminal_at = ?, status = 'FINISHED' WHERE id = ?", NOW.toString(), rebase.id().toString());
+        entities.clear();
+        assertThatThrownBy(() -> store.delete(workspace.id())).isInstanceOf(IllegalStateException.class).hasMessageContaining("agent tasks");
+
+        tasks.delete(task.id());
+        store.delete(workspace.id());
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM branch_rebase", Integer.class)).isZero();
+        assertThat(tasks.find(task.id())).isEmpty();
+        assertThat(store.findById(workspace.id())).isEmpty();
+    }
+
+    private long insertPullRequest(String repo, int number, boolean dashboard, boolean monitored)
+    {
+        PullRequestEntity entity = new PullRequestEntity();
+        entity.setRepo(repo);
+        entity.setNumber(number);
+        entity.setTitle("PR " + number);
+        entity.setOrigin("AUTHORED");
+        entity.setLabels(ImmutableList.of());
+        entity.setSyncedAt(NOW);
+        entity.setDashboardVisible(dashboard);
+        entity.setWorkspaceVisible(true);
+        entity.setMonitoredAt(monitored ? NOW : null);
+        entities.persist(entity);
+        entities.flush();
+        return entity.getId();
+    }
+
+    private static CiAutofixRun ciRun(String workspaceId, int index)
+    {
+        return CiAutofixRun.create(CiAutofixRunId.random(), "run-" + index,
+                new CiAutofixRun.Scope(PullRequestRef.of("owner", "project", index + 1), workspaceId, Optional.of(RepoRef.of("owner", "project")),
+                        "author", "branch-" + index, "main", "codex"),
+                "a".repeat(40), "a".repeat(40), "b".repeat(40),
+                new CiAutofixRun.Authorization(false, false, false, 1, NOW, NOW.plusSeconds(3600)), NOW);
     }
 
     @Test

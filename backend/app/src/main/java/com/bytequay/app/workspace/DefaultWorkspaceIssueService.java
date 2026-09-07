@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -101,49 +102,70 @@ public final class DefaultWorkspaceIssueService
     @Override
     public PrTimelineEvent comment(String workspaceId, int issueNumber, String body)
     {
-        requireNotBlank(body, "comment body must not be blank");
-        Workspace workspace = requireWorkspace(workspaceId);
-        PrTimelineEvent created = issueWrites.createIssueComment(
-                credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
-        RepositoryIssueDetail current = details.find(workspace.monitoredRepositoryId(), issueNumber)
-                .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
-        details.save(current.append(created));
-        recent.issueAction(workspaceId, issueNumber, RecentReason.COMMENTED);
-        recent.wroteOnIssue(
-                workspaceId,
-                issueNumber,
-                RecentTextKind.COMMENT,
-                "comment:" + (created.githubId() == null ? created.timestamp() : created.githubId()),
-                body.trim());
-        return created;
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            requireNotBlank(body, "comment body must not be blank");
+            Workspace workspace = requireWorkspace(workspaceId);
+            PrTimelineEvent created = issueWrites.createIssueComment(
+                    credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
+            RepositoryIssueDetail current = details.find(workspace.monitoredRepositoryId(), issueNumber)
+                    .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
+            details.save(current.append(created));
+            recent.issueAction(workspaceId, issueNumber, RecentReason.COMMENTED);
+            recent.wroteOnIssue(
+                    workspaceId,
+                    issueNumber,
+                    RecentTextKind.COMMENT,
+                    "comment:" + (created.githubId() == null ? created.timestamp() : created.githubId()),
+                    body.trim());
+            return created;
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     @Override
     public void close(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
-        issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
-        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
-        issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
+            recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
+            issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     @Override
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
-        String normalized = type;
-        if (normalized != null) {
-            requireNotBlank(normalized, "issue type must not be blank");
-            normalized = normalized.trim();
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            String normalized = type;
+            if (normalized != null) {
+                requireNotBlank(normalized, "issue type must not be blank");
+                normalized = normalized.trim();
+            }
+            String current = issueWrites.updateIssueType(
+                    credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), normalized);
+            RepositoryIssueDetail detail = details.find(workspace.monitoredRepositoryId(), issueNumber)
+                    .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber))
+                    .withType(current);
+            details.save(detail);
+            recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
+            return new IssueTypeOptions(current, detail.availableTypes());
         }
-        String current = issueWrites.updateIssueType(
-                credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), normalized);
-        RepositoryIssueDetail detail = details.find(workspace.monitoredRepositoryId(), issueNumber)
-                .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber))
-                .withType(current);
-        details.save(detail);
-        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
-        return new IssueTypeOptions(current, detail.availableTypes());
+        finally {
+            lock.unlock();
+        }
     }
 
     @Override
@@ -153,22 +175,29 @@ public final class DefaultWorkspaceIssueService
             List<String> assignees,
             List<String> labels)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
-        List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
-        List<String> normalizedLabels = normalizeNames(labels, "labels");
-        GitHubPullRequestWriteClient.IssueMetadata updated = issueWrites.updateIssueMetadata(
-                credentials.resolveGitHubToken(),
-                issueRef(workspace, issueNumber),
-                normalizedAssignees,
-                normalizedLabels);
-        issues.updateMetadata(
-                workspace.monitoredRepositoryId(),
-                issueNumber,
-                updated.assignees(),
-                updated.labels(),
-                updated.updatedAt() == null ? clock.instant() : updated.updatedAt());
-        recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
-        return new IssueMetadata(updated.assignees(), updated.labels());
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            Workspace workspace = requireWorkspace(workspaceId);
+            List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
+            List<String> normalizedLabels = normalizeNames(labels, "labels");
+            GitHubPullRequestWriteClient.IssueMetadata updated = issueWrites.updateIssueMetadata(
+                    credentials.resolveGitHubToken(),
+                    issueRef(workspace, issueNumber),
+                    normalizedAssignees,
+                    normalizedLabels);
+            issues.updateMetadata(
+                    workspace.monitoredRepositoryId(),
+                    issueNumber,
+                    updated.assignees(),
+                    updated.labels(),
+                    updated.updatedAt() == null ? clock.instant() : updated.updatedAt());
+            recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
+            return new IssueMetadata(updated.assignees(), updated.labels());
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     private static List<String> normalizeNames(List<String> values, String name)

@@ -20,6 +20,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,9 +29,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestCodeGraphBaselineRefresher
 {
@@ -113,9 +117,47 @@ class TestCodeGraphBaselineRefresher
         assertThat(codeGraph.refreshes).isEmpty();
     }
 
+    @Test
+    void skipsAQueuedRefreshAfterWorkspaceDeletion(@TempDir Path temp)
+            throws IOException
+    {
+        FakeCodeGraphService codeGraph = new FakeCodeGraphService();
+        Fixture fixture = Fixture.create(temp, git, true);
+        WorkspaceStore store = mock(WorkspaceStore.class);
+        when(store.findById(fixture.workspace.id())).thenReturn(Optional.of(fixture.workspace));
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        CodeGraphBaselineRefresher refresher = new CodeGraphBaselineRefresher(codeGraph, fixture.paths, git, store, queued::set);
+
+        refresher.refreshAfterFetch(fixture.workspace);
+        when(store.findById(fixture.workspace.id())).thenReturn(Optional.empty());
+        queued.get().run();
+
+        assertThat(codeGraph.refreshes).isEmpty();
+    }
+
+    @Test
+    void skipsAQueuedRefreshWhenTheCheckoutWasRemoved(@TempDir Path temp)
+            throws IOException
+    {
+        FakeCodeGraphService codeGraph = new FakeCodeGraphService();
+        Fixture fixture = Fixture.create(temp, git, true);
+        WorkspaceStore store = mock(WorkspaceStore.class);
+        when(store.findById(fixture.workspace.id())).thenReturn(Optional.of(fixture.workspace));
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        CodeGraphBaselineRefresher refresher = new CodeGraphBaselineRefresher(codeGraph, fixture.paths, git, store, queued::set);
+
+        refresher.refreshAfterFetch(fixture.workspace);
+        Files.move(fixture.repository, temp.resolve("removed-checkout"));
+        queued.get().run();
+
+        assertThat(codeGraph.refreshes).isEmpty();
+    }
+
     private CodeGraphBaselineRefresher refresher(FakeCodeGraphService codeGraph, Fixture fixture)
     {
-        return new CodeGraphBaselineRefresher(codeGraph, fixture.paths, git, Runnable::run);
+        WorkspaceStore store = mock(WorkspaceStore.class);
+        when(store.findById(fixture.workspace.id())).thenReturn(Optional.of(fixture.workspace));
+        return new CodeGraphBaselineRefresher(codeGraph, fixture.paths, git, store, Runnable::run);
     }
 
     private record Fixture(WorkspacePaths paths, Workspace workspace, Path repository, String head)

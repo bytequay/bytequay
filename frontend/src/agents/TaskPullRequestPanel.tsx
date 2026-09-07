@@ -13,9 +13,10 @@
  */
 
 import { GitPullRequest } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DiffViewer } from '../pulls/PullChanges';
 import PullOverview, { remoteErrorMessage, type PullDetailUpdater } from '../pulls/PullOverview';
+import { usePullRequestDetail, type PullRequestDetailSource } from '../pulls/usePullRequestDetail';
 import type { DiffCommitDto, DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
 
 /** Identifies a pull request the way GitHub addresses it, so a re-read can be matched to its row. */
@@ -49,80 +50,18 @@ export function samePullRequest(href: string | null, pr: PullRequestDto): boolea
   return path.endsWith(`/${pr.repo.toLowerCase()}/pull/${pr.number}`);
 }
 
-export interface TaskPullRequestDetail {
-  /** The detail for the requested pull request, or null while it is unread. */
-  detail: PullRequestDetailDto | null;
-  loading: boolean;
-  error: string | null;
-  refresh: () => Promise<void>;
-  update: PullDetailUpdater;
-  replace: (detail: PullRequestDetailDto) => void;
-}
+export type TaskPullRequestDetail = PullRequestDetailSource;
 
 /**
- * The selected pull request's detail, read once per pull request and again on demand.
+ * The task's pull request detail, read and kept current exactly as the pull-request page reads it.
  *
- * ponytail: no polling loop here. The pull-request screen owns the six-second refresh; this panel
- * reads a task's own pull request beside its conversation, and the branch refresh that discovers
- * the row already re-runs when a turn ends. A second loop would spend the same GitHub quota twice.
+ * The panel used to read the stored snapshot once and stop, on the premise that the branch refresh
+ * at the end of a turn would carry new activity in. It does not — that sync writes list rows and
+ * never touches the detail snapshot — so the panel showed a timeline frozen at whatever the last
+ * refresh happened to write, and merge-queue traffic hours old simply never appeared.
  */
 export function useTaskPullRequestDetail(pr: PullRequestDto | null, active: boolean): TaskPullRequestDetail {
-  const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
-  const [loadedKey, setLoadedKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const repo = pr?.repo ?? null;
-  const number = pr?.number ?? null;
-  const key = reference(pr);
-
-  useEffect(() => {
-    if (!active || repo === null || number === null || key === null || loadedKey === key) return;
-    let live = true;
-    setLoading(true);
-    setError(null);
-    window.bridge.fetchPullRequestDetailByRef(repo, number)
-      .then((value) => {
-        if (!live) return;
-        setDetail(value);
-        setLoadedKey(key);
-      })
-      .catch((failure: unknown) => {
-        if (live) setError(remoteErrorMessage(failure));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => { live = false; };
-  }, [active, key, loadedKey, number, repo]);
-
-  const refresh = useCallback(async () => {
-    if (repo === null || number === null || key === null) return;
-    try {
-      const value = await window.bridge.refreshAllPullRequestDetailByRef(repo, number);
-      setDetail(value);
-      setLoadedKey(key);
-      setError(null);
-    }
-    catch (failure) {
-      setError(remoteErrorMessage(failure));
-    }
-  }, [key, number, repo]);
-
-  const update = useCallback<PullDetailUpdater>((updatedRepo, updatedNumber, change) => {
-    setDetail((current) => (current !== null
-      && current.repo.toLowerCase() === updatedRepo.toLowerCase()
-      && current.number === updatedNumber
-      ? change(current)
-      : current));
-  }, []);
-
-  const replace = useCallback((value: PullRequestDetailDto) => {
-    setDetail(value);
-    setLoadedKey(`${value.repo.toLowerCase()}#${value.number}`);
-  }, []);
-
-  // A detail read for an earlier pull request must never be drawn under the current one's tab.
-  return { detail: loadedKey === key ? detail : null, loading, error, refresh, update, replace };
+  return usePullRequestDetail(pr === null ? null : { repo: pr.repo, number: pr.number }, { active });
 }
 
 /** What a panel rendered without a live bridge — a static render, a preview, a test — has read. */

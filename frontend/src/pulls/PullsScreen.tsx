@@ -16,13 +16,18 @@ import { Check, Diff, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw }
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, PullRequestStatusRefreshDto, UserProfileDto } from '../types';
+import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
+import {
+  DETAIL_REFRESH_INTERVAL,
+  mergePullRequestDetailStatus,
+  pullRequestDetailRefreshDelay,
+} from './usePullRequestDetail';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import {
   PULL_TABS,
@@ -44,19 +49,7 @@ const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
-const DETAIL_REFRESH_INTERVAL = 6_000;
-
-export function mergePullRequestDetailStatus<T>(current: T, status: PullRequestStatusRefreshDto): T & PullRequestStatusRefreshDto {
-  return { ...current, ...status };
-}
-
-export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()) {
-  const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
-  const resetAt = match ? Date.parse(match[1]) : Number.NaN;
-  return Number.isNaN(resetAt)
-    ? DETAIL_REFRESH_INTERVAL
-    : Math.max(DETAIL_REFRESH_INTERVAL, resetAt - now + 1_000);
-}
+export { mergePullRequestDetailStatus, pullRequestDetailRefreshDelay } from './usePullRequestDetail';
 
 export function returnedFromInAppBrowser(wasOpen: boolean, isOpen: boolean) {
   return wasOpen && !isOpen;

@@ -11,15 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type {
   CherryPickExecution,
   CherryPickExecutionItem,
-  PullRequestDetailDto,
   WorkspaceDeliveryStatus,
 } from '../types';
-import PullOverview, { mergePullRequestWriteDetail } from '../pulls/PullOverview';
+import PullOverview from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
+import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { completedExecutionItems, foldNav, pullRequestPanelRef, shortSha, taskState } from './model';
 
 type ItemView = {
@@ -561,30 +561,8 @@ function PrPanel({ workspaceId, slug, number, viewerLogin }: {
   number: number | null;
   viewerLogin: string | null;
 }) {
-  const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const detailState = useRef<PullRequestDetailDto | null>(null);
-  const mutationVersion = useRef(0);
-
-  useEffect(() => {
-    mutationVersion.current += 1;
-    detailState.current = null;
-    setDetail(null);
-    setError(null);
-    if (slug === null || number === null) return;
-    let cancelled = false;
-    window.bridge.fetchPullRequestDetailByRef(slug, number)
-      .then(value => {
-        if (!cancelled) {
-          detailState.current = value;
-          setDetail(value);
-        }
-      })
-      .catch(failure => {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
-      });
-    return () => { cancelled = true; };
-  }, [slug, number]);
+  const { detail, error, refresh, update, replace } = usePullRequestDetail(
+    slug === null || number === null ? null : { repo: slug, number });
 
   if (number === null || slug === null) {
     return (
@@ -604,32 +582,9 @@ function PrPanel({ workspaceId, slug, number, viewerLogin }: {
         pr={remotePullRequest(detail, viewerLogin ?? undefined)}
         detail={detail}
         contributorsWorkspaceId={workspaceId}
-        onRefresh={async () => {
-          const version = mutationVersion.current;
-          const response = await window.bridge.refreshAllPullRequestDetailByRef(slug, number);
-          const current = detailState.current;
-          const next = current !== null && version !== mutationVersion.current
-            ? mergePullRequestWriteDetail(current, response)
-            : response;
-          detailState.current = next;
-          setDetail(next);
-        }}
-        onDetailUpdate={(repo, pullNumber, update) => {
-          if (repo.toLowerCase() !== slug.toLowerCase() || pullNumber !== number) return;
-          const current = detailState.current;
-          if (current === null) return;
-          const next = update(current);
-          mutationVersion.current += 1;
-          detailState.current = next;
-          setDetail(next);
-        }}
-        onDetailChange={response => {
-          const current = detailState.current;
-          const next = current === null ? response : mergePullRequestWriteDetail(current, response);
-          mutationVersion.current += 1;
-          detailState.current = next;
-          setDetail(next);
-        }}
+        onRefresh={refresh}
+        onDetailUpdate={update}
+        onDetailChange={replace}
       />
       <div className="cmt-pr-footnote">
         Showing the pull request for the selected commit — pick another commit on the left to switch.

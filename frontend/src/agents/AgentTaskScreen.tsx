@@ -126,6 +126,7 @@ import type {
   ModelOptionDto,
   PullRequestDto,
   ToolCountersDto,
+  WorkspaceDto,
 } from '../types';
 
 export type PanelTab = 'agents' | 'prs';
@@ -164,6 +165,8 @@ export interface AgentTaskScreenProps {
   onBack: () => void;
   /** Opens the existing pull-request page for one found on the task's branch. */
   onOpenPullRequest?: (number: number) => void;
+  /** The workspace the task runs in; names the repository and base a draft pull request targets. */
+  workspace?: WorkspaceDto;
   /** Opens the provider settings used by authentication recovery. */
   onOpenSettings?: () => void;
 }
@@ -1080,6 +1083,29 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
  * not a second subscription. Once retention has removed the transcript the agent is still listed
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
+/**
+ * The fixed request behind the panel's Create draft PR button. It goes through the ordinary turn
+ * path, so the agent commits, pushes and opens the draft with its own tools under its usual
+ * approvals; ByteQuay itself writes nothing to GitHub here. A linked workspace's pull request
+ * targets the upstream it monitors, with the head named through the fork the branch is pushed to.
+ */
+export function draftPullRequestPrompt(workspace: WorkspaceDto): string {
+  const linked = workspace.upstreamOwner !== null;
+  const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+  const base = (linked ? workspace.upstreamDefaultBranch : null) ?? workspace.defaultBranch;
+  const head = linked ? `${workspace.selectedOwner}:<branch>` : '<branch>';
+  return [
+    'Open a draft pull request for this task.',
+    '',
+    '1. Commit any uncommitted changes on the current branch in focused commits with clear messages that follow the repository\'s conventions. Do not amend or rewrite commits that already exist.',
+    '2. Read the repository\'s pull request template if it has one (.github/PULL_REQUEST_TEMPLATE.md, .github/pull_request_template.md, PULL_REQUEST_TEMPLATE.md, docs/PULL_REQUEST_TEMPLATE.md, or a file under .github/PULL_REQUEST_TEMPLATE/). Write the title and description for what actually changed, filling in every section of the template; without one, describe what changed, why, and how it was verified.',
+    '3. Push the current branch: git push -u origin HEAD',
+    '4. Create the pull request as a draft with the GitHub CLI, where <branch> is the current branch name (git branch --show-current):',
+    `   gh pr create --draft --repo ${repository} --base ${base} --head ${head} --title "<title>" --body-file <a temporary file outside the checkout>`,
+    '5. Reply with the pull request URL. If the push or the GitHub CLI fails, report exactly what failed; do not publish another way.',
+  ].join('\n');
+}
+
 /** GitHub's state words, plus draft, as the pill a pull-request row wears. */
 function pullRequestPill(pr: PullRequestDto): { label: string; className: string } {
   if (pr.state === 'merged') return { label: 'Merged', className: 'is-merged' };
@@ -1143,12 +1169,27 @@ function PanelFrame({ label, tabs, width, children }: {
  * The pull requests on this task's branch. The branch is derived from the task, so this lists
  * whatever the user pushed and opened on it; selecting one goes to the existing pull-request page.
  */
-function PullRequestRows({ pullRequests, onOpen }: {
+function PullRequestRows({ pullRequests, onOpen, onCreate, createBlocked = null }: {
   pullRequests: PullRequestDto[];
   onOpen?: (number: number) => void;
+  /** Asks the agent to open a draft; absent when the screen has no workspace to name its base. */
+  onCreate?: () => void;
+  /** Why the draft cannot be asked for right now, or null when it can. */
+  createBlocked?: string | null;
 }): React.JSX.Element {
+  const create = onCreate === undefined ? null : (
+    <button
+      type="button"
+      className="agt-action agt-panel__create"
+      disabled={createBlocked !== null}
+      title={createBlocked ?? 'Asks the agent to commit, push this branch and open a draft pull request from the repository template'}
+      onClick={onCreate}
+    >
+      Create draft PR
+    </button>
+  );
   if (pullRequests.length === 0) {
-    return <div className="agt-muted agt-panel__empty">No pull requests from this task yet</div>;
+    return <><div className="agt-muted agt-panel__empty">No pull requests from this task yet</div>{create}</>;
   }
   return (
     <>
@@ -1172,6 +1213,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
           </button>
         );
       })}
+      {create}
     </>
   );
 }
@@ -1187,6 +1229,7 @@ function PullRequestRows({ pullRequests, onOpen }: {
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequests,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
+  onCreatePullRequest, createPullRequestBlocked = null,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -1208,6 +1251,8 @@ function SidePanel({
   onSelectTab: (tab: PanelTab) => void;
   onHide: () => void;
   onOpenPullRequest?: (number: number) => void;
+  onCreatePullRequest?: () => void;
+  createPullRequestBlocked?: string | null;
   width: number;
   showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
@@ -1221,7 +1266,7 @@ function SidePanel({
   if (tab === 'prs') {
     return (
       <PanelFrame label="Pull requests" tabs={tabs} width={width}>
-        <PullRequestRows pullRequests={pullRequests} onOpen={onOpenPullRequest} />
+        <PullRequestRows pullRequests={pullRequests} onOpen={onOpenPullRequest} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
       </PanelFrame>
     );
   }
@@ -1388,6 +1433,7 @@ export function AgentTaskBody({
   onCloseAgent = () => {},
   onSelectPanelTab = () => {},
   onOpenPullRequest,
+  onCreatePullRequest,
   onSteer: steer = () => {},
   onQueue = () => {},
   onRemoveQueued = () => {},
@@ -1454,6 +1500,8 @@ export function AgentTaskBody({
   pullRequests?: PullRequestDto[];
   onSelectPanelTab?: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
+  /** Asks the agent to open a draft pull request; absent when no workspace names its base. */
+  onCreatePullRequest?: () => void;
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
   /** Steer sends the draft into the running turn; Run next queues it behind that turn. */
@@ -1923,6 +1971,10 @@ export function AgentTaskBody({
             onSelectTab={onSelectPanelTab}
             onHide={onTogglePanel}
             onOpenPullRequest={onOpenPullRequest}
+            onCreatePullRequest={onCreatePullRequest}
+            createPullRequestBlocked={pullRequests.some((pr) => pr.state !== 'merged' && pr.state !== 'closed')
+              ? 'This branch already has an open pull request'
+              : status !== 'idle' || state.sending || state.connection === 'failed' ? 'Available once the agent is idle' : null}
             width={sidePanel.width}
             showAgents={supportsNestedAgents}
             logChoice={logChoice}
@@ -2004,6 +2056,7 @@ export default function AgentTaskScreen({
   bridge: explicitBridge,
   onBack,
   onOpenPullRequest,
+  workspace,
   onOpenSettings,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
@@ -2365,6 +2418,16 @@ export default function AgentTaskScreen({
     dispatch({ type: 'attachments/cleared' });
   }), [run, startTurn, state.attachments, state.composer, state.task, submissions, taskId]);
 
+  /** One click, one ordinary turn: the agent does the committing, pushing and opening itself. */
+  const createPullRequest = useCallback(() => run(async () => {
+    const current = stateRef.current;
+    const task = current.task;
+    if (task === null || workspace === undefined || runtimeStatus(current) !== 'idle' || current.sending) return;
+    const message = draftPullRequestPrompt(workspace);
+    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, [], task.defaults);
+    await startTurn(message, [], idempotencyKey, task.version);
+  }), [run, startTurn, submissions, taskId, workspace]);
+
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current) return;
     const message = state.composer.trim();
@@ -2698,6 +2761,7 @@ export default function AgentTaskScreen({
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}
+      onCreatePullRequest={workspace === undefined ? undefined : () => { void createPullRequest(); }}
       onSteer={() => { void steer(); }}
       onQueue={() => { void queueNext(); }}
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}

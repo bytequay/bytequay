@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList, creationBlocker, groupTasksByDay } from './AgentTasksView';
-import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
+import { AgentTaskBody, draftPullRequestPrompt, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
@@ -35,6 +35,7 @@ import type {
   ModelOptionDto,
   ModelSettingsDto,
   PullRequestDto,
+  WorkspaceDto,
 } from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
@@ -389,6 +390,30 @@ describe('agent task list', () => {
   });
 });
 
+function workspace(overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
+  return {
+    id: 'workspace-1',
+    name: 'bytequay',
+    selectedRepositoryId: 1,
+    selectedOwner: 'bytequay',
+    selectedRepo: 'bytequay',
+    upstreamRepositoryId: null,
+    upstreamOwner: null,
+    upstreamRepo: null,
+    monitoredRepositoryId: 1,
+    monitoredOwner: 'bytequay',
+    monitoredRepo: 'bytequay',
+    topology: 'DIRECT',
+    defaultBranch: 'main',
+    upstreamDefaultBranch: null,
+    localRepositoryPath: '/w',
+    lastCodeSyncAt: null,
+    lastMetadataSyncAt: null,
+    displayOrder: 0,
+    ...overrides,
+  };
+}
+
 function pullRequest(number: number, title: string, state = 'open', draft = false): PullRequestDto {
   return {
     id: number,
@@ -546,6 +571,46 @@ describe('agent task side panel', () => {
     // The row is a control: selecting it opens the pull-request page rather than a panel copy of it.
     expect(markup).toMatch(/<button[^>]*class="agt-panel__row"[^>]*title="Open this pull request"/);
     expect(markup).not.toContain('Description');
+  });
+
+  it('offers a draft pull request only while the agent is idle and the branch has none open', () => {
+    const create = { panelOpen: true, panelTab: 'prs' as const, onCreatePullRequest: () => {} };
+    const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...create} {...props} />);
+    expect(idle).toMatch(/<button type="button" class="agt-action agt-panel__create" title="Asks the agent[^"]*">Create draft PR<\/button>/);
+    // Without a workspace to name the base repository there is nothing to ask for.
+    const anonymous = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen panelTab="prs" pullRequests={[]} {...props} />);
+    expect(anonymous).not.toContain('Create draft PR');
+    const running = renderToStaticMarkup(
+      <AgentTaskBody state={{ ...state, turn: turn('RUNNING') }} pullRequests={[]} {...create} {...props} />);
+    expect(running).toMatch(/class="agt-action agt-panel__create" disabled="" title="Available once the agent is idle"/);
+    const opened = renderToStaticMarkup(
+      <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...create} {...props} />);
+    expect(opened).toMatch(/disabled="" title="This branch already has an open pull request"/);
+    // A merged or closed one on the branch does not stand in the way of a fresh draft.
+    const merged = renderToStaticMarkup(
+      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...create} {...props} />);
+    expect(merged).toMatch(/<button type="button" class="agt-action agt-panel__create" title="Asks the agent/);
+  });
+
+  it('asks the agent for the template, the push and a draft against the monitored base', () => {
+    const direct = draftPullRequestPrompt(workspace());
+    expect(direct).toContain('PULL_REQUEST_TEMPLATE');
+    expect(direct).toContain('git push -u origin HEAD');
+    expect(direct).toContain('gh pr create --draft --repo bytequay/bytequay --base main --head <branch>');
+    expect(direct).toContain('do not publish another way');
+    // A linked workspace's draft targets the upstream it monitors, from the branch on the fork.
+    const linked = draftPullRequestPrompt(workspace({
+      selectedOwner: 'alice',
+      upstreamRepositoryId: 2,
+      upstreamOwner: 'trinodb',
+      upstreamRepo: 'trino',
+      upstreamDefaultBranch: 'master',
+      monitoredRepositoryId: 2,
+      monitoredOwner: 'trinodb',
+      monitoredRepo: 'trino',
+      topology: 'FORK',
+    }));
+    expect(linked).toContain('--repo trinodb/trino --base master --head alice:<branch>');
   });
 });
 

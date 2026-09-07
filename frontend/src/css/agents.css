@@ -2272,6 +2272,10 @@
   padding: 8px 2px;
 }
 
+.agt-panel__create {
+  margin: 8px 2px 4px;
+}
+
 .agt-panel__row {
   display: flex;
   align-items: center;

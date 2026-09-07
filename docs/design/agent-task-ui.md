@@ -436,6 +436,15 @@ path, and worktree registration without changing immutable cleanup ownership.
 Missing or detached checkouts retain the generated-branch lookup. Selecting a
 row opens ByteQuay's existing pull-request detail surface.
 
+Its **Create draft PR** action, offered while the task is idle and the branch
+has no open pull request, sends one fixed request into the task's conversation
+as an ordinary turn: the agent commits pending work, reads the repository's
+pull request template, pushes the branch to `origin`, and opens the draft with
+the GitHub CLI against the workspace's monitored repository and default branch,
+under the lane's normal approval policy. ByteQuay itself writes nothing to
+GitHub here and never publishes on its own. The refresh above then shows the
+new draft when that turn ends.
+
 Opening an idle task, ending any ordinary turn, or selecting the PR panel
 refreshes those branches through GitHub's head-filtered pull-request endpoint.
 The target is the workspace's monitored repository; the head owner comes from

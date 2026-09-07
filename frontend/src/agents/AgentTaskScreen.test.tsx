@@ -21,6 +21,7 @@ import { AgentTaskBody, draftPullRequestPrompt, providerStatusFromUnavailable, t
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
+import { samePullRequest, taskPullRequest } from './TaskPullRequestPanel';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { previewTask } from './fixtures/previewBridge';
@@ -506,29 +507,53 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
-  it('opens for any loaded task and switches between subagents and pull requests', () => {
-    const agents = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen {...props} />);
-    // No agents yet, but the panel is still worth opening for its pull requests.
-    expect(agents).toContain('aria-label="Show or hide the side panel"');
-    expect(agents).toContain('aria-label="Subagents"');
-    expect(agents).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^<]*<span[^>]*>❋<\/span>Subagents/);
-    expect(agents).toContain('No active subagents');
-    expect(agents).toContain('title="Drag to resize the panel"');
-    expect(agents).toContain('style="width:300px"');
-    expect(agents).toContain('class="agt-panel__scroll"');
+  it('opens on the task pull request with Changes and Subagents beside it', () => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state}
+        panelOpen
+        pullRequests={[{ ...pullRequest(482, 'Fix preview output limit'), additions: 12, deletions: 3 }]}
+        onOpenPullRequest={() => {}}
+        {...props}
+      />);
+    expect(markup).toContain('aria-label="Show or hide the side panel"');
+    expect(markup).toContain('aria-label="Pull request #482"');
+    // Three tabs, the pull request first and selected without another click.
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?PR #482</);
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="false"[^>]*>[^]*?Changes/);
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="false"[^>]*>[^]*?Subagents/);
+    expect(markup).toContain('>+12<');
+    expect(markup).toContain('>−3<');
+    // Exactly two icon buttons keep the top row light; status reads in the body instead.
+    expect(markup).toContain('aria-label="Open this pull request full width"');
+    expect(markup).toContain('aria-label="Hide the side panel"');
+    expect(markup).toContain('title="Drag to resize the panel"');
+    expect(markup).toContain('style="width:300px"');
+    expect(markup).toContain('class="agt-panel__scroll"');
     // The tabs stay pinned while only the panel body scrolls, as in the approved design.
     expect(declarations('.agt-panel')).toContain('display: flex');
     expect(declarations('.agt-panel')).toContain('flex-direction: column');
     expect(declarations('.agt-panel__scroll')).toContain('overflow-y: auto');
-
-    const prs = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="prs" pullRequests={[]} {...props} />);
-    expect(prs).toContain('aria-label="Pull requests"');
-    expect(prs).toContain('No pull requests from this task yet');
-    expect(prs).not.toContain('Active · ');
+    // The diff fills the frame instead of nesting inside a second scroller with its own padding.
+    expect(declarations('.agt-panel__flush')).toContain('min-height: 0');
+    // Labels never wrap: below the panel's minimum width the tabs scroll and the two icons stay.
+    expect(declarations('.agt-panel__tab')).toContain('white-space: nowrap');
+    expect(declarations('.agt-panel__tablist')).toContain('overflow-x: auto');
+    expect(declarations('.agt-panel__tablist')).toContain('min-width: 0');
   });
 
-  it('hides subagent controls when the lane does not advertise nested activity', () => {
+  it('keeps the subagent list unchanged under its own tab', () => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
+    expect(markup).toContain('aria-label="Subagents"');
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?Subagents/);
+    expect(markup).toContain('No active subagents');
+    // The tab reads Pull request, without a number, until the branch has one.
+    expect(markup).toContain('Pull request<');
+    expect(markup).not.toContain('No pull requests from this task yet');
+  });
+
+  it('hides the subagents tab when the lane does not advertise nested activity', () => {
     const claudeState = {
       ...state,
       capabilities: { ...CAPABILITIES, nestedAgentActivity: false },
@@ -536,60 +561,107 @@ describe('agent task side panel', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody state={claudeState} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
 
-    expect(markup).toContain('aria-label="Pull requests"');
-    expect(markup).toContain('No pull requests from this task yet');
+    expect(markup).toContain('aria-label="Pull request"');
     expect(markup).not.toContain('Subagents');
     expect(markup).not.toContain('No active subagents');
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^<]*<span[^>]*>⑃<\/span>Pull requests/);
+    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?Pull request</);
   });
 
-  it('lists the pull requests on the task branch and hands one to the existing page', () => {
+  it('reads the task pull request in the panel instead of a list that navigates away', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody
         state={state}
         panelOpen
-        panelTab="prs"
         pullRequests={[pullRequest(482, 'Fix preview output limit'), pullRequest(480, 'Earlier attempt', 'merged')]}
         onOpenPullRequest={() => {}}
         {...props}
       />);
+    // One pull request, the one the branch still has open, and no row that leaves the task.
     expect(markup).toContain('#482 Fix preview output limit');
-    expect(markup).toContain('on this task');
-    expect(markup).toContain('>Open<');
-    expect(markup).toContain('>Merged<');
-    // Checks show once CI has reported; a pull request nobody has built yet says nothing about them.
-    expect(markup).not.toContain('Checks');
-    const checked = renderToStaticMarkup(
+    expect(markup).not.toContain('Earlier attempt');
+    expect(markup).not.toContain('title="Open this pull request"');
+    expect(markup).not.toContain('on this task&#x27;s branch');
+    // Changes reads the same pull request's diff; findings still open on the full-width surface.
+    const changes = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen panelTab="changes" pullRequests={[]} {...props} />);
+    expect(changes).toContain('aria-label="Changes"');
+    expect(changes).toContain('this task&#x27;s branch has no pull request');
+  });
+
+  it('shows the no-pull-request state with the branch, the repository and the draft action', () => {
+    const branched: AgentTaskState = {
+      ...state,
+      task: {
+        ...task('t-1', 'OPEN', 'x'),
+        summary: {
+          finalResponse: null,
+          resultBranch: 'reuse-resolved-field-index',
+          resultHead: null,
+          tests: [],
+          metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
+          learnings: [],
+          notes: null,
+          children: [],
+        },
+      },
+    };
+    const markup = renderToStaticMarkup(
       <AgentTaskBody
-        state={state}
+        state={branched}
         panelOpen
-        panelTab="prs"
-        pullRequests={[{ ...pullRequest(482, 'Fix preview output limit'), ciStatus: 'PENDING' }]}
+        pullRequests={[]}
+        repository="trinodb/trino"
+        onCreatePullRequest={() => {}}
         {...props}
       />);
-    expect(checked).toMatch(/<span class="agt-state is-waiting"><svg[^>]*class="[^"]*agt-spin[^"]*"[^>]*>[^]*?<\/svg>Checks</);
-    // The row is a control: selecting it opens the pull-request page rather than a panel copy of it.
-    expect(markup).toMatch(/<button[^>]*class="agt-panel__row"[^>]*title="Open this pull request"/);
-    expect(markup).not.toContain('Description');
+    expect(markup).toContain('No pull request yet');
+    expect(markup).toContain('<code>reuse-resolved-field-index</code>');
+    expect(markup).toContain('<strong>trinodb/trino</strong>');
+    expect(markup).toContain('ByteQuay never writes to GitHub on its own');
   });
 
   it('offers a draft pull request only while the agent is idle and the branch has none open', () => {
-    const create = { panelOpen: true, panelTab: 'prs' as const, onCreatePullRequest: () => {} };
+    const create = { panelOpen: true, onCreatePullRequest: () => {} };
     const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...create} {...props} />);
-    expect(idle).toMatch(/<button type="button" class="agt-action agt-panel__create" title="Asks the agent[^"]*">Create draft PR<\/button>/);
+    expect(idle).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent[^"]*">Create draft PR<\/button>/);
     // Without a workspace to name the base repository there is nothing to ask for.
-    const anonymous = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen panelTab="prs" pullRequests={[]} {...props} />);
+    const anonymous = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />);
     expect(anonymous).not.toContain('Create draft PR');
     const running = renderToStaticMarkup(
       <AgentTaskBody state={{ ...state, turn: turn('RUNNING') }} pullRequests={[]} {...create} {...props} />);
-    expect(running).toMatch(/class="agt-action agt-panel__create" disabled="" title="Available once the agent is idle"/);
+    expect(running).toMatch(/class="agt-nopr__create" disabled="" title="Available once the agent is idle"/);
+    // An open pull request replaces the empty state entirely, so there is nothing to draft.
     const opened = renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...create} {...props} />);
-    expect(opened).toMatch(/disabled="" title="This branch already has an open pull request"/);
+    expect(opened).not.toContain('Create draft PR');
     // A merged or closed one on the branch does not stand in the way of a fresh draft.
     const merged = renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...create} {...props} />);
-    expect(merged).toMatch(/<button type="button" class="agt-action agt-panel__create" title="Asks the agent/);
+    expect(merged).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent/);
+  });
+
+  it('reads the branch pull request the task is working on, not an abandoned one', () => {
+    const merged = pullRequest(480, 'Earlier attempt', 'merged');
+    const open = pullRequest(482, 'Fix preview output limit');
+    const later = pullRequest(486, 'Second attempt');
+    expect(taskPullRequest([])).toBeNull();
+    expect(taskPullRequest([merged, open])?.number).toBe(482);
+    expect(taskPullRequest([open, later])?.number).toBe(486);
+    // A merged or closed row leaves the branch without an open pull request, not with an old one.
+    expect(taskPullRequest([merged])).toBeNull();
+  });
+
+  it('treats a transcript link to the task pull request as that panel tab', () => {
+    const pr = pullRequest(482, 'Fix preview output limit');
+    expect(samePullRequest('https://github.com/bytequay/bytequay/pull/482', pr)).toBe(true);
+    // GitHub's own anchors and query strings still address the same row.
+    expect(samePullRequest('https://github.com/bytequay/bytequay/pull/482#issuecomment-9', pr)).toBe(true);
+    expect(samePullRequest('https://github.com/bytequay/bytequay/pull/482/?utm=1', pr)).toBe(true);
+    // Another pull request, another repository, or the diff of a file is somebody else's link.
+    expect(samePullRequest('https://github.com/bytequay/bytequay/pull/4820', pr)).toBe(false);
+    expect(samePullRequest('https://github.com/trinodb/trino/pull/482', pr)).toBe(false);
+    expect(samePullRequest('https://github.com/bytequay/bytequay/issues/482', pr)).toBe(false);
+    expect(samePullRequest(null, pr)).toBe(false);
   });
 
   it('asks the agent for the template, the push and a draft against the monitored base', () => {
@@ -1298,7 +1370,7 @@ describe('agent task detail', () => {
     expect(closed).toContain('History tests');
     expect(closed).toContain('started working');
     expect(closed).not.toContain('3 tests failed');
-    expect(closed).toContain('Subagents (2) and pull requests');
+    expect(closed).toContain('PR, changes and subagents (2)');
     // Two agents are still working, so the barrier says what Send and Complete are waiting for.
     expect(closed).toContain('2 subagents are still working — Send, queued messages, and Complete unlock when every agent and command finishes.');
 
@@ -1306,6 +1378,7 @@ describe('agent task detail', () => {
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), ...state }}
         panelOpen
+        panelTab="agents"
         models={MODELS}
         onSelectModel={() => {}}
         onBack={() => {}}
@@ -1325,6 +1398,7 @@ describe('agent task detail', () => {
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), ...state }}
         panelOpen
+        panelTab="agents"
         openAgent="child-1"
         models={MODELS}
         onSelectModel={() => {}}
@@ -1383,6 +1457,7 @@ describe('agent task detail', () => {
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
         panelOpen
+        panelTab="agents"
         {...props}
       />);
     expect(listed).toContain('Range probe');
@@ -1393,6 +1468,7 @@ describe('agent task detail', () => {
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
         panelOpen
+        panelTab="agents"
         openAgent="child-gone"
         {...props}
       />);

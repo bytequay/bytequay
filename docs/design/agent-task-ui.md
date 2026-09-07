@@ -439,13 +439,40 @@ marker distinguishes recovered history from new live activity. The unsupported
 `thread/read(includeTurns: true)` call and experimental parent/ancestor list
 filters are not correctness dependencies.
 
-The panel that lists subagents also carries a **Pull requests** tab, with a
-count when pull requests exist. It matches the task's generated branch and the
+The panel opens on the task's pull request, and **Subagents** is a sibling tab
+beside it. One top row holds the three tabs — **PR #&lt;number&gt;**, **Changes**
+with its `+n`/`−n` counters, and **Subagents** with a total count — plus exactly
+two 26px icon buttons, **Open full width** and **Hide panel**. Nothing else
+lives in that row: pull-request state, `base ← head` and checks read in the body
+under the title, where the full-width page already puts them, and scroll with
+it. The subagent list itself is unchanged; only its placement and the tab's icon
+and count are new.
+
+The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
+so the pull request is read beside the conversation without leaving the task. A
+transcript link to that pull request selects the tab instead of navigating, and
+the task route does not change. **Changes** shows the same pull request's diff
+read-only; findings and inline comments stay on the full-width surface, which
+**Open full width** opens. Tab selection is renderer-local panel state, never a
+route. The panel reads the detail and the diff itself, once per pull request and
+again on demand; the six-second detail poll belongs to the pull-request screen
+and is not repeated here.
+
+Branch matching is unchanged. It matches the task's generated branch and the
 current branch of its verified managed checkout, so an agent-renamed branch
 remains discoverable. Reading the current branch validates repository, origin,
 path, and worktree registration without changing immutable cleanup ownership.
-Missing or detached checkouts retain the generated-branch lookup. Selecting a
-row opens ByteQuay's existing pull-request detail surface.
+Missing or detached checkouts retain the generated-branch lookup. The panel
+reads the one pull request the branch still has open, newest first; a merged or
+closed row leaves the branch without an open pull request rather than standing
+in for one. That is the state below, and the merged row remains on the
+Pull requests screen.
+
+Without an open pull request the PR tab reads **Pull request**, without a
+number, and renders a centred empty state: the title, the task's branch and the
+monitored repository, the **Create draft PR** action, and one line saying the
+action sends a request into the task's conversation and that ByteQuay never
+writes to GitHub on its own.
 
 Its **Create draft PR** action, offered while the task is idle and the branch
 has no open pull request, sends one fixed request into the task's conversation

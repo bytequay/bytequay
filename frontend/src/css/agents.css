@@ -2133,61 +2133,234 @@
   cursor: not-allowed;
 }
 
+/* The panel's only top row: three tabs on the left, two 26px icon buttons on the right. */
 .agt-panel__tabs {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #f0f0f2;
+  gap: 5px;
+  padding: 9px 11px;
+}
+
+.agt-panel__tablist {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agt-panel__tablist::-webkit-scrollbar {
+  display: none;
 }
 
 .agt-panel__tab {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 5px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: #57606a;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .agt-panel__tab.is-current {
-  background: #e4e4e8;
+  background: #eceff2;
+  font-weight: 600;
   color: #1f2328;
 }
 
 .agt-panel__tab-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 1.75;
   color: #6e6e76;
 }
 
+.agt-panel__tab-count {
+  display: inline-flex;
+  gap: 4px;
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.agt-panel__tab-count .is-added {
+  color: #1a7f37;
+}
+
+.agt-panel__tab-count .is-removed {
+  color: #cf222e;
+}
+
+.agt-panel__icon {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e3e3e6;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #57606a;
+  cursor: pointer;
+  padding: 0;
+}
+
+.agt-panel__icon:hover {
+  background: #f6f8fa;
+  color: #1f2328;
+}
+
+.agt-panel__icon > svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.75;
+}
+
 .agt-panel__hide {
-  width: 24px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: none;
-  font-size: 12px;
+  font-size: 13px;
   color: #8c959f;
   cursor: pointer;
   padding: 0;
 }
 
-.agt-pr-mark {
-  width: 18px;
-  flex: none;
-  text-align: center;
-  color: #1a7f37;
+.agt-panel__hide:hover {
+  background: #f1f3f5;
+  color: #1f2328;
+}
+
+/* The app rings focus per component, so the panel's own controls declare their own ring. */
+.agt-panel :is(.agt-panel__tab, .agt-panel__icon, .agt-panel__hide, .agt-panel__row, .agt-nopr__create):focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 1px;
+}
+
+/* The diff brings its own toolbar and scroller, so it fills the frame instead of a second one. */
+.agt-panel__flush {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .agt-state.is-merged {
   color: #8250df;
   background: #fbefff;
+}
+
+/* The full-width pull request, read at panel width: same components, tighter frame. */
+.agt-panel .pull-request-overview {
+  max-width: none;
+  padding: 4px 0 18px;
+}
+
+.agt-panel .pull-request-overview .pr-overview__title h1 {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.agt-panel .pull-request-overview .pr-overview__number {
+  font-size: 17px;
+}
+
+.agt-panel .pull-request-overview .pr-overview__branches {
+  margin-top: 11px;
+}
+
+.agt-panel .pull-request-overview .pr-overview__rule {
+  margin: 14px 0;
+}
+
+.agt-panel .pull-request-overview .pr-meta {
+  margin-bottom: 14px;
+}
+
+/* The PR tab before the branch has one: the design's centred empty state. */
+.agt-nopr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 44px 18px 0;
+  text-align: center;
+}
+
+.agt-nopr__mark {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #f1f3f5;
+  color: #8c959f;
+}
+
+.agt-nopr__mark > svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.75;
+}
+
+.agt-nopr__title {
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.agt-nopr__body {
+  max-width: 330px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: #57606a;
+  line-height: 1.55;
+}
+
+.agt-nopr__body code {
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  font-size: 11.5px;
+  color: #0969da;
+}
+
+.agt-nopr__create {
+  height: 30px;
+  margin-top: 16px;
+  border: 1px solid rgba(31, 35, 40, 0.14);
+  border-radius: 8px;
+  background: #1f883d;
+  color: #ffffff;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agt-nopr__create:disabled {
+  background: #94d3a2;
+  cursor: not-allowed;
+}
+
+.agt-nopr__note {
+  max-width: 320px;
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #8c959f;
+  line-height: 1.5;
 }
 
 .agt-panel__head {
@@ -2270,10 +2443,6 @@
 
 .agt-panel__empty {
   padding: 8px 2px;
-}
-
-.agt-panel__create {
-  margin: 8px 2px 4px;
 }
 
 .agt-panel__row {

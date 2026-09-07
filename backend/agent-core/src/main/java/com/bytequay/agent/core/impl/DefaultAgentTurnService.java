@@ -234,7 +234,6 @@ public final class DefaultAgentTurnService
         try {
             eventService.drain(acceptance.deliveryEventId());
             session = session(task, accepted.id(), acceptance.settings());
-            metricsService.beginTurn(task.id(), accepted.id());
             markDeliveryStarted(accepted);
             deliveryAttempted = true;
             RunningTurn runningTurn = session.start(new AgentTurnCommand(

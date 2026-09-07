@@ -28,7 +28,6 @@ import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.UsageBaseline;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -67,20 +66,6 @@ public final class DefaultAgentMetricsService
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.logStore = requireNonNull(logStore, "logStore is null");
         this.clock = requireNonNull(clock, "clock is null");
-    }
-
-    @Override
-    public UsageBaseline beginTurn(TaskId taskId, TurnId turnId)
-    {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(turnId, "turnId is null");
-        requireTask(taskId);
-        AgentTurn turn = requireTurn(turnId);
-        requireOwnership(taskId, turn);
-        if (!turn.state().active()) {
-            throw new AgentConflictException("Cannot begin metrics for terminal turn " + turnId);
-        }
-        return new UsageBaseline(taskId, turnId, baselineTotals(taskId, turnId), Instant.now(clock));
     }
 
     @Override

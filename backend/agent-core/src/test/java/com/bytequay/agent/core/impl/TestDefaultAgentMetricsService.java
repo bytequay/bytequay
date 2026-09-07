@@ -92,7 +92,6 @@ class TestDefaultAgentMetricsService
                 NOW));
         AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", turnSettings(), NOW.plusSeconds(2));
         stores.insert(current);
-        service.beginTurn(task.id(), current.id());
 
         TurnMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
         service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
@@ -110,7 +109,6 @@ class TestDefaultAgentMetricsService
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
         stores.insert(turn);
-        service.beginTurn(task.id(), turn.id());
 
         service.record(task.id(), turn.id(), sample(
                 "delta",
@@ -137,7 +135,6 @@ class TestDefaultAgentMetricsService
                 .markDeliveryStarted(NOW)
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty());
         stores.insert(turn);
-        service.beginTurn(task.id(), turn.id());
         clock.advance(Duration.ofSeconds(5));
 
         TurnMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);

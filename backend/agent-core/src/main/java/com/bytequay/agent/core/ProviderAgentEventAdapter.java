@@ -16,7 +16,6 @@ package com.bytequay.agent.core;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
-import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
 
@@ -75,14 +74,6 @@ public final class ProviderAgentEventAdapter
                     file.relativePath(),
                     AgentEventPayload.ChangeKind.valueOf(file.change().name()),
                     file.diff());
-            case ProviderAgentEvent.Approval approval -> new AgentEventPayload.ApprovalRequested(
-                    approval.approvalId(),
-                    AgentEventPayload.ApprovalKind.OTHER,
-                    approval.title(),
-                    approval.detail(),
-                    ImmutableList.of(),
-                    false,
-                    ImmutableList.of());
             case ProviderAgentEvent.Usage usage -> usage(usage.sample());
             case ProviderAgentEvent.Lifecycle lifecycle -> new AgentEventPayload.Lifecycle(
                     AgentEventPayload.LifecyclePhase.valueOf(lifecycle.phase().name()),

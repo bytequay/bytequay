@@ -560,26 +560,6 @@ function CodeReferenceBlock({ reference }: { reference: GitHubCodePermalink }) {
   return <CodeReferenceCard reference={reference} snippet={snippet} />;
 }
 
-const JAVA_KEYWORDS = new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public record return sealed short static strictfp super switch synchronized this throw throws transient try var void volatile while yield true false null'.split(' '));
-const JAVA_TOKEN = /(\/\/.*|\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b[A-Za-z_$][\w$]*\b)/g;
-
-function javaCode(line: string, keyPrefix: string) {
-  return line.split(JAVA_TOKEN).filter(Boolean).map((part, index) => {
-    const className = part.startsWith('//') || part.startsWith('/*')
-      ? 'md-code-comment'
-      : part.startsWith('"') || part.startsWith("'")
-        ? 'md-code-string'
-        : JAVA_KEYWORDS.has(part)
-          ? 'md-code-keyword'
-          : /^[A-Z]/.test(part)
-            ? 'md-code-type'
-            : null;
-    return className
-      ? <span className={className} key={`${keyPrefix}-${index}`}>{part}</span>
-      : <Fragment key={`${keyPrefix}-${index}`}>{part}</Fragment>;
-  });
-}
-
 function dedentCodeReferenceLines(lines: GitHubCodeSnippetDto['lines']) {
   const contentLines = lines.filter(line => line.content.trim().length > 0);
   const commonIndent = contentLines.length === 0
@@ -618,7 +598,9 @@ export function CodeReferenceCard({ reference, snippet }: {
             {lines.map(line => (
               <pre key={line.number}>
                 <span>{line.number}</span>
-                <code>{highlightJava ? javaCode(line.content || ' ', `line-${line.number}`) : line.content || ' '}</code>
+                {highlightJava
+                  ? <code className="hljs" dangerouslySetInnerHTML={{ __html: highlightedCode(line.content || ' ', 'java') }} />
+                  : <code>{line.content || ' '}</code>}
               </pre>
             ))}
           </div>}
@@ -811,26 +793,6 @@ function ReferenceIcon({ pull }: { pull: boolean }) {
     : <CircleDot size={14} strokeWidth={1.4} aria-hidden="true" />;
 }
 
-function markdownCode(text: string, keyPrefix: string) {
-  return text.split('\n').map((line, index) => {
-    const heading = line.match(/^(#{1,6}\s+)(.*)$/);
-    const content = heading ? heading[2] : line;
-    const highlighted = content.split(/(`[^`]+`)/g).filter(Boolean).map((part, partIndex) => (
-      part.startsWith('`') && part.endsWith('`')
-        ? <span className="md-code-markdown-inline" key={`${keyPrefix}-${index}-${partIndex}`}>{part}</span>
-        : <Fragment key={`${keyPrefix}-${index}-${partIndex}`}>{part}</Fragment>
-    ));
-    return (
-      <Fragment key={`${keyPrefix}-${index}`}>
-        {index > 0 && '\n'}
-        {heading
-          ? <span className="md-code-markdown-heading">{heading[1]}{highlighted}</span>
-          : highlighted}
-      </Fragment>
-    );
-  });
-}
-
 function highlightedCode(text: string, language: string) {
   const normalizedLanguage = language.toLowerCase();
   return normalizedLanguage && hljs.getLanguage(normalizedLanguage)
@@ -907,10 +869,8 @@ function MarkdownBlocks({ markdown, definitions, repository, tasksInteractive, t
           return (
             <div className="md-code-block" key={key}>
               {!isMarkdown && <span>{block.language || 'Plain text'}</span>}
-              <pre>{isMarkdown
-                ? <code data-language={block.language}>{markdownCode(block.text, key)}</code>
-                : <code className="hljs" data-language={block.language}
-                    dangerouslySetInnerHTML={{ __html: highlightedCode(block.text, block.language) }} />}</pre>
+              <pre><code className="hljs" data-language={block.language}
+                dangerouslySetInnerHTML={{ __html: highlightedCode(block.text, block.language) }} /></pre>
             </div>
           );
         }

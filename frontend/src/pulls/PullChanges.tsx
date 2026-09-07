@@ -666,7 +666,7 @@ const MARKDOWN_GROUPS: Array<Array<{ command: MarkdownCommand; label: string }>>
   ],
 ];
 
-function MarkdownToolbar({ onCommand }: { onCommand: (command: MarkdownCommand) => void }) {
+export function MarkdownToolbar({ onCommand }: { onCommand: (command: MarkdownCommand) => void }) {
   return (
     <div className="pull-diff-review__toolbar">
       {MARKDOWN_GROUPS.map((group, groupIndex) => (

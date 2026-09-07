@@ -411,11 +411,7 @@
   font-size: 13.5px;
 }
 .agr-composer__tabs button.is-active { border-color: #d0d7de; background: #fff; font-weight: 600; }
-.agr-composer__toolbar { display: flex; align-items: center; gap: 1px; padding-bottom: 4px; }
-.agr-composer__group { display: inline-flex; align-items: center; gap: 1px; }
-.agr-composer__toolbar button { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 0; }
-.agr-composer__toolbar button:hover { background: #eef1f4; color: #0969da; }
-.agr-composer__divider { width: 1px; height: 14px; margin: 0 5px; background: #e3e3e6; }
+.agr-composer .pull-diff-review__divider { height: 14px; background: #e3e3e6; }
 .agr-composer__input {
   display: block;
   width: 100%;

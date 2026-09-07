@@ -535,7 +535,7 @@ public interface AgentTurnService
      * short unit of work reserves the idempotency key and worktree-mutation claim with
      * an {@code ACCEPTED} turn plus the user-message event. Only after its
      * outbox drains may the service open or resume the provider session,
-     * capture a usage baseline, persist {@code startedAt}, start the run, and
+     * persist {@code startedAt}, start the run, and
      * return without waiting for completion.
      *
      * <p>An exception before persistence means no turn was accepted. A
@@ -1002,20 +1002,15 @@ exact replay deduplication. When a provider omits identity, ByteQuay still
 records and displays the callback, but cannot deduplicate a repeated delta
 callback across replay.
 
+For cumulative samples, `record` derives the baseline from the durable metrics
+of the task's other turns. No separate startup snapshot is needed, so the same
+calculation applies after a service restart.
+
 ```java
 package com.bytequay.agent.core;
 
 public interface AgentMetricsService
 {
-    /**
-     * Captures the task's usage totals immediately before a provider turn starts.
-     *
-     * @param taskId task about to start a turn
-     * @param turnId accepted turn
-     * @return the baseline used to derive per-turn usage from cumulative providers
-     */
-    UsageBaseline beginTurn(TaskId taskId, TurnId turnId);
-
     /**
      * Applies one normalized provider usage sample.
      *
@@ -2343,7 +2338,6 @@ sequenceDiagram
         Turns->>Session: reference()
         Session-->>Turns: AgentSessionRef
         Turns->>TaskStore: update(taskWithSessionRef)
-        Turns->>Metrics: beginTurn(taskId, turnId)
         Turns->>TurnStore: update(acceptedTurn.startedAt)
         Turns->>Session: start(AgentTurnCommand)
         Session-->>Turns: RunningTurn
@@ -2882,10 +2876,10 @@ notification key, the driver may use it to deduplicate usage updates; App
 Server notifications do not otherwise guarantee a JSON-RPC event ID. In every
 case, ByteQuay's own persisted `EventId` and task sequence make replay
 idempotent, and the driver follows only the counter semantics proven by the
-fixtures. It subtracts the baseline captured by
-`AgentMetricsService.beginTurn(...)` only when that schema explicitly defines
-the counters as cumulative; otherwise it normalizes snapshots or deltas
-defensively without double counting.
+fixtures. `AgentMetricsService.record(...)` subtracts the durable totals of the
+task's other turns only when the sample declares cumulative counters; otherwise
+it applies the adapter's normalized invocation values or deltas without double
+counting.
 
 If a task's App Server disconnects, that task's live turn becomes
 `INTERRUPTED`. ByteQuay may restart and initialize the task-owned process, but

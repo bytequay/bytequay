@@ -171,15 +171,17 @@ describe('MarkdownBody', () => {
     expect(html).toBe('<div class="markdown-body"><p>Use `ClickHouseClient.toColumnMapping()`.</p></div>');
   });
 
-  it('preserves generic types inside inline and fenced code', () => {
+  it.each(['md', 'markdown'])('preserves source inside inline code and %s fences without a header', language => {
     const releaseNote = '## SPI\n* {{breaking}} Change return type of `ConnectorMetadata.finishMerge` method '
       + 'to `Optional<ConnectorOutputMetadata>`. ({issue}`30934`)';
 
     const inline = renderToStaticMarkup(<MarkdownBody body={releaseNote} />);
-    const fenced = renderToStaticMarkup(<MarkdownBody body={`\`\`\`markdown\n${releaseNote}\n\`\`\``} />);
+    const fenced = renderToStaticMarkup(<MarkdownBody body={`\`\`\`${language}\n${releaseNote}\n\`\`\``} />);
 
     expect(inline).toContain('<code>Optional&lt;ConnectorOutputMetadata&gt;</code>');
-    expect(fenced).toContain('Optional&lt;ConnectorOutputMetadata&gt;');
+    expect(fenced.replace(/<[^>]+>/g, '')).toBe(renderToStaticMarkup(<>{releaseNote}</>));
+    expect(fenced).toContain('<div class="md-code-block"><pre>');
+    expect(fenced).toContain('<span class="hljs-section">## SPI</span>');
   });
 
   it.each(['sql', 'unknown', ''])('highlights fenced code with language %j', language => {
@@ -217,7 +219,7 @@ describe('MarkdownBody', () => {
     expect(html).toContain('<details class="md-details"><summary>More</summary>');
     expect(html).not.toContain('[HBR-1234]:');
     expect(renderToStaticMarkup(<MarkdownBody body={`Review summary.\n${definition}`} />)).toContain('[HBR-1234]:');
-    expect(renderToStaticMarkup(<MarkdownBody body={`\`\`\`markdown\n${definition}\n\`\`\``} />)).toContain(definition);
+    expect(renderToStaticMarkup(<MarkdownBody body={`\`\`\`markdown\n${definition}\n\`\`\``} />).replace(/<[^>]+>/g, '')).toBe(definition);
   });
 
   it('renders the reported inline same-repository code permalink as a code card', () => {
@@ -241,18 +243,18 @@ describe('MarkdownBody', () => {
     if (!reference) throw new Error('expected a code permalink');
 
     const loaded = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={{ lines: [
-      { number: 10, content: '    try (JsonStreamWriter writer = open("https://example.com")) { // retry' },
+      { number: 10, content: '    try (JsonStreamWriter writer = open("https://example.com/<script>")) { // retry' },
       { number: 11, content: '        return writer;' },
       { number: 12, content: '    }' },
     ] }} />);
     const failed = renderToStaticMarkup(<CodeReferenceCard reference={reference} snippet={null} />);
 
-    expect(loaded).toContain('<span class="md-code-keyword">try</span>');
-    expect(loaded).toContain('<span class="md-code-type">JsonStreamWriter</span>');
-    expect(loaded).toContain('<span class="md-code-string">&quot;https://example.com&quot;</span>');
-    expect(loaded).toContain('<span class="md-code-comment">// retry</span>');
-    expect(loaded).toContain('<span>11</span><code>    <span class="md-code-keyword">return</span> writer;</code>');
-    expect(loaded).toContain('<span>12</span><code>}</code>');
+    expect(loaded).toContain('<span class="hljs-keyword">try</span>');
+    expect(loaded).toContain('<span class="hljs-type">JsonStreamWriter</span>');
+    expect(loaded).toContain('<span class="hljs-string">&quot;https://example.com/&lt;script&gt;&quot;</span>');
+    expect(loaded).toContain('<span class="hljs-comment">// retry</span>');
+    expect(loaded).toContain('<span>11</span><code class="hljs">    <span class="hljs-keyword">return</span> writer;</code>');
+    expect(loaded).toContain('<span>12</span><code class="hljs">}</code>');
     expect(loaded).not.toContain('Loading code…');
     expect(failed).toBe(`<p><a href="${url}">${url}</a></p>`);
   });

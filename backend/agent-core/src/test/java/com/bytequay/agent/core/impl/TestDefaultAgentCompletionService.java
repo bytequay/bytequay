@@ -46,7 +46,6 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.UsageBaseline;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -742,12 +741,6 @@ class TestDefaultAgentCompletionService
     private static final class FixedMetrics
             implements AgentMetricsService
     {
-        @Override
-        public UsageBaseline beginTurn(TaskId taskId, TurnId turnId)
-        {
-            throw new UnsupportedOperationException();
-        }
-
         @Override
         public TurnMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
         {

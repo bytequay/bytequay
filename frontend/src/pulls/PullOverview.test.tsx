@@ -679,8 +679,8 @@ describe('PullOverview', () => {
 
     expect(html).toContain('<span>Plain text</span>');
     expect(html).not.toContain('<span>markdown</span>');
-    expect(html).toContain('<span class="md-code-markdown-heading">## Section</span>');
-    expect(html).toContain('<span class="md-code-markdown-inline">`issuenumber`</span>');
+    expect(html).toContain('<span class="hljs-section">## Section</span>');
+    expect(html).toContain('<span class="hljs-code">`issuenumber`</span>');
   });
 
   it('renders queued state, enriched GitHub references, and description reactions', () => {

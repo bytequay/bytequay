@@ -57,6 +57,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -161,6 +162,33 @@ class TestSqliteCiAutofixStore
         assertThat(restartedStore.findByIdempotencyKey("round-trip")).contains(run);
         assertThat(restartedStore.findByAgentTaskId("task-1")).contains(run);
         assertThat(restartedStore.findByAgentTaskId("missing-task")).isEmpty();
+    }
+
+    @Test
+    void preservesStoredWarningAndFailureJson()
+    {
+        String warningsJson = "[{\"code\":\"MEMORY\",\"message\":\"memory unavailable\",\"occurredAt\":\"2026-08-17T00:00:00.123456789Z\"}]";
+        String failuresJson = "[{\"signature\":\"compile\",\"summary\":\"compile failed\",\"workflowRunId\":100,\"workflowAttempt\":1,\"jobId\":200,\"jobAttempt\":1,\"log\":null},"
+                + "{\"signature\":\"test\",\"summary\":\"test failed\",\"workflowRunId\":101,\"workflowAttempt\":2,\"jobId\":201,\"jobAttempt\":2,"
+                + "\"log\":{\"path\":\"blobs/log\",\"mediaType\":\"text/plain\",\"size\":10,\"truncated\":true}}]";
+        Instant warningAt = NOW.plusNanos(123456789);
+        CiAutofixRun run = newRun("stored-json", "stored-json", NOW)
+                .addWarning(new Warning("MEMORY", "memory unavailable", warningAt), warningAt);
+        List<FailureEvidence> failures = ImmutableList.of(
+                new FailureEvidence("compile", "compile failed", 100, 1, 200, 1, Optional.empty()),
+                new FailureEvidence("test", "test failed", 101, 2, 201, 2, Optional.of(new LogReference("blobs/log", "text/plain", 10, true))));
+        CiAutofixAttempt attempt = CiAutofixAttempt.create(CiAutofixAttemptId.random(), run.id(), 1, HEAD, failures, NOW.plusSeconds(1));
+        run = run.addAttempt(attempt, NOW.plusSeconds(1));
+        store.insert(run);
+        entityManager.flush();
+
+        assertThat(jdbc.queryForObject("SELECT warnings_json FROM ci_autofix_run WHERE id = ?", String.class, run.id().toString())).isEqualTo(warningsJson);
+        assertThat(jdbc.queryForObject("SELECT failures_json FROM ci_autofix_attempt WHERE id = ?", String.class, attempt.id().toString())).isEqualTo(failuresJson);
+        jdbc.update("UPDATE ci_autofix_run SET warnings_json = ? WHERE id = ?", warningsJson, run.id().toString());
+        jdbc.update("UPDATE ci_autofix_attempt SET failures_json = ? WHERE id = ?", failuresJson, attempt.id().toString());
+        entityManager.clear();
+
+        assertThat(store.find(run.id())).contains(run);
     }
 
     @Test

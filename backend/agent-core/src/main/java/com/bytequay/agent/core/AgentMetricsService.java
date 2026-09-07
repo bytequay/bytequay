@@ -27,18 +27,11 @@ import com.bytequay.agent.spi.ProviderUsageSample;
 public interface AgentMetricsService
 {
     /**
-     * Captures task totals immediately before a provider turn starts.
-     *
-     * @param taskId task about to start a turn
-     * @param turnId accepted turn
-     * @return baseline for cumulative provider usage
-     */
-    UsageBaseline beginTurn(TaskId taskId, TurnId turnId);
-
-    /**
      * Applies one normalized provider usage sample. The caller must deduplicate
      * provider event identifiers before invoking this method. Only the turn is
      * written; task totals fold into the task when the turn finishes.
+     *
+     * <p>Cumulative samples subtract the durable totals of the task's other turns.
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample

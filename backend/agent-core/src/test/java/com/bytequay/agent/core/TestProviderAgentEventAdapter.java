@@ -131,21 +131,4 @@ class TestProviderAgentEventAdapter
         assertThat(((AgentEventPayload.ToolActivity) ProviderAgentEventAdapter.adapt(tool).payload()).durationMs())
                 .contains(20L);
     }
-
-    @Test
-    void treatsDisplayOnlyProviderApprovalsAsNonActionable()
-    {
-        ProviderAgentEvent.Approval approval = new ProviderAgentEvent.Approval(
-                Optional.of("event-1"),
-                Optional.empty(),
-                "approval-1",
-                "Run command",
-                "git status");
-
-        assertThat(ProviderAgentEventAdapter.adapt(approval).payload())
-                .isInstanceOfSatisfying(AgentEventPayload.ApprovalRequested.class, event -> {
-                    assertThat(event.actionable()).isFalse();
-                    assertThat(event.availableDecisions()).isEmpty();
-                });
-    }
 }

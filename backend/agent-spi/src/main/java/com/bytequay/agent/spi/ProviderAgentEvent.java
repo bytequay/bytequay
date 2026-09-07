@@ -37,16 +37,9 @@ import static java.util.Objects.requireNonNull;
  */
 public sealed interface ProviderAgentEvent
         permits ProviderAgentEvent.Message, ProviderAgentEvent.Plan, ProviderAgentEvent.Tool,
-        ProviderAgentEvent.Command, ProviderAgentEvent.FileChange, ProviderAgentEvent.Approval,
+        ProviderAgentEvent.Command, ProviderAgentEvent.FileChange,
         ProviderAgentEvent.Usage, ProviderAgentEvent.Lifecycle, ProviderAgentEvent.Error
 {
-    /**
-     * Returns the normalized event category used by logs and SSE.
-     *
-     * @return provider-neutral event category
-     */
-    Kind kind();
-
     /**
      * Returns a provider identity suitable for duplicate suppression when one was
      * supplied by the provider.
@@ -113,12 +106,6 @@ public sealed interface ProviderAgentEvent
             checkOptionalText(parentToolUseId, "parentToolUseId");
             requireNonNull(source, "source is null");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.MESSAGE;
-        }
     }
 
     record Plan(
@@ -142,12 +129,6 @@ public sealed interface ProviderAgentEvent
             requireNonNull(providerTimestamp, "providerTimestamp is null");
             items = ImmutableList.copyOf(items);
             requireNonNull(source, "source is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.PLAN;
         }
     }
 
@@ -199,12 +180,6 @@ public sealed interface ProviderAgentEvent
             checkOptionalText(parentToolUseId, "parentToolUseId");
             source = source == null ? ProviderAgentEventSource.item(toolCallId) : source;
             requireNonNull(duration, "duration is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.TOOL;
         }
     }
 
@@ -267,12 +242,6 @@ public sealed interface ProviderAgentEvent
             // A record written before actions were carried has no field for them, which reads as none.
             actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.COMMAND;
-        }
     }
 
     record FileChange(
@@ -305,48 +274,6 @@ public sealed interface ProviderAgentEvent
             checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
             requireNonNull(source, "source is null");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.FILE;
-        }
-    }
-
-    record Approval(
-            Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
-            String approvalId,
-            String title,
-            String detail,
-            ProviderAgentEventSource source)
-            implements ProviderAgentEvent
-    {
-        public Approval(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String approvalId,
-                String title,
-                String detail)
-        {
-            this(providerEventId, providerTimestamp, approvalId, title, detail, root());
-        }
-
-        public Approval
-        {
-            checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
-            checkNotBlank(approvalId, "approvalId");
-            checkNotBlank(title, "title");
-            requireNonNull(detail, "detail is null");
-            requireNonNull(source, "source is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.APPROVAL;
-        }
     }
 
     record Usage(ProviderUsageSample sample, ProviderAgentEventSource source)
@@ -361,12 +288,6 @@ public sealed interface ProviderAgentEvent
         {
             requireNonNull(sample, "sample is null");
             requireNonNull(source, "source is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.USAGE;
         }
 
         @Override
@@ -407,12 +328,6 @@ public sealed interface ProviderAgentEvent
             requireNonNull(message, "message is null");
             requireNonNull(source, "source is null");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.LIFECYCLE;
-        }
     }
 
     record Error(
@@ -442,12 +357,6 @@ public sealed interface ProviderAgentEvent
             checkNotBlank(message, "message");
             requireNonNull(source, "source is null");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.ERROR;
-        }
     }
 
     record PlanItem(String text, PlanItemState state)
@@ -457,19 +366,6 @@ public sealed interface ProviderAgentEvent
             checkNotBlank(text, "text");
             requireNonNull(state, "state is null");
         }
-    }
-
-    enum Kind
-    {
-        MESSAGE,
-        PLAN,
-        TOOL,
-        COMMAND,
-        FILE,
-        APPROVAL,
-        USAGE,
-        LIFECYCLE,
-        ERROR
     }
 
     enum MessagePhase

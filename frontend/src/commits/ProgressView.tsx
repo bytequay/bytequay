@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   CherryPickExecution,
   CherryPickExecutionItem,
@@ -20,6 +20,7 @@ import type {
 import PullOverview from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
+import { useResizablePane } from '../useResizablePane';
 import { completedExecutionItems, foldNav, pullRequestPanelRef, shortSha, taskState } from './model';
 
 type ItemView = {
@@ -74,8 +75,8 @@ export default function ProgressView({
   const [error, setError] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<WorkspaceDeliveryStatus | null>(null);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(260);
-  const [rightWidth, setRightWidth] = useState(380);
+  const leftPane = useResizablePane(260, 180, 420);
+  const rightPane = useResizablePane(380, 280, 560, 'start');
   const [viewerLogin, setViewerLogin] = useState<string | null>(null);
 
   useEffect(() => {
@@ -141,24 +142,6 @@ export default function ProgressView({
   const selected = views.find(view => view.item.sourceSha === selectedSha)
     ?? views[activeIndex >= 0 ? activeIndex : views.length - 1]
     ?? null;
-
-  const drag = (side: 'left' | 'right') => (event: ReactMouseEvent) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = side === 'left' ? leftWidth : rightWidth;
-    const move = (moveEvent: MouseEvent) => {
-      const delta = (moveEvent.clientX - startX) * (side === 'left' ? 1 : -1);
-      const next = Math.max(side === 'left' ? 180 : 280, Math.min(side === 'left' ? 420 : 560, startWidth + delta));
-      if (side === 'left') setLeftWidth(next);
-      else setRightWidth(next);
-    };
-    const stop = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-  };
 
   const send = async () => {
     if (!execution || !message.trim()) return;
@@ -276,7 +259,7 @@ export default function ProgressView({
   return (
     <div
       className="cmt-progress"
-      style={{ gridTemplateColumns: `${leftWidth}px 5px minmax(480px, 1fr) 5px ${rightWidth}px` }}
+      style={{ gridTemplateColumns: `${leftPane.width}px 5px minmax(480px, 1fr) 5px ${rightPane.width}px` }}
     >
       <div className="cmt-prog-nav">
         <div className="cmt-prog-nav-head">
@@ -317,7 +300,7 @@ export default function ProgressView({
         </div>
       </div>
 
-      <div className="cmt-prog-divider" onMouseDown={drag('left')} title="Drag to resize" />
+      <div className="cmt-prog-divider" onMouseDown={leftPane.startResize} title="Drag to resize" />
 
       <div className="cmt-prog-center">
         <div className="cmt-prog-head">
@@ -540,7 +523,7 @@ export default function ProgressView({
         )}
       </div>
 
-      <div className="cmt-prog-divider" onMouseDown={drag('right')} title="Drag to resize" />
+      <div className="cmt-prog-divider" onMouseDown={rightPane.startResize} title="Drag to resize" />
 
       <div className="cmt-prog-pr">
         <PrPanel

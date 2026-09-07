@@ -1079,9 +1079,10 @@ function checksPill(pr: PullRequestDto): { label: string; className: string; spi
   }
 }
 
-function PanelTabs({ tab, showAgents, onSelect, onHide }: {
+function PanelTabs({ tab, showAgents, pullRequestCount, onSelect, onHide }: {
   tab: PanelTab;
   showAgents: boolean;
+  pullRequestCount: number;
   onSelect: (tab: PanelTab) => void;
   onHide: () => void;
 }): React.JSX.Element {
@@ -1094,6 +1095,7 @@ function PanelTabs({ tab, showAgents, onSelect, onHide }: {
       )}
       <button type="button" role="tab" className={`agt-panel__tab${tab === 'prs' ? ' is-current' : ''}`} aria-selected={tab === 'prs'} onClick={() => onSelect('prs')}>
         <span className="agt-panel__tab-mark" aria-hidden="true">⑃</span>Pull requests
+        {pullRequestCount > 0 && <span className="agt-chip">{pullRequestCount}</span>}
       </button>
       <span className="agt-spacer" />
       <button type="button" className="agt-panel__hide" aria-label="Hide the side panel" onClick={onHide}>»</button>
@@ -1194,7 +1196,7 @@ function SidePanel({
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
-  const tabs = <PanelTabs tab={tab} showAgents={showAgents} onSelect={onSelectTab} onHide={onHide} />;
+  const tabs = <PanelTabs tab={tab} showAgents={showAgents} pullRequestCount={pullRequests.length} onSelect={onSelectTab} onHide={onHide} />;
   if (tab === 'prs') {
     return (
       <PanelFrame label="Pull requests" tabs={tabs} width={width}>
@@ -2188,19 +2190,28 @@ export default function AgentTaskScreen({
     return () => { active = false; };
   }, [live, taskId, latestTurnId, lifecycleEpoch]);
 
-  // The branch is derived from the task, so this is only a lookup; it is repeated while the tab is
-  // showing whenever something about the task changed.
-  const effectivePanelTab: PanelTab = state.capabilities?.nestedAgentActivity === true ? panelTab : 'prs';
+  // Any ordinary turn can publish a PR, including a turn started outside the PR panel.
+  const taskLoaded = state.task !== null;
+  const pullRequestTurnId = state.turn?.id ?? null;
+  const pullRequestTurnEndedAt = state.turn?.endedAt ?? null;
+  const pullRequestTurnKnown = latestTurnId === null || latestTurnId === pullRequestTurnId;
+  const pullRequestPanelVisible = panelOpen && (state.capabilities?.nestedAgentActivity !== true || panelTab === 'prs');
   useEffect(() => {
-    if (!panelOpen || effectivePanelTab !== 'prs') return;
+    if (!taskLoaded || state.connection !== 'open' || !pullRequestTurnKnown || running) return;
     let active = true;
-    void live().listAgentTaskPullRequests(taskId, workspaceId)
-      .then((found) => { if (active) setPullRequests(found); })
+    const lookup = async (): Promise<void> => {
+      const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
+      if (!active) return;
+      setPullRequests(cached);
+      const found = await live().listAgentTaskPullRequests(taskId, workspaceId, true);
+      if (active) setPullRequests(found);
+    };
+    void lookup()
       .catch((failure: unknown) => {
         if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
       });
     return () => { active = false; };
-  }, [live, panelOpen, effectivePanelTab, taskId, workspaceId, lifecycleEpoch]);
+  }, [live, taskLoaded, state.connection, pullRequestTurnKnown, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, taskId, workspaceId, running]);
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {

@@ -53,10 +53,16 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -87,10 +93,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.locks.Lock;
+import java.util.stream.Stream;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -115,6 +124,9 @@ public class AgentController
     private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
     private final PullRequestStore pullRequests;
+    private final ManagedWorktreeService worktrees;
+    private final PullRequestService pullRequestCatalog;
+    private final WorkspaceStore workspaces;
 
     public AgentController(
             AgentTaskService taskService,
@@ -130,7 +142,10 @@ public class AgentController
             ModelSettingsService modelSettings,
             AgentResourceService resourceService,
             RecentTouchRecorder recent,
-            PullRequestStore pullRequests)
+            PullRequestStore pullRequests,
+            ManagedWorktreeService worktrees,
+            PullRequestService pullRequestCatalog,
+            WorkspaceStore workspaces)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -146,6 +161,9 @@ public class AgentController
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.worktrees = requireNonNull(worktrees, "worktrees is null");
+        this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
     /**
@@ -318,8 +336,8 @@ public class AgentController
     }
 
     /**
-     * The pull requests on this task's branch. The branch is derived from the task, so nothing
-     * records what a task opened; whatever the user pushed and opened on it appears here.
+     * The pull requests on the generated branch and the verified checkout's current branch,
+     * which may have been renamed by the agent while opening its pull request.
      */
     @GetMapping("/tasks/{taskId}/pull-requests")
     public List<PullRequest> taskPullRequests(
@@ -328,10 +346,52 @@ public class AgentController
     {
         AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
         return task.taskWorktree()
-                .map(worktree -> pullRequests.findByHeadRef(
-                        task.repository().owner() + "/" + task.repository().name(),
-                        worktree.generatedBranch()))
+                .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), taskBranches(worktree)))
                 .orElse(ImmutableList.of());
+    }
+
+    @PostMapping("/tasks/{taskId}/pull-requests/sync")
+    public List<PullRequest> refreshTaskPullRequests(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId)
+    {
+        Lock lock = WorkspaceOperationLocks.get(workspaceId);
+        lock.lock();
+        try {
+            AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
+            return task.taskWorktree().map(worktree -> {
+                List<String> branches = taskBranches(worktree);
+                RepoRef repository = taskPullRequestRepository(workspaceId);
+                branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(repository, worktree.physicalRepository().owner(), branch));
+                return taskPullRequests(repository, branches);
+            }).orElse(ImmutableList.of());
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private List<String> taskBranches(TaskWorktree worktree)
+    {
+        return Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
+                .distinct()
+                .collect(toImmutableList());
+    }
+
+    /** A task owns the physical fork; pull requests live in the workspace's monitored repository. */
+    private RepoRef taskPullRequestRepository(String workspaceId)
+    {
+        return workspaces.findById(workspaceId)
+                .orElseThrow(() -> WorkspaceException.notFound(workspaceId))
+                .monitoredRepository();
+    }
+
+    private List<PullRequest> taskPullRequests(RepoRef repository, List<String> branches)
+    {
+        return branches.stream()
+                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream())
+                .sorted(comparingInt(PullRequest::number).reversed())
+                .collect(toImmutableList());
     }
 
     /**

@@ -32,6 +32,7 @@ import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -42,6 +43,9 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -49,6 +53,7 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -75,6 +80,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -108,7 +114,9 @@ import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -226,6 +234,12 @@ class TestAgentHttpApi
     @Autowired
     private PullRequestStore pullRequests;
 
+    @MockitoBean
+    private GitHubPullRequestReadClient gitHub;
+
+    @MockitoBean
+    private CredentialService credentials;
+
     private String workspaceId;
     private Path repository;
 
@@ -325,16 +339,120 @@ class TestAgentHttpApi
         assertThat(get(path + "another-workspace").getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
+    @Test
+    void listsPullRequestsAfterTheAgentRenamesItsBranch()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
+        String branch = "published-" + taskId;
+        run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
+        pullRequests.saveRepositorySyncPage(
+                REPOSITORY,
+                ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated")),
+                "renamed-task");
+
+        JsonNode listed = get("/agent/tasks/" + taskId + "/pull-requests?workspaceId=" + workspaceId).getBody();
+        assertThat(listed).hasSize(2);
+        assertThat(listed.get(0).get("number").asInt()).isEqualTo(485);
+        assertThat(listed.get(0).get("headRef").asText()).isEqualTo(branch);
+        assertThat(listed.get(1).get("number").asInt()).isEqualTo(484);
+        assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
+
+        run("git", "-C", worktree.canonicalWorktree().toString(), "switch", "--detach");
+        assertThat(get("/agent/tasks/" + taskId + "/pull-requests?workspaceId=" + workspaceId).getBody()).hasSize(1);
+    }
+
+    @Test
+    void refreshesARenamedTaskBranchBeforeSearchHasItsHeadRef()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
+        String branch = "new-pr-" + taskId;
+        run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
+        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)), "search-without-head");
+        String path = "/agent/tasks/" + taskId + "/pull-requests";
+        assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
+        when(credentials.resolveGitHubCredential()).thenReturn(
+                new GitHubCredential("pat", new UserProfile("alice", "Alice", "", "", 0, 0, 0, "", "", "", "")));
+        when(gitHub.fetchPullRequestsByHead("pat", RepoRef.of("bytequay", "agent-e2e"), "bytequay:" + branch))
+                .thenReturn(ImmutableList.of(fetchedPullRequest(488, branch)));
+
+        ResponseEntity<JsonNode> response = post(path + "/sync?workspaceId=" + workspaceId, ImmutableMap.of(), null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).hasSize(1);
+        assertThat(response.getBody().get(0).get("number").asInt()).isEqualTo(488);
+        assertThat(response.getBody().get(0).get("headRef").asText()).isEqualTo(branch);
+        assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).hasSize(1);
+        assertThat(post(path + "/sync?workspaceId=another-workspace", ImmutableMap.of(), null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        verify(gitHub, times(1)).fetchPullRequestsByHead("pat", RepoRef.of("bytequay", "agent-e2e"), "bytequay:" + branch);
+    }
+
+    @Test
+    void discoversUpstreamPullRequestsForATaskInADifferentlyNamedFork()
+            throws Exception
+    {
+        RepoRef fork = RepoRef.of("chenjian2664", "trino_new");
+        RepoRef upstream = RepoRef.of("trinodb", "trino");
+        String origin = "https://github.com/" + fork.fullName() + ".git";
+        String upstreamUrl = "https://github.com/" + upstream.fullName() + ".git";
+        Workspace previous = workspaces.findById(workspaceId).orElseThrow();
+        long upstreamId = NEXT_REPOSITORY_ID.incrementAndGet();
+        workspaces.save(new Workspace(
+                workspaceId, previous.name(), previous.selectedRepositoryId(), fork,
+                Optional.of(upstreamId), Optional.of(upstream), upstreamId, upstream, Workspace.Topology.FORK,
+                "main", origin, Optional.of("master"), Optional.of(upstreamUrl), repository.toString(),
+                previous.lastCodeSyncAt(), previous.lastMetadataSyncAt(), previous.displayOrder(), previous.createdAt(), Instant.now()));
+        run("git", "-C", repository.toString(), "remote", "set-url", "origin", origin);
+        run("git", "-C", repository.toString(), "remote", "add", "upstream", upstreamUrl);
+        run("git", "-C", repository.toString(), "update-ref", "refs/remotes/upstream/master", "HEAD");
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        AgentTask task = tasks.get(TaskId.valueOf(taskId));
+        TaskWorktree worktree = task.taskWorktree().orElseThrow();
+        assertThat(task.repository()).isEqualTo(new RepositoryIdentity(fork.owner(), fork.repo()));
+        assertThat(worktree.physicalRepository()).isEqualTo(task.repository());
+        String branch = "reuse-resolved-field-index";
+        run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
+        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31022, branch)), "upstream-pr");
+        pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)), "unrelated-fork-pr");
+        String path = "/agent/tasks/" + taskId + "/pull-requests";
+
+        JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();
+        assertThat(cached).hasSize(1);
+        assertThat(cached.get(0).get("repo").asText()).isEqualTo("trinodb/trino");
+        assertThat(cached.get(0).get("number").asInt()).isEqualTo(31022);
+        when(credentials.resolveGitHubCredential()).thenReturn(
+                new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(gitHub.fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch))
+                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch)));
+
+        JsonNode refreshed = post(path + "/sync?workspaceId=" + workspaceId, ImmutableMap.of(), null).getBody();
+
+        assertThat(refreshed).hasSize(2);
+        assertThat(refreshed.get(0).get("repo").asText()).isEqualTo("trinodb/trino");
+        assertThat(refreshed.get(0).get("number").asInt()).isEqualTo(31023);
+        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch);
+        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + worktree.generatedBranch());
+        verify(gitHub, never()).fetchPullRequestsByHead("pat", fork, "chenjian2664:" + branch);
+    }
+
     private static FetchedPullRequest fetchedPullRequest(int number, String headRef)
+    {
+        return fetchedPullRequest(REPOSITORY, number, headRef);
+    }
+
+    private static FetchedPullRequest fetchedPullRequest(String repository, int number, String headRef)
     {
         Instant at = Instant.parse("2026-09-01T00:00:00Z");
         return new FetchedPullRequest(
                 (long) number,
-                REPOSITORY,
+                repository,
                 number,
                 "PR " + number,
                 "alice",
-                "https://github.com/" + REPOSITORY + "/pull/" + number,
+                "https://github.com/" + repository + "/pull/" + number,
                 at,
                 at,
                 PullRequest.Origin.AUTHORED,

@@ -105,6 +105,36 @@ public class GitHubPullRequestReadClient
         return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
     }
 
+    /** The list endpoint supplies head refs immediately, without waiting for GitHub's search index. */
+    public List<FetchedPullRequest> fetchPullRequestsByHead(String pat, RepoRef repository, String head)
+    {
+        requirePat(pat);
+        requireNonNull(repository, "repository is null");
+        requireNonNull(head, "head is null");
+        ImmutableList.Builder<FetchedPullRequest> result = ImmutableList.builder();
+        for (int page = 1; page <= 50; page++) {
+            int currentPage = page;
+            List<GitHubRepoPullRequestItem> rows = translating(() -> gitHubRestClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/pulls")
+                            .queryParam("state", "all")
+                            .queryParam("head", "{head}")
+                            .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                            .queryParam("page", currentPage)
+                            .build(repository.owner(), repository.repo(), head))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<GitHubRepoPullRequestItem>>() {}));
+            if (rows == null || rows.isEmpty()) {
+                break;
+            }
+            rows.forEach(row -> result.add(toPullRequest(row, repository.fullName())));
+            if (rows.size() < GitHubPaginator.PAGE_SIZE) {
+                break;
+            }
+        }
+        return result.build();
+    }
+
     public List<RepoUser> fetchAssignableUsers(String pat, RepoRef repo)
     {
         return fetchAssignableRepositoryUsers(pat, repo).stream()

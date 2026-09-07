@@ -49,12 +49,16 @@ import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GlobalExceptionHandler;
+import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -123,7 +127,10 @@ class TestAgentHttpErrors
                 mock(ModelSettingsService.class),
                 mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class),
-                mock(PullRequestStore.class));
+                mock(PullRequestStore.class),
+                new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git),
+                mock(PullRequestService.class),
+                mock(WorkspaceStore.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

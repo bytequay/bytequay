@@ -35,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
@@ -158,6 +159,39 @@ public final class ManagedWorktreeService
         Workspace workspace = requireWorkspace(worktree.workspaceId());
         verifyPhysicalRepository(workspace, worktree.physicalRepository());
         return inspectVerified(workspace, verifyManagedRepository(workspace), worktree);
+    }
+
+    /** Reads the branch for PR discovery without changing the task's immutable cleanup ownership. */
+    public Optional<String> currentBranch(TaskWorktree worktree)
+    {
+        requireNonNull(worktree, "worktree is null");
+        Lock lock = WorkspaceOperationLocks.get(worktree.workspaceId());
+        lock.lock();
+        try {
+            verifyDerivedPath(worktree);
+            if (Files.notExists(worktree.canonicalWorktree(), LinkOption.NOFOLLOW_LINKS)) {
+                return Optional.empty();
+            }
+            Workspace workspace = requireWorkspace(worktree.workspaceId());
+            verifyPhysicalRepository(workspace, worktree.physicalRepository());
+            Path repository = verifyManagedRepository(workspace);
+            Path canonical = verifyOwnedWorktree(workspace, repository, worktree);
+            if (!registeredWorktreePaths(repository).contains(canonical)) {
+                throw invalid("Git does not register the task worktree");
+            }
+            Result result = git.run(canonical, "symbolic-ref", "--quiet", "HEAD");
+            if (result.exitCode() == 1 && !result.truncated() && result.output().isBlank()) {
+                return Optional.empty();
+            }
+            String reference = requireOutput(result, "read task worktree branch");
+            if (!reference.startsWith("refs/heads/")) {
+                throw invalid("Task worktree HEAD does not name a local branch");
+            }
+            return Optional.of(reference.substring("refs/heads/".length()));
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     @Override

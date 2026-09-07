@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -47,6 +48,36 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubPullRequestOverviewClient
 {
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("owner", "repo", 42);
+
+    @Test
+    void discoversPullRequestsByForkHeadWithBranchRefsAndAllPages()
+    {
+        Fixture fixture = fixture();
+        String firstPage = IntStream.range(1, 101)
+                .mapToObj(number -> """
+                        {"id":%d,"number":%d,"title":"Draft","state":"open","draft":true,
+                         "head":{"ref":"feature/change"},"user":{"login":"contributor"}}
+                        """.formatted(number, number))
+                .collect(joining(",", "[", "]"));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=1"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
+                .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=contributor%3Afeature%2Fchange&per_page=100&page=2"))
+                .andRespond(withSuccess("""
+                        [{"id":101,"number":101,"title":"Earlier attempt","state":"closed",
+                          "merged_at":"2026-09-07T00:00:00Z","head":{"ref":"feature/change"}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        List<FetchedPullRequest> found = fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "contributor:feature/change");
+
+        assertThat(found).hasSize(101);
+        assertThat(found.getFirst().headRef()).isEqualTo("feature/change");
+        assertThat(found.getFirst().draft()).isTrue();
+        assertThat(found.getFirst().repo()).isEqualTo("owner/repo");
+        assertThat(found.getLast().state()).isEqualTo("closed");
+        assertThat(found.getLast().mergedAt()).isEqualTo(Instant.parse("2026-09-07T00:00:00Z"));
+        fixture.verify();
+    }
 
     @Test
     void mapsTheSelfContainedOverviewHeader()

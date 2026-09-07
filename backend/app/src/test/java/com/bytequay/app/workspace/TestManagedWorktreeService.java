@@ -122,6 +122,26 @@ class TestManagedWorktreeService
     }
 
     @Test
+    void readsRenamedBranchesWithoutChangingCleanupOwnership()
+    {
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        assertThat(service.currentBranch(worktree)).contains(worktree.generatedBranch());
+        run(worktree.canonicalWorktree(), "branch", "-m", "published-change");
+        run(worktree.canonicalWorktree(), "tag", "published-change");
+
+        assertThat(service.currentBranch(worktree)).contains("published-change");
+        assertThatThrownBy(() -> service.inspect(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("another branch");
+        assertThatThrownBy(() -> service.cleanup(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("another branch");
+
+        run(worktree.canonicalWorktree(), "switch", "--detach");
+        assertThat(service.currentBranch(worktree)).isEmpty();
+    }
+
+    @Test
     void cleanCleanupRemovesOnlyWorktreeAndRetainsBranch()
     {
         TaskWorktree worktree = service.provision(command(TaskId.random()));
@@ -131,6 +151,7 @@ class TestManagedWorktreeService
         service.cleanup(worktree);
 
         assertThat(worktree.canonicalWorktree()).doesNotExist();
+        assertThat(service.currentBranch(worktree)).isEmpty();
         assertThat(run(repository, "rev-parse", "refs/heads/" + worktree.generatedBranch()).output().strip())
                 .isEqualTo(startCommit);
         assertThat(repository).isDirectory();
@@ -236,6 +257,9 @@ class TestManagedWorktreeService
         run(repository, "remote", "set-url", "origin", "https://github.com/other/project.git");
 
         assertThatThrownBy(() -> service.inspect(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("origin");
+        assertThatThrownBy(() -> service.currentBranch(worktree))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("origin");
         assertThatThrownBy(() -> service.cleanup(worktree))

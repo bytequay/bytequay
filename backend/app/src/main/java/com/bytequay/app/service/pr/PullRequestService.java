@@ -270,6 +270,21 @@ public class PullRequestService
                 repository.fullName(), Instant.now().minus(CLOSED_RETENTION_DAYS, ChronoUnit.DAYS)));
     }
 
+    /** Discovers one task branch without a repository-wide search or detail refresh. */
+    public void syncRepositoryBranch(RepoRef repository, String headOwner, String branch)
+    {
+        requireNonNull(repository, "repository is null");
+        requireNotBlank(headOwner, "headOwner");
+        requireNotBlank(branch, "branch");
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        List<FetchedPullRequest> fresh = gitHub.fetchPullRequestsByHead(credential.token(), repository, headOwner + ":" + branch).stream()
+                .map(pullRequest -> pullRequest.withViewerOrigin(credential.profile().login()))
+                .collect(toImmutableList());
+        if (!fresh.isEmpty()) {
+            store.saveRepositorySyncPage(repository.fullName(), fresh, UUID.randomUUID().toString());
+        }
+    }
+
     public List<RepoUser> listRepositoryUsers(String repo, String workspaceId)
     {
         PullRequestRef ref = parseRef(repo, 1);

@@ -1423,8 +1423,8 @@ export type Bridge = {
   archiveAgentTask: (taskId: string, workspaceId: string, expectedVersion: number, archived: boolean) => Promise<AgentTaskDto>;
   /** Removes the task, its runtime files, its checkout and its generated branch; a no-op once it is gone. */
   deleteAgentTask: (taskId: string, workspaceId: string) => Promise<void>;
-  /** The pull requests on the task's branch; the branch is derived from the task, so nothing is recorded. */
-  listAgentTaskPullRequests: (taskId: string, workspaceId: string) => Promise<PullRequestDto[]>;
+  /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
+  listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;

@@ -94,6 +94,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -132,6 +133,33 @@ class TestPullRequestService
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
+    }
+
+    @Test
+    void refreshesTaskBranchRowsImmediatelyWithoutSearchOrDetailReads()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        FetchedPullRequest found = pullRequest();
+        when(gitHub.fetchPullRequestsByHead("pat", repository, "contributor:feature")).thenReturn(ImmutableList.of(found));
+
+        service.syncRepositoryBranch(repository, "contributor", "feature");
+        service.syncRepositoryBranch(repository, "contributor", "feature");
+
+        verify(gitHub, times(2)).fetchPullRequestsByHead("pat", repository, "contributor:feature");
+        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(found.withViewerOrigin("me"))), anyString());
+        verify(store, never()).completeRepositorySync(anyString(), any());
+        verifyNoInteractions(detailStore, diffStore);
+    }
+
+    @Test
+    void preservesCachedBranchRowsWhenGitHubReturnsNoMatches()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        when(gitHub.fetchPullRequestsByHead("pat", repository, "contributor:feature")).thenReturn(ImmutableList.of());
+
+        service.syncRepositoryBranch(repository, "contributor", "feature");
+
+        verifyNoInteractions(store, detailStore, diffStore);
     }
 
     @Test

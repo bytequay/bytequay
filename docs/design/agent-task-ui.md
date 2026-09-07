@@ -416,13 +416,27 @@ marker distinguishes recovered history from new live activity. The unsupported
 `thread/read(includeTurns: true)` call and experimental parent/ancestor list
 filters are not correctness dependencies.
 
-The panel that lists subagents also carries a **Pull requests** tab. Because a
-task's generated branch is derived from its ID, that tab needs no new record of
-what a task opened: it lists the pull requests whose head branch is this task's
-generated branch, and selecting one opens ByteQuay's existing pull-request
-detail surface unchanged. The tab shows an empty state until the user pushes
-that branch and opens a pull request; nothing in the first release pushes or
-opens one on its own.
+The panel that lists subagents also carries a **Pull requests** tab, with a
+count when pull requests exist. It matches the task's generated branch and the
+current branch of its verified managed checkout, so an agent-renamed branch
+remains discoverable. Reading the current branch validates repository, origin,
+path, and worktree registration without changing immutable cleanup ownership.
+Missing or detached checkouts retain the generated-branch lookup. Selecting a
+row opens ByteQuay's existing pull-request detail surface.
+
+Opening an idle task, ending any ordinary turn, or selecting the PR panel
+refreshes those branches through GitHub's head-filtered pull-request endpoint.
+The target is the workspace's monitored repository; the head owner comes from
+the task's physical repository. For a fork workspace these are different:
+`chenjian2664/trino_new` supplies the branch, while `trinodb/trino` owns the PR.
+Both cached reads and GitHub refreshes use that monitored target. The task's
+stored repository identifies its checkout and must not be used as the PR target.
+The refresh is read-only on GitHub and persists the result before displaying it;
+cached rows remain visible while it runs or if it fails. This works independently
+of the selected side-panel tab and does not rely on repository search indexing
+or search results, which omit head branches. No transcript prose or PR URL is
+treated as authoritative association, and no separate durable task-to-PR link
+is introduced. Matching stored rows remains repository plus branch.
 
 ### 2.6 Queue and steering
 
@@ -762,6 +776,8 @@ POST   /agent/tasks/{taskId}/attachments
 GET    /agent/tasks/{taskId}/attachments/{attachmentId}
 POST   /agent/tasks/{taskId}/mark-failed
 DELETE /agent/tasks/{taskId}
+GET    /agent/tasks/{taskId}/pull-requests
+POST   /agent/tasks/{taskId}/pull-requests/sync
 ```
 
 Task creation accepts a workspace ID, lane, defaults, and the first message;

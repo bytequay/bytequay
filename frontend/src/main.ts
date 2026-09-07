@@ -538,9 +538,10 @@ function registerIpc(): void {
       headers: { 'Content-Type': 'application/json', ...agentHeaders() },
       body: JSON.stringify({ expectedVersion, defaults }),
     }).then((task) => parseAgentTask(task)));
-  ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string) =>
+  ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() }));
+      + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
+    { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
   ipcMain.handle('agent:task:rename', (
     _event,
     taskId: string,

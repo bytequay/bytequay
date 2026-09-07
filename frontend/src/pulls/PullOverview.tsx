@@ -118,10 +118,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           <span aria-hidden="true">←</span>
           <span className="pr-overview__head-branch">
             <code>{detail.headRef ?? pr.headRef ?? 'branch unavailable'}</code>
-            <button type="button" aria-label="Copy head branch" title="Copy head branch"
-              onClick={() => { void navigator.clipboard?.writeText(detail.headRef ?? pr.headRef ?? ''); }}>
-              <CopyIcon />
-            </button>
+            <CopyLinkButton value={detail.headRef ?? pr.headRef ?? ''} label="head branch" />
           </span>
           <button type="button" aria-label="Open on GitHub" title="Open on GitHub"
             onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>

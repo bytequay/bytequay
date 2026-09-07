@@ -236,6 +236,7 @@ describe('PullOverview', () => {
     expect(html).toContain(' Open</span>');
     expect(html).toContain('main');
     expect(html).toContain('feature/overview');
+    expect(html).toContain('class="pr-copy-button" aria-label="Copy head branch" title="Copy head branch"');
     expect(html).toContain('aria-label="Open on GitHub" title="Open on GitHub"');
     expect(html).toContain('src="https://github.com/github.png?size=36"');
     expect(html.indexOf('feature/overview')).toBeLessThan(html.indexOf('aria-label="Open on GitHub"'));

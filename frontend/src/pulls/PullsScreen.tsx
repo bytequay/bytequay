@@ -584,7 +584,7 @@ export default function PullsScreen({
         schedule(nextDelay);
       }
     };
-    // Coming back deserves current data now, not up to six seconds from now.
+    // Coming back deserves current data now, not up to five seconds from now.
     const resume = () => schedule(0);
     document.addEventListener('visibilitychange', resume);
 

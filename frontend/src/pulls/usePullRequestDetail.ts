@@ -24,7 +24,7 @@ import type {
   PullRequestStatusRefreshDto,
 } from '../types';
 
-export const DETAIL_REFRESH_INTERVAL = 6_000;
+export const DETAIL_REFRESH_INTERVAL = 5_000;
 
 export function mergePullRequestDetailStatus<T>(
   current: T,
@@ -37,7 +37,7 @@ export function mergePullRequestDetailStatus<T>(
  * How long to wait before the next detail refresh.
  *
  * GitHub answers a spent rate limit with the reset instant, so a refused poll waits for the
- * window to reopen instead of spending the next six seconds asking again.
+ * window to reopen instead of spending the next five seconds asking again.
  */
 export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()): number {
   const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
@@ -189,7 +189,7 @@ export function usePullRequestDetail(
       }
     };
 
-    // Coming back deserves current data now, not up to six seconds from now.
+    // Coming back deserves current data now, not up to five seconds from now.
     const resume = () => schedule(0);
     document.addEventListener('visibilitychange', resume);
 

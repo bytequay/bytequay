@@ -452,11 +452,14 @@ The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
 so the pull request is read beside the conversation without leaving the task. A
 transcript link to that pull request selects the tab instead of navigating, and
 the task route does not change. **Changes** shows the same pull request's diff
-read-only; findings and inline comments stay on the full-width surface, which
-**Open full width** opens. Tab selection is renderer-local panel state, never a
-route. The panel reads the detail and the diff itself, once per pull request and
-again on demand; the six-second detail poll belongs to the pull-request screen
-and is not repeated here.
+with the review threads already on those lines; agent-review findings stay on
+the full-width surface, which **Open full width** opens. The inline comment
+gutter follows the same rule it does there, so a pull request this account
+authored offers none. Tab selection is renderer-local panel state, never a
+route. The panel reads the detail and the diff through the same hook the
+pull-request screen uses, so it holds the same five-second conditional refresh
+loop rather than a single read: a stored snapshot carries no age, and reading it
+once froze the timeline at whatever the last refresh happened to write.
 
 Branch matching is unchanged. It matches the task's generated branch and the
 current branch of its verified managed checkout, so an agent-renamed branch

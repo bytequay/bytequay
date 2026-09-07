@@ -285,7 +285,7 @@ Display and refresh are separate paths:
    token invalidates it and resolves `/user` once for the new credential.
 4. Selecting a stored PR requests detail by its stable local row ID. The backend resolves the
    repository and number from SQLite, renders persisted detail first, then the frontend starts a
-   non-overlapping six-second conditional refresh loop. An unchanged PR ETag refreshes only CI and
+   non-overlapping five-second conditional refresh loop. An unchanged PR ETag refreshes only CI and
    mergeability and returns a status-only response; a changed PR ETag rebuilds and returns the full
    UI detail snapshot. Check runs and combined commit statuses carry their own stored ETags. An
    exhausted GitHub rate limit pauses the loop until GitHub's reported reset time.

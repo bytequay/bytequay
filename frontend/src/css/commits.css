@@ -87,14 +87,16 @@
   top: 34px;
   left: 0;
   z-index: 40;
-  width: 240px;
+  width: min(360px, calc(100vw - 32px));
   background: #ffffff;
   border: 1px solid #d0d7de;
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(140, 149, 159, 0.25);
-  max-height: calc(100vh - 58px);
+  max-height: min(360px, calc(100vh - 160px));
+  box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .cmt-menu.is-wide { width: min(480px, calc(100vw - 32px)); }
@@ -127,10 +129,8 @@
 }
 
 .cmt-menu-item {
-  display: flex;
+  display: block;
   width: 100%;
-  align-items: center;
-  gap: 8px;
   text-align: left;
   border: none;
   background: transparent;
@@ -1681,8 +1681,8 @@
 /* Remote source switcher (design: Turn 2 — remote sources) */
 .cmt-menu-divider { border-top: 1px solid #f0f0f2; margin: 5px 0; }
 .cmt-source-item { display: flex; flex-direction: column; align-items: stretch; gap: 1px; }
-.cmt-source-name { font-size: 13px; font-weight: 600; }
-.cmt-source-desc { font-size: var(--ui-font-size); color: #8c959f; }
+.cmt-source-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.cmt-source-desc { font-size: var(--ui-font-size); color: #8c959f; overflow: hidden; text-overflow: ellipsis; }
 
 /* Split source chip: left = source, right = its branch */
 .cmt-split-chip {

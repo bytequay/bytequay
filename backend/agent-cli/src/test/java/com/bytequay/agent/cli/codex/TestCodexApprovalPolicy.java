@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestCodexApprovalPolicy
 {
     @Test
-    void preservesTheCompleteNativeTenantPolicyBeforeAddingByteQuayRestrictions()
+    void preservesNativeRiskRulesWhileAuthorizingRoutineDevelopment()
     {
         String policy = CodexApprovalPolicy.policy();
         int nativeStart = policy.indexOf("## Environment Profile\n");
@@ -34,14 +34,17 @@ class TestCodexApprovalPolicy
         assertThat(Hashing.sha256().hashString(policy.substring(nativeStart, scopeStart), UTF_8).toString())
                 .isEqualTo("e6b0cf0a2e1c4cabc0a37ac2a0bc424ddd7c89e85d049e32d281a8db6e8d3ce6");
         assertThat(policy.substring(scopeStart)).contains(
-                "They take precedence over any\nmore permissive native allow rule",
-                "Preserve all\nnative denials",
-                "local read-only inspection",
-                "does not probe for credentials",
+                "Preserve all native\ndenials",
+                "builds, tests, dependency downloads, and writes to development caches",
+                "without\n  requiring separate user approval for each cache or temporary path",
+                "~/.m2 repository locks",
+                "Jansi's /var/tmp files",
                 "complete command, shell expansions, pipelines, scripts, and network",
-                "Deny every non-read-only action crossing the sandbox boundary unless a direct\n  user instruction or approval explicitly authorizes its exact side effect",
+                "A build or test label does not authorize\n  unrelated mutations",
                 "GitHub writes",
                 "require direct explicit user authorization",
-                "do not treat ambiguity as permission");
+                "do not require the user to repeat that authorization",
+                "Deny requests to grant persistent or reusable permissions");
+        assertThat(policy).doesNotContain("Deny every non-read-only action crossing the sandbox boundary");
     }
 }

@@ -141,8 +141,9 @@ isolation requirements retained after release.
   threads inside a process all belong to that task, so IDs are never routed
   between tasks.
 - No execution environment is registered. App Server's default environment is
-  rooted at its own working directory, so `workspace-write` confines a turn to
-  the task worktree. Task sessions declare `experimentalApi: true` solely for
+  rooted at its own working directory. Attended Codex `AUTO` adds ordinary
+  `/tmp` and `$TMPDIR` allowances to the task worktree; other writes outside
+  those roots need provider approval. Task sessions declare `experimentalApi: true` solely for
   background-terminal inventory and termination; no loopback listener is
   opened, so the first release carries no same-host trust boundary of
   ByteQuay's own making.
@@ -236,10 +237,16 @@ duplicating the user's text.
 
 For Codex, **Auto** maps to App Server's generated on-request approval value
 (`approvalPolicy: "on-request"` in the v0.151 reference schema) plus a
-workspace-write sandbox rooted at the generated task worktree and the native
-`auto_review` approval reviewer. It can approve routine reads without a human
-card; other boundary side effects require direct explicit user authorization
-under ByteQuay's pinned reviewer policy. Normal tasks also enable Codex's native
+workspace-write sandbox rooted at the generated task worktree, ordinary `/tmp`
+and `$TMPDIR` allowances, and the native `auto_review` approval reviewer.
+The pinned native policy reviews routine task prerequisites by risk, including
+build/test cache, lock, and temporary writes. A task request authorizes those
+normal prerequisites without making the user name each cache path. Cache
+directories such as `~/.m2` still require native review; they are not unrestricted
+writable roots. GitHub writes continue to require direct explicit user
+authorization, and native denials and the prohibition on persistent or blanket
+future grants remain. **Auto** does not guarantee that every test command will
+be approved. Normal tasks also enable Codex's native
 web tool, independently of the disabled shell network. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the

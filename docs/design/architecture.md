@@ -380,8 +380,9 @@ React projection implement this end-to-end flow:
    separate `stream-json` process per turn.
 5. App Server owns the Codex model/tool loop, built-in tool execution, and
    provider approval requests. Its default environment is rooted at its own
-   working directory, which is the task worktree, and that is what confines a
-   turn's writes.
+   working directory, which is the task worktree. Attended Codex `AUTO` also
+   permits ordinary `/tmp` and `$TMPDIR` writes; other writes outside the
+   permitted roots require provider approval.
    Each driver maps only user-visible provider facts to normalized ByteQuay
    events.
 6. `agent-core` correlates task, agent thread, turn, and item identity. Each
@@ -453,8 +454,12 @@ The detailed backend contract is in
   text-only helpers), expose no MCP server, and apply the minimal
   shell environment without inherited setters, exclusions, or filters.
   Ordinary tasks use native automatic approval review with ByteQuay's exact
-  pinned policy: routine reads may proceed, while other sandbox-boundary side
-  effects and GitHub writes require direct explicit user authorization.
+  pinned policy. Native risk rules govern routine task prerequisites, including
+  bounded build/test cache and temporary writes; the task request supplies
+  authorization without a separate approval naming each cache path. Every
+  GitHub write still requires direct explicit user authorization. Native
+  denials and the prohibition on persistent or blanket future grants remain;
+  `AUTO` does not guarantee approval of every test command.
   `hooks/list` must be empty. `skills/list` may contain only bundled system
   skills canonically beneath the isolated `CODEX_HOME/skills/.system`, never a
   repository, user, admin, plugin-owned, or out-of-root skill. The completed
@@ -494,10 +499,13 @@ The detailed backend contract is in
   close retains that runtime's session/process identity and `TURN` claim so a
   confirmed Stop can retry termination and verification; only a later verified
   stop releases the claim, and it never resends the old turn.
-- A task's process working directory is its sandbox root: under
-  `workspace-write` App Server's default environment confines writes to it, so
-  no separate execution environment is registered and no loopback listener is
-  opened. Initialization declares `experimentalApi: true` solely for the
+- A task's process working directory is its explicit sandbox root. Attended
+  Codex `AUTO` keeps ordinary `/tmp` and `$TMPDIR` allowances by setting both
+  temporary-directory exclusions to false; other policies retain the exclusions.
+  Cache directories such as `~/.m2` are not unrestricted writable roots;
+  native review handles those escalations. No separate execution environment
+  is registered and no loopback listener is opened. Initialization declares
+  `experimentalApi: true` solely for the
   background-terminal list and terminate methods; ByteQuay calls no
   experimental environment method.
 - A session owns the App Server process serving one active turn. Settlement

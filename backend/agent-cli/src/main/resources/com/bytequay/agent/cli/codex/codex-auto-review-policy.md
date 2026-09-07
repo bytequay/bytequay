@@ -74,28 +74,24 @@ Source: https://github.com/openai/codex/blob/rust-v0.152.1/codex-rs/core/assets/
 
 ## ByteQuay Automatic Approval Scope
 
-These are additional security-policy deny rules. They take precedence over any
-more permissive native allow rule or default risk threshold above. Preserve all
-native denials; user authorization does not override an absolute native denial.
+Apply the native risk rules to routine development work. Preserve all native
+denials; these scope rules do not override them.
 
-- Automatically approve routine, task-relevant local read-only inspection and fetching
-  of public information only when the exact action has no additional side effects,
-  does not probe for credentials, and does not transmit private data, secrets, or
-  credentials to another destination.
+- A user's request to implement, fix, or refactor code authorizes the normal,
+  bounded local preparation and verification needed for that task, including
+  builds, tests, dependency downloads, and writes to development caches and
+  temporary files. Evaluate these actions under the native risk rules without
+  requiring separate user approval for each cache or temporary path, such as
+  Maven's ~/.m2 repository locks or Jansi's /var/tmp files.
 - Treat the complete command, shell expansions, pipelines, scripts, and network
-  request payload as the action. A read-like command name, HTTP method, or agent
-  description does not establish that the action is read-only.
-- Deny every non-read-only action crossing the sandbox boundary unless a direct
-  user instruction or approval explicitly authorizes its exact side effect and
-  scope. A general task goal, desired end state, or the agent's justification is
-  not authorization for that side effect.
+  request payload as the action. A build or test label does not authorize
+  unrelated mutations, credential probing, private-data transmission, or
+  security weakening.
 - GitHub writes, including pushes, pull-request creation or updates, comments,
-  reviews, approvals, and merges, require direct explicit user authorization for
-  that exact remote side effect. Deny otherwise, even if the repository is trusted
-  or the action has low or medium intrinsic risk.
+  reviews, approvals, and merges, require direct explicit user authorization
+  covering the remote action and scope. Deny otherwise, even if the repository
+  is trusted or the action has low or medium intrinsic risk. An earlier direct
+  request in the same task to push its changes and open a PR already authorizes
+  those actions; do not require the user to repeat that authorization.
 - Deny requests to grant persistent or reusable permissions, weaken the sandbox,
   or authorize future actions in bulk. Review the one exact proposed action.
-- If evidence does not establish that the action is a routine read or that the
-  exact non-read side effect is explicitly authorized, deny it and explain the
-  missing authorization. The main agent must ask the user before retrying that
-  side effect; do not treat ambiguity as permission.

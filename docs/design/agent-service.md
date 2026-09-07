@@ -1652,9 +1652,10 @@ in section 5.3.
 
 A turn's task-owned App Server process runs with the task worktree as its working
 directory, and that is the whole boundary. Under `sandbox: workspace-write`
-App Server's default environment is rooted at its own working directory, so a
-model-requested write inside the worktree succeeds and one outside it is
-escalated as an approval rather than performed. Measured against codex-cli
+App Server's default environment is rooted at its own working directory.
+Attended `AUTO` also permits the provider's ordinary `/tmp` and `$TMPDIR`
+writes; other policies retain their temporary-directory exclusions. Writes
+outside those permitted roots require provider approval. Measured against codex-cli
 0.151.0 with no environment registered: an in-worktree write landed with zero
 approvals, and a write to a path under `$HOME` produced an approval request and
 never landed.
@@ -2557,8 +2558,12 @@ The connection and task sequence is:
    turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
    `approvalsReviewer: "auto_review"`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and
-   `writableRoots: [canonicalWorktree]`, with tool network disabled. The
-   thread's persisted
+   `writableRoots: [canonicalWorktree]`, with tool network disabled. Attended
+   `AUTO` sets `excludeTmpdirEnvVar: false` and `excludeSlashTmp: false` to
+   retain the provider's ordinary temporary-directory allowances. Other policies
+   keep both exclusions enabled. Build caches such as `~/.m2` are not additional
+   writable roots; access outside the permitted roots still goes through native
+   review. The thread's persisted
    `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
    `ProviderTurnRef`. Never add
    `.git`, a worktree pointer target, or the resolved Git directory as an extra
@@ -2696,22 +2701,30 @@ and verified process-shutdown checks. Their verified profile disables tools
 and subagents.
 
 The task uses the running App Server's selected sandbox and approval policy.
-Readiness verifies that ordinary built-in tool execution works and stays inside
-the task worktree. The
+Readiness verifies that ordinary built-in tool execution works within the
+selected writable roots and approval boundary. The
 App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox or
 first-release process profile enforces a destination allowlist for that control
 traffic. The driver sets `approvalsReviewer: "auto_review"` at start, resume, and
-turn start for ordinary tasks. A separate native reviewer can approve routine
-read-only inspection and public fetching. ByteQuay supplies a complete pinned
-native tenant policy from Codex 0.152.1 plus stricter scope rules through
-`auto_review.policy`: other sandbox-boundary side effects, including every
-GitHub write, require direct explicit user authorization. General task intent
-is insufficient. Persistent grants, blanket future permissions, credential
-probing, and unauthorized private-data transmission are denied. The resource
-records its provenance; future native policy changes require review of that
-resource, rather than being silently inherited. Effective config and session
-flags must contain the exact policy before any task thread starts or resumes.
+turn start for ordinary tasks. A separate native reviewer applies the complete
+pinned native tenant policy from Codex 0.152.1 through `auto_review.policy`.
+Routine task-required actions use native risk-based review, including build and
+test commands that need bounded cache, lock, or temporary-file writes outside
+the worktree. The user's task request authorizes its normal prerequisites;
+the user need not separately name Maven's cache or temporary paths. The reviewer
+still evaluates the complete action and its side effects, so `AUTO` does not
+promise that every build or test command will be approved.
+
+ByteQuay retains an additional direct explicit authorization requirement for
+every GitHub write, including pushes and pull-request publication. A general
+task goal is insufficient for those remote side effects. Native denials remain
+in force, including their credential-probing and private-data transmission
+rules; persistent grants and blanket future permissions remain prohibited.
+The resource records its provenance; future native policy changes require
+review of that resource, rather than being silently inherited. Effective config
+and session flags must contain the exact policy before any task thread starts
+or resumes.
 
 Native review-start and review-completion notifications become normalized tool
 activity with independent review IDs, status, risk, and redacted rationale.
@@ -2726,8 +2739,9 @@ After denial the native agent must use a safer path or explain the reason and
 ask the user; there is no automatic human-card fallback. Remaining native
 approval requests still use the existing ByteQuay request/decision boundary.
 Text-only title/Better Words helpers keep `never`, reviewer `user`, read-only
-sandbox, disabled tools, and disabled web search. The shell network and
-filesystem sandbox remain unchanged for every profile.
+sandbox, disabled tools, and disabled web search. Shell networking remains
+disabled in the sandbox; only attended `AUTO` receives the ordinary temporary
+directory allowances described above.
 
 ByteQuay adds no general
 custom tool router, semantic Git-command policy, or post-turn Git workflow in

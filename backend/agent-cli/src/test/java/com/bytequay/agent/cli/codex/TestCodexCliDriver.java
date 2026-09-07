@@ -129,11 +129,12 @@ class TestCodexCliDriver
         assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
         assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
+        assertThat(startedTurn.path("sandboxPolicy").path("writableRoots")).hasSize(1);
         assertThat(startedTurn.path("sandboxPolicy").path("writableRoots").get(0).asText())
                 .isEqualTo(worktree.toRealPath().toString());
         assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
-        assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").asBoolean()).isTrue();
-        assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").asBoolean()).isTrue();
+        assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").booleanValue()).isFalse();
+        assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").booleanValue()).isFalse();
         resumedServer.completeTurn();
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -178,6 +179,28 @@ class TestCodexCliDriver
                 server -> assertThat(server.experimentalApi()).containsExactly(true));
 
         driver.close();
+    }
+
+    @Test
+    void unattendedWorkflowsKeepTemporaryDirectoriesOutsideTheSandbox()
+            throws Exception
+    {
+        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK)) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+            CodexCliDriver driver = driver(supervisor);
+            AgentSessionContext context = new AgentSessionContext(
+                    "task-1", worktree, worktree, worktree.resolve("provider"), policy, Optional.empty(),
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+            try (AgentSession session = driver.open(context, event -> {})) {
+                RunningTurn turn = session.start(command("complete"));
+                JsonNode sandbox = supervisor.server().turnRequests().getFirst().path("sandboxPolicy");
+                assertThat(sandbox.path("excludeTmpdirEnvVar").booleanValue()).isTrue();
+                assertThat(sandbox.path("excludeSlashTmp").booleanValue()).isTrue();
+                supervisor.server().completeTurn();
+                turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            }
+            driver.close();
+        }
     }
 
     @Test

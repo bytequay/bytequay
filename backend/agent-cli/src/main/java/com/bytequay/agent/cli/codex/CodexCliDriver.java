@@ -938,8 +938,8 @@ public final class CodexCliDriver
                     "type", "workspaceWrite",
                     "writableRoots", ImmutableList.of(worktree.toString()),
                     "networkAccess", false,
-                    "excludeTmpdirEnvVar", true,
-                    "excludeSlashTmp", true);
+                    "excludeTmpdirEnvVar", context.permissionPolicy().unattended(),
+                    "excludeSlashTmp", context.permissionPolicy().unattended());
         }
 
         private Path canonicalWorktree()

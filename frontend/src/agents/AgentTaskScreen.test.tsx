@@ -21,13 +21,14 @@ import { AgentTaskBody, draftPullRequestPrompt, providerStatusFromUnavailable, t
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
-import { samePullRequest, taskPullRequest } from './TaskPullRequestPanel';
+import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from './TaskPullRequestPanel';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { previewTask } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentCapabilitiesDto,
+  PullRequestDetailDto,
   AgentProviderReadiness,
   AgentProviderStatus,
   AgentProviderUnavailableDto,
@@ -415,6 +416,76 @@ function workspace(overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
   };
 }
 
+/** A pull request whose diff already carries one review thread, for the panel's Changes tab. */
+function reviewedDetail(): PullRequestDetailDto {
+  return {
+    id: 482,
+    repo: 'bytequay/bytequay',
+    number: 482,
+    title: 'Fix preview output limit',
+    htmlUrl: 'https://github.com/bytequay/bytequay/pull/482',
+    state: 'open',
+    draft: false,
+    mergeable: true,
+    mergeableState: 'clean',
+    author: 'alice',
+    authorAvatarUrl: null,
+    createdAt: '2026-08-20T10:00:00Z',
+    updatedAt: '2026-08-20T10:00:00Z',
+    mergedAt: null,
+    baseRef: 'main',
+    headRef: 'fix-preview-output-limit',
+    body: null,
+    labels: [],
+    assignees: [],
+    milestone: null,
+    reviewers: [],
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    approvalCount: 0,
+    ciStatus: null,
+    recentActivity: [{
+      actor: 'bob',
+      eventType: 'review_thread',
+      timestamp: '2026-08-20T10:30:00Z',
+      body: null,
+      githubId: 9,
+      payload: {
+        actorAvatarUrl: null,
+        actorBot: false,
+        state: null,
+        htmlUrl: null,
+        label: null,
+        labelColor: null,
+        requestedReviewer: null,
+        renameFrom: null,
+        renameTo: null,
+        commitSha: null,
+        commitMessage: null,
+        sourceTitle: null,
+        sourceUrl: null,
+        sourceNumber: null,
+        milestoneTitle: null,
+        path: 'src/Example.java',
+        diffHunk: null,
+        line: 2,
+        originalLine: null,
+        startLine: null,
+        originalStartLine: null,
+        side: 'RIGHT',
+        resolved: false,
+        outdated: false,
+        reactions: [],
+        comments: [],
+      },
+    }],
+    checkRuns: [],
+    unavailableSections: [],
+    viewerCanWrite: true,
+  };
+}
+
 function pullRequest(number: number, title: string, state = 'open', draft = false): PullRequestDto {
   return {
     id: number,
@@ -586,6 +657,45 @@ describe('agent task side panel', () => {
       <AgentTaskBody state={state} panelOpen panelTab="changes" pullRequests={[]} {...props} />);
     expect(changes).toContain('aria-label="Changes"');
     expect(changes).toContain('this task&#x27;s branch has no pull request');
+  });
+
+  it('shows review threads on the panel diff once the pull request detail is read', () => {
+    const pr = pullRequest(482, 'Fix preview output limit');
+    const changes: TaskPullRequestChanges = {
+      files: [{
+        filename: 'src/Example.java',
+        status: 'modified',
+        additions: 1,
+        deletions: 0,
+        patch: '@@ -1,1 +1,2 @@\n line one\n+line two',
+      }],
+      commits: [],
+      loading: false,
+      error: null,
+    };
+    const withoutDetail = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        pullRequestChanges={changes}
+        {...props} />);
+    const withDetail = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        pullRequestChanges={changes}
+        pullRequestDetail={{
+          detail: reviewedDetail(),
+          loading: false,
+          error: null,
+          refresh: async () => {},
+          update: () => {},
+          replace: () => {},
+        }}
+        {...props} />);
+    // Both render the diff; only the one holding a detail can place the thread that is on it.
+    expect(withoutDetail).toContain('src/Example.java');
+    expect(withoutDetail).not.toContain('pr-inline-thread');
+    expect(withDetail).toContain('class="is-review-thread"');
+    expect(withDetail).toContain('src/Example.java:R2');
   });
 
   it('shows the no-pull-request state with the branch, the repository and the draft action', () => {

@@ -33,6 +33,7 @@ import {
   remedyCommand,
 } from '../settings/model';
 import { useResizablePane } from '../useResizablePane';
+import type { CommitRange } from '../pulls/PullChanges';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { renderMarkdown } from './markdown';
@@ -90,6 +91,7 @@ import type {
   AgentQueuedInputDto,
   AgentTaskDto,
   AgentTurnDto,
+  InlineReviewCommentDto,
   ModelOptionDto,
   PullRequestDto,
   WorkspaceDto,
@@ -579,7 +581,8 @@ function PanelFrame({ label, tabs, width, flush = false, children }: {
  */
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequest,
-  pullRequestDetail, pullRequestChanges, workspaceId, branch, repository,
+  pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
+  onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
   onCreatePullRequest, createPullRequestBlocked = null,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
@@ -598,6 +601,10 @@ function SidePanel({
   pullRequest: PullRequestDto | null;
   pullRequestDetail: TaskPullRequestDetail;
   pullRequestChanges: TaskPullRequestChanges;
+  pullRequestCommitRange: CommitRange;
+  pullRequestPendingComments: InlineReviewCommentDto[];
+  onPullRequestCommitRangeChange: (range: CommitRange) => void;
+  onPullRequestPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   workspaceId?: string;
   /** The task's result branch and the repository a draft would target, for the empty state. */
   branch: string | null;
@@ -658,7 +665,19 @@ function SidePanel({
   if (tab === 'changes') {
     return (
       <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null}>
-        <TaskChangesView pr={pullRequest} changes={pullRequestChanges} />
+        <TaskChangesView
+          pr={pullRequest}
+          detail={pullRequestDetail.detail}
+          changes={pullRequestChanges}
+          workspaceId={workspaceId}
+          commitRange={pullRequestCommitRange}
+          pendingComments={pullRequestPendingComments}
+          onCommitRangeChange={onPullRequestCommitRangeChange}
+          onPendingCommentsChange={onPullRequestPendingCommentsChange}
+          onRefresh={pullRequestDetail.refresh}
+          onDetailUpdate={pullRequestDetail.update}
+          onDetailChange={pullRequestDetail.replace}
+        />
       </PanelFrame>
     );
   }
@@ -813,6 +832,10 @@ export function AgentTaskBody({
   pullRequests = [],
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
+  pullRequestCommitRange = null,
+  pullRequestPendingComments = [],
+  onPullRequestCommitRangeChange = () => {},
+  onPullRequestPendingCommentsChange = () => {},
   repository = null,
   logChoice = null,
   onToggleLog = () => {},
@@ -896,6 +919,10 @@ export function AgentTaskBody({
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
   pullRequestChanges?: TaskPullRequestChanges;
+  pullRequestCommitRange?: CommitRange;
+  pullRequestPendingComments?: InlineReviewCommentDto[];
+  onPullRequestCommitRangeChange?: (range: CommitRange) => void;
+  onPullRequestPendingCommentsChange?: (comments: InlineReviewCommentDto[]) => void;
   /** The repository a pull request from this task targets, named in the no-pull-request state. */
   repository?: string | null;
   onSelectPanelTab?: (tab: PanelTab) => void;
@@ -1156,6 +1183,10 @@ export function AgentTaskBody({
             pullRequest={taskPr}
             pullRequestDetail={pullRequestDetail}
             pullRequestChanges={pullRequestChanges}
+            pullRequestCommitRange={pullRequestCommitRange}
+            pullRequestPendingComments={pullRequestPendingComments}
+            onPullRequestCommitRangeChange={onPullRequestCommitRangeChange}
+            onPullRequestPendingCommentsChange={onPullRequestPendingCommentsChange}
             workspaceId={state.task.workspaceId}
             branch={resultBranch}
             repository={repository}
@@ -1490,8 +1521,12 @@ export default function AgentTaskScreen({
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
   const taskPr = taskPullRequest(pullRequests);
-  const pullRequestDetail = useTaskPullRequestDetail(taskPr, panelOpen && panelTab === 'pr');
+  // The detail is read for the Changes tab too: its review threads and its "can this account
+  // review" answer both come from the detail, not from the diff.
+  const pullRequestDetail = useTaskPullRequestDetail(taskPr, pullRequestPanelVisible);
   const pullRequestChanges = useTaskPullRequestChanges(taskPr, panelOpen && panelTab === 'changes');
+  const [pullRequestCommitRange, setPullRequestCommitRange] = useState<CommitRange>(null);
+  const [pullRequestPendingComments, setPullRequestPendingComments] = useState<InlineReviewCommentDto[]>([]);
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -1958,6 +1993,10 @@ export default function AgentTaskScreen({
       pullRequests={pullRequests}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
+      pullRequestCommitRange={pullRequestCommitRange}
+      pullRequestPendingComments={pullRequestPendingComments}
+      onPullRequestCommitRangeChange={setPullRequestCommitRange}
+      onPullRequestPendingCommentsChange={setPullRequestPendingComments}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onTogglePanel={() => setPanelOpen((open) => !open)}
       onOpenAgent={(threadId) => { setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}

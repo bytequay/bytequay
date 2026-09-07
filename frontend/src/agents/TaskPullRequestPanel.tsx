@@ -14,10 +14,17 @@
 
 import { GitPullRequest } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import { DiffViewer } from '../pulls/PullChanges';
+import PullChanges, { DiffViewer, type CommitRange } from '../pulls/PullChanges';
 import PullOverview, { remoteErrorMessage, type PullDetailUpdater } from '../pulls/PullOverview';
+import { canSubmitReview } from '../pulls/PullsScreen';
 import { usePullRequestDetail, type PullRequestDetailSource } from '../pulls/usePullRequestDetail';
-import type { DiffCommitDto, DiffFileDto, PullRequestDetailDto, PullRequestDto } from '../types';
+import type {
+  DiffCommitDto,
+  DiffFileDto,
+  InlineReviewCommentDto,
+  PullRequestDetailDto,
+  PullRequestDto,
+} from '../types';
 
 /** Identifies a pull request the way GitHub addresses it, so a re-read can be matched to its row. */
 function reference(pr: PullRequestDto | null): string | null {
@@ -162,10 +169,29 @@ export function TaskPullRequestView({
   );
 }
 
-/** The pull request's diff in the panel. Findings and inline comments stay on the full-width diff. */
-export function TaskChangesView({ pr, changes }: {
+/**
+ * The pull request's diff in the panel — the same diff the full-width page renders.
+ *
+ * This mounts `PullChanges` rather than the bare `DiffViewer` underneath it, so reviewing a task's
+ * own pull request beside its conversation offers what reviewing anyone else's does: the commit
+ * range picker, the inline comment gutter, and the review threads already on the diff. Without the
+ * detail there is nothing to hang threads on, so it falls back to the plain viewer.
+ */
+export function TaskChangesView({
+  pr, detail, changes, workspaceId, commitRange, pendingComments,
+  onCommitRangeChange, onPendingCommentsChange, onRefresh, onDetailUpdate, onDetailChange,
+}: {
   pr: PullRequestDto | null;
+  detail: PullRequestDetailDto | null;
   changes: TaskPullRequestChanges;
+  workspaceId?: string;
+  commitRange: CommitRange;
+  pendingComments: InlineReviewCommentDto[];
+  onCommitRangeChange: (range: CommitRange) => void;
+  onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
+  onRefresh: () => Promise<void>;
+  onDetailUpdate: PullDetailUpdater;
+  onDetailChange: (detail: PullRequestDetailDto) => void;
 }): React.JSX.Element {
   if (pr === null) {
     return <div className="agt-muted agt-panel__empty">No changes yet — this task&apos;s branch has no pull request.</div>;
@@ -173,13 +199,42 @@ export function TaskChangesView({ pr, changes }: {
   if (changes.error !== null && changes.files.length === 0) {
     return <div className="agt-muted agt-panel__empty">{changes.error}</div>;
   }
+  const loadFileContent = (path: string, baseSha?: string, headSha?: string) =>
+    window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha);
+  if (detail === null) {
+    return (
+      <DiffViewer
+        files={changes.files}
+        commits={changes.commits}
+        commitRange={commitRange}
+        loading={changes.loading}
+        onCommitRangeChange={onCommitRangeChange}
+        loadFileContent={loadFileContent}
+      />
+    );
+  }
   return (
-    <DiffViewer
+    <PullChanges
+      repo={detail.repo}
+      number={detail.number}
+      workspaceId={workspaceId}
       files={changes.files}
       commits={changes.commits}
+      commitRange={commitRange}
       loading={changes.loading}
-      loadFileContent={(path, baseSha, headSha) =>
-        window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha)}
+      canReview={canSubmitReview(pr, detail)}
+      pendingComments={pendingComments}
+      onCommitRangeChange={onCommitRangeChange}
+      reviewThreads={{
+        activities: detail.recentActivity,
+        pr,
+        workspaceId,
+        unavailable: detail.unavailableSections.includes('reviewThreads'),
+        onRefresh,
+        onDetailUpdate,
+      }}
+      onPendingCommentsChange={onPendingCommentsChange}
+      onDetailChange={onDetailChange}
     />
   );
 }

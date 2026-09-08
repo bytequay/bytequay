@@ -14,13 +14,9 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -31,10 +27,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 class TestSqliteRemoteSourceSchemaUpdate
+        extends AbstractTestSqliteStore
 {
     private static final String DATABASE_PATH = Path.of(
             System.getProperty("java.io.tmpdir"),
@@ -50,11 +44,7 @@ class TestSqliteRemoteSourceSchemaUpdate
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         createLegacyRemoteSourceTable();
-        registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON");
-        registry.add("spring.datasource.driver-class-name", () -> "org.sqlite.JDBC");
-        registry.add("spring.jpa.database-platform", () -> "org.hibernate.community.dialect.SQLiteDialect");
-        registry.add("spring.jpa.hibernate.ddl-auto", () -> "update");
-        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
+        registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "update");
     }
 
     @Test

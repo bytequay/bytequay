@@ -17,12 +17,8 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.store.AgentProcessLaunchStore;
-import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,11 +31,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class TestSqliteAgentProcessLaunchStore
+        extends AbstractTestSqliteStore
 {
     private static final String DATABASE_PATH = Path.of(
             System.getProperty("java.io.tmpdir"),

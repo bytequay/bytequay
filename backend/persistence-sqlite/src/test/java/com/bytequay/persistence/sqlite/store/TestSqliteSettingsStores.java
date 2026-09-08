@@ -15,12 +15,8 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
@@ -29,10 +25,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 class TestSqliteSettingsStores
+        extends AbstractTestSqliteStore
 {
     private static final String DATABASE_PATH = Path.of(
             System.getProperty("java.io.tmpdir"),

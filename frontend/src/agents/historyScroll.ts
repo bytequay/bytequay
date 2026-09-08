@@ -20,12 +20,18 @@ export type HistoryScrollAnchor = {
   textTop: number;
 };
 
-/** Captures a visible line, since prepending deltas can grow a message without moving its top. */
-export function captureHistoryAnchor(container: HTMLElement): HistoryScrollAnchor | null {
+/** Captures visible passages, since prepending deltas can grow a message without moving its top. */
+export function captureHistoryAnchors(container: HTMLElement): HistoryScrollAnchor[] {
   const viewport = container.getBoundingClientRect();
-  const element = [...container.querySelectorAll<HTMLElement>('[data-history-anchor]')]
-    .find((candidate) => candidate.querySelector('[data-history-anchor]') === null && candidate.getBoundingClientRect().bottom > viewport.top + 20);
-  if (element === undefined) return null;
+  return [...container.querySelectorAll<HTMLElement>('[data-history-anchor]')].flatMap((element) => {
+    const bounds = element.getBoundingClientRect();
+    if (bounds.bottom <= viewport.top + 20 || bounds.top >= viewport.bottom || element.querySelector('[data-history-anchor]') !== null) return [];
+    return [capturePassage(container, element)];
+  });
+}
+
+function capturePassage(container: HTMLElement, element: HTMLElement): HistoryScrollAnchor {
+  const viewport = container.getBoundingClientRect();
   const bounds = element.getBoundingClientRect();
   const anchor: HistoryScrollAnchor = { id: element.dataset.historyAnchor ?? '', top: bounds.top, text: '', offset: 0, textTop: 0 };
   const range = document.caretRangeFromPoint(Math.max(viewport.left + 12, bounds.left + 12), Math.max(viewport.top + 24, bounds.top + 2));
@@ -44,9 +50,13 @@ export function captureHistoryAnchor(container: HTMLElement): HistoryScrollAncho
 }
 
 /** Finds the same visible text after both a prepend and eviction at the opposite window edge. */
-export function restoreHistoryAnchor(container: HTMLElement, anchor: HistoryScrollAnchor): void {
-  const element = [...container.querySelectorAll<HTMLElement>('[data-history-anchor]')]
-    .find((candidate) => candidate.dataset.historyAnchor === anchor.id);
+export function restoreHistoryAnchor(container: HTMLElement, anchors: HistoryScrollAnchor[]): void {
+  const elements = new Map([...container.querySelectorAll<HTMLElement>('[data-history-anchor]')]
+    .map((element) => [element.dataset.historyAnchor, element]));
+  // A page edge can replace the first visible activity group; use the next surviving passage.
+  const anchor = anchors.find((candidate) => elements.has(candidate.id));
+  if (anchor === undefined) return;
+  const element = elements.get(anchor.id);
   if (element === undefined) return;
   const offset = anchor.text === '' ? -1 : (element.textContent ?? '').indexOf(anchor.text);
   if (offset >= 0) {

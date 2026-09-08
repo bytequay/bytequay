@@ -20,7 +20,7 @@ import { displayModelName } from '../settings/model';
 import type { AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
 import type { AgentEventEnvelope } from './events';
-import { captureHistoryAnchor,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
+import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
 import { approvalDecisions } from './model';
@@ -652,7 +652,7 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
   const scrollIntent = useRef(0);
   const previousScrollTop = useRef(0);
   useOutputWheel(transcriptRef, scrollIntent);
-  const anchor = useRef<HistoryScrollAnchor | null>(null);
+  const pendingHistory = useRef<{ events: AgentEventEnvelope[]; anchors: HistoryScrollAnchor[]; direction: 'older' | 'newer' } | null>(null);
   const followingChange = useRef<(next: boolean) => void>(() => {});
   const { before, after, loading, onLoad, onFollow } = history;
   const changeFollowing = (next: boolean): void => {
@@ -666,31 +666,37 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
     followingChange.current(true);
   }, []);
   const loadHistory = (direction: 'older' | 'newer' | 'latest'): void => {
-    if (loading) return;
+    if (loading || (direction === 'older' && before === null) || (direction === 'newer' && after === null)) return;
     scrollIntent.current = 0;
     const container = transcriptRef.current;
     changeFollowing(direction === 'latest');
-    anchor.current = container !== null && direction !== 'latest' ? captureHistoryAnchor(container) : null;
+    pendingHistory.current = container !== null && direction !== 'latest'
+      ? { events, anchors: captureHistoryAnchors(container), direction } : null;
     onLoad(direction);
   };
   useLayoutEffect(() => {
     const container = transcriptRef.current;
     if (container === null) return;
-    if (anchor.current !== null) {
-      restoreHistoryAnchor(container, anchor.current);
-      anchor.current = null;
-      if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
+    const pending = pendingHistory.current;
+    if (pending !== null && pending.events !== events) {
+      restoreHistoryAnchor(container, pending.anchors);
+      pendingHistory.current = null;
+      if (pending.direction === 'newer' && after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 1) followingChange.current(true);
     }
     else if (follow.current) container.scrollTop = container.scrollHeight;
-    else if (after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 32) followingChange.current(true);
+    else if (pending === null && after === null && container.scrollHeight <= container.clientHeight) followingChange.current(true);
   }, [events, after, endedAt]);
+  useEffect(() => {
+    // An immediate failure can batch loading=true/false into one render.
+    if (!loading) pendingHistory.current = null;
+  });
   useLayoutEffect(() => {
     const container = transcriptRef.current;
     if (following && container !== null) container.scrollTop = container.scrollHeight;
   }, [following]);
   const scrollHistory = (container: HTMLDivElement, direction: number): void => {
     if (direction === 0) return;
-    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 32;
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 1;
     if (direction < 0) {
       if (container.scrollTop <= 0 && scrollIntent.current === -1) scrollIntent.current = 0;
       if (!atBottom || container.scrollHeight > container.clientHeight || before !== null) changeFollowing(false);
@@ -699,7 +705,7 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
     else if (atBottom) {
       if (scrollIntent.current === 1) scrollIntent.current = 0;
       if (after !== null) loadHistory('newer');
-      else changeFollowing(true);
+      else if (pendingHistory.current === null) changeFollowing(true);
     }
     else changeFollowing(false);
   };
@@ -724,6 +730,7 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
       previousScrollTop.current = scrollTop;
       if (scrollIntent.current !== 2) scrollIntent.current = 0;
       scrollHistory(event.currentTarget, intent);
+      if (pendingHistory.current !== null) pendingHistory.current.anchors = captureHistoryAnchors(event.currentTarget);
     },
   };
   return { following, changeFollowing, loadHistory, transcriptProps, before, after, loading };

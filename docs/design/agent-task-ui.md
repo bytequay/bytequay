@@ -41,6 +41,13 @@ there are no **Load newer activity** or **Jump to latest** buttons. Sending or
 steering a message also resumes following. Archive and Restore in the task
 header are icons with matching hover tooltips and accessible names.
 
+While an adjacent page loads, scrolling updates the saved visible passages.
+Only replacing the event window restores them; a turn completion does not
+consume the pending anchor. If the first visible group changes at a page
+boundary, the next surviving visible passage anchors the view. Layout changes
+near the bottom do not resume following; downward scrolling must reach the
+bottom, unless the conversation has become short enough to fit the viewport.
+
 These JSON budgets do not include JavaScript object, DOM, or decoded-image
 overhead; attachment and UI caches must also remain bounded.
 

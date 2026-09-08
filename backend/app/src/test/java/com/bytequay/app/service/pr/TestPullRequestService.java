@@ -79,6 +79,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -88,6 +89,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -334,7 +336,7 @@ class TestPullRequestService
     }
 
     @Test
-    void updatesPullRequestAssigneesAndLabelsThenInvalidatesDetail()
+    void updatesPullRequestAssigneesAndLabelsThenMarksDetailForRefresh()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
@@ -346,12 +348,13 @@ class TestPullRequestService
                 PullRequestRef.of("owner", "repo", 7),
                 ImmutableList.of("alice"),
                 ImmutableList.of("bug"));
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
-    void updatesPullRequestReviewerThenInvalidatesDetail()
+    void updatesPullRequestReviewerThenMarksDetailForRefresh()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
@@ -359,7 +362,8 @@ class TestPullRequestService
 
         verify(writes).updateReviewerRequest(
                 "pat", PullRequestRef.of("owner", "repo", 7), "alice", true);
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
@@ -860,7 +864,7 @@ class TestPullRequestService
         assertThat(refreshed.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
         assertThat(refreshed.checkRuns()).containsExactly(latest);
         verify(detailStore).saveStatus(12L, refreshed);
-        verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
+        verify(detailStore, never()).updateEtag(anyLong(), any());
         verify(detailStore).updateStatusEtags(12L, Optional.of("\"checks-2\""), Optional.of("\"statuses-2\""));
         verify(gitHub, never()).fetchPrReviews(anyString(), any());
         verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
@@ -884,7 +888,7 @@ class TestPullRequestService
 
         assertThat(refreshed.raw().mergeable()).isFalse();
         assertThat(refreshed.raw().mergeableState()).isEqualTo("dirty");
-        verify(detailStore).updateEtag(12L, Optional.of("\"etag-2\""));
+        verify(detailStore, never()).updateEtag(anyLong(), any());
     }
 
     @Test
@@ -956,7 +960,7 @@ class TestPullRequestService
     }
 
     @Test
-    void setsKnownReactionStateAndInvalidatesCachedDetail()
+    void setsKnownReactionStateAndMarksCachedDetailForRefresh()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false)).thenReturn(false);
@@ -966,12 +970,13 @@ class TestPullRequestService
                 "owner/repo", 7, "issue_comment", 41L, "heart", false)).isFalse();
 
         verify(writes).toggleIssueCommentReaction("pat", ref, 41, "heart", false);
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
-    void invalidatesCachedDetailWhenReactionWriteFails()
+    void preservesCachedDetailWhenReactionWriteFails()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false))
@@ -982,12 +987,47 @@ class TestPullRequestService
                 "owner/repo", 7, "issue_comment", 41L, "heart", false))
                 .isInstanceOf(ResponseStatusException.class);
 
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
     @Test
-    void updatesDescriptionAndInvalidatesCachedDetail()
+    void keepsDetailReadableWhenAReactionOverlapsAConditionalRefresh()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        Optional<String> originalEtag = Optional.of("\"etag-1\"");
+        AtomicReference<Optional<String>> etag = new AtomicReference<>(originalEtag);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(detailStore.findEtag(12L)).thenAnswer(invocation -> etag.get());
+        doAnswer(invocation -> {
+            etag.set(invocation.getArgument(1));
+            return null;
+        }).when(detailStore).updateEtag(eq(12L), any());
+        when(gitHub.getPullRequest("pat", ref, originalEtag)).thenAnswer(invocation -> {
+            service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", true);
+            return new PullRequestFetch(Optional.empty(), originalEtag);
+        });
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
+
+        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+
+        assertThat(refreshed.full()).isFalse();
+        assertThat(refreshed.detail().body()).isEqualTo("body");
+        assertThat(etag.get()).isEmpty();
+        verify(detailStore, never()).deleteByPrIds(any());
+        verify(detailStore).saveStatus(eq(12L), any());
+
+        IllegalStateException stopAfterRequest = new IllegalStateException("stop after unconditional request");
+        when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenThrow(stopAfterRequest);
+        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isSameAs(stopAfterRequest);
+        verify(gitHub).getPullRequest("pat", ref, Optional.empty());
+    }
+
+    @Test
+    void updatesDescriptionAndMarksCachedDetailForRefresh()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -996,7 +1036,8 @@ class TestPullRequestService
 
         verify(writes).updatePullRequestDescription("pat", ref, "Updated description");
         verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
@@ -1039,7 +1080,7 @@ class TestPullRequestService
     }
 
     @Test
-    void changesReviewThreadResolutionAndInvalidatesDetail()
+    void changesReviewThreadResolutionAndMarksDetailForRefresh()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(gitHub.findReviewThreadId("pat", ref, 99L)).thenReturn("PRRT_1");
@@ -1048,7 +1089,8 @@ class TestPullRequestService
         service.setReviewThreadResolved("owner/repo", 7, 99L, true);
 
         verify(writes).setReviewThreadResolved("pat", "PRRT_1", true);
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
     }
 

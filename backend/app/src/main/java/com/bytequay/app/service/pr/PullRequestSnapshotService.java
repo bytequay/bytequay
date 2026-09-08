@@ -176,7 +176,7 @@ public class PullRequestSnapshotService
                         .collect(ImmutableList.toImmutableList()),
                 existing.viewerCanWrite());
         details.saveStatus(prId, stored);
-        details.updateEtag(prId, fetched.etag());
+        // Only a full refresh validates the timeline; a status response must not undo a write's invalidation.
         details.updateStatusEtags(prId, checks.checkRunsEtag(), checks.commitStatusesEtag());
         return stored;
     }
@@ -287,11 +287,6 @@ public class PullRequestSnapshotService
     void delete(long prId)
     {
         delete(ImmutableSet.of(prId));
-    }
-
-    void deleteDetail(long prId)
-    {
-        details.deleteByPrIds(ImmutableSet.of(prId));
     }
 
     private StoredPrDiff storedDiff(long prId, String baseSha, String headSha)

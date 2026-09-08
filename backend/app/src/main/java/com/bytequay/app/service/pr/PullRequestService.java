@@ -1469,8 +1469,9 @@ public class PullRequestService
 
     private void invalidatePullRequestDetail(String repo, int number)
     {
+        // Keep the snapshot readable by a conditional refresh already in flight.
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(snapshots::deleteDetail);
+                .ifPresent(prId -> snapshots.updateDetailEtag(prId, Optional.empty()));
     }
 
     private void invalidatePullRequestCaches(String repo, int number)

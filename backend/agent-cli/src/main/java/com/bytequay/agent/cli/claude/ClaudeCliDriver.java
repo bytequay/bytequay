@@ -207,8 +207,7 @@ public final class ClaudeCliDriver
     @Override
     public AgentCapabilities capabilities()
     {
-        // Stream-json can forward child text, but it does not yet produce the canonical direct
-        // parent identity needed to reconstruct a truthful subagent graph.
+        // Forwarded child messages identify the Agent invocation that owns their execution.
         return new AgentCapabilities(
                 true,
                 true,
@@ -216,7 +215,7 @@ public final class ClaudeCliDriver
                 true,
                 false,
                 true,
-                false,
+                forwardSubagentText,
                 true,
                 true,
                 false,
@@ -827,6 +826,7 @@ public final class ClaudeCliDriver
         private final Instant startedAt = Instant.now();
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
         private final ClaudeEventMapper mapper;
+        private final boolean completeSubagentStream;
         private final Utf8LineBuffer stdout =
                 new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, false, this::receive);
         private final Utf8LineBuffer stderr =
@@ -838,6 +838,7 @@ public final class ClaudeCliDriver
         private volatile String interruptionReason;
         private volatile String protocolFailure;
         private volatile boolean stdoutTruncated;
+        private boolean streamUncertain;
 
         private ClaudeRunningTurn(ClaudeSession session, AgentTurnCommand command, boolean resume)
         {
@@ -863,6 +864,7 @@ public final class ClaudeCliDriver
                     command.maximumRuntime(),
                     MAX_STDOUT_BYTES,
                     MAX_STDERR_BYTES);
+            completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;
             session.started(this);
@@ -971,6 +973,7 @@ public final class ClaudeCliDriver
                 }
             }
             catch (RuntimeException failure) {
+                streamUncertain = true;
                 if (message instanceof ClaudeProtocol.ResultMessage) {
                     interruptionReason = "Unable to persist Claude terminal events: " + failureMessage(failure);
                 }
@@ -1006,19 +1009,47 @@ public final class ClaudeCliDriver
             if (failure != null) {
                 interruptionReason = "Claude process failed: " + failureMessage(failure);
             }
-            // Root exit does not prove the tool tree stopped. A turn that would otherwise read as a
-            // clean success must not be reported as terminal while a group member may still be
-            // writing to the task worktree.
-            else if (interruptionReason == null
+            boolean finishedWork = failure == null
+                    && completeSubagentStream
+                    && interruptionReason == null
+                    && protocolFailure == null
+                    && !streamUncertain
+                    && !stdoutTruncated
+                    && exit != null
+                    && !exit.stdoutTruncated()
+                    && exit.reason() == ProcessExit.Reason.EXITED
+                    && exit.exitCode() == 0
+                    && mapper.hasFinishedWork();
+            if (finishedWork && exit.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                // EOF includes notifications that may follow the root result. Only the complete
+                // provider lifecycle can resolve an old process-observation gap; a final answer cannot.
+                try {
+                    process.stopAfterWorkFinished().whenComplete((termination, cleanupFailure) -> {
+                        if (cleanupFailure != null || termination != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                            log.warn("Claude work finished but runtime cleanup remains unverified for task {} turn {}",
+                                    session.context.taskId(), reference.value(), cleanupFailure);
+                        }
+                        completeExited(exit, termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
+                    });
+                }
+                catch (RuntimeException cleanupFailure) {
+                    log.warn("Unable to record Claude completion for task {} turn {}", session.context.taskId(), reference.value(), cleanupFailure);
+                    completeExited(exit, false);
+                }
+                return;
+            }
+            if (interruptionReason == null
                     && exit != null
                     && exit.reason() == ProcessExit.Reason.EXITED
                     && exit.treeTermination() == ProcessExit.TreeTermination.UNVERIFIABLE) {
                 interruptionReason = "Claude process tree could not be verified stopped";
             }
+            completeExited(exit, exit != null && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
 
+        private void completeExited(ProcessExit exit, boolean providerQuiescent)
+        {
             Optional<String> scratchCleanupFailure = Optional.empty();
-            boolean providerQuiescent = exit != null
-                    && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED;
             if (providerQuiescent) {
                 try {
                     removeEmptyClaudeScratch(session.context.worktree());

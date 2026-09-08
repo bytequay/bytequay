@@ -97,6 +97,7 @@ describe('the status strip', () => {
     expect(html).toContain('>Stop</button>');
     expect(html).not.toContain('>Update review</button>');
     expect(html).not.toContain('>End review</button>');
+    expect(html).not.toContain('>Recover runtime</button>');
   });
 
   it('offers Update review and End review once the run has settled', () => {
@@ -104,6 +105,7 @@ describe('the status strip', () => {
     expect(html).toContain('>Update review</button>');
     expect(html).toContain('>End review</button>');
     expect(html).not.toContain('>Stop</button>');
+    expect(html).not.toContain('>Recover runtime</button>');
   });
 
   it('offers Resume only for a paused review', () => {
@@ -115,10 +117,25 @@ describe('the status strip', () => {
     expect(tab(reviewFixture())).not.toContain('>Resume</button>');
   });
 
+  it('keeps a failed run’s saved summary visible and lets the user retry when no runtime is held', () => {
+    const failed = reviewFixture({
+      followUpPaused: true,
+      runs: [{ ...reviewFixture().runs[0], state: 'FAILED', coverage: null, outcome: 'Cannot start the review turn' }],
+    });
+    const html = tab(failed);
+    expect(html).toContain('Cannot start the review turn');
+    expect(html).toContain('What this PR does');
+    expect(html).toContain('>Resume</button>');
+    expect(html).not.toMatch(/disabled=""[^>]*>Resume<\/button>/);
+    expect(html).not.toMatch(/disabled=""[^>]*>Run review again<\/button>/);
+  });
+
   it('shows recovery and disables further execution while an interrupted turn retains its claim', () => {
     const html = tab({ ...runningReviewFixture(), activeTurn: null, followUpPaused: true });
     expect(html).toContain('Recovery required');
     expect(html).toContain('Provider shutdown could not be verified');
+    expect(html).toMatch(/<button[^>]*>Recover runtime<\/button>/);
+    expect(html).not.toMatch(/disabled=""[^>]*>Recover runtime<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>Resume<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);

@@ -1478,6 +1478,9 @@ export type Bridge = {
   startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  getAgentReviewRuntimeStopImpact: (reviewId: string) => Promise<AgentRuntimeStopImpactDto>;
+  /** Verifies only this review's retained runtime, keeping its conversation and worktree. */
+  stopAgentReviewRuntime: (reviewId: string, generation: string) => Promise<AgentReviewDto>;
   resumeAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** Refreshes the pull request now and follows its head. */
   updateAgentReview: (reviewId: string) => Promise<AgentReviewDto>;

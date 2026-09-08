@@ -38,8 +38,9 @@ public interface ProcessSupervisor
      * Terminates provider processes owned by an earlier backend instance.
      *
      * <p>The supervisor reads owner-only launch markers and signals a PID only when its executable
-     * and operating-system process-start token still match. It waits for the complete process tree
-     * to exit and returns an unverifiable result rather than risking an unrelated process.
+     * and operating-system process-start token still match. It stops the recorded group and known
+     * descendants; unresolved observation gaps require a durable provider work-finished receipt.
+     * Unknown identities return an unverifiable result rather than risking an unrelated process.
      *
      * @return one terminal or unverifiable result per foreign launch marker
      */

@@ -382,7 +382,9 @@ resurrect a resolved approval as pending.
 
 - Render one card in the parent transcript only when the selected lane
   advertises nested-agent activity and supplies canonical direct parent/child
-  thread identity. The current Claude stream does not meet that contract.
+  execution identity. Codex supplies native thread identities. Claude supplies
+  observed Agent invocation ownership and forwarded `parent_tool_use_id`;
+  its namespaced invocation IDs route executions, not resumable sessions.
 - Show read-only **Active** and **Done** lists with agent label, prompt or
   purpose when available, status, elapsed time, and result summary.
 - Open an agent to inspect its messages, plans, tools, logs, approvals, and

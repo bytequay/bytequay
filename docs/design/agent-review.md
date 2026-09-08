@@ -221,6 +221,21 @@ It completes the task, durably closes the review, then requests normal clean
 worktree cleanup. Preserve dirty work; retain the generated branch. A PR
 being merged/closed does not itself authorize destructive cleanup.
 
+When the last turn has ended but provider cleanup remains unverified, expose
+**Recover runtime**. Its review-scoped impact/read and stop endpoints delegate
+to the existing generation-guarded task runtime recovery, including startup
+recovery for a retained `RECOVERY` claim. Do not route this workflow-owned task
+through interactive Tasks endpoints or weaken their ownership guards. Recovery
+preserves the same review, task, findings, discussion, and interrupted turn;
+it neither ends the review nor marks a failed run as successfully reviewed.
+For an old process-observation gap with no provider completion proof, the
+boot-session recovery in Agent Service §5.6 may require one Mac restart after
+the current boot observation has been durably recorded.
+
+Once cleanup is verified, **Resume** continues the open review. If no prior run
+was accepted, complete a full pass to establish the successful reviewed-head
+cursor. Later compatible PR heads use the existing incremental-review rules.
+
 Use CodeGraph exactly as specified by [its service design](codegraph-service.md):
 one derived index per worktree, optional agent-led queries, synchronization
 inside queries, and best-effort index deletion after successful worktree
@@ -431,6 +446,13 @@ This drives completion repair, Ready, and pending-head follow-up with no
 renderer present, no new agent completion loop, and no separate polling
 scheduler. Duplicate events and restart between terminal commit and callback
 must be harmless.
+
+Run creation and reconciliation serialize on the review. If startup ends before
+the run records its turn, reconciliation looks up the original request's
+idempotency key and restores the accepted turn link. An attempt with no accepted
+turn becomes failed and paused; Resume retries on the same review and task.
+While Resume is pending, the control shows that startup is in progress and
+preserves the previous result until the new projection arrives.
 
 ## 8. Incremental review
 

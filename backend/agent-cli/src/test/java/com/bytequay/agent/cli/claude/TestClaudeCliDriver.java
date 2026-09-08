@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
@@ -22,6 +23,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -39,12 +41,15 @@ import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +63,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -73,6 +79,172 @@ class TestClaudeCliDriver
 
     @TempDir
     private Path worktree;
+
+    @Test
+    void completedClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
+            throws Exception
+    {
+        Path executable = Files.writeString(worktree.resolve("claude-fixture"), """
+                #!/bin/bash
+                case "$1" in
+                  --version) printf '2.1.263 (Claude Code)\\n'; exit 0 ;;
+                  --help)
+                    printf '%s\\n' '--output-format --include-partial-messages --include-hook-events --forward-subagent-text'
+                    printf '%s\\n' '--permission-mode (choices: "auto" "manual") --mcp-config --settings --setting-sources --strict-mcp-config'
+                    printf '%s\\n' '--add-dir --append-system-prompt --tools --no-session-persistence --disable-slash-commands --model --effort'
+                    printf '%s\\n' '--allowedTools --permission-prompt-tool --print --verbose --resume --session-id'
+                    exit 0 ;;
+                  auth) printf '{"loggedIn":true}\\n'; exit 0 ;;
+                esac
+                while [ "$#" -gt 0 ]; do
+                  case "$1" in --session-id|--resume) session_id="$2"; shift ;; esac
+                  shift
+                done
+                IFS= read -r prompt
+                printf '{"type":"system","subtype":"init","session_id":"%s","uuid":"init"}\\n' "$session_id"
+                printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash",'
+                printf '"name":"Bash","input":{"command":"true"}}]},"session_id":"%s","uuid":"bash-start"}\\n' "$session_id"
+                printf '{"type":"tool_progress","tool_use_id":"bash","tool_name":"Bash","elapsed_time_seconds":0.1,'
+                printf '"session_id":"%s","uuid":"bash-progress"}\\n' "$session_id"
+                /usr/bin/true
+                printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash","content":"done"}]},'
+                printf '"session_id":"%s","uuid":"bash-end"}\\n' "$session_id"
+                printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"mcp",'
+                printf '"name":"mcp__bytequay__review_get_context","input":{}}]},"session_id":"%s","uuid":"mcp-start"}\\n' "$session_id"
+                printf '{"type":"tool_progress","tool_use_id":"mcp","tool_name":"mcp__bytequay__review_get_context","elapsed_time_seconds":0.1,'
+                printf '"session_id":"%s","uuid":"mcp-progress"}\\n' "$session_id"
+                printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"mcp","content":"review context"}]},'
+                printf '"session_id":"%s","uuid":"mcp-end"}\\n' "$session_id"
+                printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Review complete"}]},'
+                printf '"session_id":"%s","uuid":"answer"}\\n' "$session_id"
+                printf '{"type":"result","is_error":false,"duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"%s",' "$session_id"
+                printf '"usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1},'
+                printf '"subtype":"success","result":"Review complete","uuid":"result"}\\n'
+                """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        Path launches = worktree.resolve("launches");
+        Map<String, Boolean> committed = new ConcurrentHashMap<>();
+        LaunchIntentRecorder recorder = new LaunchIntentRecorder()
+        {
+            @Override
+            public void prepared(String launchId, ProcessOwner owner, String command, String argvDigest)
+            {
+                committed.put(launchId, false);
+            }
+
+            @Override
+            public void attempting(String launchId)
+            {
+                committed.put(launchId, true);
+            }
+
+            @Override
+            public Map<String, Boolean> committedLaunches()
+            {
+                return ImmutableMap.copyOf(committed);
+            }
+
+            @Override
+            public void forget(String launchId)
+            {
+                committed.remove(launchId);
+            }
+        };
+        DefaultProcessSupervisor realSupervisor = new DefaultProcessSupervisor(launches, recorder);
+        List<ManagedProcess> turnProcesses = new CopyOnWriteArrayList<>();
+        List<ProcessSpec> turnSpecs = new CopyOnWriteArrayList<>();
+        ProcessSupervisor supervisor = new ProcessSupervisor()
+        {
+            @Override
+            public PreparedProcess prepare(ProcessSpec spec)
+            {
+                PreparedProcess launch = realSupervisor.prepare(spec);
+                if (spec.owner().kind() != ProcessOwner.Kind.CLAUDE_TURN) {
+                    return launch;
+                }
+                return new PreparedProcess()
+                {
+                    @Override
+                    public String launchId()
+                    {
+                        return launch.launchId();
+                    }
+
+                    @Override
+                    public ManagedProcess start(ProcessOutputSink output)
+                    {
+                        ManagedProcess process = launch.start(output);
+                        turnProcesses.add(process);
+                        turnSpecs.add(spec);
+                        try {
+                            // Inject the observed identity-read race, keeping the driver, receipt, and all cleanup operations real.
+                            Method observation = process.getClass().getDeclaredMethod("markDescendantTrackingIncomplete", String.class);
+                            observation.setAccessible(true);
+                            observation.invoke(process, "Fixture descendant exited before its start token could be read");
+                            assertThat(objectMapper.readTree(launches.resolve(process.launchId() + ".json").toFile())
+                                    .path("descendantTrackingIncomplete").asBoolean()).isTrue();
+                            return process;
+                        }
+                        catch (ReflectiveOperationException | IOException failure) {
+                            process.cancel();
+                            throw new AssertionError(failure);
+                        }
+                    }
+
+                    @Override
+                    public void abandon()
+                    {
+                        launch.abandon();
+                    }
+                };
+            }
+
+            @Override
+            public List<OwnedProcessRecovery> recoverOwnedProcesses()
+            {
+                return realSupervisor.recoverOwnedProcesses();
+            }
+
+            @Override
+            public void acknowledge(String launchId)
+            {
+                realSupervisor.acknowledge(launchId);
+            }
+        };
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_get_context", "Read local review context", ImmutableMap.of("type", "object"), input -> "review context")), "Review the pull request");
+        ClaudePermissionBroker permissions = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory", taskId -> Optional.of(review));
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(
+                executable.toString(), objectMapper, permissions, supervisor, ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
+            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            AgentSession session = driver.open(context(Optional.empty()), events::add);
+            for (String prompt : ImmutableList.of("first-real-turn", "second-real-turn")) {
+                AgentTurnResult result = session.start(command(prompt)).completion().toCompletableFuture().get(15, TimeUnit.SECONDS);
+                assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                assertThat(result.finalResponse()).contains("Review complete");
+                assertThat(result.providerQuiescent()).isTrue();
+                assertThat(result.terminalReason()).isEmpty();
+                ManagedProcess process = turnProcesses.getLast();
+                ProcessExit originalExit = process.exit().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                assertThat(originalExit.exitCode()).isZero();
+                assertThat(originalExit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+                JsonNode receipt = objectMapper.readTree(launches.resolve(process.launchId() + ".json").toFile());
+                assertThat(receipt.path("descendantTrackingIncomplete").asBoolean()).isTrue();
+                assertThat(receipt.path("workFinished").asBoolean()).isTrue();
+                assertThat(receipt.path("treeTermination").asText()).isEqualTo("VERIFIED_STOPPED");
+            }
+            assertThat(turnSpecs.getLast().argv()).containsSequence("--resume", session.reference().providerValue());
+            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", review.instruction());
+            assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Command command
+                            && command.state() == ProviderAgentEvent.ActivityState.COMPLETED)
+                    .hasSize(2);
+            assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Tool tool
+                            && tool.name().equals("mcp__bytequay__review_get_context") && tool.state() == ProviderAgentEvent.ActivityState.COMPLETED)
+                    .hasSize(2);
+        }
+    }
 
     @Test
     void advertisesTheCodeGraphToolAndInstructionOnlyWhenBridged()
@@ -122,7 +294,7 @@ class TestClaudeCliDriver
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactlyInAnyOrder(AgentPermissionPolicy.values());
-        assertThat(driver.capabilities().nestedAgentActivity()).isFalse();
+        assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .contains("text/plain; charset=utf-8");
         AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -268,33 +440,6 @@ class TestClaudeCliDriver
                 .at("/sandbox/network/allowedDomains")).isEmpty();
         textSession.close();
         assertThat(settingsFile).doesNotExist();
-        driver.close();
-    }
-
-    @Test
-    void restrictsNativeReviewToolsOnInitialAndResumedSessions()
-            throws Exception
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
-                "review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
-        ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review));
-        AgentSession session = driver.open(context(Optional.empty()), event -> {});
-        await(session.start(command("review")));
-        AgentSessionRef reference = session.reference();
-        session.close();
-        AgentSession resumed = driver.open(context(Optional.of(reference)), event -> {});
-        await(resumed.start(command("review-again")));
-
-        for (ScriptedTurn turn : supervisor.turns()) {
-            List<String> argv = turn.spec().argv();
-            assertThat(argv).contains("--disable-slash-commands");
-            String nativeTools = argv.get(argv.indexOf("--tools") + 1);
-            assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
-                    .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
-            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__review_finish");
-        }
-        resumed.close();
         driver.close();
     }
 
@@ -626,6 +771,132 @@ class TestClaudeCliDriver
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("process tree could not be verified stopped");
 
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void restrictsNativeReviewToolsOnInitialAndResumedSessions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
+        ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review));
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+        await(session.start(command("review")));
+        AgentSessionRef reference = session.reference();
+        session.close();
+        AgentSession resumed = driver.open(context(Optional.of(reference)), event -> {});
+        await(resumed.start(command("review-again")));
+
+        for (ScriptedTurn turn : supervisor.turns()) {
+            List<String> argv = turn.spec().argv();
+            assertThat(argv).contains("--disable-slash-commands");
+            String nativeTools = argv.get(argv.indexOf("--tools") + 1);
+            assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
+                    .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
+            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__review_finish");
+        }
+        resumed.close();
+        driver.close();
+    }
+
+    @Test
+    void resolvesAnObservationGapAfterConfirmedClaudeWorkFinishes()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("finished-gap")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void preservesFinishedClaudeWorkWhenKnownProcessCleanupStillFails()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("finished-live-process")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
+        assertThat(result.terminalReason()).isEmpty();
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void retainsTheAnswerWhenTheAsynchronousCompletionReceiptFails()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+        RunningTurn running = session.start(command("finished-delayed"));
+
+        assertThat(running.completion().toCompletableFuture()).isNotDone();
+        supervisor.turns().getFirst().finishedStop.completeExceptionally(new IllegalStateException("receipt write failed"));
+        AgentTurnResult result = await(running);
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void doesNotUseAnIncompleteSubagentStreamAsCompletionProof()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput = "2.1.218 (Claude Code)";
+        ClaudeCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.DEGRADED);
+        assertThat(driver.capabilities().nestedAgentActivity()).isFalse();
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("finished-gap")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
+    void doesNotRecordFinishedWorkWhileABackgroundTaskHasNoTerminalNotification()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("unfinished-background")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
         supervisor.turns().getFirst().verifyNextStop();
         session.close();
         driver.close();
@@ -1043,6 +1314,9 @@ class TestClaudeCliDriver
         private String prompt = "";
         private boolean cancelled;
         private boolean inputClosed;
+        private boolean workFinished;
+        private boolean completionVerified;
+        private final CompletableFuture<ProcessExit.TreeTermination> finishedStop = new CompletableFuture<>();
 
         private ScriptedTurn(
                 ProcessSpec spec,
@@ -1124,7 +1398,9 @@ class TestClaudeCliDriver
             }
             String sessionId = sessionId();
             String runtimeSecretSuffix = runtimeSecret.isEmpty() ? "" : " " + runtimeSecret;
-            emit(ProcessStream.STDOUT, "not-json\n");
+            if (!prompt.startsWith("finished-") && !prompt.equals("unfinished-background\n")) {
+                emit(ProcessStream.STDOUT, "not-json\n");
+            }
             emit(ProcessStream.STDOUT,
                     "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"%s\","
                             .formatted(sessionId)
@@ -1147,6 +1423,11 @@ class TestClaudeCliDriver
                             + "\"parent_tool_use_id\":null,\"session_id\":\"%s\","
                             + "\"uuid\":\"answer-1\"}\n")
                             .formatted(runtimeSecretSuffix, sessionId));
+            if (prompt.equals("unfinished-background\n")) {
+                emit(ProcessStream.STDOUT, ("{\"type\":\"system\",\"subtype\":\"task_started\",\"session_id\":\"%s\","
+                        + "\"task_id\":\"background-1\",\"task_type\":\"local_bash\",\"description\":\"Still working\",\"uuid\":\"task-1\"}\n")
+                        .formatted(sessionId));
+            }
             emit(ProcessStream.STDOUT,
                     ("{\"type\":\"result\",\"is_error\":false,\"duration_ms\":10,"
                             + "\"duration_api_ms\":8,\"num_turns\":1,\"session_id\":\"%s\","
@@ -1167,7 +1448,7 @@ class TestClaudeCliDriver
             exit.complete(new ProcessExit(
                     0,
                     ProcessExit.Reason.EXITED,
-                    prompt.equals("unverifiable\n")
+                    prompt.equals("unverifiable\n") || prompt.startsWith("finished-") || prompt.equals("unfinished-background\n")
                             ? ProcessExit.TreeTermination.UNVERIFIABLE
                             : ProcessExit.TreeTermination.VERIFIED_STOPPED,
                     Duration.ofMillis(10),
@@ -1203,12 +1484,23 @@ class TestClaudeCliDriver
         }
 
         @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            workFinished = true;
+            if (prompt.equals("finished-delayed\n")) {
+                return finishedStop;
+            }
+            completionVerified = prompt.equals("finished-gap\n");
+            return stopAndVerify();
+        }
+
+        @Override
         public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
         {
             cancelled = true;
             ProcessExit terminal = exit.getNow(null);
             ProcessExit.TreeTermination verification = nextStopVerification == null
-                    ? terminal == null
+                    ? terminal == null || completionVerified
                             ? ProcessExit.TreeTermination.VERIFIED_STOPPED
                             : terminal.treeTermination()
                     : nextStopVerification;

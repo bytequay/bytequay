@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.process.impl;
 
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
+import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
@@ -392,6 +393,91 @@ class TestDefaultProcessSupervisor
             process.write(ByteBuffer.wrap("hello\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().get(5, TimeUnit.SECONDS);
             ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
             assertThat(exit.treeTermination()).as("task launch %s", index).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+    }
+
+    @Test
+    void finishedTaskWorkResolvesStartupChurnWithoutForgettingItsReceipt()
+            throws Exception
+    {
+        CountDownLatch ready = new CountDownLatch(1);
+        ManagedProcess process = supervisor.prepare(spec(
+                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"),
+                        "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait; printf ready; read value"))
+                .start((stream, bytes) -> ready.countDown());
+        try {
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(process.stopAfterWorkFinished().toCompletableFuture().get(15, TimeUnit.SECONDS))
+                    .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            assertThat(process.stopAndVerify().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().workFinished()).isTrue();
+            assertThatThrownBy(() -> process.write(ByteBuffer.wrap("new work\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().join())
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses())
+                    .singleElement()
+                    .satisfies(recovery -> assertThat(recovery.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED));
+        }
+        finally {
+            process.close();
+        }
+    }
+
+    @Test
+    void finishedWorkStillStopsAKnownChildOutsideTheProcessGroup()
+            throws Exception
+    {
+        StringBuilder output = new StringBuilder();
+        CountDownLatch reported = new CountDownLatch(1);
+        ManagedProcess process = supervisor.prepare(spec(
+                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"),
+                        "/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; read value'"))
+                .start((stream, bytes) -> {
+                    output.append(StandardCharsets.UTF_8.decode(bytes));
+                    if (output.indexOf("\n") >= 0) {
+                        reported.countDown();
+                    }
+                });
+        try {
+            assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
+            long childPid = Long.parseLong(output.toString().trim());
+            LaunchMarkerStore store = new LaunchMarkerStore(launches);
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (store.read(process.launchId()).orElseThrow().descendants().orElseThrow().stream().noneMatch(identity -> identity.pid() == childPid)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertThat(store.read(process.launchId()).orElseThrow().descendants().orElseThrow())
+                    .extracting(ProcessIdentity::pid)
+                    .contains(childPid);
+
+            assertThat(process.stopAfterWorkFinished().toCompletableFuture().get(15, TimeUnit.SECONDS))
+                    .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            assertThat(awaitDead(childPid, Duration.ofSeconds(5))).isTrue();
+        }
+        finally {
+            process.close();
+        }
+    }
+
+    @Test
+    void refusesFinishedWorkAuthorityWhenItsReceiptCannotBeWritten()
+            throws Exception
+    {
+        ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-task"), "read value"))
+                .start((stream, bytes) -> {});
+        Path blockedWrite = launches.resolve(process.launchId() + ".json.part");
+        Files.createDirectory(blockedWrite);
+        try {
+            assertThatThrownBy(process::stopAfterWorkFinished).isInstanceOf(AgentUnavailableException.class);
+            assertThat(new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow().workFinished()).isFalse();
+            assertThat(ProcessHandle.of(process.pid()).orElseThrow().isAlive()).isTrue();
+        }
+        finally {
+            Files.delete(blockedWrite);
+            process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
     }
 

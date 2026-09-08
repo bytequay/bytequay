@@ -100,6 +100,7 @@ public class DefaultAgentReviewService
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
     private final Clock clock;
+    private final Striped<Lock> startLocks = Striped.lock(32);
     private final Striped<Lock> locks = Striped.lock(32);
 
     public DefaultAgentReviewService(
@@ -154,7 +155,7 @@ public class DefaultAgentReviewService
     public AgentReviewProjection start(String workspaceId, String repo, int number)
     {
         String repository = normalize(repo);
-        Lock lock = locks.get(workspaceId + "/" + repository + "#" + number);
+        Lock lock = startLocks.get(workspaceId + "/" + repository + "#" + number);
         lock.lock();
         try {
             Optional<AgentReview> existing = store.findOpenReview(workspaceId, repository, number);
@@ -179,24 +180,27 @@ public class DefaultAgentReviewService
                     "Review " + repository + "#" + number,
                     selection.defaults())));
             Instant now = Instant.now(clock);
-            AgentReview review = store.insertReview(new AgentReview(
-                    UUID.randomUUID().toString(),
-                    workspaceId,
-                    repository,
-                    number,
-                    snapshot.pullRequestId(),
-                    task.id().toString(),
-                    AgentReview.State.OPEN,
-                    false,
-                    Optional.empty(),
-                    Optional.of(snapshot.headSha()),
-                    0,
-                    now,
-                    now,
-                    Optional.empty()));
-            observer.watch(review);
-            startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
-            return projection(review.id());
+            String reviewId = UUID.randomUUID().toString();
+            return locked(reviewId, () -> {
+                AgentReview review = store.insertReview(new AgentReview(
+                        reviewId,
+                        workspaceId,
+                        repository,
+                        number,
+                        snapshot.pullRequestId(),
+                        task.id().toString(),
+                        AgentReview.State.OPEN,
+                        false,
+                        Optional.empty(),
+                        Optional.of(snapshot.headSha()),
+                        0,
+                        now,
+                        now,
+                        Optional.empty()));
+                observer.watch(review);
+                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+                return projection(review.id());
+            });
         }
         finally {
             lock.unlock();
@@ -219,6 +223,10 @@ public class DefaultAgentReviewService
     {
         return locked(reviewId, () -> {
             AgentReview review = requireOpen(reviewId);
+            Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
+            if (active.isPresent()) {
+                review = settle(review, active.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
+            }
             review = store.updateReview(review.withFollowUpPaused(false, Instant.now(clock)));
             Optional<ReviewRun> latest = latestRun(reviewId);
             boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
@@ -235,11 +243,8 @@ public class DefaultAgentReviewService
         String head = pullRequests.findHeadSha(review.repo(), review.number())
                 .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
         return locked(reviewId, () -> {
-            AgentReview current = store.updateReview(requireOpen(reviewId).withObservedHead(head, Instant.now(clock)).withFollowUpPaused(false, Instant.now(clock)));
-            Optional<ReviewRun> latest = latestRun(reviewId);
-            boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
-            followHead(current, retry);
-            return projection(reviewId);
+            store.updateReview(requireOpen(reviewId).withObservedHead(head, Instant.now(clock)));
+            return resume(reviewId);
         });
     }
 
@@ -415,7 +420,13 @@ public class DefaultAgentReviewService
     private AgentReview settle(AgentReview review, ReviewRun run, AgentTask task)
     {
         if (run.turnIds().isEmpty()) {
-            return review;
+            Optional<AgentTurn> accepted = turns.findTurnByIdempotencyKey(task.id(), "review-run:" + run.id());
+            if (accepted.isEmpty()) {
+                Instant now = Instant.now(clock);
+                store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("The review stopped before its turn was accepted"), now));
+                return store.updateReview(review.withFollowUpPaused(true, now));
+            }
+            run = store.updateRun(run.withTurn(accepted.orElseThrow().id().toString(), Instant.now(clock)));
         }
         AgentTurn turn = turns.get(TurnId.valueOf(run.turnIds().getLast()));
         if (!turn.state().terminal() || task.worktreeMutationClaim().map(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN).orElse(false)) {
@@ -424,6 +435,10 @@ public class DefaultAgentReviewService
         Instant now = Instant.now(clock);
         switch (turn.state()) {
             case COMPLETED -> {
+                // A finished provider result can still retain ownership while process cleanup is unresolved.
+                if (!idle(task)) {
+                    return review;
+                }
                 if (run.summary().isPresent() && run.coverage().isPresent()) {
                     AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
                     store.acceptRun(advanced, run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
@@ -546,29 +561,33 @@ public class DefaultAgentReviewService
                 now,
                 now,
                 Optional.empty()));
-        ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
-        for (ReviewFinding finding : findings) {
-            if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
-                continue;
-            }
-            Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor());
-            store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, snapshot.headSha(), now))
-                    .orElseGet(() -> finding.withMapping(finding.validatedHeadSha(), true, now)));
-        }
-        String login = credentials.resolveGitHubCredential().profile().login();
+        AgentTurn turn;
         try {
-            AgentTurn turn = turns.start(new StartAgentTurnCommand(
+            ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
+            for (ReviewFinding finding : findings) {
+                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
+                    continue;
+                }
+                Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor());
+                store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, snapshot.headSha(), now))
+                        .orElseGet(() -> finding.withMapping(finding.validatedHeadSha(), true, now)));
+            }
+            String login = credentials.resolveGitHubCredential().profile().login();
+            turn = turns.start(new StartAgentTurnCommand(
                     TaskId.valueOf(review.taskId()),
                     ReviewPrompts.reviewRequest(review, run, previous, findings, login),
                     ImmutableList.of(),
                     "review-run:" + run.id()));
-            store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
         }
         catch (RuntimeException failure) {
-            store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
-            store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
+            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), "review-run:" + run.id()).isEmpty()) {
+                store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
+                store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
+            }
             throw failure;
         }
+        // If this write fails after turn acceptance, reconciliation reattaches that same request.
+        store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
     }
 
     private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, String headSha, Instant now)

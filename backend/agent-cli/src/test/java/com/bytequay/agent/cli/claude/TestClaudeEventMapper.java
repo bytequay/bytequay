@@ -17,14 +17,22 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.groups.Tuple.tuple;
 
 class TestClaudeEventMapper
 {
@@ -287,6 +295,211 @@ class TestClaudeEventMapper
                 "session_id":"session-1","uuid":"progress-1"}
                 """, ProviderAgentEvent.Tool.class);
         assertThat(progress.summary()).isEqualTo("Running for 1.5 seconds");
+    }
+
+    @Test
+    void mapsNativeForegroundChildAndGrandchildWithStableSources()
+            throws IOException
+    {
+        // Captured from Claude Code 2.1.263; IDs normalized and hidden reasoning and unrelated metadata removed.
+        List<ProviderAgentEvent> events = replay("subagents-foreground-2.1.263.jsonl");
+
+        assertThat(mapper.hasFinishedWork()).isTrue();
+        assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .extracting(event -> event.source().providerThreadId().orElseThrow(), event -> event.source().parentProviderThreadId().orElseThrow())
+                .containsExactly(
+                        tuple("claude-agent:tool-1", "session-1"),
+                        tuple("claude-agent:tool-2", "claude-agent:tool-1"));
+        assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED)
+                .hasSize(2);
+        ProviderAgentEvent.Message grandchild = events.stream()
+                .filter(event -> event instanceof ProviderAgentEvent.Message message
+                        && message.messageKind() == ProviderAgentEvent.MessageKind.ANSWER
+                        && message.source().providerThreadId().filter("claude-agent:tool-2"::equals).isPresent())
+                .map(ProviderAgentEvent.Message.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(grandchild.text()).isEqualTo("GRANDCHILD_OK");
+        assertThat(grandchild.source().logicalAgentPath()).contains("Protocol probe to grandchild");
+        assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Message.class, message -> {
+            assertThat(message.messageKind()).isEqualTo(ProviderAgentEvent.MessageKind.COMMENTARY);
+            assertThat(message.source().providerItemId()).isEqualTo(grandchild.source().providerItemId());
+        }));
+        assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Tool.class, tool -> {
+            assertThat(tool.toolCallId()).isEqualTo("tool-2");
+            assertThat(tool.source().providerThreadId()).contains("claude-agent:tool-1");
+            assertThat(tool.source().parentProviderThreadId()).contains("session-1");
+        }));
+    }
+
+    @Test
+    void retainsBackgroundChildAcrossNativeRootFollowUp()
+            throws IOException
+    {
+        List<ProviderAgentEvent> events = replay("subagents-background-2.1.263.jsonl");
+
+        assertThat(mapper.hasFinishedWork()).isTrue();
+        assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.SESSION_OPENED)
+                .hasSize(2);
+        assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                        && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
+                .singleElement().satisfies(event -> assertThat(event.source().providerThreadId()).contains("claude-agent:tool-1"));
+        assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Message message
+                        && message.messageKind() == ProviderAgentEvent.MessageKind.ANSWER
+                        && message.source().parentProviderThreadId().isPresent())
+                .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Message) event).text()).isEqualTo("CHILD_OK"));
+    }
+
+    @Test
+    void waitsForBackgroundTasksAndRetainsChildPartialAcrossRootResult()
+    {
+        startAgent("Agent", true);
+        map("""
+                {"type":"system","subtype":"task_started","task_id":"child-1","tool_use_id":"spawn-1",
+                "task_type":"local_agent","is_backgrounded":true,"session_id":"session-1","uuid":"started"}
+                """);
+        map("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"spawn-1","content":"launched"}]},
+                "tool_use_result":{"status":"async_launched","agentId":"child-1"},"session_id":"session-1","uuid":"launched"}
+                """);
+        ProviderAgentEvent.Message partial = only("""
+                {"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"child answer"}},
+                "session_id":"session-1","parent_tool_use_id":"spawn-1","uuid":"child-partial"}
+                """, ProviderAgentEvent.Message.class);
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        map("""
+                {"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session-1","uuid":"empty-inventory"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        ProviderAgentEvent.Message completed = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"child answer"}]},
+                "session_id":"session-1","parent_tool_use_id":"spawn-1","uuid":"child-final"}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(completed.source()).isEqualTo(partial.source());
+        map("""
+                {"type":"system","subtype":"task_notification","task_id":"child-1","status":"completed","session_id":"session-1","uuid":"finished"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isTrue();
+
+        map("""
+                {"type":"system","subtype":"task_updated","task_id":"child-1","patch":{"status":"running"},"session_id":"session-1","uuid":"resumed"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        map("""
+                {"type":"system","subtype":"task_notification","task_id":"child-1","status":"stopped","session_id":"session-1","uuid":"stopped"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isTrue();
+        map("""
+                {"type":"system","subtype":"init","session_id":"session-1","uuid":"root-follow-up"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isFalse();
+    }
+
+    @Test
+    void routesChildCommandsAndCompletesLegacyForegroundTaskWithoutStructuredResult()
+    {
+        startAgent("Task", false);
+        ProviderAgentEvent.Command command = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"command-1","name":"Bash","input":{"command":"pwd"}}]},
+                "session_id":"session-1","parent_tool_use_id":"spawn-1","uuid":"command-start"}
+                """, ProviderAgentEvent.Command.class);
+        assertThat(command.source().providerThreadId()).contains("claude-agent:spawn-1");
+        assertThat(command.source().parentProviderThreadId()).contains("session-1");
+        ProviderAgentEvent.Command completed = only("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"command-1","content":"/worktree"}]},
+                "session_id":"session-1","parent_tool_use_id":"spawn-1","uuid":"command-end"}
+                """, ProviderAgentEvent.Command.class);
+        assertThat(completed.source()).isEqualTo(command.source());
+        map("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"spawn-1","content":"done"}]},
+                "session_id":"session-1","uuid":"task-end"}
+                """);
+        result();
+        assertThat(mapper.hasFinishedWork()).isTrue();
+    }
+
+    @Test
+    void doesNotGuessChildIdentityOrTreatRootResultAsToolCompletion()
+    {
+        ProviderAgentEvent.Message orphan = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"unclassified"}]},
+                "session_id":"session-1","parent_tool_use_id":"unseen-tool","uuid":"orphan"}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(orphan.source().providerThreadId()).isEmpty();
+        assertThat(orphan.source().parentProviderThreadId()).isEmpty();
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+    }
+
+    @Test
+    void backgroundCommandAndUnknownTaskStatusPreventCompletionProof()
+    {
+        only("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-1","name":"Bash","input":{"command":"sleep 1"}}]},
+                "session_id":"session-1","uuid":"bash-start"}
+                """, ProviderAgentEvent.Command.class);
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        only("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash-1","content":"backgrounded"}]},
+                "tool_use_result":{"backgroundTaskId":"background-1"},"session_id":"session-1","uuid":"bash-background"}
+                """, ProviderAgentEvent.Command.class);
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        map("""
+                {"type":"system","subtype":"task_notification","task_id":"background-1","status":"unknown","session_id":"session-1","uuid":"unknown-status"}
+                """);
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"requesting", "compacting"})
+    void requiresANewResultAfterRootWorkResumes(String status)
+    {
+        result();
+        assertThat(mapper.hasFinishedWork()).isTrue();
+        map("""
+                {"type":"system","subtype":"status","status":"%s","session_id":"session-1"}
+                """.formatted(status));
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        map("""
+                {"type":"system","subtype":"status","status":null,"session_id":"session-1"}
+                """);
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        result();
+        assertThat(mapper.hasFinishedWork()).isTrue();
+    }
+
+    private List<ProviderAgentEvent> replay(String name)
+            throws IOException
+    {
+        ImmutableList.Builder<ProviderAgentEvent> events = ImmutableList.builder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(getClass().getResourceAsStream(name), StandardCharsets.UTF_8))) {
+            reader.lines().forEach(line -> events.addAll(map(line)));
+        }
+        return events.build();
+    }
+
+    private void startAgent(String toolName, boolean background)
+    {
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"spawn-1","name":"%s",
+                "input":{"description":"Inspect files","prompt":"Find bugs","run_in_background":%s}}]},"session_id":"session-1","uuid":"spawn"}
+                """.formatted(toolName, background));
+    }
+
+    private void result()
+    {
+        map("""
+                {"type":"result","is_error":false,"duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"session-1",
+                "usage":{"input_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1},
+                "subtype":"success","result":"Root answer","uuid":"root-result"}
+                """);
     }
 
     private List<ProviderAgentEvent> map(String json)

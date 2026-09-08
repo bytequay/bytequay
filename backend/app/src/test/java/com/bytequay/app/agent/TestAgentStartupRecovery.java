@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
@@ -49,6 +50,9 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
@@ -254,8 +258,9 @@ class TestAgentStartupRecovery
         verify(supervisor, never()).acknowledge("unknown-catalog");
     }
 
-    @Test
-    void keepsTheGateClosedWhenMarkerAndLaunchRowOwnersDisagree()
+    @ParameterizedTest
+    @EnumSource(OwnedProcessRecovery.Outcome.class)
+    void keepsTheGateClosedWhenMarkerAndLaunchRowOwnersDisagree(OwnedProcessRecovery.Outcome outcome)
     {
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
         AgentEventService eventService = mock(AgentEventService.class);
@@ -267,8 +272,8 @@ class TestAgentStartupRecovery
         when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
-                unverifiableForOwner("control-marker", ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
-                unverifiableFor("task-marker", taskId.toString())));
+                recoveryForOwner("control-marker", ProcessOwner.Kind.CLI_PROBE, "codex-cli", outcome),
+                recoveryForOwner("task-marker", ProcessOwner.Kind.APP_SERVER, taskId.toString(), outcome)));
 
         new AgentStartupRecovery(
                 outboxStore,
@@ -528,6 +533,73 @@ class TestAgentStartupRecovery
         verify(supervisor, never()).acknowledge("launch-2");
     }
 
+    @ParameterizedTest
+    @EnumSource(OwnedProcessRecovery.Outcome.class)
+    void explicitRetryRejectsConflictingOwnersBeforeSettlingOrAcknowledgingAnyLaunch(OwnedProcessRecovery.Outcome outcome)
+    {
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        TaskId taskId = TaskId.random();
+        AgentTask blocked = openTask(taskId).claimWorktreeMutation(
+                WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("launch-1")).thenReturn(stopped("launch-1"));
+        when(supervisor.recoverOwnedProcess("launch-2")).thenReturn(
+                recoveryForOwner("launch-2", ProcessOwner.Kind.APP_SERVER, TaskId.random().toString(), outcome));
+        AgentStartupRecovery recovery = new AgentStartupRecovery(
+                mock(AgentEventOutboxStore.class),
+                mock(AgentEventService.class),
+                maintenance(taskStore, turnStore),
+                supervisor,
+                new AgentServingGate(),
+                launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
+                taskStore,
+                turnStore);
+
+        assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("launch-2")
+                .hasMessageContaining("conflicting recovery ownership");
+
+        verify(taskStore, never()).update(any());
+        verify(supervisor, never()).acknowledge(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void explicitRetryRejectsAClaimWhoseMarkerBelongsToAnotherTask(boolean launchRowPresent)
+    {
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        TaskId taskId = TaskId.random();
+        TaskId otherTaskId = TaskId.random();
+        AgentTask blocked = openTask(taskId).claimWorktreeMutation(
+                WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
+                Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("launch-1")).thenReturn(
+                recoveryForOwner("launch-1", ProcessOwner.Kind.APP_SERVER, otherTaskId.toString(), OwnedProcessRecovery.Outcome.VERIFIED_STOPPED));
+        AgentStartupRecovery recovery = new AgentStartupRecovery(
+                mock(AgentEventOutboxStore.class),
+                mock(AgentEventService.class),
+                maintenance(taskStore, turnStore),
+                supervisor,
+                new AgentServingGate(),
+                launchRowPresent ? launchStore(appServerLaunch("launch-1", otherTaskId)) : launchStore(),
+                taskStore,
+                turnStore);
+
+        assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("conflicting recovery ownership");
+
+        verify(taskStore, never()).update(any());
+        verify(supervisor, never()).acknowledge(any());
+    }
+
     private static AgentTask openTask(TaskId taskId)
     {
         return AgentTask.created(
@@ -573,12 +645,17 @@ class TestAgentStartupRecovery
 
     private static OwnedProcessRecovery unverifiableForOwner(String launchId, ProcessOwner.Kind ownerKind, String ownerId)
     {
+        return recoveryForOwner(launchId, ownerKind, ownerId, OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
+    private static OwnedProcessRecovery recoveryForOwner(String launchId, ProcessOwner.Kind ownerKind, String ownerId, OwnedProcessRecovery.Outcome outcome)
+    {
         return new OwnedProcessRecovery(
                 launchId,
                 Optional.of(new ProcessOwner(ownerKind, ownerId)),
                 Optional.empty(),
-                OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                "unverifiable");
+                outcome,
+                outcome.name());
     }
 
     private static OwnedProcessRecovery stopped(String launchId)

@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -52,16 +53,20 @@ record LaunchMarker(
         Optional<String> launcherCommand,
         Optional<Long> processGroup,
         Optional<Map<Long, String>> descendantStartTokens,
+        boolean descendantTrackingIncomplete,
+        boolean workFinished,
         Optional<Integer> exitCode,
         Optional<ProcessExit.Reason> exitReason,
-        Optional<ProcessExit.TreeTermination> treeTermination)
+        Optional<ProcessExit.TreeTermination> treeTermination,
+        Optional<String> recoveryBootSessionId)
 {
     /** Only this exact format proves what a marker's absent fields mean. */
-    static final int CURRENT_FORMAT = 2;
+    static final int CURRENT_FORMAT = 4;
 
     LaunchMarker
     {
-        checkArgument(format == 1 || format == CURRENT_FORMAT, "unsupported launch marker format");
+        checkArgument(format >= 1 && format <= CURRENT_FORMAT, "unsupported launch marker format");
+        checkArgument(!workFinished || format >= 3, "legacy marker cannot prove provider work finished");
         requireNonNull(launchId, "launchId is null");
         requireNonNull(backendId, "backendId is null");
         requireNonNull(ownerKind, "ownerKind is null");
@@ -79,6 +84,13 @@ record LaunchMarker(
         requireNonNull(exitCode, "exitCode is null");
         requireNonNull(exitReason, "exitReason is null");
         requireNonNull(treeTermination, "treeTermination is null");
+        requireNonNull(recoveryBootSessionId, "recoveryBootSessionId is null");
+        checkArgument(recoveryBootSessionId.isEmpty() || format >= 4, "legacy marker cannot identify a recovery boot session");
+        recoveryBootSessionId = recoveryBootSessionId.map(value -> {
+            String canonical = UUID.fromString(value).toString();
+            checkArgument(canonical.equalsIgnoreCase(value), "invalid recovery boot session UUID");
+            return canonical;
+        });
         checkArgument(profile == ownerKind.profile(), "profile does not match the owner kind");
         checkArgument(phase == LaunchPhase.PREPARED || pid.isPresent(), "launched marker has no pid");
     }
@@ -104,6 +116,9 @@ record LaunchMarker(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(ImmutableMap.of()),
+                false,
+                false,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -127,9 +142,12 @@ record LaunchMarker(
                 Optional.of(launcherCommand),
                 Optional.of(processGroup),
                 Optional.of(ImmutableMap.of()),
+                false,
+                false,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty());
+                Optional.empty(),
+                recoveryBootSessionId);
     }
 
     LaunchMarker withPhase(LaunchPhase next)
@@ -149,9 +167,12 @@ record LaunchMarker(
                 launcherCommand,
                 processGroup,
                 descendantStartTokens,
+                descendantTrackingIncomplete(),
+                workFinished,
                 exitCode,
                 exitReason,
-                treeTermination);
+                treeTermination,
+                recoveryBootSessionId);
     }
 
     LaunchMarker withDescendant(ProcessIdentity identity)
@@ -174,9 +195,12 @@ record LaunchMarker(
                 launcherCommand,
                 processGroup,
                 Optional.of(descendants.buildKeepingLast()),
+                descendantTrackingIncomplete(),
+                workFinished,
                 exitCode,
                 exitReason,
-                treeTermination);
+                treeTermination,
+                recoveryBootSessionId);
     }
 
     LaunchMarker withIncompleteDescendantTracking()
@@ -195,10 +219,64 @@ record LaunchMarker(
                 startToken,
                 launcherCommand,
                 processGroup,
-                Optional.empty(),
+                descendantStartTokens,
+                true,
+                workFinished,
                 exitCode,
                 exitReason,
-                treeTermination);
+                treeTermination,
+                recoveryBootSessionId);
+    }
+
+    LaunchMarker withWorkFinished()
+    {
+        return new LaunchMarker(
+                format,
+                launchId,
+                backendId,
+                ownerKind,
+                ownerId,
+                profile,
+                executable,
+                argvDigest,
+                phase,
+                pid,
+                startToken,
+                launcherCommand,
+                processGroup,
+                descendantStartTokens,
+                descendantTrackingIncomplete(),
+                true,
+                exitCode,
+                exitReason,
+                treeTermination,
+                recoveryBootSessionId);
+    }
+
+    LaunchMarker withRecoveryBootSessionId(String bootSessionId)
+    {
+        checkArgument(recoveryBootSessionId.isEmpty() || recoveryBootSessionId.orElseThrow().equalsIgnoreCase(bootSessionId), "recovery boot session is already recorded");
+        return new LaunchMarker(
+                CURRENT_FORMAT,
+                launchId,
+                backendId,
+                ownerKind,
+                ownerId,
+                profile,
+                executable,
+                argvDigest,
+                phase,
+                pid,
+                startToken,
+                launcherCommand,
+                processGroup,
+                descendantStartTokens,
+                descendantTrackingIncomplete(),
+                workFinished,
+                exitCode,
+                exitReason,
+                treeTermination,
+                Optional.of(bootSessionId));
     }
 
     LaunchMarker terminal(ProcessExit exit)
@@ -218,9 +296,19 @@ record LaunchMarker(
                 launcherCommand,
                 processGroup,
                 descendantStartTokens,
+                descendantTrackingIncomplete(),
+                workFinished,
                 Optional.of(exit.exitCode()),
                 Optional.of(exit.reason()),
-                Optional.of(exit.treeTermination()));
+                Optional.of(exit.treeTermination()),
+                recoveryBootSessionId);
+    }
+
+    /** Legacy markers used an absent identity map to record an observation gap. */
+    @Override
+    public boolean descendantTrackingIncomplete()
+    {
+        return descendantTrackingIncomplete || descendantStartTokens.isEmpty();
     }
 
     ProcessOwner owner()

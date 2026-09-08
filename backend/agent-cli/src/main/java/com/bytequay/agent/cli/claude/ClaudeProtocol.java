@@ -68,6 +68,8 @@ final class ClaudeProtocol
             Optional<String> outcome,
             Optional<String> status,
             @JsonProperty("task_id") Optional<String> taskId,
+            @JsonProperty("task_type") Optional<String> taskType,
+            @JsonProperty("is_backgrounded") Optional<Boolean> backgrounded,
             @JsonProperty("tool_use_id") Optional<String> toolUseId,
             Optional<String> description,
             Optional<String> summary,
@@ -75,7 +77,9 @@ final class ClaudeProtocol
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("elapsed_time_seconds") Optional<Double> elapsedTimeSeconds,
             Optional<Integer> attempt,
-            @JsonProperty("retry_delay_ms") Optional<Long> retryDelayMs)
+            @JsonProperty("retry_delay_ms") Optional<Long> retryDelayMs,
+            Optional<List<BackgroundTask>> tasks,
+            Optional<TaskPatch> patch)
             implements Message
     {
         SystemMessage
@@ -93,6 +97,8 @@ final class ClaudeProtocol
             requireNonNull(outcome, "outcome is null");
             requireNonNull(status, "status is null");
             requireNonNull(taskId, "taskId is null");
+            requireNonNull(taskType, "taskType is null");
+            requireNonNull(backgrounded, "backgrounded is null");
             requireNonNull(toolUseId, "toolUseId is null");
             requireNonNull(description, "description is null");
             requireNonNull(summary, "summary is null");
@@ -101,6 +107,8 @@ final class ClaudeProtocol
             requireNonNull(elapsedTimeSeconds, "elapsedTimeSeconds is null");
             requireNonNull(attempt, "attempt is null");
             requireNonNull(retryDelayMs, "retryDelayMs is null");
+            tasks = tasks.map(ImmutableList::copyOf);
+            requireNonNull(patch, "patch is null");
         }
 
         @Override
@@ -158,6 +166,7 @@ final class ClaudeProtocol
 
     record UserMessage(
             ApiMessage message,
+            @JsonProperty("tool_use_result") Optional<JsonNode> toolUseResult,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") Optional<String> sessionIdValue,
             Optional<String> uuid,
@@ -167,6 +176,7 @@ final class ClaudeProtocol
         UserMessage
         {
             requireNonNull(message, "message is null");
+            requireNonNull(toolUseResult, "toolUseResult is null");
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
@@ -183,6 +193,7 @@ final class ClaudeProtocol
     record ToolProgressMessage(
             @JsonProperty("tool_use_id") String toolUseId,
             @JsonProperty("tool_name") String toolName,
+            @JsonProperty("task_id") Optional<String> taskId,
             @JsonProperty("elapsed_time_seconds") double elapsedTimeSeconds,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") String sessionIdValue,
@@ -193,6 +204,7 @@ final class ClaudeProtocol
         {
             requireNonNull(toolUseId, "toolUseId is null");
             requireNonNull(toolName, "toolName is null");
+            requireNonNull(taskId, "taskId is null");
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
@@ -347,13 +359,38 @@ final class ClaudeProtocol
     record ToolInput(
             Optional<String> command,
             Optional<String> description,
-            @JsonProperty("file_path") Optional<String> filePath)
+            @JsonProperty("file_path") Optional<String> filePath,
+            Optional<String> prompt,
+            @JsonProperty("subagent_type") Optional<String> subagentType,
+            @JsonProperty("run_in_background") Optional<Boolean> runInBackground)
     {
         ToolInput
         {
             requireNonNull(command, "command is null");
             requireNonNull(description, "description is null");
             requireNonNull(filePath, "filePath is null");
+            requireNonNull(prompt, "prompt is null");
+            requireNonNull(subagentType, "subagentType is null");
+            requireNonNull(runInBackground, "runInBackground is null");
+        }
+    }
+
+    record BackgroundTask(
+            @JsonProperty("task_id") String taskId,
+            @JsonProperty("task_type") Optional<String> taskType)
+    {
+        BackgroundTask
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(taskType, "taskType is null");
+        }
+    }
+
+    record TaskPatch(Optional<String> status)
+    {
+        TaskPatch
+        {
+            requireNonNull(status, "status is null");
         }
     }
 

@@ -1796,6 +1796,50 @@ about arbitrary detached descendants. Failure of the sandbox path or
 background-terminal API in the running CLI disables the affected Codex
 development task and reports the detected Codex version.
 
+### 5.6 Process-ownership correction
+
+The Claude review adapter previously converted a process-observation gap into
+an interrupted turn even after Claude returned a terminal result and all
+foreground tools had finished. The adapter must use
+the complete typed stream at EOF to establish finished work, then verify the
+recorded processes and group. An otherwise completed review must not require
+user recovery merely because a short-lived child disappeared during sampling.
+
+Cleanup still stops and verifies the root, its process group, and every known
+PID/start-token identity. A missing historical observation does not mean that
+a program is still running. The durable provider-completion fact permits that
+observation gap to be resolved once all these known processes stop; it never
+waives a live known member or a failed exit check. Normal close, explicit Stop,
+and restart read the same launch evidence. No generic OS containment proof is
+claimed by `VERIFIED_STOPPED`.
+
+Keep known process identities when an observation fails and record incomplete
+tracking separately. Later observations may add identities but cannot clear
+the gap or discard earlier identities. Continue identity-checked termination
+even when evidence is incomplete; never signal an old PID without matching its
+start token. Do not fabricate an empty map or reclassify a task runtime as a
+control-only probe.
+
+An unresolved old run can recover after an independently verified operating
+system restart. Format-4 launch markers retain an optional macOS boot-session
+UUID. For an older marker without that observation, recovery durably records
+the current `kern.bootsessionuuid` in the existing marker and retains its claim.
+Repeated Stop or a backend/app restart during that same boot cannot release it.
+Only a later, valid, different boot-session UUID establishes that every process
+which could have existed at the recorded observation has stopped. Recovery
+then uses the normal verified-cleanup settlement without signaling recycled
+PIDs, changing the old turn's result, clearing historical observation gaps, or
+setting `workFinished`. Missing/unreadable boot identity or failure to persist
+the observation supplies no proof. Invalid launch ownership or impossible
+launch intent ordering remains blocked even after a reboot.
+
+This observation uses the kernel's read-only boot-session UUID, not boot-volume
+identity or wall-clock chronology. XNU generates it when initializing the boot
+session; `kern.boottime` can change with clock adjustments and therefore cannot
+establish this boundary for old launch timestamps. ByteQuay never restarts the
+computer automatically. The recovery action explains when a Mac restart and
+reopening ByteQuay are needed, preserving the review/task and its worktree.
+
 ## 6. Persistence ports
 
 These interfaces live in `agent-core`; SQLite/JPA implementations live in
@@ -2971,15 +3015,23 @@ The frontend therefore replaces that block's live text instead of appending the
 completion. On success, the authoritative `result` response becomes the turn's
 `ANSWER`/`FINAL` event under the latest root text item identity. It replaces
 only that latest root commentary while preserving earlier and tool-adjacent
-commentary. The terminal result clears all remaining per-turn text and tool
-correlations. The driver keeps reading stdout through EOF even after a `result`
-object because trailing system events can follow the result.
+commentary. The terminal result clears the root text correlations while
+retaining child and tool identities for later notifications. The driver keeps
+reading stdout through EOF even after a `result` object because trailing system
+events can follow the result.
 
-For Claude, the `result` object is the root terminal fact; the driver completes
-`RunningTurn.completion()` only after forwarded child/background-task terminal
-events and supervised process-tree exit. Forced cancellation also waits for
-that exit, so a background child cannot outlive the task's
-worktree-mutation claim.
+For Claude, a `result` object is a root terminal fact, but background task
+notifications may cause another root turn and result before stdout closes.
+The driver drains through EOF and tracks native Agent invocations, tool calls,
+hooks and background tasks. A normal zero exit, a valid final root result,
+terminal tracked work, and an unbroken event stream together establish the
+Claude completion barrier. A root result alone never supplies that proof.
+If process observation remains incomplete after that barrier, the driver calls
+`stopAfterWorkFinished()` to durably record the launch-scoped proof and retry
+known-process cleanup. Cleanup failure preserves the provider result with
+`providerQuiescent: false` and retains the worktree claim. Missing lifecycle
+evidence, malformed/truncated output, cancellation and abnormal exit cannot
+create that receipt. Forced cancellation still waits for supervised exit.
 
 Claude Code 2.1.260 may leave an ignored empty `.claude/.cc-writes/` staging
 directory in the worktree, the provider behavior documented in
@@ -3006,12 +3058,23 @@ The driver normalizes at least these message classes:
 | `system/api_retry` and rate-limit messages | Retry/rate-limit progress |
 | `result` | Terminal `ANSWER`/status, response, duration, usage, session ID, and cost estimate |
 
-Forwarded messages and task/tool activity may retain `parent_tool_use_id` inside
-the adapter while they are correlated, but that value names a tool invocation,
-not a direct provider thread and parent thread. The current Claude lane must not
-manufacture a `ProviderThreadRef` or a nested-agent panel from it; it advertises
-`nestedAgentActivity: false` and renders the supported activity in the root
-transcript. Raw thinking blocks are discarded; only provider-supported
+Claude CLI 2.1.219+ forwards nested messages with `parent_tool_use_id` naming
+their spawning Agent invocation. The adapter maps observed `Agent`/`Task`
+invocations to stable execution identities `claude-agent:<tool_use_id>` in the
+existing event-source routing fields. These are execution identities, not
+resumable Claude session IDs. Their parent is the observed invocation's own
+resolved source; an arbitrary parent-tool reference never invents a child.
+Native `task_id` and structured `agentId` correlate lifecycle notifications
+without replacing the execution identity after text starts streaming.
+Ownership must be observed in the current ByteQuay turn. A `SendMessage` to a
+child from an earlier turn is not reconstructed from provider history; its
+unresolved activity cannot authorize the finished-work receipt.
+Foreground tool results and background terminal notifications settle their
+respective child executions. The same task transcript and subagent panel render
+these events; the capability is advertised when the installed CLI supports
+nested transcript forwarding. Review tasks disable delegation and advertise
+it as unavailable regardless of the ordinary lane capability.
+Raw thinking blocks are discarded; only provider-supported
 user-facing messages, tool activity, and progress summaries enter the ByteQuay
 log. Hook and tool output is bounded and redacted before persistence.
 
@@ -3083,7 +3146,7 @@ grace period, and records the observed terminal result or process exit.
 | Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
 | Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
-| Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | Not advertised: `parent_tool_use_id` is a tool edge, not the direct thread lineage required by the canonical subagent graph; forwarded text remains root transcript activity |
+| Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | CLI 2.1.219+ Agent invocation ownership, forwarded `parent_tool_use_id`, and native task terminal events; execution IDs do not represent resumable sessions |
 | Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
 | Text attachments | Provider input item when supported | Exact read-only paths inside the task runtime directory |

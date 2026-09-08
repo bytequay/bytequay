@@ -336,6 +336,8 @@ final class ReviewHttpModels
 
     record StartRequest(String workspaceId, String repo, Integer number) {}
 
+    record StopRuntimeRequest(String generation) {}
+
     /** A private question on the summary or one finding, with the revision the user was looking at. */
     record AskRequest(String findingId, Integer targetRevision, String message) {}
 

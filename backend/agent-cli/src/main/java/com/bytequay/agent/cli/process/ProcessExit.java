@@ -18,7 +18,7 @@ import java.time.Duration;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Terminal child-process status, process-tree proof, and output-bound metadata. */
+/** Terminal child-process status, runtime-cleanup verdict, and output-bound metadata. */
 public record ProcessExit(
         int exitCode,
         Reason reason,
@@ -43,7 +43,10 @@ public record ProcessExit(
         TIMED_OUT
     }
 
-    /** Whether every member of the owned process group was observed gone. */
+    /**
+     * Whether the process group and recorded identities were observed gone and any observation
+     * gaps were resolved by provider-confirmed work completion. This is not native containment.
+     */
     public enum TreeTermination
     {
         VERIFIED_STOPPED,

@@ -26,6 +26,7 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.utils.PullRequestRefUtil;
@@ -75,19 +76,22 @@ public class ReviewController
     private final AgentTurnService turns;
     private final AgentEventService events;
     private final AgentApprovalService approvals;
+    private final AgentStartupRecovery startupRecovery;
 
     public ReviewController(
             AgentReviewService reviews,
             ReviewPublicationService publications,
             AgentTurnService turns,
             AgentEventService events,
-            AgentApprovalService approvals)
+            AgentApprovalService approvals,
+            AgentStartupRecovery startupRecovery)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.publications = requireNonNull(publications, "publications is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
+        this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
     }
 
     @GetMapping
@@ -122,6 +126,29 @@ public class ReviewController
     public ReviewHttpModels.ReviewResponse stop(@PathVariable String reviewId)
     {
         return ReviewHttpModels.review(reviews.stop(reviewId));
+    }
+
+    @GetMapping("/{reviewId}/runtime/stop-impact")
+    public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(@PathVariable String reviewId)
+    {
+        return AgentHttpModels.stopImpact(turns.stopImpact(reviews.task(reviewId).id()));
+    }
+
+    /** Retries provider cleanup without ending the review or replaying its interrupted input. */
+    @PostMapping("/{reviewId}/runtime/stop")
+    public ReviewHttpModels.ReviewResponse stopRuntime(
+            @PathVariable String reviewId,
+            @RequestBody ReviewHttpModels.StopRuntimeRequest request)
+    {
+        requireNotBlank(request.generation(), "generation must not be blank");
+        AgentTask task = reviews.task(reviewId);
+        if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY).isPresent()) {
+            startupRecovery.stopRecoveredRuntime(task.id(), request.generation());
+        }
+        else {
+            turns.stopRuntime(task.id(), request.generation());
+        }
+        return ReviewHttpModels.review(reviews.get(reviewId));
     }
 
     @PostMapping("/{reviewId}/resume")

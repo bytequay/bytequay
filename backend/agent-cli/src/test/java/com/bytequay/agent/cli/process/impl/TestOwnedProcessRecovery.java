@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
+import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOwner;
@@ -62,6 +63,8 @@ class TestOwnedProcessRecovery
     private static final String SHELL = resolveShell();
     private static final ProcessOwner OWNER = new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "test-app-server");
     private static final long ABSENT_PROCESS_GROUP = 0x7FFF_0000L;
+    private static final String FIRST_BOOT = "11111111-1111-4111-8111-111111111111";
+    private static final String SECOND_BOOT = "22222222-2222-4222-8222-222222222222";
 
     @TempDir
     private Path worktree;
@@ -191,9 +194,12 @@ class TestOwnedProcessRecovery
                 Optional.of("/bin/never-the-launcher"),
                 marker.processGroup(),
                 marker.descendantStartTokens(),
+                marker.descendantTrackingIncomplete(),
+                marker.workFinished(),
                 marker.exitCode(),
                 marker.exitReason(),
-                marker.treeTermination()));
+                marker.treeTermination(),
+                marker.recoveryBootSessionId()));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
         assertThat(awaitDead(payload)).isTrue();
@@ -342,12 +348,58 @@ class TestOwnedProcessRecovery
                 Optional.of("/bin/sh"),
                 Optional.of(ABSENT_PROCESS_GROUP),
                 Optional.empty(),
+                false,
+                false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
         write(legacy.terminal(exit(ProcessExit.TreeTermination.VERIFIED_STOPPED)));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+    }
+
+    @Test
+    void replaysFinishedWorkAcrossACrashBeforeOrAfterProcessExit()
+    {
+        LaunchMarker incomplete = marker(
+                LaunchPhase.RUNNING,
+                Optional.of(ProcessHandle.current().pid()),
+                Optional.of(Instant.EPOCH),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                "/bin/sleep")
+                .withIncompleteDescendantTracking();
+        for (LaunchMarker recorded : ImmutableList.of(incomplete, incomplete.terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE)))) {
+            write(recorded);
+
+            assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+            assertThat(new DefaultProcessSupervisor(launches, intents).recoverOwnedProcess(recorded.launchId()).outcome())
+                    .isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+
+            write(recorded.withWorkFinished());
+
+            assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+        }
+    }
+
+    @Test
+    void finishedWorkRecoveryStillStopsRecordedDescendants()
+            throws Exception
+    {
+        Process descendant = spawn("exec sleep 60");
+        LaunchMarker finished = marker(
+                LaunchPhase.RUNNING,
+                Optional.of(ProcessHandle.current().pid()),
+                Optional.of(Instant.EPOCH),
+                Optional.of(ABSENT_PROCESS_GROUP),
+                "/bin/sleep")
+                .withIncompleteDescendantTracking()
+                .withDescendant(new ProcessIdentity(descendant.pid(), descendant.info().startInstant().orElseThrow()))
+                .withWorkFinished();
+        write(finished);
+
+        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+        assertThat(awaitDead(descendant.pid())).isTrue();
     }
 
     @Test
@@ -375,6 +427,139 @@ class TestOwnedProcessRecovery
         assertThat(awaitDead(descendant.pid())).isTrue();
         assertThat(new LaunchMarkerStore(launches).read(stopped.launchId())).isPresent();
         assertThat(intents.attempted(stopped.launchId())).contains(true);
+    }
+
+    @Test
+    void bindsALegacyReceiptWithoutClearingItsGapAndWaitsForAnotherBoot()
+            throws Exception
+    {
+        LaunchMarker blocked = blockedMarker();
+        write(blocked);
+        Path receipt = launches.resolve(blocked.launchId() + ".json");
+        Files.writeString(receipt, Files.readString(receipt).replace("\"format\":4", "\"format\":3"));
+
+        OwnedProcessRecovery pending = recoverOnBoot(Optional.of(FIRST_BOOT));
+        assertThat(pending.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(pending.detail()).contains("Restart your Mac");
+        LaunchMarker bound = new LaunchMarkerStore(launches).read(blocked.launchId()).orElseThrow();
+        assertThat(bound.format()).isEqualTo(4);
+        assertThat(bound.recoveryBootSessionId()).contains(FIRST_BOOT);
+        assertThat(bound.workFinished()).isFalse();
+        assertThat(bound.descendantTrackingIncomplete()).isTrue();
+        assertThat(bound.phase()).isEqualTo(blocked.phase());
+        assertThat(bound.exitCode()).isEqualTo(blocked.exitCode());
+        assertThat(bound.treeTermination()).isEqualTo(blocked.treeTermination());
+
+        assertThat(recoverOnBoot(Optional.of(FIRST_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(new DefaultProcessSupervisor(launches, intents, Optional.of(FIRST_BOOT)).recoverOwnedProcess(blocked.launchId()).outcome())
+                .isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(new LaunchMarkerStore(launches).read(blocked.launchId())).contains(bound);
+
+        assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+        assertThat(new LaunchMarkerStore(launches).read(blocked.launchId())).contains(bound);
+    }
+
+    @Test
+    void changedBootNeverSignalsARecycledRecordedPidOrDescendant()
+            throws Exception
+    {
+        Process unrelated = spawn("exec sleep 60");
+        LaunchMarker marker = blockedMarker()
+                .withDescendant(new ProcessIdentity(unrelated.pid(), unrelated.info().startInstant().orElseThrow()))
+                .withRecoveryBootSessionId(FIRST_BOOT);
+        write(marker);
+
+        OwnedProcessRecovery recovered = recoverOnBoot(Optional.of(SECOND_BOOT));
+
+        assertThat(recovered.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
+        assertThat(recovered.detail()).contains("earlier operating-system boot");
+        assertThat(unrelated.isAlive()).isTrue();
+        assertThat(ProcessHandle.current().isAlive()).isTrue();
+        assertThat(new LaunchMarkerStore(launches).read(marker.launchId())).contains(marker);
+    }
+
+    @Test
+    void missingOrInvalidCurrentBootCannotStampOrResolveAReceipt()
+    {
+        for (Optional<String> boot : ImmutableList.of(Optional.<String>empty(), Optional.of("not-a-boot-uuid"))) {
+            LaunchMarker blocked = blockedMarker();
+            write(blocked);
+            assertThat(recoverOnBoot(boot).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+            assertThat(new LaunchMarkerStore(launches).read(blocked.launchId())).contains(blocked);
+
+            LaunchMarker bound = blocked.withRecoveryBootSessionId(FIRST_BOOT);
+            write(bound);
+            assertThat(recoverOnBoot(boot).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+            assertThat(new LaunchMarkerStore(launches).read(bound.launchId())).contains(bound);
+        }
+    }
+
+    @Test
+    void changedBootDoesNotRepairAnImpossibleIntentOrUndecodableReceipt()
+            throws Exception
+    {
+        LaunchMarker bound = blockedMarker().withRecoveryBootSessionId(FIRST_BOOT);
+        LaunchMarkerStore store = new LaunchMarkerStore(launches);
+        store.write(bound);
+        intents.commit(bound.launchId(), false);
+        assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(store.read(bound.launchId())).contains(bound);
+
+        store.write(blockedMarker());
+        assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(store.read(bound.launchId()).orElseThrow().recoveryBootSessionId()).isEmpty();
+
+        intents.commit(bound.launchId(), true);
+        Files.writeString(launches.resolve(bound.launchId() + ".json"), "{\"format\":4");
+        assertThat(recoverOnBoot(Optional.of(SECOND_BOOT)).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(store.read(bound.launchId())).isEmpty();
+    }
+
+    @Test
+    void bootBindingWriteFailureCannotBecomeCleanupProof()
+            throws Exception
+    {
+        LaunchMarker blocked = blockedMarker();
+        write(blocked);
+        Files.createDirectory(launches.resolve(blocked.launchId() + ".json.part"));
+
+        OwnedProcessRecovery recovered = recoverOnBoot(Optional.of(FIRST_BOOT));
+
+        assertThat(recovered.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(recovered.detail()).contains("Unable to record");
+        assertThat(new LaunchMarkerStore(launches).read(blocked.launchId())).contains(blocked);
+    }
+
+    @Test
+    void recordsBootAtPrepareButNeverRecoversTheCurrentBackendLaunch()
+            throws Exception
+    {
+        DefaultProcessSupervisor supervisor = new DefaultProcessSupervisor(launches, intents, Optional.of(SECOND_BOOT));
+        PreparedProcess prepared = supervisor.prepare(spec("printf should-not-run"));
+        LaunchMarkerStore store = new LaunchMarkerStore(launches);
+        LaunchMarker recorded = store.read(prepared.launchId()).orElseThrow();
+        assertThat(recorded.recoveryBootSessionId()).contains(SECOND_BOOT);
+        assertThat(store.gateReleased(prepared.launchId())).isFalse();
+
+        Path receipt = launches.resolve(prepared.launchId() + ".json");
+        Files.writeString(receipt, Files.readString(receipt).replace(SECOND_BOOT, FIRST_BOOT));
+        assertThat(supervisor.recoverOwnedProcesses()).isEmpty();
+        assertThat(supervisor.recoverOwnedProcess(prepared.launchId()).outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
+        assertThat(store.gateReleased(prepared.launchId())).isFalse();
+    }
+
+    private OwnedProcessRecovery recoverOnBoot(Optional<String> bootSessionId)
+    {
+        List<OwnedProcessRecovery> results = new DefaultProcessSupervisor(launches, intents, bootSessionId).recoverOwnedProcesses();
+        assertThat(results).hasSize(1);
+        return results.getFirst();
+    }
+
+    private static LaunchMarker blockedMarker()
+    {
+        return marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep")
+                .withIncompleteDescendantTracking()
+                .terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE));
     }
 
     private OwnedProcessRecovery recover()
@@ -414,6 +599,9 @@ class TestOwnedProcessRecovery
                 Optional.of("/bin/sh"),
                 processGroup,
                 phase == LaunchPhase.PREPARED ? Optional.empty() : Optional.of(ImmutableMap.of()),
+                false,
+                false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());

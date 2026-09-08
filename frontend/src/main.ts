@@ -791,6 +791,13 @@ function registerIpc(): void {
     review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }) }));
   ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
   ipcMain.handle('review:stop', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/stop`, {}, { method: 'POST' }));
+  ipcMain.handle('review:runtime:stop-impact', (_event, reviewId: string) =>
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/runtime/stop-impact`), { headers: agentHeaders() })
+      .then(parseAgentRuntimeStopImpact));
+  ipcMain.handle('review:runtime:stop', (_event, reviewId: string, generation: string) =>
+    review(`/${encodeURIComponent(reviewId)}/runtime/stop`, {}, {
+      method: 'POST', body: JSON.stringify({ generation }), signal: AbortSignal.timeout(90_000),
+    }));
   ipcMain.handle('review:resume', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST' }));
   ipcMain.handle('review:update', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST' }));
   ipcMain.handle('review:end', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' }));

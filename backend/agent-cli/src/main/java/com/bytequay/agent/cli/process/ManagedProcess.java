@@ -46,8 +46,8 @@ public interface ManagedProcess
     void closeInput();
 
     /**
-     * Returns the terminal process result after output has been drained and the owned process tree
-     * has been verified.
+     * Returns the terminal process result after output has been drained and runtime cleanup
+     * has been checked.
      *
      * <p>Root exit alone is never sufficient: the result distinguishes
      * {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE} so a caller can keep a worktree-mutation
@@ -61,18 +61,33 @@ public interface ManagedProcess
     void cancel();
 
     /**
-     * Stops the owned process tree and returns a fresh verification result.
+     * Stops the process group and recorded descendants and returns a fresh verification result.
      *
      * <p>Unlike {@link #exit()}, this operation is retryable after an earlier exit result could not
      * verify the tree. Implementations that can only report their original terminal result retain
      * the conservative default.
      *
-     * @return completion with current process-tree verification
+     * @return completion with current runtime-stop verification
      */
     default CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
     {
         cancel();
         return exit().thenApply(ProcessExit::treeTermination);
+    }
+
+    /**
+     * Records provider-confirmed completion of this launch's work, then stops its runtime.
+     *
+     * <p>The caller must have reconciled the current turn, its recursive children, and its tools
+     * under the provider's lifecycle contract, and must deliver no further input. Implementations
+     * may use that durable fact to resolve gaps in process observation; they must still stop the
+     * runtime and every process identity they recorded. This is not operating-system containment.
+     *
+     * @return completion with current runtime-stop verification
+     */
+    default CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+    {
+        return stopAndVerify();
     }
 
     /** Releases streams and cancels the process when it is still running. */

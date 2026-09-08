@@ -141,15 +141,28 @@ public final class AgentStartupRecovery
                 .filter(held -> held.kind() == WorktreeMutationClaim.Kind.RECOVERY)
                 .orElseThrow(() -> new AgentConflictException("Task has no recovered provider runtime to stop: " + taskId));
 
+        Map<String, AgentProcessLaunch> launches = new LinkedHashMap<>();
+        launchStore.list().forEach(launch -> launches.put(launch.launchId(), launch));
         ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
         launchIds.add(claim.ownerId());
-        launchStore.list().stream()
+        launches.values().stream()
                 .filter(launch -> ownerTask(launch).filter(taskId::equals).isPresent())
                 .map(AgentProcessLaunch::launchId)
                 .forEach(launchIds::add);
         List<OwnedProcessRecovery> recoveries = launchIds.build().stream()
                 .map(supervisor::recoverOwnedProcess)
                 .collect(toImmutableList());
+        for (OwnedProcessRecovery recovery : recoveries) {
+            AgentProcessLaunch launch = launches.get(recovery.launchId());
+            Optional<TaskId> owner = recovery.owner().flatMap(this::ownerTask)
+                    .or(() -> Optional.ofNullable(launch).flatMap(this::ownerTask));
+            // An already-verified claimed receipt may outlive its launch row and marker owner.
+            boolean ownedByTask = owner.filter(taskId::equals).isPresent()
+                    || recovery.owner().isEmpty() && launch == null && claim.ownerId().equals(recovery.launchId());
+            if (!ownerFactsAgree(recovery.owner(), launch) || !ownedByTask) {
+                throw new AgentConflictException("Provider process " + recovery.launchId() + " has conflicting recovery ownership for task " + taskId);
+            }
+        }
         Optional<OwnedProcessRecovery> blocking = recoveries.stream()
                 .filter(recovery -> recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE)
                 .findFirst();
@@ -199,12 +212,6 @@ public final class AgentStartupRecovery
         List<String> resolved = new ArrayList<>();
         boolean attributable = true;
         for (OwnedProcessRecovery recovery : supervisor.recoverOwnedProcesses()) {
-            if (recovery.outcome() != OwnedProcessRecovery.Outcome.UNVERIFIABLE) {
-                log.info("Owned provider process {} recovered as {}: {}",
-                        recovery.launchId(), recovery.outcome(), recovery.detail());
-                resolved.add(recovery.launchId());
-                continue;
-            }
             AgentProcessLaunch launch = launches.get(recovery.launchId());
             if (!ownerFactsAgree(recovery.owner(), launch)) {
                 log.error("Owned provider process {} has conflicting marker and launch-row owners, "
@@ -212,6 +219,12 @@ public final class AgentStartupRecovery
                         recovery.launchId(),
                         recovery.owner().orElse(null), launch);
                 attributable = false;
+                continue;
+            }
+            if (recovery.outcome() != OwnedProcessRecovery.Outcome.UNVERIFIABLE) {
+                log.info("Owned provider process {} recovered as {}: {}",
+                        recovery.launchId(), recovery.outcome(), recovery.detail());
+                resolved.add(recovery.launchId());
                 continue;
             }
             if (knownControlOnly(recovery.owner(), launch)) {

@@ -71,8 +71,9 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Every payload is spawned behind a gated launcher so a crash between the durable launch intent
  * and the operating-system process can never leave an unrecorded writer running. The launcher makes
- * the payload its own process-group leader, which is the containment primitive used to prove that a
- * whole tree stopped after the root exited or after a backend restart.
+ * the payload its own process-group leader for bounded cleanup. Process observations retain known
+ * identities; a provider-confirmed end of work can resolve observation gaps without claiming that
+ * a process group contains every native descendant.
  */
 public final class DefaultProcessSupervisor
         implements ProcessSupervisor
@@ -93,15 +94,23 @@ public final class DefaultProcessSupervisor
     private static final Duration LAUNCHER_EXIT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
     private static final String CODEX_MODEL_CATALOG_OWNER = "codex-model-catalog";
+    private static final Optional<String> BOOT_SESSION_ID = readBootSessionId();
 
     private final LaunchMarkerStore store;
     private final LaunchIntentRecorder intents;
+    private final Optional<String> bootSessionId;
     private final String backendId = UUID.randomUUID().toString();
 
     public DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents)
     {
+        this(launchDirectory, intents, BOOT_SESSION_ID);
+    }
+
+    DefaultProcessSupervisor(Path launchDirectory, LaunchIntentRecorder intents, Optional<String> bootSessionId)
+    {
         this.store = new LaunchMarkerStore(launchDirectory);
         this.intents = requireNonNull(intents, "intents is null");
+        this.bootSessionId = requireNonNull(bootSessionId, "bootSessionId is null").flatMap(DefaultProcessSupervisor::validBootSessionId);
     }
 
     @Override
@@ -115,6 +124,9 @@ public final class DefaultProcessSupervisor
                 spec.owner(),
                 executable,
                 argvDigest(spec.argv()));
+        if (bootSessionId.isPresent()) {
+            marker = marker.withRecoveryBootSessionId(bootSessionId.orElseThrow());
+        }
         store.write(marker);
         intents.prepared(marker.launchId(), spec.owner(), executable, marker.argvDigest());
         return new GatedLaunch(spec, executable, marker);
@@ -181,6 +193,10 @@ public final class DefaultProcessSupervisor
                             : "Launch marker is missing or undecodable"));
         }
         LaunchMarker marker = found.orElseThrow();
+        if (!marker.launchId().equals(launchId)) {
+            return Optional.of(new OwnedProcessRecovery(
+                    launchId, Optional.empty(), Optional.empty(), OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Launch marker identity does not match its filename"));
+        }
         if (marker.backendId().equals(backendId)) {
             return Optional.empty();
         }
@@ -209,25 +225,34 @@ public final class DefaultProcessSupervisor
         String launchId = marker.launchId();
         boolean released = store.gateReleased(launchId);
         LaunchPhase phase = marker.phase();
-        if (phase != LaunchPhase.TERMINAL && impossibleOrdering(marker, attempted)) {
+        if (phase == LaunchPhase.TERMINAL && verifiedTerminalReceipt(marker)) {
+            return result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "Replayed a durable terminal receipt");
+        }
+        if (impossibleOrdering(marker, attempted)) {
             return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
                     "Recorded process facts do not follow the committed launch intent");
         }
+        if (attempted.orElse(false) && bootSessionId.isPresent()) {
+            if (marker.recoveryBootSessionId().isPresent()) {
+                if (!marker.recoveryBootSessionId().equals(bootSessionId)) {
+                    return result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "Recorded launch belongs to an earlier operating-system boot session");
+                }
+            }
+            else {
+                try {
+                    marker = marker.withRecoveryBootSessionId(bootSessionId.orElseThrow());
+                    store.write(marker);
+                }
+                catch (AgentUnavailableException failure) {
+                    return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Unable to record the recovery boot session");
+                }
+            }
+        }
         if (phase == LaunchPhase.TERMINAL) {
-            if (retryUnverifiable
-                    && (marker.descendants().isEmpty()
-                            || marker.treeTermination().orElse(ProcessExit.TreeTermination.UNVERIFIABLE)
-                            == ProcessExit.TreeTermination.UNVERIFIABLE)) {
+            if (retryUnverifiable || marker.workFinished()) {
                 return stopRecordedTree(marker);
             }
-            return result(marker, marker.descendants().isEmpty()
-                            ? OwnedProcessRecovery.Outcome.UNVERIFIABLE
-                            : marker.treeTermination()
-                            .map(termination -> termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
-                                    ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
-                                    : OwnedProcessRecovery.Outcome.UNVERIFIABLE)
-                            .orElse(OwnedProcessRecovery.Outcome.UNVERIFIABLE),
-                    "Replayed a durable terminal receipt");
+            return unresolved(marker, "Replayed a durable terminal receipt");
         }
         if (phase == LaunchPhase.PREPARED && !released) {
             // Release requires a durable GO gate, and it was never written. STOP also prevents
@@ -240,6 +265,63 @@ public final class DefaultProcessSupervisor
             return closeGate(marker);
         }
         return stopRecordedTree(marker);
+    }
+
+    private static boolean verifiedTerminalReceipt(LaunchMarker marker)
+    {
+        return marker.descendants().isPresent()
+                && (!marker.descendantTrackingIncomplete() || marker.workFinished())
+                && marker.treeTermination().orElse(ProcessExit.TreeTermination.UNVERIFIABLE) == ProcessExit.TreeTermination.VERIFIED_STOPPED;
+    }
+
+    private OwnedProcessRecovery unresolved(LaunchMarker marker, String detail)
+    {
+        if (marker.descendantTrackingIncomplete() && !marker.workFinished()
+                && bootSessionId.isPresent() && marker.recoveryBootSessionId().equals(bootSessionId)) {
+            detail += ". Recovery is recorded for this boot. Restart your Mac, then reopen ByteQuay to finish recovery. Your task and worktree are kept";
+        }
+        return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, detail);
+    }
+
+    private static Optional<String> readBootSessionId()
+    {
+        if (!System.getProperty("os.name", "").startsWith("Mac")) {
+            return Optional.empty();
+        }
+        try {
+            Process process = new ProcessBuilder("/usr/sbin/sysctl", "-n", "kern.bootsessionuuid")
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+            try {
+                if (!process.waitFor(2, TimeUnit.SECONDS) || process.exitValue() != 0) {
+                    return Optional.empty();
+                }
+                try (InputStream output = process.getInputStream()) {
+                    return validBootSessionId(new String(output.readNBytes(128), StandardCharsets.UTF_8).trim());
+                }
+            }
+            finally {
+                process.destroyForcibly();
+            }
+        }
+        catch (IOException failure) {
+            return Optional.empty();
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<String> validBootSessionId(String value)
+    {
+        try {
+            String canonical = UUID.fromString(value).toString();
+            return canonical.equalsIgnoreCase(value) ? Optional.of(canonical) : Optional.empty();
+        }
+        catch (IllegalArgumentException failure) {
+            return Optional.empty();
+        }
     }
 
     private OwnedProcessRecovery closeGate(LaunchMarker marker)
@@ -272,13 +354,12 @@ public final class DefaultProcessSupervisor
         Optional<Long> group = marker.processGroup();
         Optional<List<ProcessIdentity>> descendants = marker.descendants();
         if (identity.isEmpty() || group.isEmpty()) {
-            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Released marker has no process receipt");
+            return unresolved(marker, "Released marker has no process receipt");
         }
         ProcessIdentity leader = identity.orElseThrow();
         ProcessIdentity.Liveness leaderLiveness = leader.liveness();
         if (leaderLiveness == ProcessIdentity.Liveness.UNKNOWN) {
-            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                    "Recorded PID exists but its start token cannot be read");
+            return unresolved(marker, "Recorded PID exists but its start token cannot be read");
         }
         boolean liveLeader = leaderLiveness == ProcessIdentity.Liveness.MATCHES;
         if (liveLeader) {
@@ -293,11 +374,11 @@ public final class DefaultProcessSupervisor
         ProcessExit.TreeTermination descendantTermination = descendants
                 .map(identities -> terminateIdentities(identities, Duration.ofSeconds(1)))
                 .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
-        return result(marker, groupTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
+        boolean verified = groupTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                         && descendantTermination == ProcessExit.TreeTermination.VERIFIED_STOPPED
-                        ? OwnedProcessRecovery.Outcome.VERIFIED_STOPPED
-                        : OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                "Reconciled the recorded process group and descendants");
+                        && (!marker.descendantTrackingIncomplete() || marker.workFinished());
+        String detail = "Reconciled the recorded process group and descendants";
+        return verified ? result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, detail) : unresolved(marker, detail);
     }
 
     private static boolean matchesRecordedExecutable(LaunchMarker marker, ProcessHandle.Info info)
@@ -744,7 +825,7 @@ public final class DefaultProcessSupervisor
             bytes.duplicate().get(copy);
             return CompletableFuture.runAsync(() -> {
                 synchronized (inputLock) {
-                    if (inputClosed.get() || !launcher.isAlive()) {
+                    if (inputClosed.get() || marker.workFinished() || !launcher.isAlive()) {
                         throw new AgentUnavailableException("Process input is closed");
                     }
                     try {
@@ -810,6 +891,23 @@ public final class DefaultProcessSupervisor
                 }
             });
             return verification;
+        }
+
+        @Override
+        public CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished()
+        {
+            // Serializing with input prevents a queued provider request from following the proof.
+            // Publish it in memory only after fsync; a failed receipt must leave the strict path.
+            synchronized (inputLock) {
+                synchronized (markerLock) {
+                    if (!marker.workFinished()) {
+                        LaunchMarker finished = marker.withWorkFinished();
+                        store.write(finished);
+                        marker = finished;
+                    }
+                }
+            }
+            return stopAndVerify();
         }
 
         @Override
@@ -905,7 +1003,6 @@ public final class DefaultProcessSupervisor
                 }
                 catch (RuntimeException failure) {
                     markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
-                    return;
                 }
                 if (!sleep(10)) {
                     return;
@@ -921,8 +1018,8 @@ public final class DefaultProcessSupervisor
             Optional<Instant> startToken = descendant.info().startInstant();
             if (startToken.isEmpty()) {
                 // The descendant can exit between the descendants snapshot and this identity read.
-                // Only control-only launches can ignore that race; task owners still fail closed
-                // because the unseen child could have detached before it was inspected.
+                // Keep the gap distinct from known identities. A task launch needs either the
+                // strict observation verdict or its provider's explicit work-finished receipt.
                 if (!controlOnly(spec.owner()) || descendant.isAlive()) {
                     markDescendantTrackingIncomplete("Unable to read the start token for descendant " + descendant.pid());
                 }
@@ -947,15 +1044,17 @@ public final class DefaultProcessSupervisor
 
         private void markDescendantTrackingIncomplete(String detail)
         {
-            observingDescendants.set(false);
-            log.warn("Process launch {} for {}/{} has incomplete descendant tracking: {}", marker.launchId(), spec.owner().kind(), spec.owner().id(), detail);
             synchronized (markerLock) {
+                if (marker.descendantTrackingIncomplete()) {
+                    return;
+                }
+                log.warn("Process launch {} for {}/{} has incomplete descendant tracking: {}", marker.launchId(), spec.owner().kind(), spec.owner().id(), detail);
                 marker = marker.withIncompleteDescendantTracking();
                 store.write(marker);
             }
         }
 
-        private void finish()
+        private void stopObservingDescendants()
         {
             observingDescendants.set(false);
             try {
@@ -965,6 +1064,11 @@ public final class DefaultProcessSupervisor
                 Thread.currentThread().interrupt();
                 markDescendantTrackingIncomplete("Interrupted while waiting for the descendant observer");
             }
+        }
+
+        private void finish()
+        {
+            stopObservingDescendants();
             CompletableFuture.allOf(stdoutDone, stderrDone).whenComplete((ignored, failure) -> {
                 try {
                     outputDispatcher.join();
@@ -1013,7 +1117,8 @@ public final class DefaultProcessSupervisor
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
             Optional<List<ProcessIdentity>> descendants = marker.descendants();
-            if (descendants.isEmpty()
+            if ((!marker.workFinished() && marker.descendantTrackingIncomplete())
+                    || descendants.isEmpty()
                     || !awaitIdentitiesDead(descendants.orElseThrow(), TREE_VERIFICATION_TIMEOUT)) {
                 return ProcessExit.TreeTermination.UNVERIFIABLE;
             }
@@ -1045,6 +1150,7 @@ public final class DefaultProcessSupervisor
                 closeInput();
                 terminateGroup(processGroup, spec.cancellationGrace());
                 launcher.descendants().forEach(ProcessHandle::destroyForcibly);
+                stopObservingDescendants();
                 marker.descendants().ifPresent(identities -> terminateIdentities(identities, spec.cancellationGrace()));
                 launcher.destroyForcibly();
                 closeOutputStreams();

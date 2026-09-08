@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '../../ConfirmDialog';
 import {
   agentTaskReducer,
   historyAfter,
@@ -24,6 +25,7 @@ import {
 import type {
   AgentApprovalDecision,
   AgentPendingApprovalDto,
+  AgentRuntimeStopImpactDto,
   Bridge,
   ModelOptionDto,
   PullRequestDetailDto,
@@ -48,6 +50,7 @@ export type ReviewNavigationTarget = {
 };
 
 type View = 'summary' | 'activity';
+type PendingAction = 'resume' | 'other';
 
 /** A placeholder for the hook's contract while no review exists; its actions are never reachable. */
 const EMPTY_REVIEW = {
@@ -78,8 +81,13 @@ export default function AgentReviewTab({
 }) {
   const [view, setView] = useState<View>('summary');
   const [starting, setStarting] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const busy = pendingAction !== null;
+  const resuming = pendingAction === 'resume';
   const [error, setError] = useState<string | null>(null);
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState<{ reviewId: string; impact: AgentRuntimeStopImpactDto } | null>(null);
+  const recoveryPending = useRef(false);
+  const recoveryRequest = useRef(0);
   const [conversation, setConversation] = useState(initialAgentTaskState);
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
@@ -103,7 +111,10 @@ export default function AgentReviewTab({
   // must not make a blocked run look like it is still working.
   const waiting = (review?.pendingApprovals ?? 0) > 0 || approvals.length > 0;
 
-  const status = review === null ? null : reviewStatus(review);
+  const status: ReturnType<typeof reviewStatus> | null = review === null ? null
+    : resuming && !running
+      ? { status: 'running', label: 'Starting', tone: 'running', detail: 'resuming the review', chip: null, busy: true }
+      : reviewStatus(review);
   const run = review === null ? null : shownRun(review);
   const findings = review === null ? [] : openFindings(review);
   const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN');
@@ -143,9 +154,9 @@ export default function AgentReviewTab({
     return updated;
   }, [dispatchConversation, onReviewChange]);
 
-  const run_ = useCallback(async (action: () => Promise<void>) => {
+  const run_ = useCallback(async (action: () => Promise<void>, pending: PendingAction = 'other') => {
     projectionRevision.current++;
-    setBusy(true);
+    setPendingAction(pending);
     setError(null);
     try {
       await action();
@@ -155,13 +166,46 @@ export default function AgentReviewTab({
     }
     finally {
       projectionRevision.current++;
-      setBusy(false);
+      setPendingAction(null);
     }
   }, []);
 
   const reviewId = review?.id ?? null;
   const taskId = review?.task.id ?? null;
   const reviewOpen = review?.state === 'OPEN';
+  useEffect(() => {
+    const requests = recoveryRequest;
+    setRecoveryConfirmation(null);
+    return () => { requests.current++; };
+  }, [reviewId]);
+
+  const requestRuntimeRecovery = (): void => {
+    if (reviewId === null || taskId === null || recoveryPending.current) return;
+    recoveryPending.current = true;
+    const request = recoveryRequest.current;
+    void run_(async () => {
+      const impact = await window.bridge.getAgentReviewRuntimeStopImpact(reviewId);
+      if (recoveryRequest.current === request && currentReviewId.current === reviewId && currentTaskId.current === taskId) {
+        if (impact.taskId !== taskId) throw new Error('The recovery response belongs to a different task. Refresh this review and try again.');
+        setRecoveryConfirmation({ reviewId, impact });
+      }
+    }).finally(() => { recoveryPending.current = false; });
+  };
+
+  const confirmRuntimeRecovery = (): void => {
+    if (recoveryConfirmation === null || recoveryConfirmation.reviewId !== reviewId || recoveryPending.current) return;
+    recoveryPending.current = true;
+    const confirmed = recoveryConfirmation;
+    const request = recoveryRequest.current;
+    void run_(async () => {
+      const updated = await window.bridge.stopAgentReviewRuntime(confirmed.reviewId, confirmed.impact.generation);
+      if (recoveryRequest.current === request && currentReviewId.current === confirmed.reviewId) onReviewChange(updated);
+    }).finally(() => {
+      recoveryPending.current = false;
+      setRecoveryConfirmation(null);
+    });
+  };
+
   const conversationBridge = useMemo<Pick<Bridge, 'readAgentHistory' | 'subscribeAgentTask'> | null>(() => reviewId === null ? null : ({
     readAgentHistory: (requestedTaskId, before, after) => window.bridge.readAgentReviewHistory(reviewId, requestedTaskId, before, after),
     subscribeAgentTask: (_requestedTaskId, after, listener, statusOnly) => window.bridge.subscribeAgentReview(reviewId, after, listener, statusOnly),
@@ -371,7 +415,7 @@ export default function AgentReviewTab({
           <span className="agr-strip__detail">· {status?.detail}</span>
         </span>
         <span className="agr-spacer" />
-        {reviewElapsed(review, now) !== null && (
+        {!resuming && reviewElapsed(review, now) !== null && (
           <span className="agr-strip__elapsed">{reviewElapsed(review, now)}</span>
         )}
         {running && (
@@ -380,7 +424,9 @@ export default function AgentReviewTab({
         )}
         {!running && review.state === 'OPEN' && review.followUpPaused && (
           <button type="button" className="agr-action" disabled={busy || recovery}
-            onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id))); }}>Resume</button>
+            onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
+            {resuming ? 'Resuming…' : 'Resume'}
+          </button>
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action" disabled={busy || recovery}
@@ -397,6 +443,9 @@ export default function AgentReviewTab({
       {recovery && (
         <div className="agr-banner is-danger" role="status">
           Provider shutdown could not be verified. New turns and worktree changes are blocked until recovery finishes.
+          <button type="button" className="agr-action" disabled={busy} onClick={requestRuntimeRecovery}>
+            {busy ? 'Checking runtime…' : 'Recover runtime'}
+          </button>
         </div>
       )}
 
@@ -419,7 +468,9 @@ export default function AgentReviewTab({
                 clean result.
               </div>
               <button type="button" className="agr-action" disabled={busy || recovery}
-                onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id))); }}>Run review again</button>
+                onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
+                {resuming ? 'Resuming…' : 'Run review again'}
+              </button>
               <button type="button" className="agr-action is-quiet" onClick={() => setView('activity')}>See what happened</button>
             </div>
           )}
@@ -547,6 +598,20 @@ export default function AgentReviewTab({
           onRemoveQueued={queuedInputId => {
             void run_(async () => onReviewChange(await window.bridge.removeAgentReviewQueued(review.id, queuedInputId)));
           }} />
+      )}
+      {recovery && recoveryConfirmation?.reviewId === review.id && (
+        <ConfirmDialog
+          title="Recover this review’s runtime?"
+          confirmLabel={busy ? 'Recovering…' : 'Recover runtime'}
+          busy={busy}
+          onConfirm={confirmRuntimeRecovery}
+          onCancel={() => setRecoveryConfirmation(null)}>
+          <p>Only this review’s agent runtime is affected. Its conversation, findings and worktree are kept.</p>
+          <p>{recoveryConfirmation.impact.activeTurnId === null
+            ? 'This checks and stops any remaining agent activity from the interrupted turn.'
+            : 'The current response will be interrupted and pending approvals declined.'}</p>
+          <p>Once cleanup is verified, use Resume to continue the same review. Nothing is resent automatically.</p>
+        </ConfirmDialog>
       )}
     </div>
   );

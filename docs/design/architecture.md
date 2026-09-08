@@ -329,7 +329,9 @@ activity, including drafts and closure. Other PRs qualify for review requests, o
 merge readiness when the user was requested or has reviewed them. Repository watching alone does
 not make another author's failed CI actionable. A bell on each PR card explicitly monitors that PR;
 monitoring is local SQLite state and performs no GitHub write. Enabling it establishes a current
-snapshot baseline, and subsequent changes enter Needs attention. Stored activity timestamps include
+activity baseline without fetching repository permissions or diffs. Existing detail snapshots receive
+the fresh activity while retaining cached write access; a missing detail remains a normal cache miss.
+Subsequent changes enter Needs attention. Stored activity timestamps include
 check changes that do not advance GitHub's PR update timestamp.
 
 Electron checks the local attention projection every 30 seconds and shows a native notification for

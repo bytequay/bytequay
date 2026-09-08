@@ -193,10 +193,15 @@ public class PullRequestService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
         if (monitored && row.monitoredAt() == null) {
             // Establish the current GitHub snapshot before monitoring begins, so existing failures are not new notifications.
-            PullRequestDetail baseline = refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+            GitHubCredential credential = credentialService.resolveGitHubCredential();
+            StoredPrDetail baseline = PullRequestDetailFetcher.await(detailFetcher.fetch(credential.token(), parseRef(row.repo(), row.number())));
             if (!baseline.unavailableSections().isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not load all pull request activity. Retry monitoring shortly.");
             }
+            // Keep cached activity aligned with the baseline without fetching permissions or creating a detail with unknown write access.
+            snapshots.patchDetail(prId, cached -> new StoredPrDetail(
+                    baseline.raw(), baseline.reviews(), baseline.timeline(), baseline.checkRuns(), baseline.unavailableSections(), cached.viewerCanWrite()));
+            storeDetail(row, baseline, credential.profile().login());
         }
         store.setMonitored(prId, monitored);
         return store.findById(prId).orElseThrow();
@@ -1315,11 +1320,7 @@ public class PullRequestService
     private void updateListState(long prId, StoredPrDetail detail)
     {
         if (detail.raw() != null && detail.raw().state() != null) {
-            store.updateState(
-                    prId,
-                    detail.raw().state(),
-                    detail.raw().updatedAt(),
-                    detail.raw().mergedAt());
+            store.updateDetails(prId, detail.raw());
         }
     }
 

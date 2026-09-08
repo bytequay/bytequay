@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import Avatar from '../Avatar';
-import { Bell, BellRing, GitMerge, GitPullRequest, MessageCircle } from 'lucide-react';
+import { Bell, BellRing, GitMerge, GitPullRequest, LoaderCircle, MessageCircle } from 'lucide-react';
 import type { PullRow } from './model';
 
 export default function PullRowItem({ row, wide, selected, monitoring = false, onPick, onMonitor }: {
@@ -23,7 +23,8 @@ export default function PullRowItem({ row, wide, selected, monitoring = false, o
   onPick: () => void;
   onMonitor: () => void;
 }) {
-  const monitorLabel = row.monitored ? 'Stop monitoring PR' : 'Monitor PR';
+  const monitorLabel = monitoring ? 'Saving PR monitoring…' : row.monitored ? 'Stop monitoring PR' : 'Monitor PR';
+  const MonitorIcon = monitoring ? LoaderCircle : row.monitored ? BellRing : Bell;
   return (
     <div className={`pull-card${wide ? ' pull-card--wide' : ''}`}>
       <button
@@ -44,7 +45,7 @@ export default function PullRowItem({ row, wide, selected, monitoring = false, o
         disabled={monitoring}
         onClick={onMonitor}
       >
-        {row.monitored ? <BellRing size={16} aria-hidden="true" /> : <Bell size={16} aria-hidden="true" />}
+        <MonitorIcon size={16} aria-hidden="true" />
       </button>
     </div>
   );

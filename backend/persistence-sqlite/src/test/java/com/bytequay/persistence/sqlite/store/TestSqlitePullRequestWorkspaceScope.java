@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
@@ -112,12 +113,41 @@ class TestSqlitePullRequestWorkspaceScope
                 1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
                 ImmutableList.of("a", "b"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature");
         PullRequest row = store.saveObserved(fetched);
-        store.updateState(row.id(), "merged", timestamp, timestamp);
+        store.updateDetails(row.id(), new PrRawDetail(
+                "title", "url", "merged", "alice", null, timestamp, timestamp, timestamp, "body",
+                ImmutableList.of("b", "a"), ImmutableMap.of(), ImmutableList.of(), null, false, null, null,
+                0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
         store.saveObserved(new FetchedPullRequest(
                 1L, "owner/project", 1, "title", "alice", "url", timestamp, timestamp, PullRequest.Origin.AUTHORED,
                 ImmutableList.of("b", "a"), ImmutableMap.of(), false, "closed", timestamp, timestamp, ImmutableList.of(), null, null, "feature"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(row.activityAt());
         assertThat(store.findById(row.id()).orElseThrow().state()).isEqualTo("merged");
+    }
+
+    @Test
+    void detailBaselinePreventsOldListChangesFromCreatingMonitoredActivity()
+    {
+        Instant closedAt = Instant.parse("2026-08-20T00:00:00Z");
+        Instant updatedAt = Instant.parse("2026-08-21T00:00:00Z");
+        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1, "closed", closedAt, closedAt));
+        store.updateDetails(row.id(), new PrRawDetail(
+                "Updated title", row.htmlUrl(), "closed", "alice", null, row.createdAt(), updatedAt, null, "body",
+                ImmutableList.of("java"), ImmutableMap.of("java", "abcdef"), ImmutableList.of(), null, true, null, null,
+                0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
+        store.setMonitored(row.id(), true);
+        PullRequest baseline = store.findById(row.id()).orElseThrow();
+        assertThat(baseline.title()).isEqualTo("Updated title");
+        assertThat(baseline.draft()).isTrue();
+        assertThat(baseline.labels()).containsExactly("java");
+        assertThat(baseline.labelColors()).containsEntry("java", "abcdef");
+        assertThat(baseline.closedAt()).isEqualTo(closedAt);
+        assertThat(baseline.activityAt()).isBeforeOrEqualTo(baseline.monitoredAt());
+
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(new FetchedPullRequest(
+                1L, "owner/project", 1, "Updated title", "alice", row.htmlUrl(), row.createdAt(), updatedAt, PullRequest.Origin.AUTHORED,
+                ImmutableList.of("java"), ImmutableMap.of("java", "abcdef"), true, "closed", closedAt, null, ImmutableList.of(), null, null, "feature")), "refreshed");
+
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baseline.activityAt());
     }
 
     @Test

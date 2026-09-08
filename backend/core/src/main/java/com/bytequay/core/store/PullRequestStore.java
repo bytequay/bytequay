@@ -15,6 +15,7 @@ package com.bytequay.core.store;
 
 import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
@@ -67,7 +68,7 @@ public interface PullRequestStore
 
     Optional<PullRequestRef> findRefById(long prId);
 
-    void updateState(long prId, String state, Instant updatedAt, Instant mergedAt);
+    void updateDetails(long prId, PrRawDetail detail);
 
     void updateEnrichment(
             long prId,

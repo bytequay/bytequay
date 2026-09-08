@@ -83,7 +83,6 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -97,6 +96,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -163,35 +163,80 @@ class TestPullRequestService
     }
 
     @Test
-    void monitorEstablishesFreshBaselineBeforeEnablingAndDisableStaysLocal()
+    void monitorEstablishesFreshBaselineWithoutLoadingPermissionsOrDiffs()
     {
-        PullRequestService monitoredService = spy(service);
+        PullRequest row = storedPullRequest();
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        PrTimelineEvent comment = new PrTimelineEvent(99L, "commented", "alice", REVIEWED_AT, "Existing comment", Optional.empty());
+        StoredPrDetail baseline = new StoredPrDetail(raw(), stored().reviews(), ImmutableList.of(comment), stored().checkRuns(), ImmutableList.of(), true);
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        when(detailStore.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true)));
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(baseline.raw());
+        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(baseline.reviews());
+        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(baseline.timeline());
+        when(gitHub.enrichTimelineReferences("pat", ref, baseline.timeline())).thenReturn(baseline.timeline());
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(baseline.checkRuns());
+
+        assertThat(service.setMonitored(row.id(), true)).isEqualTo(row);
+
+        var order = inOrder(detailStore, store);
+        order.verify(detailStore).save(row.id(), baseline);
+        order.verify(store).updateEnrichment(
+                eq(row.id()), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), anyList(), any(), any(), any(),
+                eq(PullRequestService.activityFingerprints(baseline)));
+        order.verify(store).setMonitored(row.id(), true);
+        verify(gitHub).fetchPrDetail("pat", ref);
+        verify(gitHub).fetchPrReviews("pat", ref);
+        verify(gitHub).fetchPrTimeline("pat", ref, null);
+        verify(gitHub).fetchPrIssueComments("pat", ref, null);
+        verify(gitHub).fetchPrCommits("pat", ref);
+        verify(gitHub).fetchPrReviewThreads("pat", ref);
+        verify(gitHub).fetchPrDescriptionReactions("pat", ref);
+        verify(gitHub).enrichTimelineReferences("pat", ref, baseline.timeline());
+        verifyNoMoreInteractions(gitHub);
+        verifyNoInteractions(accounts, diffStore, writes);
+    }
+
+    @Test
+    void monitoringWithoutCachedDetailLeavesPermissionLoadingToTheDetailRefresh()
+    {
         PullRequest row = storedPullRequest();
         when(store.findById(row.id())).thenReturn(Optional.of(row));
-        doReturn(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), false))
-                .when(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw());
 
-        assertThat(monitoredService.setMonitored(row.id(), true)).isEqualTo(row);
-        var order = inOrder(monitoredService, store);
-        order.verify(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
-        order.verify(store).setMonitored(row.id(), true);
-        monitoredService.setMonitored(row.id(), false);
+        service.setMonitored(row.id(), true);
+
+        verify(detailStore).find(row.id());
+        verifyNoMoreInteractions(detailStore);
+        verify(store).setMonitored(row.id(), true);
+        verifyNoInteractions(accounts, diffStore, writes);
+    }
+
+    @Test
+    void disablingMonitoringStaysLocal()
+    {
+        PullRequest row = storedPullRequest();
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+
+        service.setMonitored(row.id(), false);
+
         verify(store).setMonitored(row.id(), false);
-        verify(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+        verifyNoInteractions(credentialService, gitHub, actions, accounts, detailStore, diffStore, viewStateStore);
     }
 
     @Test
     void monitoringRemainsDisabledWhenTheFreshBaselineIsIncomplete()
     {
-        PullRequestService monitoredService = spy(service);
         PullRequest row = storedPullRequest();
         when(store.findById(row.id())).thenReturn(Optional.of(row));
-        StoredPrDetail partial = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS));
-        doReturn(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, partial, false))
-                .when(monitoredService).refreshAllPullRequestDetailFromGitHub(row.repo(), row.number());
+        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw());
+        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Checks unavailable"));
 
-        assertThatThrownBy(() -> monitoredService.setMonitored(row.id(), true)).isInstanceOf(ResponseStatusException.class);
-        verify(store, never()).setMonitored(anyLong(), anyBoolean());
+        assertThatThrownBy(() -> service.setMonitored(row.id(), true))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+        verify(store).findById(row.id());
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(detailStore, diffStore, viewStateStore, accounts);
     }
 
     @Test
@@ -600,7 +645,7 @@ class TestPullRequestService
 
         service.getPullRequestDetail("owner/repo", 7);
 
-        verify(store, never()).updateState(any(Long.class), any(), any(), any());
+        verify(store, never()).updateDetails(anyLong(), any());
     }
 
     @Test

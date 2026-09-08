@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -350,20 +351,30 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public void updateState(long prId, String state, Instant updatedAt, Instant mergedAt)
+    public void updateDetails(long prId, PrRawDetail detail)
     {
-        String normalizedState = canonicalState(state, mergedAt);
+        requireNonNull(detail, "detail is null");
+        String normalizedState = canonicalState(detail.state(), detail.mergedAt());
         jpaRepository.findById(prId).ifPresent(entity -> {
             if (!Objects.equals(canonicalState(entity.getState(), entity.getMergedAt()), normalizedState)
-                    || (updatedAt != null && !Objects.equals(entity.getUpdatedAt(), updatedAt))
-                    || !Objects.equals(entity.getMergedAt(), mergedAt)) {
+                    || (detail.updatedAt() != null && !Objects.equals(entity.getUpdatedAt(), detail.updatedAt()))
+                    || !Objects.equals(entity.getMergedAt(), detail.mergedAt())
+                    || (detail.title() != null && !Objects.equals(entity.getTitle(), detail.title()))
+                    || entity.isDraft() != detail.draft()
+                    || !ImmutableSet.copyOf(entity.getLabels()).equals(ImmutableSet.copyOf(detail.labels()))) {
                 entity.setActivityAt(Instant.now());
             }
             entity.setState(normalizedState);
-            if (updatedAt != null) {
-                entity.setUpdatedAt(updatedAt);
+            if (detail.updatedAt() != null) {
+                entity.setUpdatedAt(detail.updatedAt());
             }
-            entity.setMergedAt(mergedAt);
+            entity.setMergedAt(detail.mergedAt());
+            if (detail.title() != null) {
+                entity.setTitle(detail.title());
+            }
+            entity.setDraft(detail.draft());
+            entity.setLabels(detail.labels());
+            entity.setLabelColors(detail.labelColors());
         });
     }
 

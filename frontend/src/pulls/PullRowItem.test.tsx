@@ -49,18 +49,22 @@ describe('pull request monitoring control', () => {
     const markup = renderToStaticMarkup(card);
     expect(markup).toMatch(/<\/button><button[^>]*class="pull-card__monitor"/);
     expect(markup).toContain('aria-label="Monitor PR: owner/repo #42" aria-pressed="false"');
+    expect(markup).toContain('lucide-bell');
+    expect(markup).not.toContain('lucide-loader-circle');
   });
 
-  it('shows the persisted monitor state and disables repeat clicks while saving in either layout', () => {
+  it.each([false, true])('shows saving feedback and preserves the persisted monitor state (%s) in either layout', monitored => {
     for (const wide of [false, true]) {
       const markup = renderToStaticMarkup(
-        <PullRowItem row={{ ...row, monitored: true }} wide={wide} selected monitoring onPick={() => {}} onMonitor={() => {}} />,
+        <PullRowItem row={{ ...row, monitored }} wide={wide} selected monitoring onPick={() => {}} onMonitor={() => {}} />,
       );
 
-      expect(markup).toContain('class="pull-card__monitor is-active"');
-      expect(markup).toContain('title="Stop monitoring PR"');
-      expect(markup).toContain('aria-pressed="true" aria-busy="true" disabled=""');
-      expect(markup).toContain('lucide-bell-ring');
+      expect(markup).toContain(`class="pull-card__monitor${monitored ? ' is-active' : ''}"`);
+      expect(markup).toContain('title="Saving PR monitoring…"');
+      expect(markup).toContain('aria-label="Saving PR monitoring…: owner/repo #42"');
+      expect(markup).toContain(`aria-pressed="${monitored}" aria-busy="true" disabled=""`);
+      expect(markup).toContain('lucide-loader-circle');
+      expect(markup).not.toContain('lucide-bell');
     }
   });
 });

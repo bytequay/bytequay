@@ -2,7 +2,8 @@
 
 ByteQuay is a macOS desktop app for daily GitHub pull-request and local agent
 work. An Electron + React + TypeScript frontend talks to a local Spring Boot
-sidecar on `localhost:53123`.
+sidecar on `127.0.0.1`. It first tries port `9527`, falls back to an OS-assigned
+port if that port is occupied, and reports the selected port to Electron.
 
 The current product boundary includes Home, watched repositories, GitHub
 credentials, pull-request lists/details/actions, and the approved
@@ -56,6 +57,10 @@ nvm install
 The dev backend runs a temporary copy of its built JAR so later Maven builds
 cannot overwrite classes used by the running JVM. Restart `./dev.sh` to load
 backend changes; the temporary copy is removed when that dev session exits.
+The backend writes its ready port into that session's temporary directory;
+`dev.sh` verifies `/hello`, prints the URL, and passes `BYTEQUAY_BACKEND_PORT`
+to the frontend. When starting the backend and frontend separately, set that
+variable for `npm start` if the backend selected a port other than `9527`.
 
 ## Project layout
 

@@ -22,7 +22,8 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -45,21 +46,20 @@ public class CommitHistoryService
     private final GitBrowseService git;
     private final RepositoryEnrichmentService enrichment;
     private final CommitHistoryRefresher refresher;
-    private final String avatarBaseUrl;
+    private final ApplicationContext applicationContext;
 
     public CommitHistoryService(
             WorkspaceRepositoryService workspaces,
             GitBrowseService git,
             RepositoryEnrichmentService enrichment,
             CommitHistoryRefresher refresher,
-            @Value("${server.port:53123}") int serverPort)
+            ApplicationContext applicationContext)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.refresher = requireNonNull(refresher, "refresher is null");
-        checkArgument(serverPort >= 0 && serverPort <= 65_535, "serverPort is invalid");
-        this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
+        this.applicationContext = requireNonNull(applicationContext, "applicationContext is null");
     }
 
     /**
@@ -127,6 +127,7 @@ public class CommitHistoryService
 
     private CommitHistoryItem item(Commit commit, Optional<CommitEnrichment> enrichment)
     {
+        String avatarBaseUrl = "http://127.0.0.1:" + ((WebServerApplicationContext) applicationContext).getWebServer().getPort() + "/api/avatars/";
         Optional<Integer> pullRequestNumber = enrichment.flatMap(CommitEnrichment::pullRequestNumber)
                 .or(commit::pullRequestNumber);
         return new CommitHistoryItem(

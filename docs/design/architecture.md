@@ -423,7 +423,10 @@ The detailed backend contract is in
 
 ## 7. Operational boundaries
 
-- The backend listens only on `127.0.0.1:53123`.
+- The backend listens only on `127.0.0.1`, first trying port `9527` and
+  falling back to an OS-assigned port when it is occupied. After startup it
+  reports the selected port to Electron; development startup passes that
+  port through `BYTEQUAY_BACKEND_PORT`.
 - SQLite and runtime files stay under ByteQuay's application-support
   directory.
 - There is one Spring application context and one SQLite database.

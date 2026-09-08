@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.context.ApplicationContext;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -113,7 +114,7 @@ class TestCommitHistoryRefresher
         avatars = mock(AvatarCache.class);
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
         CommitHistoryRefresher refresher = newRefresher();
-        service = new CommitHistoryService(workspaces, git, enrichment, refresher, 53123);
+        service = new CommitHistoryService(workspaces, git, enrichment, refresher, mock(ApplicationContext.class));
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))

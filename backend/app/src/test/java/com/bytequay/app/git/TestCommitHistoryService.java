@@ -30,6 +30,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.boot.web.server.WebServer;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -65,12 +67,16 @@ class TestCommitHistoryService
         git = mock(GitBrowseService.class);
         enrichment = mock(RepositoryEnrichmentService.class);
         refresher = mock(CommitHistoryRefresher.class);
+        WebServerApplicationContext applicationContext = mock(WebServerApplicationContext.class);
         service = new CommitHistoryService(
                 workspaces,
                 git,
                 enrichment,
                 refresher,
-                53123);
+                applicationContext);
+        WebServer server = mock(WebServer.class);
+        when(applicationContext.getWebServer()).thenReturn(server);
+        when(server.getPort()).thenReturn(41234);
         when(refresher.status(WORKSPACE_ID)).thenReturn(CommitRefreshStatus.idle(WORKSPACE_ID));
     }
 
@@ -91,9 +97,9 @@ class TestCommitHistoryService
                 "Example change",
                 "Example body",
                 "percy-r",
-                Optional.of("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64)),
+                Optional.of("http://127.0.0.1:41234/api/avatars/" + "a".repeat(64)),
                 "ezra-b",
-                Optional.of("http://127.0.0.1:53123/api/avatars/" + "b".repeat(64)),
+                Optional.of("http://127.0.0.1:41234/api/avatars/" + "b".repeat(64)),
                 "2026-08-12T01:00:00Z",
                 "2026-08-22T01:00:00Z",
                 Optional.of(42),
@@ -152,7 +158,7 @@ class TestCommitHistoryService
 
         assertThat(snapshot.commits()).singleElement().satisfies(item -> {
             assertThat(item.author()).isEqualTo("percy-r");
-            assertThat(item.authorAvatarUrl()).contains("http://127.0.0.1:53123/api/avatars/" + "a".repeat(64));
+            assertThat(item.authorAvatarUrl()).contains("http://127.0.0.1:41234/api/avatars/" + "a".repeat(64));
             assertThat(item.pullRequestNumber()).contains(42);
         });
         verify(enrichment).findCommits(202, ImmutableList.of("remote123"));

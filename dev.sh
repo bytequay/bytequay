@@ -15,7 +15,7 @@ set -uo pipefail
 set -m
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_PORT=53123
+backend_port=""
 
 reset_data=false
 for arg in "$@"; do
@@ -66,16 +66,11 @@ cleanup() {
       kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
   done
-  # Catch any Spring Boot JVM still holding the backend port.
-  if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
-    echo "[dev] stray process still on :$BACKEND_PORT — killing it"
-    lsof -ti ":$BACKEND_PORT" | xargs kill -9 2>/dev/null || true
-  fi
   # Reap zombies but don't block forever — the SIGKILLs above mean
   # any child should be unstuck by now.
   wait 2>/dev/null || true
   if [[ -n "$backend_runtime_dir" ]]; then
-    rm -f "$backend_runtime_dir/bytequay-backend.jar"
+    rm -f "$backend_runtime_dir/bytequay-backend.jar" "$backend_runtime_dir/port"
     rmdir "$backend_runtime_dir" 2>/dev/null || true
   fi
 }
@@ -86,21 +81,33 @@ wait_for_backend() {
   # 60s total — enough headroom for a cold mvn that still compiles + runs
   # Error Prone on top of Spring Boot's own ~3s init. checkstyle and
   # license-check are skipped below so they don't eat into this window.
-  local attempts=240
+  local deadline=$((SECONDS + 60))
   local delay=0.25
+  local port response
 
   # --noproxy '*' bypasses any http_proxy / HTTPS_PROXY env vars the
   # user may have set globally (corporate networks, local MITM tools
   # like mitmproxy). Without it, even an up-and-serving backend can
   # surface as a 502 from the proxy and dev.sh would keep waiting.
-  for ((i=1; i<=attempts; i++)); do
-    if curl -fsS --noproxy '*' "http://127.0.0.1:$BACKEND_PORT/hello" >/dev/null 2>&1; then
-      return 0
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$backend_pid" 2>/dev/null; then
+      echo "[dev] error: backend exited before becoming ready"
+      return 1
+    fi
+    if [[ -s "$backend_runtime_dir/port" ]]; then
+      port="$(<"$backend_runtime_dir/port")"
+      if [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( port <= 65535 )); then
+        if response="$(curl -fsS --noproxy '*' --max-time 1 "http://127.0.0.1:$port/hello" 2>/dev/null)" \
+            && [[ "$response" == "ByteQuay-backend ok" ]]; then
+          backend_port="$port"
+          return 0
+        fi
+      fi
     fi
     sleep "$delay"
   done
 
-  echo "[dev] error: backend did not become ready on :$BACKEND_PORT"
+  echo "[dev] error: backend did not report a ready port within 60 seconds"
   return 1
 }
 
@@ -111,15 +118,6 @@ fi
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "[dev] error: 'npm' not found on PATH. Install Node.js."
-  exit 1
-fi
-
-# Preflight: refuse to start if backend port is already taken. Offers the most
-# common root cause — a leftover JVM from a previous run — a visible exit path.
-if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
-  holder="$(lsof -ti ":$BACKEND_PORT")"
-  echo "[dev] error: port $BACKEND_PORT is already in use (pid(s): $holder)"
-  echo "[dev] kill it with:  lsof -ti :$BACKEND_PORT | xargs kill -9"
   exit 1
 fi
 
@@ -156,7 +154,7 @@ if ! node "$ROOT/scripts/codegraph-bundle.mjs"; then
 fi
 export BYTEQUAY_CODEGRAPH_HOME="$ROOT/frontend/vendor/codegraph"
 
-echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
+echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-assigned port)..."
 # Build the three-module reactor, then replace the background subshell with
 # the packaged JVM. The exec keeps the process-group cleanup above reliable,
 # while using the same JAR layout that Electron packages.
@@ -175,12 +173,15 @@ backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || 
         -Dcheckstyle.skip=true \
         -Dlicense.skip=true \
     && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
-    && exec java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
-pids+=($!)
+    && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
+backend_pid=$!
+pids+=("$backend_pid")
 
 if ! wait_for_backend; then
   exit 1
 fi
+export BYTEQUAY_BACKEND_PORT="$backend_port"
+echo "[dev] backend ready at http://127.0.0.1:$backend_port"
 
 echo "[dev] starting frontend (Electron + Vite)..."
 # Background the frontend and wait on it explicitly. A bash `wait` is

@@ -62,7 +62,7 @@ import type {
   WatchRepositoryCommand,
 } from './types';
 import {
-  BACKEND_BASE,
+  backendBase,
   killBackend,
   reportBackendFailure,
   sessionToken,
@@ -121,7 +121,7 @@ async function pollPrNotifications(): Promise<void> {
   repollPrNotifications = false;
   const generation = prNotificationGeneration;
   try {
-    const prs = await backendJson<PullRequestDto[]>(`${BACKEND_BASE}/prs/attention`);
+    const prs = await backendJson<PullRequestDto[]>(`${backendBase()}/prs/attention`);
     if (generation !== prNotificationGeneration || prMonitorMutations > 0) return;
     mainWindow?.webContents.send('prs:attention-updated', prs);
     const state = notificationState();
@@ -190,7 +190,7 @@ function retainDraftImages(images: Omit<AgentDraftAttachmentDto, 'id'>[]): Agent
 
 async function uploadAgentImage(taskId: string, workspaceId: string, name: string, mediaType: string, bytes: Buffer): Promise<AgentAttachmentDto> {
   if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${name} is larger than 10 MiB`);
-  const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
+  const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
   url.searchParams.set('workspaceId', workspaceId);
   return parseAgentAttachment(await backendJson(url, {
     method: 'POST',
@@ -441,7 +441,7 @@ function jsonInit(method: string, body: unknown, headers: Record<string, string>
 
 const reviewSubscriptions = new AgentSubscriptions(
   (reviewId, after, signal) => fetch(
-    `${BACKEND_BASE}/api/agent-review/${encodeURIComponent(reviewId)}/stream`
+    `${backendBase()}/api/agent-review/${encodeURIComponent(reviewId)}/stream`
       + `?${new URLSearchParams({ after: String(after) })}`,
     { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
   ),
@@ -449,16 +449,16 @@ const reviewSubscriptions = new AgentSubscriptions(
 );
 
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
-  `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/stream`
+  `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/stream`
     + `?${new URLSearchParams({ after: String(after) })}`,
   { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
 ));
 
 function refreshDashboardInBackground(): void {
-  void backendVoid(`${BACKEND_BASE}/api/settings/sync/trigger`, {
+  void Promise.resolve().then(() => backendVoid(`${backendBase()}/api/settings/sync/trigger`, {
     method: 'POST',
     signal: AbortSignal.timeout(15 * 60_000),
-  }).then(() => {
+  })).then(() => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send('pull-requests:synced');
     }
@@ -466,7 +466,7 @@ function refreshDashboardInBackground(): void {
 }
 
 function prUrl(pathname: string, repo: string, number: number): URL {
-  const url = new URL(`${BACKEND_BASE}${pathname}`);
+  const url = new URL(`${backendBase()}${pathname}`);
   url.searchParams.set('repo', repo);
   url.searchParams.set('number', String(number));
   return url;
@@ -493,7 +493,7 @@ function registerIpc(): void {
     workspaceId?: string,
   ) => {
     const response = await backendJson<{ text: string }>(
-      `${BACKEND_BASE}/agent/better-words`,
+      `${backendBase()}/agent/better-words`,
       jsonInit('POST', { text, repository, workspaceId }, agentHeaders()),
     );
     return response.text;
@@ -504,7 +504,7 @@ function registerIpc(): void {
   // view cannot reach them.
   ipcMain.handle('cherrypick:preview', (_event, request: CherryPickPreviewRequest) => {
     const { workspaceId, ...body } = request;
-    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/preview`, {
+    return backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/preview`, {
       ...jsonInit('POST', body, agentHeaders()),
       // A preview fetches the source remote in full; on a repository the size
       // of Trino that outlasts the default request timeout.
@@ -514,13 +514,13 @@ function registerIpc(): void {
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));
-    return backendJson(`${BACKEND_BASE}/agent/tasks?${query}`, { headers: agentHeaders() })
+    return backendJson(`${backendBase()}/agent/tasks?${query}`, { headers: agentHeaders() })
       .then(parseAgentTasks);
   });
   ipcMain.handle('agent:tasks:create', async (_event, request: CreateAgentTaskRequest) => {
     const { draftAttachmentIds = [], ...metadata } = request;
     if (draftAttachmentIds.length === 0) {
-      return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`,
+      return parseAgentTask(await backendJson(`${backendBase()}/agent/tasks`,
         jsonInit('POST', metadata, agentHeaders())));
     }
     if (draftAttachmentIds.length > MAX_DRAFT_ATTACHMENTS) throw new Error('Attach up to 8 images');
@@ -531,12 +531,12 @@ function registerIpc(): void {
       if (draft === undefined) throw new Error('An image draft is no longer available. Add the image again.');
       body.append('images', new Blob([new Uint8Array(draft.bytes)], { type: draft.mediaType }), draft.name);
     }
-    return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`, {
+    return parseAgentTask(await backendJson(`${backendBase()}/agent/tasks`, {
       method: 'POST', headers: agentHeaders(), body,
     }));
   });
   ipcMain.handle('agent:tasks:get', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:defaults', (
@@ -546,12 +546,12 @@ function registerIpc(): void {
     expectedVersion: number,
     defaults: unknown,
   ) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/defaults`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/defaults`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('PUT', { expectedVersion, defaults }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
   ipcMain.handle('agent:task:rename', (
@@ -561,7 +561,7 @@ function registerIpc(): void {
     expectedVersion: number,
     title: string,
   ) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('PATCH', { expectedVersion, title }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
@@ -572,17 +572,17 @@ function registerIpc(): void {
     expectedVersion: number,
     archived: boolean,
   ) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('PATCH', { expectedVersion, archived }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
-    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`);
+    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`);
     url.searchParams.set('workspaceId', workspaceId);
     return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
   });
   ipcMain.handle('agent:task:effective-settings', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((settings) => parseAgentTurnSettings(settings)));
   ipcMain.handle('agent:events:read', async (_event, taskId: string, after?: number, limit?: number) => {
@@ -590,7 +590,7 @@ function registerIpc(): void {
     if (after !== undefined) query.set('after', String(after));
     if (limit !== undefined) query.set('limit', String(limit));
     const page = await backendJson<unknown>(
-      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/events?${query}`,
+      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/events?${query}`,
       { headers: agentHeaders() },
     );
     // Validated in main so a payload the renderer cannot represent never reaches it.
@@ -601,20 +601,20 @@ function registerIpc(): void {
     if (before !== undefined) query.set('before', before);
     if (after !== undefined) query.set('after', after);
     const page = await backendJson<unknown>(
-      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/history?${query}`,
+      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/history?${query}`,
       { headers: agentHeaders() },
     );
     return parseAgentHistoryPage(page, taskId);
   });
   ipcMain.handle('agent:approvals:pending', async (_event, taskId: string, turnId: string) => {
     const approvals = await backendJson<unknown>(
-      `${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/pending-approvals?${new URLSearchParams({ turnId })}`,
+      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pending-approvals?${new URLSearchParams({ turnId })}`,
       { headers: agentHeaders() },
     );
     return parseAgentPendingApprovals(approvals, taskId, turnId);
   });
   ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
       body: JSON.stringify({
@@ -624,13 +624,13 @@ function registerIpc(): void {
       }),
     }).then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
-    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
+    backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
       body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
     }).then((delivery) => parseAgentInputDelivery(delivery)));
   ipcMain.handle('agent:queue:add', (_event, request: QueueAgentInputRequest) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(request.taskId)}/queue`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(request.taskId)}/queue`
       + `?${new URLSearchParams({ workspaceId: request.workspaceId })}`, {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
@@ -641,15 +641,15 @@ function registerIpc(): void {
       }),
     }).then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:list', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((queue) => parseAgentQueue(queue)));
   ipcMain.handle('agent:queue:remove', (_event, taskId: string, workspaceId: string, queuedInputId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue/${encodeURIComponent(queuedInputId)}`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue/${encodeURIComponent(queuedInputId)}`
       + `?${new URLSearchParams({ workspaceId })}`, { method: 'DELETE', headers: agentHeaders() })
       .then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:resume', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
       + `?${new URLSearchParams({ workspaceId })}`, { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:attachments:pick-drafts', async () => {
@@ -701,7 +701,7 @@ function registerIpc(): void {
     return stored;
   });
   ipcMain.handle('agent:attachments:read', async (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
     url.searchParams.set('workspaceId', workspaceId);
     const response = await fetch(url, { headers: agentHeaders(), signal: AbortSignal.timeout(60_000) });
     if (!response.ok) {
@@ -713,15 +713,15 @@ function registerIpc(): void {
     };
   });
   ipcMain.handle('agent:attachments:remove', (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
     url.searchParams.set('workspaceId', workspaceId);
     return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
   });
   ipcMain.handle('agent:turns:get', (_event, turnId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() })
+    backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(turnId)}`, { headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:turns:cancel', (_event, turnId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/turns/${encodeURIComponent(turnId)}/cancel`, {
+    backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(turnId)}/cancel`, {
       method: 'POST',
       headers: agentHeaders(),
     }).then((turn) => parseAgentTurn(turn)));
@@ -731,33 +731,33 @@ function registerIpc(): void {
     decision: AgentApprovalDecision,
     scopedPermission?: string,
   ) =>
-    backendJson(`${BACKEND_BASE}/agent/approvals/${encodeURIComponent(approvalId)}`, jsonInit('POST', {
+    backendJson(`${backendBase()}/agent/approvals/${encodeURIComponent(approvalId)}`, jsonInit('POST', {
       decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
       forTask: decision === 'ALLOW_FOR_TASK',
       scopedPermission: scopedPermission ?? null,
     }, agentHeaders())).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/complete`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/complete`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('POST', { notes: notes ?? null }, agentHeaders()))
       .then((completion) => parseAgentCompletion(completion)));
   ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
       + `?${new URLSearchParams({ workspaceId })}`, {
       method: 'POST',
       headers: agentHeaders(),
     }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('POST', { reason }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((impact) => parseAgentRuntimeStopImpact(impact)));
   ipcMain.handle('agent:task:stop', (_event, taskId: string, workspaceId: string, generation: string) =>
-    backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop`
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop`
       + `?${new URLSearchParams({ workspaceId })}`, {
       ...jsonInit('POST', { generation }, agentHeaders()),
       // Stopping waits for the process tree to be verified gone, which can take a while.
@@ -770,7 +770,7 @@ function registerIpc(): void {
   });
 
   const reviewUrl = (path: string, query: Record<string, string> = {}): string => {
-    const url = new URL(`${BACKEND_BASE}/api/agent-review${path}`);
+    const url = new URL(`${backendBase()}/api/agent-review${path}`);
     Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
   };
@@ -889,32 +889,32 @@ function registerIpc(): void {
     backendJson(reviewUrl('/drafts/ineligible', { repo, number: String(number) }), { headers: agentHeaders() })
       .then(parseReviewIneligible));
   ipcMain.handle('agent:providers:refresh', () =>
-    backendJson(`${BACKEND_BASE}/agent/providers/status`, {
+    backendJson(`${backendBase()}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }).then(parseAgentProviderStatuses));
   ipcMain.handle('cherrypick:execution:start', (_event, request: CherryPickExecutionRequest) => {
     const { workspaceId, ...body } = request;
-    return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions`, {
+    return backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions`, {
       ...jsonInit('POST', body, agentHeaders()),
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });
   ipcMain.handle('cherrypick:execution:get', (_event, executionId: string) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}`, {
+    backendJson(`${backendBase()}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
   ipcMain.handle('cherrypick:execution:message', (_event, executionId: string, message: string) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/messages`,
+    backendJson(`${backendBase()}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/messages`,
       jsonInit('POST', { message }, agentHeaders())));
   ipcMain.handle('cherrypick:execution:cancel', (_event, workspaceId: string, executionId: string) => {
-    const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions/${encodeURIComponent(executionId)}/cancel`;
+    const url = `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions/${encodeURIComponent(executionId)}/cancel`;
     return backendJson(url, {
       method: 'POST',
       headers: { 'X-ByteQuay-Session': sessionToken() },
     });
   });
   const deliveryUrl = (workspaceId: string, executionId: string, action: string) =>
-    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`
+    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}`
       + `/cherry-pick/executions/${encodeURIComponent(executionId)}/${action}`;
   ipcMain.handle('cherrypick:delivery:get', (_event, workspaceId: string, executionId: string) =>
     backendJson(deliveryUrl(workspaceId, executionId, 'delivery'), {
@@ -934,7 +934,7 @@ function registerIpc(): void {
     jsonInit('POST', { confirmed: true }, agentHeaders()),
   ));
   ipcMain.handle('cherrypick:execution:list', (_event, limit: number) => {
-    const url = new URL(`${BACKEND_BASE}/api/cherry-pick-ranges/executions`);
+    const url = new URL(`${backendBase()}/api/cherry-pick-ranges/executions`);
     url.searchParams.set('limit', String(limit));
     return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
   });
@@ -942,13 +942,13 @@ function registerIpc(): void {
   // ID crosses IPC; the backend owns and resolves the managed checkout path.
   const gitGet = (workspaceId: string, endpoint: string, params: Record<string, string>) => {
     const url = new URL(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`,
     );
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
   };
   const gitPost = (workspaceId: string, endpoint: string, body: unknown, timeoutMs = 120_000) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`, {
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`, {
       ...jsonInit('POST', body, agentHeaders()),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -1002,7 +1002,7 @@ function registerIpc(): void {
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');
-    await backendJson(`${BACKEND_BASE}/api/auth/github/token`, jsonInit('POST', { value: pat.trim() }));
+    await backendJson(`${backendBase()}/api/auth/github/token`, jsonInit('POST', { value: pat.trim() }));
     refreshDashboardInBackground();
     return true;
   });
@@ -1010,7 +1010,7 @@ function registerIpc(): void {
     if (!await waitForBackendReady()) return false;
     try {
       const result = await backendJson<{ configured: boolean }>(
-        `${BACKEND_BASE}/api/auth/github/configured`,
+        `${backendBase()}/api/auth/github/configured`,
       );
       return result.configured;
     }
@@ -1021,7 +1021,7 @@ function registerIpc(): void {
   ipcMain.handle('pat:account', async () => {
     if (!await waitForBackendReady()) return { configured: false, maskedToken: null };
     try {
-      return await backendJson(`${BACKEND_BASE}/api/auth/github/account`);
+      return await backendJson(`${backendBase()}/api/auth/github/account`);
     }
     catch {
       return { configured: false, maskedToken: null };
@@ -1031,65 +1031,65 @@ function registerIpc(): void {
   // clipboard; the renderer sees a boolean.
   ipcMain.handle('pat:copy', async () => {
     const result = await backendJson<{ value: string }>(
-      `${BACKEND_BASE}/api/auth/github/token/value`,
+      `${backendBase()}/api/auth/github/token/value`,
     );
     clipboard.writeText(result.value);
     return true;
   });
   ipcMain.handle('pat:delete', () =>
-    backendVoid(`${BACKEND_BASE}/api/auth/github/token`, { method: 'DELETE' }));
+    backendVoid(`${backendBase()}/api/auth/github/token`, { method: 'DELETE' }));
 
   ipcMain.handle('settings:models', () =>
-    backendJson(`${BACKEND_BASE}/api/settings/models`).then(parseModelSettings));
+    backendJson(`${backendBase()}/api/settings/models`).then(parseModelSettings));
   ipcMain.handle('settings:models:select', (
     _event,
     configId: string,
     model: string,
     effort: string | null,
   ) => backendJson(
-    `${BACKEND_BASE}/api/settings/models/${encodeURIComponent(configId)}/selection`,
+    `${backendBase()}/api/settings/models/${encodeURIComponent(configId)}/selection`,
     jsonInit('PUT', { model, effort }),
   ).then(parseModelSettings));
   ipcMain.handle('settings:models:main', (_event, configId: string) =>
-    backendJson(`${BACKEND_BASE}/api/settings/models/main`, jsonInit('PUT', { configId }))
+    backendJson(`${backendBase()}/api/settings/models/main`, jsonInit('PUT', { configId }))
       .then(parseModelSettings));
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
-    backendJson(`${BACKEND_BASE}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
+    backendJson(`${backendBase()}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
       .then(parseModelSettings));
   ipcMain.handle('settings:api-keys:remove', (_event, alias: string) =>
-    backendJson(`${BACKEND_BASE}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
+    backendJson(`${backendBase()}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
       method: 'DELETE',
     }).then(parseModelSettings));
   ipcMain.handle('settings:quiet-hours', () =>
-    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`));
+    backendJson(`${backendBase()}/api/settings/quiet-hours`));
   ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`, jsonInit('PUT', quietHours)));
+    backendJson(`${backendBase()}/api/settings/quiet-hours`, jsonInit('PUT', quietHours)));
   ipcMain.handle('settings:codegraph', () =>
-    backendJson(`${BACKEND_BASE}/api/settings/codegraph`));
+    backendJson(`${backendBase()}/api/settings/codegraph`));
   ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/settings/codegraph`, jsonInit('PUT', setting)));
+    backendJson(`${backendBase()}/api/settings/codegraph`, jsonInit('PUT', setting)));
   ipcMain.handle('settings:codegraph:comparison', () =>
-    backendJson(`${BACKEND_BASE}/api/settings/codegraph/comparison`));
+    backendJson(`${backendBase()}/api/settings/codegraph/comparison`));
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
   ipcMain.handle('workspaces:commits-target:set', (_event, workspaceId: string, branch: string) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`,
       jsonInit('PUT', { branch }),
     ));
   ipcMain.handle('workspaces:commits-target:clear', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, { method: 'DELETE' }));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, { method: 'DELETE' }));
   ipcMain.handle('workspaces:rename', (_event, workspaceId: string, name: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, jsonInit('PATCH', { name })));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}`, jsonInit('PATCH', { name })));
   ipcMain.handle('workspaces:remotes:add', (_event, workspaceId: string, name: string, url: string) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes`,
       jsonInit('POST', { name, url }),
     ));
   ipcMain.handle('workspaces:remotes:remove', (_event, workspaceId: string, name: string) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes/${encodeURIComponent(name)}`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes/${encodeURIComponent(name)}`,
       { method: 'DELETE' },
     ));
   ipcMain.handle('workspaces:agent-model:set', (
@@ -1099,25 +1099,25 @@ function registerIpc(): void {
     model: string,
     effort: string | null,
   ) => backendJson(
-    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`,
+    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`,
     jsonInit('PUT', { configId, model, effort }),
   ));
   ipcMain.handle('workspaces:agent-model:clear', (_event, workspaceId: string) =>
-    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
+    backendVoid(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
       method: 'DELETE',
     }));
   ipcMain.handle('workspaces:token:save', (_event, workspaceId: string, value: string) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`,
       jsonInit('PUT', { value }),
     ));
   ipcMain.handle('workspaces:token:delete', (_event, workspaceId: string) =>
-    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
+    backendVoid(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
       method: 'DELETE',
     }));
   ipcMain.handle('workspaces:token:copy', async (_event, workspaceId: string) => {
     const result = await backendJson<{ value: string }>(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token/value`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token/value`,
     );
     clipboard.writeText(result.value);
     return true;
@@ -1126,7 +1126,7 @@ function registerIpc(): void {
   // Recent is local-only: every read answers from SQLite, so these stay
   // useful with the network off.
   ipcMain.handle('recent:list', (_event, query: RecentFilterQuery) => {
-    const url = new URL(`${BACKEND_BASE}/recent`);
+    const url = new URL(`${backendBase()}/recent`);
     if (query.from) url.searchParams.set('from', query.from);
     if (query.to) url.searchParams.set('to', query.to);
     if (query.types?.length) url.searchParams.set('types', query.types.join(','));
@@ -1138,41 +1138,41 @@ function registerIpc(): void {
     return backendJson(url);
   });
   ipcMain.handle('recent:search', (_event, query: string, limit: number) => {
-    const url = new URL(`${BACKEND_BASE}/recent/search`);
+    const url = new URL(`${backendBase()}/recent/search`);
     url.searchParams.set('q', query ?? '');
     url.searchParams.set('limit', String(limit));
     return backendJson(url);
   });
   ipcMain.handle('recent:words', (_event, query: string, limit: number) => {
-    const url = new URL(`${BACKEND_BASE}/recent/words`);
+    const url = new URL(`${backendBase()}/recent/words`);
     url.searchParams.set('q', query ?? '');
     url.searchParams.set('limit', String(limit));
     return backendJson(url);
   });
-  ipcMain.handle('recent:changes', () => backendJson(`${BACKEND_BASE}/recent/changes`));
+  ipcMain.handle('recent:changes', () => backendJson(`${backendBase()}/recent/changes`));
   ipcMain.handle('recent:touch', (_event, touch: RecentTouchRequest) =>
-    backendVoid(`${BACKEND_BASE}/recent/touch`, jsonInit('POST', touch)));
+    backendVoid(`${backendBase()}/recent/touch`, jsonInit('POST', touch)));
   ipcMain.handle('recent:draft', (_event, draft: RecentDraftRequest) =>
-    backendVoid(`${BACKEND_BASE}/recent/draft`, jsonInit('POST', draft)));
-  ipcMain.handle('recent:clear', () => backendVoid(`${BACKEND_BASE}/recent`, { method: 'DELETE' }));
+    backendVoid(`${backendBase()}/recent/draft`, jsonInit('POST', draft)));
+  ipcMain.handle('recent:clear', () => backendVoid(`${backendBase()}/recent`, { method: 'DELETE' }));
 
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {
     const url = new URL(workspaceId
       ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
-      : '/prs', BACKEND_BASE);
+      : '/prs', backendBase());
     url.searchParams.set('page', String(page));
     url.searchParams.set('size', String(pageSize));
     if (search?.trim()) url.searchParams.set('search', search.trim());
     return backendJson(url);
   });
-  ipcMain.handle('prs:attention', () => backendJson(`${BACKEND_BASE}/prs/attention`));
+  ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));
   ipcMain.handle('prs:monitor', async (_event, prId: number, monitored: boolean) => {
     if (!Number.isSafeInteger(prId) || prId <= 0 || typeof monitored !== 'boolean') throw new Error('Invalid PR monitor request');
     prNotificationGeneration++;
     prMonitorMutations++;
     repollPrNotifications = true;
     try {
-      return await backendJson<PullRequestDto>(`${BACKEND_BASE}/prs/${prId}/monitor`, jsonInit('PATCH', { monitored }));
+      return await backendJson<PullRequestDto>(`${backendBase()}/prs/${prId}/monitor`, jsonInit('PATCH', { monitored }));
     }
     finally {
       prNotificationGeneration++;
@@ -1190,23 +1190,23 @@ function registerIpc(): void {
     saveNotificationState();
   });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
-    ? `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
-    : `${BACKEND_BASE}/api/settings/sync/trigger?listOnly=true`, {
+    ? `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
+    : `${backendBase()}/api/settings/sync/trigger?listOnly=true`, {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
   ipcMain.handle('prs:detail', (_event, prId: number) =>
-    backendJson(`${BACKEND_BASE}/prs/${encodeURIComponent(String(prId))}/detail`));
+    backendJson(`${backendBase()}/prs/${encodeURIComponent(String(prId))}/detail`));
   ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
   ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {
-    const url = new URL('/prs/users', BACKEND_BASE);
+    const url = new URL('/prs/users', backendBase());
     url.searchParams.set('repo', repo);
     if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
     return backendJson(url);
   });
   ipcMain.handle('prs:labels', (_event, repo: string) => {
-    const url = new URL('/prs/labels', BACKEND_BASE);
+    const url = new URL('/prs/labels', backendBase());
     url.searchParams.set('repo', repo);
     return backendJson(url);
   });
@@ -1225,7 +1225,7 @@ function registerIpc(): void {
     requested: boolean,
   ) => backendVoid(prUrl('/prs/reviewers', repo, number), jsonInit('PATCH', { login, requested })));
   ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) => {
-    const url = new URL('/prs/merge-mode', BACKEND_BASE);
+    const url = new URL('/prs/merge-mode', backendBase());
     url.searchParams.set('repo', repo);
     url.searchParams.set('branch', branch);
     return backendJson(url);
@@ -1364,52 +1364,52 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('workspaces:search', (_event, query: string, limit: number) => {
-    const url = new URL(`${BACKEND_BASE}/api/repository-search`);
+    const url = new URL(`${backendBase()}/api/repository-search`);
     url.searchParams.set('q', query);
     url.searchParams.set('limit', String(limit));
     return backendJson(url);
   });
   ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
+    backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces`, jsonInit('POST', command)));
-  ipcMain.handle('workspaces:list', () => backendJson(`${BACKEND_BASE}/api/workspaces`));
-  ipcMain.handle('workspaces:list-retired', () => backendJson(`${BACKEND_BASE}/api/workspaces/retired`));
+    backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
+  ipcMain.handle('workspaces:list', () => backendJson(`${backendBase()}/api/workspaces`));
+  ipcMain.handle('workspaces:list-retired', () => backendJson(`${backendBase()}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}`));
   ipcMain.handle('workspaces:metadata', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/metadata`));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/metadata`));
   ipcMain.handle('workspaces:issues', (_event, workspaceId: string, page: number, pageSize: number) => {
-    const url = new URL(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues`);
+    const url = new URL(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues`);
     url.searchParams.set('page', String(page));
     url.searchParams.set('size', String(pageSize));
     return backendJson(url);
   });
   ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
   ipcMain.handle('workspaces:issues:detail', (_event, workspaceId: string, issueNumber: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail`));
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail`));
   ipcMain.handle('workspaces:issues:detail:refresh', (_event, workspaceId: string, issueNumber: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail/refresh`, {
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/detail/refresh`, {
       method: 'POST',
     }));
   ipcMain.handle('workspaces:issues:comment', (_event, workspaceId: string, issueNumber: number, body: string) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`,
       jsonInit('POST', { body }),
     ));
   ipcMain.handle('workspaces:issues:close', (_event, workspaceId: string, issueNumber: number) =>
-    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/close`, {
+    backendVoid(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/close`, {
       method: 'POST',
     }));
   ipcMain.handle('workspaces:issues:type:update', (_event, workspaceId: string, issueNumber: number, type: string | null) =>
     backendJson(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`,
       jsonInit('PATCH', { type }),
     ));
   ipcMain.handle('workspaces:issues:metadata:update', (
@@ -1419,11 +1419,11 @@ function registerIpc(): void {
     assignees: string[],
     labels: string[],
   ) => backendJson(
-    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/metadata`,
+    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/metadata`,
     jsonInit('PATCH', { assignees, labels }),
   ));
   ipcMain.handle('workspaces:sync', (_event, workspaceId: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',
     }));
   ipcMain.handle('workspaces:upstream', (
@@ -1431,43 +1431,43 @@ function registerIpc(): void {
     workspaceId: string,
     upstreamRepositoryId: number | null,
   ) => backendJson(
-    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`,
+    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`,
     jsonInit('PUT', { upstreamRepositoryId }),
   ));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
-    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+    backendVoid(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
     }));
   ipcMain.handle('workspaces:delete', (_event, workspaceId: string, confirmed: boolean, repositoryName: string) =>
     backendVoid(
-      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/data`,
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/data`,
       jsonInit('DELETE', { confirmed, repositoryName }),
     ));
-  ipcMain.handle('repos:profile', () => backendJson(`${BACKEND_BASE}/api/profile`));
+  ipcMain.handle('repos:profile', () => backendJson(`${backendBase()}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>
-    backendJson(`${BACKEND_BASE}/api/profile/${encodeURIComponent(login)}`));
+    backendJson(`${backendBase()}/api/profile/${encodeURIComponent(login)}`));
   ipcMain.handle('repos:contribution', (_event, login: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/contribution-graph`);
+    const url = new URL(`${backendBase()}/api/contribution-graph`);
     url.searchParams.set('login', login);
     return backendJson(url);
   });
   ipcMain.handle('repos:contribution-day', (_event, login: string, date: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/contribution-graph/day`);
+    const url = new URL(`${backendBase()}/api/contribution-graph/day`);
     url.searchParams.set('login', login);
     url.searchParams.set('date', date);
     return backendJson(url);
   });
   ipcMain.handle('repos:pull', (_event, owner: string, repo: string, number: number) =>
     backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
+      `${backendBase()}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
     ));
   ipcMain.handle('repos:issue-preview', (_event, owner: string, repo: string, number: number) =>
     backendJson(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/preview`,
+      `${backendBase()}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/preview`,
     ));
   ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) => {
     const url = new URL(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet`,
+      `${backendBase()}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet`,
     );
     url.searchParams.set('commit', request.commit);
     url.searchParams.set('path', request.path);
@@ -1476,20 +1476,20 @@ function registerIpc(): void {
     return backendJson(url);
   });
   ipcMain.handle('repos:activity', (_event, login: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/activity/recent`);
+    const url = new URL(`${backendBase()}/api/activity/recent`);
     url.searchParams.set('login', login);
     return backendJson(url);
   });
   ipcMain.handle('repos:following', (_event, login: string) => {
-    const url = new URL(`${BACKEND_BASE}/api/activity/following`);
+    const url = new URL(`${backendBase()}/api/activity/following`);
     url.searchParams.set('login', login);
     return backendJson(url);
   });
 
   ipcMain.handle('github:cli-available', () =>
-    backendJson(`${BACKEND_BASE}/api/auth/github/cli`));
+    backendJson(`${backendBase()}/api/auth/github/cli`));
   ipcMain.handle('github:cli-import', () =>
-    backendJson(`${BACKEND_BASE}/api/auth/github/cli/import`, { method: 'POST' }));
+    backendJson(`${backendBase()}/api/auth/github/cli/import`, { method: 'POST' }));
 
   ipcMain.handle('external:open', async (_event, url: string) => {
     if (/^https?:/i.test(url)) await shell.openExternal(url);
@@ -1558,8 +1558,10 @@ app.on('ready', async () => {
   configureApplication();
   registerIpc();
   spawnBackend();
-  if (app.isPackaged && !await waitForBackendReady()) reportBackendFailure();
+  const backendReady = await waitForBackendReady();
+  if (!backendReady) reportBackendFailure();
   await ensureWindow();
+  if (!backendReady) return;
   refreshDashboardInBackground();
   void pollPrNotifications();
   prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 30_000);

@@ -61,7 +61,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -136,7 +137,7 @@ public class PullRequestService
     private final Executor executor;
     private final CredentialService credentialService;
     private final WorkspaceMetadataService metadata;
-    private final String avatarBaseUrl;
+    private final ApplicationContext applicationContext;
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
@@ -152,7 +153,7 @@ public class PullRequestService
             CredentialService credentialService,
             WorkspaceMetadataService metadata,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
-            @Value("${server.port:53123}") int serverPort)
+            ApplicationContext applicationContext)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
@@ -167,8 +168,7 @@ public class PullRequestService
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.executor = requireNonNull(executor, "executor is null");
-        checkArgument(serverPort >= 0 && serverPort <= 65_535, "serverPort is invalid");
-        this.avatarBaseUrl = "http://127.0.0.1:" + serverPort + "/api/avatars/";
+        this.applicationContext = requireNonNull(applicationContext, "applicationContext is null");
     }
 
     public PullRequestPage listPullRequests(int page, int pageSize)
@@ -299,6 +299,7 @@ public class PullRequestService
                 : metadata.findSnapshot(repository);
         if (localSnapshot.isPresent()) {
             RepositoryMetadataSnapshot snapshot = localSnapshot.orElseThrow();
+            String avatarBaseUrl = "http://127.0.0.1:" + ((WebServerApplicationContext) applicationContext).getWebServer().getPort() + "/api/avatars/";
             checkArgument(
                     snapshot.repository().owner().equalsIgnoreCase(ref.owner())
                             && snapshot.repository().repo().equalsIgnoreCase(ref.repo()),

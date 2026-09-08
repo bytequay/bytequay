@@ -72,6 +72,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.boot.web.server.WebServer;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -117,6 +119,8 @@ class TestPullRequestService
     @Mock private CredentialService credentialService;
     @Mock private WorkspaceMetadataService metadata;
     @Mock private RecentTouchRecorder recent;
+    @Mock private WebServerApplicationContext applicationContext;
+    @Mock private WebServer server;
 
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
@@ -130,7 +134,7 @@ class TestPullRequestService
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
                 new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run),
-                viewStateStore, recent, credentialService, metadata, Runnable::run, 53123);
+                viewStateStore, recent, credentialService, metadata, Runnable::run, applicationContext);
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
@@ -381,11 +385,13 @@ class TestPullRequestService
     void readsWorkspacePickerUsersAndAvatarsFromLocalMetadata()
     {
         when(metadata.getSnapshot("workspace")).thenReturn(pickerSnapshot());
+        when(applicationContext.getWebServer()).thenReturn(server);
+        when(server.getPort()).thenReturn(41234);
 
         assertThat(service.listRepositoryUsers("owner/repo", "workspace"))
                 .extracting(user -> user.login() + ":" + user.avatarUrl() + ":" + user.bot())
                 .containsExactly(
-                        "alice:http://127.0.0.1:53123/api/avatars/avatar-key:false",
+                        "alice:http://127.0.0.1:41234/api/avatars/avatar-key:false",
                         "robot[bot]:null:true");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
     }
@@ -395,6 +401,8 @@ class TestPullRequestService
     {
         RepoRef repository = RepoRef.of("owner", "repo");
         when(metadata.findSnapshot(repository)).thenReturn(Optional.of(pickerSnapshot()));
+        when(applicationContext.getWebServer()).thenReturn(server);
+        when(server.getPort()).thenReturn(41234);
 
         assertThat(service.listRepositoryUsers("owner/repo", null))
                 .extracting(RepoUser::login)

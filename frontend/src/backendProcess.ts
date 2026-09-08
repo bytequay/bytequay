@@ -15,9 +15,9 @@ import { app, dialog } from 'electron';
 import { ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 
-const BACKEND_PORT = 53123;
-export const BACKEND_BASE = `http://127.0.0.1:${BACKEND_PORT}`;
+const PORT_MESSAGE = 'BYTEQUAY_BACKEND_PORT=';
 
 const MIN_JAVA_VERSION = 25;
 
@@ -38,8 +38,25 @@ export function sessionToken(): string {
 
 let child: ChildProcess | null = null;
 let failure: string | null = null;
+let readinessFailure: string | null = null;
 let reported = false;
 let stderrTail = '';
+let stopping = false;
+let backendUrl: string | null = app.isPackaged ? null : portUrl(process.env.BYTEQUAY_BACKEND_PORT ?? '9527');
+
+function portUrl(value: string): string {
+  const port = Number(value);
+  if (!/^\d{1,5}$/.test(value) || port < 1 || port > 65535) {
+    throw new Error(`Invalid ByteQuay backend port: ${value}`);
+  }
+  return `http://127.0.0.1:${port}`;
+}
+
+export function backendBase(): string {
+  if (failure) throw new Error(failure);
+  if (!backendUrl) throw new Error(readinessFailure ?? 'The ByteQuay backend has not reported its port yet.');
+  return backendUrl;
+}
 
 /**
  * `java` on a bare PATH is Apple's stub that fails unless a JDK is registered
@@ -120,7 +137,7 @@ export function spawnBackend(): void {
   if (!java) return;
 
   child = spawn(java, [...jvmArgs, '-jar', jar], {
-    stdio: ['ignore', 'inherit', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
     env: {
       ...process.env,
@@ -128,6 +145,18 @@ export function spawnBackend(): void {
       BYTEQUAY_CODEGRAPH_HOME: path.join(process.resourcesPath, 'codegraph'),
     },
   });
+  if (child.stdout) {
+    child.stdout.on('data', (chunk: Buffer) => process.stdout.write(chunk));
+    // A dedicated startup line survives log-format changes and split stdout chunks.
+    createInterface({ input: child.stdout }).on('line', (line) => {
+      if (!line.startsWith(PORT_MESSAGE) || backendUrl || failure || stopping) return;
+      try {
+        backendUrl = portUrl(line.slice(PORT_MESSAGE.length));
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      }
+    });
+  }
   // The backend logs to ~/Library/Logs/ByteQuay/backend.log once Spring is up;
   // this tail only exists to explain crashes that happen before that.
   child.stderr?.on('data', (chunk: Buffer) => {
@@ -136,15 +165,14 @@ export function spawnBackend(): void {
   });
   child.on('error', (e) => {
     failure = `Could not start the ByteQuay backend (${java}): ${e.message}`;
+    backendUrl = null;
     child = null;
   });
-  child.on('exit', (code) => {
+  child.on('exit', (code, signal) => {
     console.log(`[backend] exited with code ${code}`);
-    if (code !== 0 && code !== null) {
-      // A crash mid-session (commonly: another ByteQuay already owns port
-      // 53123) otherwise leaves every later IPC call failing with a bare
-      // "fetch failed".
-      failure = `The ByteQuay backend exited with code ${code}.\n\n${stderrTail.trim()}`;
+    backendUrl = null;
+    if (!stopping) {
+      failure ??= `The ByteQuay backend exited with ${signal ? `signal ${signal}` : `code ${code}`}.\n\n${stderrTail.trim()}`;
       reportBackendFailure();
     }
     child = null;
@@ -153,12 +181,15 @@ export function spawnBackend(): void {
 
 /** Show the recorded failure once, if there is one. */
 export function reportBackendFailure(): void {
-  if (reported || !failure) return;
+  const message = failure ?? readinessFailure;
+  if (reported || !message) return;
   reported = true;
-  dialog.showErrorBox('ByteQuay backend is not running', failure);
+  dialog.showErrorBox('ByteQuay backend is not running', message);
 }
 
 export function killBackend(): void {
+  stopping = true;
+  backendUrl = null;
   if (child && !child.killed) {
     child.kill('SIGTERM');
     child = null;
@@ -168,16 +199,26 @@ export function killBackend(): void {
 export async function waitForBackendReady(timeoutMs = 30_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${BACKEND_BASE}/hello`);
-      if (res.ok) return true;
-    } catch {
-      // not up yet
-    }
     if (failure) return false;
+    const address = backendUrl;
+    if (address) {
+      try {
+        const res = await fetch(`${address}/hello`, {
+          signal: AbortSignal.timeout(Math.max(1, Math.min(1000, deadline - Date.now()))),
+        });
+        if (res.ok && await res.text() === 'ByteQuay-backend ok' && !failure && backendUrl === address) {
+          readinessFailure = null;
+          reported = false;
+          return true;
+        }
+      } catch {
+        // not up yet
+      }
+    }
     await new Promise((r) => setTimeout(r, 300));
   }
-  failure ??= `The ByteQuay backend did not answer on ${BACKEND_BASE} within ${Math.round(timeoutMs / 1000)}s.`
+  readinessFailure = `The ByteQuay backend ${backendUrl ? `did not answer on ${backendUrl}` : 'did not report its port'}`
+    + ` within ${Math.round(timeoutMs / 1000)}s.`
     + '\n\nSee ~/Library/Logs/ByteQuay/backend.log.';
   return false;
 }

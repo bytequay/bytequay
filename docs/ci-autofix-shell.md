@@ -19,6 +19,10 @@ terminal, the CI Autofix shell reads that file automatically:
 ./scripts/ci-autofix pr bytequay/bytequay 2234 --workspace <workspace-id>
 ```
 
+The shell defaults to port `9527`. If the backend falls back to another port,
+set `BYTEQUAY_BACKEND_PORT` to the port printed by `dev.sh` in this terminal,
+or set `BYTEQUAY_BACKEND_URL` to the full printed URL.
+
 Set `BYTEQUAY_DESKTOP_SESSION_TOKEN` explicitly only when the backend was
 started another way; the value must match the running backend.
 

@@ -9,7 +9,8 @@ Usage: ci-autofix pr <owner/repository> <number> --workspace <workspace-id> [--l
 
 Environment:
   BYTEQUAY_DESKTOP_SESSION_TOKEN  Override the token written by ./dev.sh
-  BYTEQUAY_BACKEND_URL            Backend URL (default http://127.0.0.1:53123)
+  BYTEQUAY_BACKEND_URL            Backend URL (overrides BYTEQUAY_BACKEND_PORT)
+  BYTEQUAY_BACKEND_PORT           Local backend port (default 9527)
   BYTEQUAY_CI_AUTOFIX_POLL_SECONDS Poll interval (default 2)
 EOF
 }
@@ -78,7 +79,7 @@ for command in curl jq; do
     }
 done
 
-base_url="${BYTEQUAY_BACKEND_URL:-http://127.0.0.1:53123}"
+base_url="${BYTEQUAY_BACKEND_URL:-http://127.0.0.1:${BYTEQUAY_BACKEND_PORT:-9527}}"
 base_url="${base_url%/}"
 session_token="${BYTEQUAY_DESKTOP_SESSION_TOKEN:-}"
 poll_seconds="${BYTEQUAY_CI_AUTOFIX_POLL_SECONDS:-2}"

@@ -65,9 +65,10 @@ cd bytequay
 ./dev.sh
 ```
 
-`dev.sh` starts the Spring Boot sidecar on `localhost:53123` and launches the
-Electron frontend. The backend uses SQLite with Hibernate managing the current
-schema directly; there is no migration framework.
+`dev.sh` starts the Spring Boot sidecar on `127.0.0.1`, preferring port `9527`
+and falling back to an OS-assigned port when needed. It passes the selected
+port to the Electron frontend. The backend uses SQLite with Hibernate managing
+the current schema directly; there is no migration framework.
 
 To start and monitor a CI Autofix run from a pull request worktree, see the
 [CI Autofix shell](docs/ci-autofix-shell.md).

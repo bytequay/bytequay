@@ -430,6 +430,15 @@ function agentHeaders(json = false): Record<string, string> {
   return headers;
 }
 
+/** Always declares a JSON body, so a FormData or raw-bytes upload must build its own init. */
+function jsonInit(method: string, body: unknown, headers: Record<string, string> = {}): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  };
+}
+
 const reviewSubscriptions = new AgentSubscriptions(
   (reviewId, after, signal) => fetch(
     `${BACKEND_BASE}/api/agent-review/${encodeURIComponent(reviewId)}/stream`
@@ -483,14 +492,10 @@ function registerIpc(): void {
     repository: string,
     workspaceId?: string,
   ) => {
-    const response = await backendJson<{ text: string }>(`${BACKEND_BASE}/agent/better-words`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify({ text, repository, workspaceId }),
-    });
+    const response = await backendJson<{ text: string }>(
+      `${BACKEND_BASE}/agent/better-words`,
+      jsonInit('POST', { text, repository, workspaceId }, agentHeaders()),
+    );
     return response.text;
   });
 
@@ -500,12 +505,7 @@ function registerIpc(): void {
   ipcMain.handle('cherrypick:preview', (_event, request: CherryPickPreviewRequest) => {
     const { workspaceId, ...body } = request;
     return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/preview`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify(body),
+      ...jsonInit('POST', body, agentHeaders()),
       // A preview fetches the source remote in full; on a repository the size
       // of Trino that outlasts the default request timeout.
       signal: AbortSignal.timeout(15 * 60_000),
@@ -520,9 +520,8 @@ function registerIpc(): void {
   ipcMain.handle('agent:tasks:create', async (_event, request: CreateAgentTaskRequest) => {
     const { draftAttachmentIds = [], ...metadata } = request;
     if (draftAttachmentIds.length === 0) {
-      return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`, {
-        method: 'POST', headers: agentHeaders(true), body: JSON.stringify(metadata),
-      }));
+      return parseAgentTask(await backendJson(`${BACKEND_BASE}/agent/tasks`,
+        jsonInit('POST', metadata, agentHeaders())));
     }
     if (draftAttachmentIds.length > MAX_DRAFT_ATTACHMENTS) throw new Error('Attach up to 8 images');
     const body = new FormData();
@@ -548,11 +547,9 @@ function registerIpc(): void {
     defaults: unknown,
   ) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/defaults`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...agentHeaders() },
-      body: JSON.stringify({ expectedVersion, defaults }),
-    }).then((task) => parseAgentTask(task)));
+      + `?${new URLSearchParams({ workspaceId })}`,
+    jsonInit('PUT', { expectedVersion, defaults }, agentHeaders()))
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
@@ -565,11 +562,9 @@ function registerIpc(): void {
     title: string,
   ) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...agentHeaders() },
-      body: JSON.stringify({ expectedVersion, title }),
-    }).then((task) => parseAgentTask(task)));
+      + `?${new URLSearchParams({ workspaceId })}`,
+    jsonInit('PATCH', { expectedVersion, title }, agentHeaders()))
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:archive', (
     _event,
     taskId: string,
@@ -578,11 +573,9 @@ function registerIpc(): void {
     archived: boolean,
   ) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...agentHeaders() },
-      body: JSON.stringify({ expectedVersion, archived }),
-    }).then((task) => parseAgentTask(task)));
+      + `?${new URLSearchParams({ workspaceId })}`,
+    jsonInit('PATCH', { expectedVersion, archived }, agentHeaders()))
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
     const url = new URL(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}`);
     url.searchParams.set('workspaceId', workspaceId);
@@ -738,22 +731,16 @@ function registerIpc(): void {
     decision: AgentApprovalDecision,
     scopedPermission?: string,
   ) =>
-    backendJson(`${BACKEND_BASE}/agent/approvals/${encodeURIComponent(approvalId)}`, {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({
-        decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
-        forTask: decision === 'ALLOW_FOR_TASK',
-        scopedPermission: scopedPermission ?? null,
-      }),
-    }).then((approval) => parseAgentApproval(approval)));
+    backendJson(`${BACKEND_BASE}/agent/approvals/${encodeURIComponent(approvalId)}`, jsonInit('POST', {
+      decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
+      forTask: decision === 'ALLOW_FOR_TASK',
+      scopedPermission: scopedPermission ?? null,
+    }, agentHeaders())).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/complete`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({ notes: notes ?? null }),
-    }).then((completion) => parseAgentCompletion(completion)));
+      + `?${new URLSearchParams({ workspaceId })}`,
+    jsonInit('POST', { notes: notes ?? null }, agentHeaders()))
+      .then((completion) => parseAgentCompletion(completion)));
   ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
       + `?${new URLSearchParams({ workspaceId })}`, {
@@ -762,11 +749,9 @@ function registerIpc(): void {
     }).then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({ reason }),
-    }).then((task) => parseAgentTask(task)));
+      + `?${new URLSearchParams({ workspaceId })}`,
+    jsonInit('POST', { reason }, agentHeaders()))
+      .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
@@ -774,9 +759,7 @@ function registerIpc(): void {
   ipcMain.handle('agent:task:stop', (_event, taskId: string, workspaceId: string, generation: string) =>
     backendJson(`${BACKEND_BASE}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop`
       + `?${new URLSearchParams({ workspaceId })}`, {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({ generation }),
+      ...jsonInit('POST', { generation }, agentHeaders()),
       // Stopping waits for the process tree to be verified gone, which can take a while.
       signal: AbortSignal.timeout(90_000),
     }).then((task) => parseAgentTask(task)));
@@ -853,11 +836,9 @@ function registerIpc(): void {
     return parseAgentPendingApprovals(approvals, taskId, turnId);
   });
   ipcMain.handle('review:approvals:resolve', (_event, reviewId: string, approvalId: string, decision: string) =>
-    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/approvals/${encodeURIComponent(approvalId)}`), {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({ decision }),
-    }).then(parseAgentApproval));
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/approvals/${encodeURIComponent(approvalId)}`),
+      jsonInit('POST', { decision }, agentHeaders()))
+      .then(parseAgentApproval));
   ipcMain.handle('review:stream:subscribe', (event, reviewId: string, after: number, statusOnly?: boolean) =>
     reviewSubscriptions.start(event.sender, reviewId, after, statusOnly === true));
   ipcMain.handle('review:stream:unsubscribe', (_event, subscriptionId: string) => {
@@ -894,11 +875,9 @@ function registerIpc(): void {
       headers: agentHeaders(),
     }).then(parseReviewPublishResult));
   ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
-    backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }), {
-      method: 'POST',
-      headers: agentHeaders(true),
-      body: JSON.stringify({ expectedVersion, body, event }),
-    }).then(parseReviewPublishResult));
+    backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }),
+      jsonInit('POST', { expectedVersion, body, event }, agentHeaders()))
+      .then(parseReviewPublishResult));
   ipcMain.handle('review:draft:ineligible', (_event, repo: string, number: number) =>
     backendJson(reviewUrl('/drafts/ineligible', { repo, number: String(number) }), { headers: agentHeaders() })
       .then(parseReviewIneligible));
@@ -909,12 +888,7 @@ function registerIpc(): void {
   ipcMain.handle('cherrypick:execution:start', (_event, request: CherryPickExecutionRequest) => {
     const { workspaceId, ...body } = request;
     return backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify(body),
+      ...jsonInit('POST', body, agentHeaders()),
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });
@@ -923,14 +897,8 @@ function registerIpc(): void {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     }));
   ipcMain.handle('cherrypick:execution:message', (_event, executionId: string, message: string) =>
-    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify({ message }),
-    }));
+    backendJson(`${BACKEND_BASE}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/messages`,
+      jsonInit('POST', { message }, agentHeaders())));
   ipcMain.handle('cherrypick:execution:cancel', (_event, workspaceId: string, executionId: string) => {
     const url = `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/cherry-pick/executions/${encodeURIComponent(executionId)}/cancel`;
     return backendJson(url, {
@@ -947,26 +915,17 @@ function registerIpc(): void {
     }));
   ipcMain.handle('cherrypick:delivery:push', (_event, workspaceId: string, executionId: string) =>
     backendJson(deliveryUrl(workspaceId, executionId, 'push'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify({ confirmed: true }),
+      ...jsonInit('POST', { confirmed: true }, agentHeaders()),
       signal: AbortSignal.timeout(15 * 60_000),
     }));
   ipcMain.handle('cherrypick:delivery:pull-request', (
     _event,
     workspaceId: string,
     executionId: string,
-  ) => backendJson(deliveryUrl(workspaceId, executionId, 'pull-request'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-ByteQuay-Session': sessionToken(),
-    },
-    body: JSON.stringify({ confirmed: true }),
-  }));
+  ) => backendJson(
+    deliveryUrl(workspaceId, executionId, 'pull-request'),
+    jsonInit('POST', { confirmed: true }, agentHeaders()),
+  ));
   ipcMain.handle('cherrypick:execution:list', (_event, limit: number) => {
     const url = new URL(`${BACKEND_BASE}/api/cherry-pick-ranges/executions`);
     url.searchParams.set('limit', String(limit));
@@ -983,12 +942,7 @@ function registerIpc(): void {
   };
   const gitPost = (workspaceId: string, endpoint: string, body: unknown, timeoutMs = 120_000) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/git/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ByteQuay-Session': sessionToken(),
-      },
-      body: JSON.stringify(body),
+      ...jsonInit('POST', body, agentHeaders()),
       signal: AbortSignal.timeout(timeoutMs),
     });
   ipcMain.handle('git:overview', (_event, workspaceId: string) =>
@@ -1041,11 +995,7 @@ function registerIpc(): void {
 
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');
-    await backendJson(`${BACKEND_BASE}/api/auth/github/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: pat.trim() }),
-    });
+    await backendJson(`${BACKEND_BASE}/api/auth/github/token`, jsonInit('POST', { value: pat.trim() }));
     refreshDashboardInBackground();
     return true;
   });
@@ -1089,23 +1039,16 @@ function registerIpc(): void {
     configId: string,
     model: string,
     effort: string | null,
-  ) => backendJson(`${BACKEND_BASE}/api/settings/models/${encodeURIComponent(configId)}/selection`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, effort }),
-  }).then(parseModelSettings));
+  ) => backendJson(
+    `${BACKEND_BASE}/api/settings/models/${encodeURIComponent(configId)}/selection`,
+    jsonInit('PUT', { model, effort }),
+  ).then(parseModelSettings));
   ipcMain.handle('settings:models:main', (_event, configId: string) =>
-    backendJson(`${BACKEND_BASE}/api/settings/models/main`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ configId }),
-    }).then(parseModelSettings));
+    backendJson(`${BACKEND_BASE}/api/settings/models/main`, jsonInit('PUT', { configId }))
+      .then(parseModelSettings));
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
-    backendJson(`${BACKEND_BASE}/api/settings/api-keys`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, alias, key }),
-    }).then(parseModelSettings));
+    backendJson(`${BACKEND_BASE}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
+      .then(parseModelSettings));
   ipcMain.handle('settings:api-keys:remove', (_event, alias: string) =>
     backendJson(`${BACKEND_BASE}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
       method: 'DELETE',
@@ -1113,44 +1056,30 @@ function registerIpc(): void {
   ipcMain.handle('settings:quiet-hours', () =>
     backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`));
   ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(quietHours),
-    }));
+    backendJson(`${BACKEND_BASE}/api/settings/quiet-hours`, jsonInit('PUT', quietHours)));
   ipcMain.handle('settings:codegraph', () =>
     backendJson(`${BACKEND_BASE}/api/settings/codegraph`));
   ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>
-    backendJson(`${BACKEND_BASE}/api/settings/codegraph`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(setting),
-    }));
+    backendJson(`${BACKEND_BASE}/api/settings/codegraph`, jsonInit('PUT', setting)));
   ipcMain.handle('settings:codegraph:comparison', () =>
     backendJson(`${BACKEND_BASE}/api/settings/codegraph/comparison`));
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
   ipcMain.handle('workspaces:commits-target:set', (_event, workspaceId: string, branch: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ branch }),
-    }));
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`,
+      jsonInit('PUT', { branch }),
+    ));
   ipcMain.handle('workspaces:commits-target:clear', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`, { method: 'DELETE' }));
   ipcMain.handle('workspaces:rename', (_event, workspaceId: string, name: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    }));
+    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, jsonInit('PATCH', { name })));
   ipcMain.handle('workspaces:remotes:add', (_event, workspaceId: string, name: string, url: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, url }),
-    }));
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes`,
+      jsonInit('POST', { name, url }),
+    ));
   ipcMain.handle('workspaces:remotes:remove', (_event, workspaceId: string, name: string) =>
     backendJson(
       `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/remotes/${encodeURIComponent(name)}`,
@@ -1162,21 +1091,19 @@ function registerIpc(): void {
     configId: string,
     model: string,
     effort: string | null,
-  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ configId, model, effort }),
-  }));
+  ) => backendJson(
+    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`,
+    jsonInit('PUT', { configId, model, effort }),
+  ));
   ipcMain.handle('workspaces:agent-model:clear', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
       method: 'DELETE',
     }));
   ipcMain.handle('workspaces:token:save', (_event, workspaceId: string, value: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value }),
-    }));
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`,
+      jsonInit('PUT', { value }),
+    ));
   ipcMain.handle('workspaces:token:delete', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`, {
       method: 'DELETE',
@@ -1217,17 +1144,9 @@ function registerIpc(): void {
   });
   ipcMain.handle('recent:changes', () => backendJson(`${BACKEND_BASE}/recent/changes`));
   ipcMain.handle('recent:touch', (_event, touch: RecentTouchRequest) =>
-    backendVoid(`${BACKEND_BASE}/recent/touch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(touch),
-    }));
+    backendVoid(`${BACKEND_BASE}/recent/touch`, jsonInit('POST', touch)));
   ipcMain.handle('recent:draft', (_event, draft: RecentDraftRequest) =>
-    backendVoid(`${BACKEND_BASE}/recent/draft`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft),
-    }));
+    backendVoid(`${BACKEND_BASE}/recent/draft`, jsonInit('POST', draft)));
   ipcMain.handle('recent:clear', () => backendVoid(`${BACKEND_BASE}/recent`, { method: 'DELETE' }));
 
   ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {
@@ -1246,9 +1165,7 @@ function registerIpc(): void {
     prMonitorMutations++;
     repollPrNotifications = true;
     try {
-      return await backendJson<PullRequestDto>(`${BACKEND_BASE}/prs/${prId}/monitor`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monitored }),
-      });
+      return await backendJson<PullRequestDto>(`${BACKEND_BASE}/prs/${prId}/monitor`, jsonInit('PATCH', { monitored }));
     }
     finally {
       prNotificationGeneration++;
@@ -1292,22 +1209,14 @@ function registerIpc(): void {
     number: number,
     assignees: string[],
     labels: string[],
-  ) => backendVoid(prUrl('/prs/metadata', repo, number), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assignees, labels }),
-  }));
+  ) => backendVoid(prUrl('/prs/metadata', repo, number), jsonInit('PATCH', { assignees, labels })));
   ipcMain.handle('prs:reviewer:update', (
     _event,
     repo: string,
     number: number,
     login: string,
     requested: boolean,
-  ) => backendVoid(prUrl('/prs/reviewers', repo, number), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ login, requested }),
-  }));
+  ) => backendVoid(prUrl('/prs/reviewers', repo, number), jsonInit('PATCH', { login, requested })));
   ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) => {
     const url = new URL('/prs/merge-mode', BACKEND_BASE);
     url.searchParams.set('repo', repo);
@@ -1373,17 +1282,9 @@ function registerIpc(): void {
     repo: string,
     number: number,
     comment: import('./types').InlineReviewCommentDto,
-  ) => backendJson(prUrl('/prs/review-comment', repo, number), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(comment),
-  }));
+  ) => backendJson(prUrl('/prs/review-comment', repo, number), jsonInit('POST', comment)));
   ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string) =>
-    backendVoid(prUrl('/prs/description', repo, number), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    }));
+    backendVoid(prUrl('/prs/description', repo, number), jsonInit('PATCH', { body })));
   ipcMain.handle('prs:comment', (
     _event,
     repo: string,
@@ -1391,11 +1292,7 @@ function registerIpc(): void {
     body: string,
   ) => {
     const url = prUrl('/prs/comment', repo, number);
-    return backendJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
+    return backendJson(url, jsonInit('POST', { body }));
   });
   ipcMain.handle('prs:reaction:set', (
     _event,
@@ -1405,11 +1302,10 @@ function registerIpc(): void {
     commentId: number | null,
     content: import('./types').PullReactionContent,
     viewerHasReacted: boolean | null,
-  ) => backendJson<{ viewerHasReacted: boolean }>(prUrl('/prs/reactions', repo, number), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target, commentId, content, viewerHasReacted }),
-  }));
+  ) => backendJson<{ viewerHasReacted: boolean }>(
+    prUrl('/prs/reactions', repo, number),
+    jsonInit('POST', { target, commentId, content, viewerHasReacted }),
+  ));
   ipcMain.handle('prs:close', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/close', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:review-comment:reply', (
@@ -1420,11 +1316,7 @@ function registerIpc(): void {
     body: string,
   ) => {
     const url = prUrl(`/prs/review-comments/${commentId}/replies`, repo, number);
-    return backendVoid(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    });
+    return backendVoid(url, jsonInit('POST', { body }));
   });
   ipcMain.handle('prs:review-thread:resolution', (
     _event,
@@ -1434,11 +1326,7 @@ function registerIpc(): void {
     resolved: boolean,
   ) => {
     const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number);
-    return backendVoid(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resolved }),
-    });
+    return backendVoid(url, jsonInit('POST', { resolved }));
   });
   ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/checks/rerun-failed', repo, number), { method: 'POST' }));
@@ -1453,11 +1341,7 @@ function registerIpc(): void {
   ) => {
     const url = prUrl('/prs/review', repo, number);
     url.searchParams.set('id', String(prId));
-    return backendJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, body, comments }),
-    });
+    return backendJson(url, jsonInit('POST', { event, body, comments }));
   });
   ipcMain.handle('prs:merge', (
     _event,
@@ -1479,16 +1363,9 @@ function registerIpc(): void {
     return backendJson(url);
   });
   ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/watch-preview`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selectedRepositoryId }),
-    }));
-  ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) => backendJson(`${BACKEND_BASE}/api/workspaces`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(command),
-  }));
+    backendJson(`${BACKEND_BASE}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
+  ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
+    backendJson(`${BACKEND_BASE}/api/workspaces`, jsonInit('POST', command)));
   ipcMain.handle('workspaces:list', () => backendJson(`${BACKEND_BASE}/api/workspaces`));
   ipcMain.handle('workspaces:list-retired', () => backendJson(`${BACKEND_BASE}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>
@@ -1515,32 +1392,29 @@ function registerIpc(): void {
       method: 'POST',
     }));
   ipcMain.handle('workspaces:issues:comment', (_event, workspaceId: string, issueNumber: number, body: string) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
-    }));
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/comments`,
+      jsonInit('POST', { body }),
+    ));
   ipcMain.handle('workspaces:issues:close', (_event, workspaceId: string, issueNumber: number) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/close`, {
       method: 'POST',
     }));
   ipcMain.handle('workspaces:issues:type:update', (_event, workspaceId: string, issueNumber: number, type: string | null) =>
-    backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type }),
-    }));
+    backendJson(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/type`,
+      jsonInit('PATCH', { type }),
+    ));
   ipcMain.handle('workspaces:issues:metadata:update', (
     _event,
     workspaceId: string,
     issueNumber: number,
     assignees: string[],
     labels: string[],
-  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/metadata`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ assignees, labels }),
-  }));
+  ) => backendJson(
+    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/metadata`,
+    jsonInit('PATCH', { assignees, labels }),
+  ));
   ipcMain.handle('workspaces:sync', (_event, workspaceId: string) =>
     backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/sync`, {
       method: 'POST',
@@ -1549,21 +1423,19 @@ function registerIpc(): void {
     _event,
     workspaceId: string,
     upstreamRepositoryId: number | null,
-  ) => backendJson(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ upstreamRepositoryId }),
-  }));
+  ) => backendJson(
+    `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/upstream`,
+    jsonInit('PUT', { upstreamRepositoryId }),
+  ));
   ipcMain.handle('workspaces:remove', (_event, workspaceId: string) =>
     backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`, {
       method: 'DELETE',
     }));
   ipcMain.handle('workspaces:delete', (_event, workspaceId: string, confirmed: boolean, repositoryName: string) =>
-    backendVoid(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/data`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirmed, repositoryName }),
-    }));
+    backendVoid(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/data`,
+      jsonInit('DELETE', { confirmed, repositoryName }),
+    ));
   ipcMain.handle('repos:profile', () => backendJson(`${BACKEND_BASE}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>
     backendJson(`${BACKEND_BASE}/api/profile/${encodeURIComponent(login)}`));

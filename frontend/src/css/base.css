@@ -675,6 +675,36 @@ samp {
   overflow: hidden;
 }
 
+.app-shell :is(
+  .agt-screen-head,
+  .agt-panel__head,
+  .agt-tasks-head,
+  .rc-head,
+  .ws-head,
+  .pulls-list__toolbar,
+  .cmt-tab-bar,
+  .sets-page > h1
+) {
+  -webkit-app-region: drag;
+}
+
+/* Controls can also overlap a draggable header without being its descendants. */
+.app-shell :is(
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  [title],
+  [role="separator"],
+  [role="menu"],
+  [role="dialog"],
+  .cmt-menu
+) {
+  -webkit-app-region: no-drag;
+}
+
 .app-sidebar {
   position: relative;
   display: flex;

@@ -92,6 +92,7 @@ class TestCiAutofixHttpApi
                 Duration.ofMinutes(30),
                 SESSION,
                 "codex",
+                "0.153.4",
                 false,
                 Path.of("/tmp/agent-codex-home"),
                 "claude",

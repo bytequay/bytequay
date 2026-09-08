@@ -13,6 +13,7 @@
  */
 package com.bytequay.app;
 
+import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,9 +43,13 @@ class TestApplicationContextSmoke
     @Autowired
     private AgentServingGate agentServingGate;
 
+    @Autowired
+    private AgentProperties agentProperties;
+
     @Test
     void contextLoads()
     {
         assertThat(agentServingGate.isReady()).isTrue();
+        assertThat(agentProperties.codexMinimumVersion()).isEqualTo("0.153.4");
     }
 }

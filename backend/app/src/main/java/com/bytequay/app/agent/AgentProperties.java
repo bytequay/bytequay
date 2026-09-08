@@ -27,6 +27,7 @@ public record AgentProperties(
         Duration maximumTurnRuntime,
         String desktopSessionToken,
         String codexExecutable,
+        String codexMinimumVersion,
         boolean codexEnabled,
         Path codexHome,
         String claudeExecutable,
@@ -38,9 +39,11 @@ public record AgentProperties(
         requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         requireNonNull(desktopSessionToken, "desktopSessionToken is null");
         requireNonNull(codexExecutable, "codexExecutable is null");
+        requireNonNull(codexMinimumVersion, "codexMinimumVersion is null");
         requireNonNull(codexHome, "codexHome is null");
         requireNonNull(claudeExecutable, "claudeExecutable is null");
         checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
+        checkArgument(!codexMinimumVersion.isBlank(), "codexMinimumVersion is blank");
         checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
     }

@@ -520,10 +520,14 @@ The detailed backend contract is in
 - App Server's command-level experimental maturity is an explicit product
   risk. ByteQuay uses its background-terminal API but not the removed
   experimental environment family. A fixed v0.151.0 reference fixture
-  generates bindings with experimental definitions enabled, but it does not
-  gate the production CLI. Production updates a user-managed Codex CLI only
-  when its parsed version is below the supported minimum and leaves newer or
-  unparseable version text alone; neither is a readiness gate. A real protocol
+  generates bindings with experimental definitions enabled. Production sets
+  `bytequay.agent.codex-minimum-version` to `0.153.4`. At startup it upgrades
+  an older installed Codex CLI to that exact configured release through npm
+  and keeps equal or newer versions. Readiness, catalog discovery, and task
+  launch check the configured executable against the minimum, including after
+  an upgrade. Failed or unreadable version checks remain unavailable; a
+  reported mismatch includes a versioned installation command in its diagnostic.
+  The v0.151.0 fixture remains historical protocol evidence. A real protocol
   incompatibility blocks the affected operation and reports that detected
   version so the issue can be fixed.
 - Maven module boundaries do not create processes or network boundaries.

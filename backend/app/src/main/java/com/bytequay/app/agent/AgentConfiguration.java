@@ -99,6 +99,7 @@ public class AgentConfiguration
     {
         return new CodexCliDriver(
                 properties.codexExecutable(),
+                properties.codexMinimumVersion(),
                 objectMapper,
                 supervisor,
                 CodexHome.prepare(properties.codexHome()),

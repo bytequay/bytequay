@@ -73,9 +73,9 @@ public interface AgentDriver
     }
 
     /**
-     * Runs the provider's own self-updater, which installs a newer CLI only
-     * when one is available. Blocking and potentially slow (it may download a
-     * release), so callers run it off hot paths and re-probe afterwards.
+     * Updates the CLI according to the driver's version policy. Blocking and
+     * potentially slow (it may download a release), so callers run it off hot
+     * paths and re-probe afterwards.
      *
      * @return updater output, or empty when the driver has no updater
      * @throws AgentUnavailableException when the updater fails

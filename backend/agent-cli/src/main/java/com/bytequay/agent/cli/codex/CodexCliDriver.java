@@ -68,6 +68,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -77,10 +78,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -127,14 +131,7 @@ public final class CodexCliDriver
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
-    /**
-     * The oldest Codex CLI whose App Server protocol this lane is verified against.
-     *
-     * <p>Must equal {@code codexVersion} in the committed reference projection, which is the
-     * schema these protocol records were generated from. A newer CLI is left alone: the projection
-     * is a floor, not a ceiling.
-     */
-    static final String MINIMUM_VERSION = "0.151.0";
+    private static final Pattern VERSION = Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
@@ -187,6 +184,8 @@ public final class CodexCliDriver
             ImmutableSet.of("image/png", "image/jpeg", "image/gif"));
 
     private final String executable;
+    private final String minimumVersion;
+    private final int[] minimumRelease;
     private final ProcessSupervisor supervisor;
     private final Path codexHome;
     private final Map<String, String> environment;
@@ -202,24 +201,26 @@ public final class CodexCliDriver
      * @param codexHome ByteQuay's own Codex home; every Codex process this driver starts runs with
      * {@code CODEX_HOME} set to it, so the user's {@code ~/.codex} never reaches a task
      */
-    public CodexCliDriver(String executable, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, ClaudePermissionBroker permissions)
+    public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, ClaudePermissionBroker permissions)
     {
-        this(executable, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions);
+        this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions);
     }
 
     CodexCliDriver(
             String executable,
+            String minimumVersion,
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
             Map<String, String> environment,
             Path codexHome,
             ClaudePermissionBroker permissions)
     {
-        this(executable, objectMapper, supervisor, environment, codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
+        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
     }
 
     CodexCliDriver(
             String executable,
+            String minimumVersion,
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
             Map<String, String> environment,
@@ -228,6 +229,9 @@ public final class CodexCliDriver
             Duration quiescenceTimeout)
     {
         this.executable = requireNonNull(executable, "executable is null");
+        this.minimumVersion = requireNonNull(minimumVersion, "minimumVersion is null");
+        checkArgument(minimumVersion.matches("[0-9]+\\.[0-9]+\\.[0-9]+"), "Codex minimum version must be a stable x.y.z release: %s", minimumVersion);
+        this.minimumRelease = Arrays.stream(minimumVersion.split("\\.")).mapToInt(Integer::parseInt).toArray();
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath();
@@ -307,45 +311,40 @@ public final class CodexCliDriver
         return "Codex";
     }
 
-    /**
-     * Brings the Codex CLI up to the version this lane is verified against, and no further.
-     *
-     * <p>{@code codex update} always installs the latest release, so running it unconditionally
-     * would move a user's CLI on every backend start. It is only worth doing when the installed
-     * CLI is older than the protocol this lane was built against; a newer one already satisfies
-     * that floor. A version that cannot be read is left alone, because upgrading is the
-     * side-effectful choice and nothing here shows it is needed.
-     *
-     * @return what was done, or why nothing was
-     */
-    @Override
-    public Optional<String> update()
-    {
-        Optional<String> installed = probe().version();
-        if (installed.isEmpty()) {
-            return Optional.of("Codex CLI version could not be read; leaving the installation alone");
-        }
-        if (!isOlderThanMinimum(installed.orElseThrow())) {
-            return Optional.of("Codex CLI " + installed.orElseThrow()
-                    + " already meets the verified minimum " + MINIMUM_VERSION);
-        }
-        try {
-            CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
-            if (result.exitCode() != 0) {
-                throw new AgentUnavailableException("Codex CLI update failed: " + result.output());
-            }
-            return Optional.of(redactor.redact(result.output()));
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new AgentUnavailableException("Codex CLI update was interrupted", e);
-        }
-    }
-
     @Override
     public AgentCapabilities capabilities()
     {
         return CAPABILITIES;
+    }
+
+    /** Upgrades older installations to the configured release; {@code codex update} selects latest. */
+    @Override
+    public synchronized Optional<String> update()
+    {
+        AgentProviderStatus before = probe();
+        OptionalInt comparison = before.version().map(this::compareVersion).orElse(OptionalInt.empty());
+        if (before.readiness() != AgentProviderStatus.Readiness.UNSUPPORTED || comparison.isEmpty() || comparison.getAsInt() >= 0) {
+            return Optional.empty();
+        }
+        try {
+            CommandResult result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
+            if (result.exitCode() != 0) {
+                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.output()));
+            }
+            AgentProviderStatus after = probe();
+            OptionalInt upgraded = after.version().map(this::compareVersion).orElse(OptionalInt.empty());
+            if (upgraded.isEmpty() || upgraded.getAsInt() < 0) {
+                throw new AgentUnavailableException("Codex CLI installation completed, but " + executable + " does not report minimum version "
+                        + minimumVersion + ". Check the configured executable and npm installation path. " + after.diagnostic());
+            }
+            modelCatalog = null;
+            appServerVersion.set(null);
+            return Optional.of("Upgraded Codex CLI from " + before.version().orElseThrow() + " to " + after.version().orElseThrow());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Codex CLI upgrade was interrupted", e);
+        }
     }
 
     @Override
@@ -375,6 +374,15 @@ public final class CodexCliDriver
                         "Unable to read Codex CLI version");
             }
             detectedVersion = version;
+            OptionalInt comparison = compareVersion(version);
+            if (comparison.isEmpty() || comparison.getAsInt() < 0) {
+                return status(
+                        AgentProviderStatus.Readiness.UNSUPPORTED,
+                        Optional.of(version),
+                        "Codex CLI " + version + (comparison.isEmpty() ? " has an unreadable version" : " is below the minimum version " + minimumVersion)
+                                + ". ByteQuay requires " + minimumVersion + " or newer. Run npm install --global @openai/codex@" + minimumVersion
+                                + ", ensure " + executable + " --version reports a supported version, then check again.");
+            }
             CommandResult login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
                 // ByteQuay's home is signed in separately from the user's, so the generic login
@@ -416,6 +424,7 @@ public final class CodexCliDriver
     @Override
     public List<ProviderModel> models()
     {
+        requireAvailable();
         rememberAppServerVersion();
         return refreshModelCatalog().entries().stream()
                     .filter(entry -> !entry.hidden())
@@ -468,6 +477,7 @@ public final class CodexCliDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
+        requireAvailable();
         rememberAppServerVersion();
         // The process runs in the task worktree because that directory is also its sandbox root:
         // App Server's default environment confines a turn's writes to its own working directory,
@@ -512,40 +522,28 @@ public final class CodexCliDriver
         // itself holds no process between calls.
     }
 
-    /**
-     * Whether an installed version is older than the verified minimum.
-     *
-     * <p>Compares the numeric release parts, then treats a pre-release as older than the release
-     * it precedes, so {@code 0.151.0-alpha.7} counts as older than {@code 0.151.0}. Anything that
-     * does not parse is treated as not older, because guessing would upgrade a CLI on no evidence.
-     *
-     * @param installed the reported version, without the {@code codex-cli } prefix
-     * @return true when it is below {@link #MINIMUM_VERSION}
-     */
-    static boolean isOlderThanMinimum(String installed)
+    private OptionalInt compareVersion(String reported)
     {
-        String[] parts = installed.split("-", 2);
-        int[] release;
+        Matcher version = VERSION.matcher(reported);
+        if (!version.matches()) {
+            return OptionalInt.empty();
+        }
         try {
-            release = Arrays.stream(parts[0].split("\\."))
-                    .mapToInt(Integer::parseInt)
-                    .toArray();
+            int[] release = Arrays.stream(version.group(1).split("\\.")).mapToInt(Integer::parseInt).toArray();
+            int comparison = Arrays.compare(release, minimumRelease);
+            return OptionalInt.of(comparison == 0 && version.group(2) != null ? -1 : comparison);
         }
-        catch (NumberFormatException unparseable) {
-            return false;
+        catch (NumberFormatException invalid) {
+            return OptionalInt.empty();
         }
-        int[] minimum = Arrays.stream(MINIMUM_VERSION.split("\\."))
-                .mapToInt(Integer::parseInt)
-                .toArray();
-        for (int index = 0; index < Math.max(release.length, minimum.length); index++) {
-            int left = index < release.length ? release[index] : 0;
-            int right = index < minimum.length ? minimum[index] : 0;
-            if (left != right) {
-                return left < right;
-            }
+    }
+
+    private void requireAvailable()
+    {
+        AgentProviderStatus status = probe();
+        if (!status.available()) {
+            throw new AgentUnavailableException(status.diagnostic());
         }
-        // Same release, so only a pre-release of it is older.
-        return parts.length > 1;
     }
 
     private AgentProviderStatus status(

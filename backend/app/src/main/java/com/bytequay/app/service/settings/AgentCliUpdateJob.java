@@ -25,9 +25,9 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Startup maintenance for the CLI providers: seeds the probe-free model
- * catalogs, runs each available CLI's own self-updater, and then re-probes the
+ * catalogs, applies each detected CLI's update policy, and then re-probes the
  * catalogs so they reflect the installed version. Runs off the startup thread;
- * a provider whose update fails keeps working at its current version.
+ * a failed update leaves readiness to the driver's version and authentication checks.
  */
 @Component
 public class AgentCliUpdateJob

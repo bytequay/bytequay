@@ -8,11 +8,17 @@ fixture derives one compact committed projection manifest for only the Java
 records, fields, and enums ByteQuay consumes. It does not vendor the 413
 generated schema files or 820 generated TypeScript files.
 
-This is a reference-only development fixture, not a production readiness or
-version gate. Production uses the user-managed Codex CLI, keeps its startup
-self-update enabled, and does not interpret any reported version text as a
-readiness gate. When the running protocol is incompatible,
-ByteQuay reports the detected version text with the failing operation.
+This is a reference-only development fixture. Production independently sets
+`bytequay.agent.codex-minimum-version` to `0.153.4`. At startup it upgrades
+an older installed Codex CLI to that exact configured release through npm and
+keeps equal or newer versions. Readiness, catalog discovery, and task launch
+require the configured executable to meet the minimum after any upgrade;
+failed or unreadable version checks cannot bypass that gate. A reported
+mismatch includes a versioned installation command in its diagnostic. The
+v0.151.0 fixture and recorded passes remain historical protocol evidence;
+they do not establish a v0.153.4 executable compatibility pass. When the running
+protocol is incompatible, ByteQuay reports the detected version text with the
+failing operation.
 
 Run the offline gate with a deliberately selected v0.151.0 Codex binary:
 

@@ -144,11 +144,18 @@ agent-task release on 2026-08-31 and reconfirmed it at CP11. ByteQuay maintains
 a fixed reference fixture for the launch profiles and background-terminal
 methods used by isolation and quiescence; task sessions opt into
 `experimentalApi` solely for background-terminal inventory and termination.
-Transport success alone is not sufficient. Production updates Codex only when
-its parsed version is below the supported minimum and runs the user's installed
-CLI without treating newer or unparseable version text as a readiness gate. An
-incompatible operation fails with that detected version in its diagnostic so it
-can be reported and fixed. The first release does not
+Transport success alone is not sufficient. Production configures the minimum
+Codex CLI version through `bytequay.agent.codex-minimum-version`, currently
+`0.153.4`. At startup, an older installed CLI is automatically upgraded to that
+exact release with a versioned npm installation; equal or newer versions are kept.
+Readiness, catalog discovery, and task launch require the configured executable
+to meet the minimum after any upgrade. Failed or unreadable version checks
+cannot bypass that gate. A reported mismatch includes the versioned
+installation command in its diagnostic.
+The separate v0.151.0 fixture
+remains historical protocol evidence.
+An incompatible operation also reports the detected version so it can be
+reported and fixed. The first release does not
 add the separate, process-wide `--code-mode-host` dependency.
 
 Agents do not edit the managed checkout. The approved workspace boundary is one

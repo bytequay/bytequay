@@ -24,6 +24,26 @@ service only through its canonical design.
 No Docker or PostgreSQL installation is required. Runtime data is stored in a
 local SQLite database.
 
+Codex agent tasks require Codex CLI `0.153.4` or newer. To install the minimum
+supported release explicitly:
+
+```bash
+npm install -g @openai/codex@0.153.4
+codex --version
+```
+
+The release minimum is configured by `bytequay.agent.codex-minimum-version`
+in `backend/app/src/main/resources/application.properties`, currently
+`0.153.4`. Update that property when a later ByteQuay release requires a newer
+CLI. At startup, ByteQuay automatically upgrades an older installed CLI with
+`npm install --global @openai/codex@<configured minimum>`; it leaves equal or
+newer versions installed. It then checks the configured Codex executable
+again, so an npm installation that does not update that executable cannot
+bypass the minimum. Missing, failed, or unreadable version checks do not
+trigger installation. Restart ByteQuay after changing the installation
+manually. The separate `0.151.0` App Server compatibility fixture is historical
+protocol evidence, not the production version requirement.
+
 ## Quick start
 
 ```bash

@@ -51,7 +51,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -494,12 +493,12 @@ class TestCodexCliDriver
                 .get(5, TimeUnit.SECONDS);
         assertThat(failedResult.state()).isEqualTo(AgentTurnResult.State.FAILED);
         assertThat(failedResult.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("Codex CLI 0.151.0").contains("provider failed"));
+                assertThat(reason).contains("Codex CLI 0.153.4").contains("provider failed"));
 
+        session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         supervisor.versionOutput("future-build");
         assertThat(driver.probe().version()).contains("future-build");
 
-        session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         RunningTurn disconnected = session.start(command("disconnect"));
         supervisor.servers().getLast().disconnect();
         AgentTurnResult disconnectedResult = disconnected.completion()
@@ -507,57 +506,134 @@ class TestCodexCliDriver
                 .get(5, TimeUnit.SECONDS);
         assertThat(disconnectedResult.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("Codex CLI 0.151.0").contains("exited with code 1"));
+                assertThat(reason).contains("Codex CLI 0.153.4").contains("exited with code 1"));
 
         driver.close();
     }
 
     @Test
-    void updatesTheCodexCliOnlyWhenItIsOlderThanTheVerifiedMinimum()
-            throws Exception
+    void upgradesOlderVersionsToExactlyTheConfiguredMinimum()
     {
-        // `codex update` installs the latest release, so running it unconditionally moves a user's
-        // CLI on every backend start, past the protocol this lane was generated against.
-        assertThat(CodexCliDriver.isOlderThanMinimum("0.150.9")).isTrue();
-        assertThat(CodexCliDriver.isOlderThanMinimum("0.151.0-alpha.7.2")).isTrue();
-        assertThat(CodexCliDriver.isOlderThanMinimum("0.151.0")).isFalse();
-        assertThat(CodexCliDriver.isOlderThanMinimum("0.152.1")).isFalse();
-        assertThat(CodexCliDriver.isOlderThanMinimum("1.0.0")).isFalse();
-        // Guessing would upgrade a CLI on no evidence.
-        assertThat(CodexCliDriver.isOlderThanMinimum("not-a-version")).isFalse();
+        for (String version : ImmutableList.of("0.152.1", "0.153.3", "0.153.4-alpha.1")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli " + version);
+            CodexCliDriver driver = driver(supervisor);
 
-        ScriptedProcessSupervisor newer = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.152.1");
-        assertThat(driver(newer).update()).get().asString().contains("already meets the verified minimum");
-        assertThat(newer.updateRuns()).isZero();
-
-        ScriptedProcessSupervisor older = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.150.0");
-        driver(older).update();
-        assertThat(older.updateRuns()).isOne();
+            assertThat(driver.update()).hasValueSatisfying(output -> assertThat(output).contains("from " + version + " to 0.153.4"));
+            assertThat(supervisor.updateRuns()).isOne();
+            assertThat(supervisor.updateCommand).containsExactly("npm", "install", "--global", "@openai/codex@0.153.4");
+            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(driver.models()).isNotEmpty();
+            assertThat(driver.update()).isEmpty();
+            assertThat(supervisor.updateRuns()).isOne();
+            driver.close();
+        }
     }
 
     @Test
-    void pinsTheVerifiedMinimumToTheReferenceProjection()
-            throws Exception
+    void acceptsEqualOrNewerVersionsWithoutInstallingOrDowngrading()
     {
-        // The minimum is the version the committed protocol records were generated from. If the two
-        // drift apart the lane would update toward a schema nothing has verified.
-        InputStream bindings = getClass().getResourceAsStream("app-server-v0.151.0-bindings.json");
-        assertThat(bindings).as("reference bindings are missing").isNotNull();
-        JsonNode reference = objectMapper.readTree(bindings);
-        assertThat(reference.path("codexVersion").asText()).isEqualTo(CodexCliDriver.MINIMUM_VERSION);
+        for (String version : ImmutableList.of("0.153.4", "0.153.4+build.1", "0.153.5", "0.154.0-alpha.1", "0.200.0", "1.0.0")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli " + version);
+            CodexCliDriver driver = driver(supervisor);
+
+            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(driver.update()).isEmpty();
+            assertThat(supervisor.updateRuns()).isZero();
+            assertThat(driver.models()).isNotEmpty();
+            driver.close();
+        }
     }
 
     @Test
-    void acceptsAndReportsTheInstalledCodexVersion()
+    void blocksOlderOrUnreadableVersionsBeforeModelDiscoveryOrTaskLaunch()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "future-build");
-        CodexCliDriver driver = driver(supervisor);
+        for (String version : ImmutableList.of("0.152.1", "0.153.4-alpha.1", "future-build", "0.153", "999999999999999.0.0")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli " + version);
+            CodexCliDriver driver = driver(supervisor);
+
+            AgentProviderStatus status = driver.probe();
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+            assertThat(status.version()).contains(version);
+            assertThat(status.diagnostic()).contains("requires 0.153.4 or newer", "npm install --global @openai/codex@0.153.4");
+            assertThatThrownBy(driver::models)
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining("requires 0.153.4 or newer");
+            assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining("requires 0.153.4 or newer");
+            assertThat(supervisor.servers()).isEmpty();
+            driver.close();
+        }
+    }
+
+    @Test
+    void usesTheConfiguredMinimumForReadinessAndInstallation()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.153.4");
+        CodexCliDriver driver = driver(supervisor, "0.155.2", Duration.ofSeconds(30));
 
         AgentProviderStatus status = driver.probe();
 
-        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
-        assertThat(status.version()).contains("future-build");
+        assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+        assertThat(status.version()).contains("0.153.4");
+        assertThat(driver.update()).hasValueSatisfying(output -> assertThat(output).contains("to 0.155.2"));
+        assertThat(supervisor.updateCommand).containsExactly("npm", "install", "--global", "@openai/codex@0.155.2");
+        assertThat(driver.models()).isNotEmpty();
+
+        supervisor.versionOutput("codex-cli 0.154.0");
+        assertThatThrownBy(driver::models).hasMessageContaining("minimum version 0.155.2");
+        assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                .hasMessageContaining("minimum version 0.155.2");
         driver.close();
+    }
+
+    @Test
+    void neverInstallsFromAnUnknownMissingOrFailedVersionProbe()
+    {
+        for (String version : ImmutableList.of("future-build", "", "0.153", "999999999999999.0.0")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, version);
+            assertThat(driver(supervisor).update()).isEmpty();
+            assertThat(supervisor.updateRuns()).isZero();
+        }
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.152.1");
+        CodexCliDriver driver = driver(supervisor);
+        assertThat(driver.probe().version()).contains("0.152.1");
+        supervisor.executableMissing();
+        assertThat(driver.update()).isEmpty();
+        assertThat(supervisor.updateRuns()).isZero();
+    }
+
+    @Test
+    void reportsFailedInstallsAndUnchangedConfiguredExecutables()
+    {
+        ScriptedProcessSupervisor failed = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.152.1");
+        failed.updateFails = true;
+        CodexCliDriver failedDriver = driver(failed);
+        assertThatThrownBy(failedDriver::update)
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("upgrade to 0.153.4 failed");
+        assertThat(failedDriver.probe().available()).isFalse();
+
+        ScriptedProcessSupervisor unchanged = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.152.1");
+        unchanged.updateChangesVersion = false;
+        CodexCliDriver unchangedDriver = driver(unchanged);
+        assertThatThrownBy(unchangedDriver::update)
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("/fake/codex does not report minimum version 0.153.4")
+                .hasMessageContaining("npm installation path");
+        assertThat(unchangedDriver.probe().available()).isFalse();
+    }
+
+    @Test
+    void rejectsNonReleaseMinimumConfigurationBeforeInstalling()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        for (String minimum : ImmutableList.of("latest", "0.153", "0.153.4-alpha.1", "0.153.4;echo unsafe")) {
+            assertThatThrownBy(() -> driver(supervisor, minimum, Duration.ofSeconds(30)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("stable x.y.z release");
+        }
+        assertThat(supervisor.updateRuns()).isZero();
     }
 
     @Test
@@ -627,7 +703,7 @@ class TestCodexCliDriver
         // Every turn start refuses inherited rules, so readiness must say so first, with the fix.
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
         assertThat(status.available()).isFalse();
-        assertThat(status.version()).contains("0.151.0");
+        assertThat(status.version()).contains("0.153.4");
         assertThat(status.diagnostic()).contains("exec-policy rules").contains("move that rules folder aside");
         driver.close();
     }
@@ -635,12 +711,12 @@ class TestCodexCliDriver
     @Test
     void reportsTheInstalledVersionWhenAppServerIsIncompatible()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "future-build", true);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.153.4", true);
         CodexCliDriver driver = driver(supervisor);
 
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("Codex CLI future-build")
+                .hasMessageContaining("Codex CLI 0.153.4")
                 .hasMessageContaining("thread/start")
                 .hasMessageContaining("unsupported protocol");
 
@@ -1922,6 +1998,11 @@ class TestCodexCliDriver
 
     private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
     {
+        return driver(supervisor, "0.153.4", quiescenceTimeout);
+    }
+
+    private CodexCliDriver driver(ProcessSupervisor supervisor, String minimumVersion, Duration quiescenceTimeout)
+    {
         try {
             CodexHome.prepare(codexHome());
         }
@@ -1930,6 +2011,7 @@ class TestCodexCliDriver
         }
         return new CodexCliDriver(
                 "/fake/codex",
+                minimumVersion,
                 objectMapper,
                 supervisor,
                 ImmutableMap.of(
@@ -2437,6 +2519,9 @@ class TestCodexCliDriver
                     + "\"prompt\":\"" + prompt + "\"}}],\"nextCursor\":null}";
         }
         private final AtomicInteger updateRuns = new AtomicInteger();
+        private List<String> updateCommand = ImmutableList.of();
+        private boolean updateFails;
+        private boolean updateChangesVersion = true;
 
         private int updateRuns()
         {
@@ -2467,7 +2552,7 @@ class TestCodexCliDriver
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper)
         {
-            this(objectMapper, "codex-cli 0.151.0", false);
+            this(objectMapper, "codex-cli 0.153.4", false);
         }
 
         private ScriptedProcessSupervisor(ObjectMapper objectMapper, String versionOutput)
@@ -2538,8 +2623,15 @@ class TestCodexCliDriver
                         StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return ImmediateProcess.success(probeTermination);
             }
-            if (spec.argv().contains("update")) {
+            if (spec.argv().contains("update") || spec.argv().contains("install")) {
                 updateRuns.incrementAndGet();
+                updateCommand = spec.argv();
+                if (updateFails) {
+                    return ImmediateProcess.failure(probeTermination);
+                }
+                if (updateChangesVersion && spec.argv().getLast().startsWith("@openai/codex@")) {
+                    versionOutput = "codex-cli " + spec.argv().getLast().substring("@openai/codex@".length());
+                }
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("updated\n"));
                 return ImmediateProcess.success(probeTermination);
             }

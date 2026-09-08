@@ -68,11 +68,17 @@ surface as future work.
   process. The driver persists Codex thread and turn references and maps App
   Server JSON-RPC notifications into `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
-  reference fixture. It does not constrain production. ByteQuay updates a
-  user-managed Codex CLI only when its parsed version is below the supported
-  minimum; newer or unparseable version text is left alone and never becomes a
-  readiness gate. The detected version text is retained for status and
-  incompatibility diagnostics. The product accepted the experimental
+  reference fixture. Production independently configures `0.153.4` as its
+  minimum Codex CLI version, automatically upgrades older installations at startup to
+  that exact configured release through npm, and keeps equal or newer versions.
+  Readiness, catalog discovery, and task launch require the configured
+  executable to meet the minimum after any upgrade. Failed or unreadable
+  version checks cannot bypass that gate. A reported mismatch includes a
+  versioned installation command in its diagnostic.
+  The reference fixture and its recorded
+  passes remain historical protocol evidence; they do not establish a v0.153.4
+  executable compatibility pass. The detected version text is retained for
+  status and incompatibility diagnostics. The product accepted the experimental
   dependency for the first task release on 2026-08-31; CP11
   compatibility and release acceptance passed on 2026-09-04.
 - The official documentation currently marks the `app-server` command itself,
@@ -2541,9 +2547,10 @@ The connection and task sequence is:
    this handshake finishes.
 2. Populate the existing ByteQuay model settings catalog from `model/list`,
    including supported reasoning efforts, input modalities, service tiers, and
-   `multiAgentVersion`. Production accepts the running catalog without a
-   version allowlist. A required incompatible shape fails the affected operation
-   and includes the detected Codex version in its diagnostic.
+   `multiAgentVersion`. Production uses the catalog supplied by the installed
+   CLI after it meets the configured minimum version. A required incompatible
+   shape fails the affected operation and includes the detected Codex version
+   in its diagnostic.
 3. Query `model/list` under the CP1 no-child isolation profile before a task
    thread exists, resolve the accepted turn's selected model, and launch the
    task process with exactly the child profile that model advertises. V1 enables
@@ -2906,11 +2913,26 @@ static UI was then behind a development-only gate while CP4 still owned Codex
 task isolation and quiescent recovery. CP4 and the later rich-task checkpoints
 are implemented, CP11 passed, and the shipped surface is ungated.
 
-That exact fixture and its projection are reference-only and never form a
-production version allowlist. The driver probe runs `codex --version` for
-display and diagnostics, not acceptance: no reported version text, whether
-older, newer, prerelease, or unparseable, disables the lane. The startup update
-is only a minimum-version floor; newer or unparseable versions are left alone.
+That exact fixture and its projection remain reference-only. Production sets
+`bytequay.agent.codex-minimum-version=0.153.4` in
+`backend/app/src/main/resources/application.properties`; future releases can
+raise the minimum by updating that property. The driver checks the configured
+Codex executable with `--version` for readiness, display, and diagnostics.
+At startup, an installed version below the minimum triggers
+`npm install --global @openai/codex@<configured minimum>`, selecting that exact
+release instead of the latest release. Equal or newer versions need no update
+and are never downgraded. The configured executable is checked again after
+installation; an npm installation that leaves that executable below the
+minimum cannot make the lane usable. Missing, failed, or unreadable version
+checks do not trigger installation. The startup updater uses the existing
+process supervisor with a five-minute timeout and clears the driver caches
+only after the configured executable passes its version recheck. Readiness,
+catalog discovery, and task launch remain read-only version gates; each
+requires the configured executable to meet the minimum before starting App
+Server. A reported older or unparseable version makes the lane unsupported
+with an actionable version diagnostic. A failed or empty version read makes
+the lane temporarily unavailable. This production minimum is independent of
+the historical reference fixture.
 Production decoding keeps the same additive-field and
 future-enum tolerance checked by the conformance test. If a real request,
 response, or required event is incompatible, ByteQuay fails that operation
@@ -3566,13 +3588,13 @@ the same results to Workspace settings. A driver probe must distinguish, with
 machine-readable status rather than by parsing diagnostic text:
 
 - CLI missing;
-- incompatible required provider protocol or capability, including the detected CLI
-  version for diagnosis; no Codex reported version text, including unparseable
-  output, produces this state by itself;
+- incompatible required provider protocol or capability, including a reported
+  Codex CLI version below the configured minimum or an unparseable reported
+  version; include the detected text and required minimum for diagnosis;
 - authentication required or expired;
 - ready;
 - degraded but usable; and
-- temporarily unavailable.
+- temporarily unavailable, including failed or empty Codex version reads.
 
 For Claude CLI, the authentication portion runs `claude auth status --json`
 with the same executable and allowlisted environment used for turns. Opening
@@ -3740,6 +3762,9 @@ proved:
    the exact v0.151.0 reference fixture, compact projection, and experimental
    surface, and passes per-turn process launch/resume, cross-task process isolation,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,
-   steering, and reconnect tests against the latest user-managed Codex CLI.
-   No reported version text, including unparseable output, may fail readiness by
-   itself; a protocol incompatibility must report that detected running version.
+   steering, and reconnect tests against the configured minimum Codex CLI,
+   currently `0.153.4`. Older installations are upgraded at startup to that exact release;
+   equal or newer versions pass the version gate. A version that remains below
+   the minimum or cannot be read fails readiness; a protocol incompatibility
+   must also report the detected running version. The reference fixture's
+   historical passes do not establish an executable pass for the production minimum.

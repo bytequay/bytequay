@@ -47,7 +47,7 @@ class TestAgentCliUpdateJob
         when(claude.update()).thenReturn(Optional.of("Updated to 2.2.0"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
         AgentDriver codex = mock(AgentDriver.class);
-        when(codex.update()).thenReturn(Optional.of("Updated to 0.152.0"));
+        when(codex.update()).thenReturn(Optional.of("Updated to 0.153.4"));
         when(drivers.require(CODEX)).thenReturn(codex);
         ModelSettingsService models = mock(ModelSettingsService.class);
 
@@ -84,8 +84,8 @@ class TestAgentCliUpdateJob
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Readiness.UNSUPPORTED),
-                status(CODEX, Readiness.AUTHENTICATION_REQUIRED)));
+                status(CLAUDE, Readiness.AUTHENTICATION_REQUIRED),
+                status(CODEX, Readiness.UNSUPPORTED)));
         AgentDriver claude = mock(AgentDriver.class);
         AgentDriver codex = mock(AgentDriver.class);
         when(drivers.require(CLAUDE)).thenReturn(claude);

@@ -106,10 +106,13 @@ The implemented surface carries an explicit product risk: the
 currently marks the `app-server` command as experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the first
 release on 2026-08-31 and reconfirmed it when CP11 passed on 2026-09-04. The
-fixed reference-schema fixture and compatibility tests do
-not gate the user-managed production CLI. ByteQuay updates an installed Codex
-CLI only when its parsed version is below the supported minimum; newer or
-unparseable version text is left alone and never makes the lane unavailable.
+fixed reference-schema fixture remains historical protocol evidence. Production
+independently configures `0.153.4` as its minimum Codex CLI version, upgrades
+older installations at startup to that exact configured release through npm, and keeps
+equal or newer versions. Readiness requires the configured executable to meet
+the minimum after any upgrade; failed or unreadable version checks cannot
+bypass that gate. A reported mismatch includes an actionable versioned
+installation command.
 ByteQuay uses documented stdio and does not adopt the experimental WebSocket
 transport.
 
@@ -657,9 +660,11 @@ unsupported, and unavailable lanes are disabled with an actionable link to
 **Workspace Settings → Agent providers**. No task row, runtime directory, or
 worktree is created until a fresh backend readiness check succeeds; the
 backend repeats this gate so stale UI status cannot race task creation.
-For Codex, `unsupported` means an actual required protocol or capability failed,
-with the detected CLI version shown for diagnosis; no reported version text, including
-unparseable output, creates that state by itself.
+For Codex, `unsupported` includes a required protocol or capability failure or
+a reported version below the configured minimum, currently `0.153.4`, or an
+unparseable reported version. The diagnostic shows the detected CLI version
+and the required minimum where relevant. Failed or empty
+version reads make the lane temporarily unavailable with the probe diagnostic.
 
 ```text
 #/workspaces/{workspaceId}/tasks
@@ -1017,9 +1022,12 @@ complete.
   secrets, arbitrary hidden reasoning, or unbounded command/tool output.
 - Shipping explicitly accepts App Server's experimental maturity, maintains
   reference bindings, and passes the compatibility
-  suite. Production still uses the latest user-managed Codex CLI; a real
-  incompatibility fails the affected operation with the detected version and an
-  actionable issue-report diagnostic.
+  suite. Production sets a configurable minimum Codex CLI version, currently
+  `0.153.4`, upgrades older installations at startup to that exact release, and keeps equal
+  or newer versions. Readiness rejects an executable that remains below the
+  minimum or whose version cannot be read. A real incompatibility fails the
+  affected operation with the detected version and an actionable issue-report
+  diagnostic.
 
 ## 9. First-release non-goals
 

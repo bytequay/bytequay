@@ -33,6 +33,10 @@ nvm install
 ./dev.sh
 ```
 
+The dev backend runs a temporary copy of its built JAR so later Maven builds
+cannot overwrite classes used by the running JVM. Restart `./dev.sh` to load
+backend changes; the temporary copy is removed when that dev session exits.
+
 ## Project layout
 
 ```text

@@ -363,6 +363,7 @@ git -C "$workspace_repository" update-ref refs/remotes/origin/main HEAD
 
 MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
     mvn -q -f "$backend_root/pom.xml" -pl app -am -DskipTests package
+cp "$backend_root/app/target/bytequay-backend.jar" "$temporary_directory/bytequay-backend.jar"
 
 (
     export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"
@@ -371,7 +372,7 @@ MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }--sun-misc-unsafe-memory-access=allow" \
         # setting sources and a generated task-local settings file for every turn.
         export HOME="$claude_home"
     fi
-    exec java --enable-native-access=ALL-UNNAMED -jar "$backend_root/app/target/bytequay-backend.jar" \
+    exec java --enable-native-access=ALL-UNNAMED -jar "$temporary_directory/bytequay-backend.jar" \
         --server.port="$port" \
         --server.shutdown=immediate \
         --spring.datasource.url="jdbc:sqlite:$database?journal_mode=WAL&busy_timeout=30000&foreign_keys=ON" \

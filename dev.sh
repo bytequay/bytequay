@@ -26,6 +26,7 @@ for arg in "$@"; do
 done
 
 pids=()
+backend_runtime_dir=""
 
 process_group_alive() {
   local pid="$1"
@@ -73,6 +74,10 @@ cleanup() {
   # Reap zombies but don't block forever — the SIGKILLs above mean
   # any child should be unstuck by now.
   wait 2>/dev/null || true
+  if [[ -n "$backend_runtime_dir" ]]; then
+    rm -f "$backend_runtime_dir/bytequay-backend.jar"
+    rmdir "$backend_runtime_dir" 2>/dev/null || true
+  fi
 }
 
 trap cleanup EXIT INT TERM
@@ -161,12 +166,16 @@ echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
 # and routinely push mvn past the 60s readiness window above. CI and
 # `mvn verify` still enforce both — these are dev-only shortcuts.
 JVM_ARGS=(--enable-native-access=ALL-UNNAMED -Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
+# Maven replaces the target JAR during later builds. Keep the running JVM's
+# lazy-loaded classes on an unchanged copy until this dev session exits.
+backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || exit 1
 ( cd "$ROOT/backend" \
     && mvn -q -pl app -am package \
         -DskipTests \
         -Dcheckstyle.skip=true \
         -Dlicense.skip=true \
-    && exec java "${JVM_ARGS[@]}" -jar app/target/bytequay-backend.jar ) &
+    && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
+    && exec java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
 pids+=($!)
 
 if ! wait_for_backend; then

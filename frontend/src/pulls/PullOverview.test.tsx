@@ -17,7 +17,7 @@ import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, Pull
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
-import { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
+import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
 const emptyPayload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -976,6 +976,51 @@ describe('PullOverview', () => {
 
     expect(html).toContain('title="Exit full screen (Esc)"');
     expect(html).toContain('aria-label="Exit full screen" aria-pressed="true"');
+  });
+
+  it('opens a dismissible details overlay while its PR is loading', () => {
+    const html = renderToStaticMarkup(<PullsScreen
+      initialPr={{ repo: 'owner/repo', number: 42 }}
+      onClose={() => {}} />);
+
+    expect(html).toContain('class="pulls-page pulls-page--overlay"');
+    expect(html).toContain('role="dialog" aria-modal="true" aria-label="Pull request owner/repo #42"');
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).toContain('role="status">Loading details…');
+    expect(html).not.toContain('class="pulls-list"');
+    expect(html).not.toContain('Search pull requests');
+  });
+
+  it('offers close instead of resize controls in a PR preview header', () => {
+    const html = renderToStaticMarkup(<PullDetailHeader
+      pr={pullRequest()}
+      detail={detail()}
+      tab="overview"
+      onTab={() => {}}
+      onRefresh={async () => {}}
+      onReviewSubmitted={() => {}}
+      refreshing={false}
+      pendingComments={[]}
+      zoomed
+      onZoom={() => {}}
+      onClose={() => {}}
+      onPendingCommentsChange={() => {}} />);
+
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).not.toContain('aria-label="Exit full screen"');
+    expect(html).not.toContain('aria-label="Enter full screen"');
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).toContain('> Changes');
+  });
+
+  it('moves focus into review and merge dialogs when they open', () => {
+    const review = renderToStaticMarkup(<ReviewDialog
+      pr={pullRequest()} detail={detail()} onClose={() => {}} onReviewSubmitted={() => {}} />);
+    const merge = renderToStaticMarkup(<MergeDialog
+      pr={pullRequest()} detail={detail()} mergeQueue={false} onClose={() => {}} onRefresh={async () => {}} />);
+
+    expect(review).toContain('<textarea autofocus=""');
+    expect(merge).toContain('aria-label="Close merge dialog" autofocus=""');
   });
 
   it.each([

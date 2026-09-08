@@ -172,6 +172,7 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId: null as string | null,
       onSelectAgentTask: () => {},
       onSelectPullRequest: () => {},
+      onPreviewPullRequest: () => {},
       onSelectIssue: () => {},
       onRemoved: () => {},
     };
@@ -203,6 +204,7 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId: null as string | null,
       onSelectAgentTask: () => {},
       onSelectPullRequest: () => {},
+      onPreviewPullRequest: () => {},
       onSelectIssue: () => {},
       onRemoved: () => {},
     };
@@ -213,6 +215,41 @@ describe('watched repository workspace UI', () => {
     expect(pulls).toContain('upstream/project');
     expect(issues).toContain('Open issues');
     expect(issues).toContain('upstream/project');
+  });
+
+  it('previews a workspace Home PR while See all still opens its PR tab', () => {
+    const onPreviewPullRequest = vi.fn();
+    const onSelectPullRequest = vi.fn();
+    const onSelectTab = vi.fn();
+    let home: ReactElement<{ onOpenPullRequest: (number: number) => void; onOpenPullRequests: () => void }> | undefined;
+    function CaptureHome() {
+      const view = WorkspaceShell({
+        workspace: workspace('FORK'),
+        tab: 'home',
+        onSelectTab,
+        onWorkspaceChanged: () => {},
+        initialPullRequestNumber: null,
+        initialIssueNumber: null,
+        initialAgentTaskId: null,
+        onSelectAgentTask: () => {},
+        onSelectPullRequest,
+        onPreviewPullRequest,
+        onSelectIssue: () => {},
+        onRemoved: () => {},
+      });
+      home = view.props.children[0];
+      return view;
+    }
+    renderToStaticMarkup(<CaptureHome />);
+
+    expect(home).toBeDefined();
+    home?.props.onOpenPullRequest(42);
+    expect(onPreviewPullRequest).toHaveBeenCalledWith(42);
+    expect(onSelectPullRequest).not.toHaveBeenCalled();
+    expect(onSelectTab).not.toHaveBeenCalled();
+
+    home?.props.onOpenPullRequests();
+    expect(onSelectTab).toHaveBeenCalledWith('prs');
   });
 
   it('loads the saved target before opening fork workspace commits', () => {
@@ -226,6 +263,7 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId={null}
       onSelectAgentTask={() => {}}
       onSelectPullRequest={() => {}}
+      onPreviewPullRequest={() => {}}
       onSelectIssue={() => {}}
       onRemoved={() => {}}
     />);

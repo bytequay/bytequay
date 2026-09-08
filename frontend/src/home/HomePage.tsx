@@ -107,10 +107,7 @@ function HomePage({
   onGoToMyPrs,
   onOpenWorkspace,
 }: Props) {
-  /** Smart router for activity-row link clicks: keep github.com repo and
-   *  PR links inside the app (RepoDetailPage will auto-select the PR via
-   *  initialPrNumber), and only fall out to the system browser for
-   *  things we can't render in-app (issues, profiles, gists, etc.). */
+  /** PR links open over Home; other GitHub links use the embedded browser or repository list. */
   const handleActivityLink = (url: string) => {
     const parsed = parseGithubUrl(url);
     if (parsed) {

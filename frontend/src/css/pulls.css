@@ -347,6 +347,24 @@
 
 .pull-detail.is-zoomed .pull-detail__resize { display: none; }
 
+.pulls-page--overlay {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  background: rgb(31 35 40 / 30%);
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.pulls-page--overlay .pull-detail.is-zoomed {
+  inset: 24px;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  box-shadow: 0 16px 64px rgb(31 35 40 / 24%);
+}
+
+.pulls-page--overlay .pull-detail__toolbar { -webkit-app-region: no-drag; }
+
 .pull-detail__resize {
   position: absolute;
   z-index: 5;

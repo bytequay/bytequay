@@ -30,7 +30,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue, onRemoved }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -42,6 +42,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
+  onPreviewPullRequest: (number: number) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
   onRemoved: () => void;
 }) {
@@ -215,7 +216,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       onOpenSettings={() => onSelectTab('settings')}
       onShowAll={() => setOverviewOpen(true)}
       onOpenPullRequests={() => onSelectTab('prs')}
-      onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
+      onOpenPullRequest={onPreviewPullRequest}
       onOpenIssue={(number) => onSelectIssue(number, 'push')}
     />,
   );

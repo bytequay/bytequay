@@ -242,6 +242,12 @@ enhancement (or is dropped for the minimal implementation).
 
 ## Interaction behavior
 
+- **Home PR cards**: Home and Workspace Home open the existing zoomed PR details in
+  an overlay, keeping the current route, scroll position, and composer state. Close,
+  Escape, or the backdrop dismisses it. Workspace Home keeps its monitored repository
+  and workspace context. The PR list is not loaded behind the overlay; **See all** and
+  **Start review** still navigate to the PR list. Nested review/merge dialogs consume
+  Escape, and returning from the embedded browser resumes the open details.
 - **Watch modal**: `Esc`/`✕` closes at any step without saving. Selecting a result loads
   the preview (spinner replaces content area); Watch is disabled until the preview loads.
   Watch posts the preview fingerprint; a `WatchPreviewChangedException` re-opens the

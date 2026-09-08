@@ -212,11 +212,12 @@ export default function AttentionList({
               key={item.key}
               role="button"
               tabIndex={0}
-              onClick={() => onOpen(item)}
+              onClick={() => { closePreview(); onOpen(item); }}
               onKeyDown={event => {
                 if (event.target !== event.currentTarget) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
+                closePreview();
                 onOpen(item);
               }}
               onMouseEnter={event => enterRow(item, event.currentTarget)}

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
-import { Bell, Check, CircleSlash, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound } from 'lucide-react';
+import { Bell, Check, CircleSlash, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
@@ -260,14 +260,19 @@ export default function PullsScreen({
   repositoryScope,
   browserOpen = false,
   onSelectPullRequest,
+  onClose,
 }: {
   initialPr?: { repo: string; number: number };
   /** Filter tab to open on (from the Home review card). */
   initialTab?: PullTab;
   repositoryScope?: { workspaceId: string; repository: string };
   browserOpen?: boolean;
-  onSelectPullRequest: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
+  onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
+  /** Opens only initialPr over the current page, without list reads or navigation. */
+  onClose?: () => void;
 }) {
+  const overlay = onClose !== undefined;
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [viewerLogin, setViewerLogin] = useState<string | null>();
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
@@ -290,7 +295,7 @@ export default function PullsScreen({
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!overlay);
   const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
@@ -327,6 +332,15 @@ export default function PullsScreen({
   const monitorRequests = useRef(new Set<number>());
   viewerLoginRef.current = viewerLogin;
   listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
+
+  useEffect(() => {
+    if (!overlay) return;
+    const previousFocus = document.activeElement;
+    overlayRef.current?.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, [overlay]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,13 +440,16 @@ export default function PullsScreen({
       : null);
   }, []);
 
-  useEffect(() => window.bridge.onPullRequestsSynced(() => {
-    const current = listContext.current;
-    const request = ++listRequest.current;
-    void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query)
-      .then(result => { if (request === listRequest.current) applyPage(result); })
-      .catch(() => {});
-  }), [applyPage]);
+  useEffect(() => {
+    if (overlay) return;
+    return window.bridge.onPullRequestsSynced(() => {
+      const current = listContext.current;
+      const request = ++listRequest.current;
+      void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query)
+        .then(result => { if (request === listRequest.current) applyPage(result); })
+        .catch(() => {});
+    });
+  }, [applyPage, overlay]);
 
   useEffect(() => {
     const updateAttention = (event: Event) => {
@@ -475,17 +492,19 @@ export default function PullsScreen({
   }, [applyPage, repositoryScope?.workspaceId]);
 
   useEffect(() => {
-    if (!detailZoomed || browserOpen) return;
+    if ((!detailZoomed && !overlay) || browserOpen) return;
     const exitFullScreen = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.key !== 'Escape') return;
       event.preventDefault();
-      setDetailZoomed(false);
+      if (onClose) onClose();
+      else setDetailZoomed(false);
     };
     window.addEventListener('keydown', exitFullScreen);
     return () => window.removeEventListener('keydown', exitFullScreen);
-  }, [browserOpen, detailZoomed]);
+  }, [browserOpen, detailZoomed, onClose, overlay]);
 
   useEffect(() => {
+    if (overlay) return;
     const request = ++listRequest.current;
     setLoading(true);
     setError(null);
@@ -503,7 +522,7 @@ export default function PullsScreen({
       .finally(() => {
         if (request === listRequest.current) setLoading(false);
       });
-  }, [applyPage, query, repositoryScope?.workspaceId]);
+  }, [applyPage, overlay, query, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setQuery(search.trim()), 250);
@@ -527,6 +546,7 @@ export default function PullsScreen({
   // Capture phase: on this screen Command-F belongs to the list search, and
   // the window-level find bar would otherwise open on top of it.
   useEffect(() => {
+    if (overlay) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isFindShortcut(event)) {
         event.preventDefault();
@@ -541,7 +561,7 @@ export default function PullsScreen({
     };
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [selectTab]);
+  }, [overlay, selectTab]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;
@@ -619,7 +639,7 @@ export default function PullsScreen({
     () => PULL_TABS.map(item => `${rowsForTab(prs, item.key, viewerLogin).length}${hasMore ? '+' : ''}`),
     [hasMore, prs, viewerLogin],
   );
-  const visibleSelected = visibleSelectedId(rows, selected);
+  const visibleSelected = overlay ? selected : visibleSelectedId(rows, selected);
   const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
@@ -629,6 +649,7 @@ export default function PullsScreen({
     : { id: selectedPr.id, key: `${selectedPr.repo.toLowerCase()}#${selectedPr.number}` };
 
   useEffect(() => {
+    if (overlay) return;
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) return;
     const selectedKey = `${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
     if (routingInitialPr.current !== null) {
@@ -639,8 +660,8 @@ export default function PullsScreen({
       setSelected(selectedPrId);
       return;
     }
-    onSelectPullRequest({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
-  }, [onSelectPullRequest, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
+    onSelectPullRequest?.({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
+  }, [onSelectPullRequest, overlay, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   useEffect(() => {
     manualDetailRefreshRequest.current += 1;
@@ -782,7 +803,7 @@ export default function PullsScreen({
   }, [detailTab, selectedPr, diffs]);
 
   const pick = (row: PullRow) => {
-    onSelectPullRequest({ repo: row.repo, number: row.num }, 'push');
+    onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
     diffRequest.current += 1;
     setSelected(row.id);
     setDetailTab('overview');
@@ -856,7 +877,7 @@ export default function PullsScreen({
       if (request !== manualDetailRefreshRequest.current
           || selectedPullRequest.current?.key !== selectedKey) return;
       applyDetail(selectedPr.id, value, true, requestMutationVersion);
-      if (listVersion === listRequest.current) {
+      if (!overlay && listVersion === listRequest.current) {
         try {
           const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
           if (request === manualDetailRefreshRequest.current
@@ -879,7 +900,7 @@ export default function PullsScreen({
       if (request === manualDetailRefreshRequest.current
           && selectedPullRequest.current?.key === selectedKey) setDetailLoading(false);
     }
-  }, [applyDetail, applyPage, detailLoading, query, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyDetail, applyPage, detailLoading, overlay, query, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;
@@ -946,8 +967,14 @@ export default function PullsScreen({
   const paneShown = paneOpen && selectedPr !== null;
 
   return (
-    <div className="pulls-page">
-      <section className="pulls-list">
+    <div className={`pulls-page${overlay ? ' pulls-page--overlay' : ''}`}
+      ref={overlayRef}
+      role={overlay ? 'dialog' : undefined}
+      aria-modal={overlay ? true : undefined}
+      aria-label={overlay ? `Pull request ${initialPr?.repo} #${initialPr?.number}` : undefined}
+      tabIndex={overlay ? -1 : undefined}
+      onMouseDown={event => { if (overlay && event.target === event.currentTarget) onClose?.(); }}>
+      {!overlay && <section className="pulls-list">
         <header className="pulls-toolbar" ref={toolbar}>
           <PullFilterTabs
             tab={tab}
@@ -1032,11 +1059,29 @@ export default function PullsScreen({
           <div ref={loadMoreMarker} aria-hidden="true" />
           {loadingMore && <div className="hp-loading">Loading more…</div>}
         </div>
-      </section>
+      </section>}
+
+      {overlay && selectedPr === null && (
+        <section className="pull-detail is-zoomed">
+          <header className="pull-detail__header pull-detail__header--tabs">
+            <div className="pull-detail__toolbar">
+              <span>{initialPr?.repo} #{initialPr?.number}</span>
+              <div className="pull-detail__header-actions">
+                <button className="pull-detail__icon-action" type="button" aria-label="Close pull request details" title="Close (Esc)" onClick={onClose}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </header>
+          {error
+            ? <div className="pull-detail__error" role="alert">{error}</div>
+            : <div className="pull-detail__loading" role="status">Loading details…</div>}
+        </section>
+      )}
 
       {paneShown && selectedPr !== null && (
-        <section className={`pull-detail${detailZoomed ? ' is-zoomed' : ''}`}
-          style={detailZoomed ? undefined : { width: detailWidth }}>
+        <section className={`pull-detail${detailZoomed || overlay ? ' is-zoomed' : ''}`}
+          style={detailZoomed || overlay ? undefined : { width: detailWidth }}>
           <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
             aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />
           <PullDetailHeader
@@ -1053,8 +1098,9 @@ export default function PullsScreen({
             refreshing={detailLoading}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
-            zoomed={detailZoomed}
+            zoomed={detailZoomed || overlay}
             onZoom={() => setDetailZoomed(value => !value)}
+            onClose={onClose}
           />
           {error && <div className="pull-detail__error">{error}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
@@ -1167,6 +1213,7 @@ export function PullDetailHeader({
   onPendingCommentsChange,
   zoomed,
   onZoom,
+  onClose,
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
@@ -1184,6 +1231,7 @@ export function PullDetailHeader({
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   zoomed: boolean;
   onZoom: () => void;
+  onClose?: () => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -1265,12 +1313,15 @@ export function PullDetailHeader({
           </button>
         </nav>
         <div className="pull-detail__header-actions">
-          <button className="pull-detail__icon-action" type="button"
+          {onClose ? <button className="pull-detail__icon-action" type="button"
+            title="Close (Esc)" aria-label="Close pull request details" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button> : <button className="pull-detail__icon-action" type="button"
             title={zoomed ? 'Exit full screen (Esc)' : 'Enter full screen'}
             aria-label={zoomed ? 'Exit full screen' : 'Enter full screen'}
             aria-pressed={zoomed} onClick={onZoom}>
             <ZoomIcon zoomed={zoomed} />
-          </button>
+          </button>}
           <button className={`pull-detail__icon-action${refreshing ? ' is-refreshing' : ''}`} type="button"
             title={refreshing ? 'Refreshing pull request…' : 'Refresh'}
             aria-label="Refresh pull request"
@@ -1392,7 +1443,9 @@ export function ReviewDialog({
 
   useEffect(() => {
     const close = (keyboardEvent: KeyboardEvent) => {
-      if (keyboardEvent.key === 'Escape' && !submitting) onClose();
+      if (keyboardEvent.defaultPrevented || keyboardEvent.key !== 'Escape') return;
+      keyboardEvent.preventDefault();
+      if (!submitting) onClose();
     };
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
@@ -1433,6 +1486,7 @@ export function ReviewDialog({
       </div>
       <div className="pr-review-sheet__content">
         <textarea
+          autoFocus
           value={body}
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
@@ -1509,7 +1563,11 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
   const blocked = state === 'failed' || state === 'blocked';
 
   useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape' && !submitting) onClose(); };
+    const close = (keyboardEvent: KeyboardEvent) => {
+      if (keyboardEvent.defaultPrevented || keyboardEvent.key !== 'Escape') return;
+      keyboardEvent.preventDefault();
+      if (!submitting) onClose();
+    };
     document.addEventListener('keydown', close);
     return () => document.removeEventListener('keydown', close);
   }, [onClose, submitting]);
@@ -1535,7 +1593,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
     <section className="pr-merge-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-merge-title">
       <div className="pr-merge-sheet__header">
         <h2 id="pr-merge-title">Merge pull request</h2>
-        <button type="button" aria-label="Close merge dialog" disabled={submitting} onClick={onClose}>×</button>
+        <button type="button" aria-label="Close merge dialog" autoFocus disabled={submitting} onClick={onClose}>×</button>
       </div>
       <div className="pr-merge-sheet__content">
         <div className={`pr-merge-status-card${blocked ? ' is-danger' : ''}`}>

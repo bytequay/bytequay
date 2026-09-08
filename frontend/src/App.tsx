@@ -71,6 +71,7 @@ export default function App() {
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [previewPr, setPreviewPr] = useState<{ repo: string; number: number; workspaceId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
@@ -138,6 +139,7 @@ export default function App() {
     if (status !== 'ready') return;
     let request = 0;
     const applyRoute = () => {
+      setPreviewPr(null);
       const workspaceLocation = workspaceLocationFromRoute(window.location.hash);
       if (!workspaceLocation) {
         request++;
@@ -239,6 +241,15 @@ export default function App() {
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
   }, [navigateTo]);
 
+  const previewWorkspacePullRequest = useCallback((number: number) => {
+    const current = workspaceRef.current;
+    if (current) setPreviewPr({
+      repo: `${current.monitoredOwner}/${current.monitoredRepo}`, number, workspaceId: current.id,
+    });
+  }, []);
+
+  const closePreview = useCallback(() => setPreviewPr(null), []);
+
   const selectAgentTask = useCallback((taskId: string | null, mode: NavigationMode) => {
     const current = workspaceRef.current;
     if (!current) return;
@@ -288,12 +299,14 @@ export default function App() {
   }
 
   const openPr = (owner: string, repo: string, number?: number) => {
-    setInitialPr(number === undefined ? undefined : { repo: `${owner}/${repo}`, number });
+    if (number !== undefined) {
+      setPreviewPr({ repo: `${owner}/${repo}`, number });
+      return;
+    }
+    setInitialPr(undefined);
     updateWorkspace(null);
     setPage('pulls');
-    window.location.hash = number === undefined
-      ? '#/pulls'
-      : pullRequestRoute({ owner, repo, number });
+    window.location.hash = '#/pulls';
   };
 
   const openWorkspace = (workspaceId: string) => {
@@ -312,7 +325,8 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <>
+    <div className="app-shell" inert={previewPr !== null}>
       <AppSidebar
         page={page}
         canGoBack={canGoBack(navigation)}
@@ -366,6 +380,7 @@ export default function App() {
             initialAgentTaskId={initialAgentTaskId}
             browserOpen={browserUrl !== null}
             onSelectPullRequest={selectWorkspacePullRequest}
+            onPreviewPullRequest={previewWorkspacePullRequest}
             onSelectAgentTask={selectAgentTask}
             onSelectIssue={selectWorkspaceIssue}
             onRemoved={() => { window.location.hash = '#/workspaces'; }}
@@ -373,6 +388,18 @@ export default function App() {
         )}
         {page === 'settings' && <SettingsShell />}
       </main>
+    </div>
+      {previewPr !== null && (
+        <PullsScreen
+          key={`${previewPr.workspaceId ?? ''}:${previewPr.repo}#${previewPr.number}`}
+          initialPr={previewPr}
+          repositoryScope={previewPr.workspaceId === undefined
+            ? undefined
+            : { workspaceId: previewPr.workspaceId, repository: previewPr.repo }}
+          browserOpen={browserUrl !== null}
+          onClose={closePreview}
+        />
+      )}
       {paletteOpen && (
         <RecentPalette
           onClose={() => setPaletteOpen(false)}
@@ -384,6 +411,6 @@ export default function App() {
         <InAppBrowser url={browserUrl} fullScreen={fullScreen} onClose={() => setBrowserUrl(null)} />
       )}
       {browserUrl === null && <FindBar />}
-    </div>
+    </>
   );
 }

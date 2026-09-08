@@ -307,8 +307,8 @@ export default function AgentReviewTab({
       <div className="agr-empty">
         <div className="agr-empty__title">Agent review needs a watched repository</div>
         <p>
-          A private review checks the pull request out into a managed worktree, so it runs from the workspace that
-          watches {detail.repo}. Open this pull request from that workspace to start one.
+          Watch {detail.repo} in Workspaces to start a private review. ByteQuay uses that workspace&apos;s managed
+          worktree, and the review is available here or from the workspace.
         </p>
       </div>
     );

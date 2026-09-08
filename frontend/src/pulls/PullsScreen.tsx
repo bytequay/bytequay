@@ -16,7 +16,7 @@ import { Check, Diff, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw }
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
+import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
@@ -44,6 +44,30 @@ import {
 import '../css/pulls.css';
 
 type DetailTab = 'overview' | 'changes' | 'review';
+
+type AgentReviewContext = {
+  workspaceId: string | undefined;
+  review: AgentReviewDto | null;
+};
+
+export async function loadAgentReviewContext(
+  bridge: Pick<Bridge, 'listWorkspaces' | 'findAgentReview'>,
+  repo: string,
+  number: number,
+  workspaceId?: string,
+): Promise<AgentReviewContext> {
+  if (workspaceId !== undefined) {
+    return { workspaceId, review: await bridge.findAgentReview(workspaceId, repo, number) };
+  }
+  const workspaces = (await bridge.listWorkspaces()).filter(workspace =>
+    `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase() === repo.toLowerCase());
+  // Several fork workspaces can watch the same upstream. Reuse a review before offering a new one.
+  for (const workspace of workspaces) {
+    const review = await bridge.findAgentReview(workspace.id, repo, number);
+    if (review !== null) return { workspaceId: workspace.id, review };
+  }
+  return { workspaceId: workspaces[0]?.id, review: null };
+}
 
 const DETAIL_MIN = 680;
 const DETAIL_MAX = 1600;
@@ -156,7 +180,8 @@ export default function PullsScreen({
   const [viewerLogin, setViewerLogin] = useState<string | null>();
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
   /** The open review of the selected pull request, loaded once per selection and kept live by its tab. */
-  const [review, setReview] = useState<AgentReviewDto | null>(null);
+  const [reviewContext, setReviewContext] = useState<(AgentReviewContext & { key: string; error: string | null }) | null>(null);
+  const [reviewReload, setReviewReload] = useState(0);
   /** Where Changes should scroll, set when a finding asks to be shown at its diff location. */
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   /** A finding the Changes tab sent back to Agent review, so its card opens and scrolls. */
@@ -609,18 +634,39 @@ export default function PullsScreen({
     };
   }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
-  const workspaceId = repositoryScope?.workspaceId;
+  const scopedWorkspaceId = repositoryScope?.workspaceId;
+  const reviewKey = selectedPrRepo === undefined || selectedPrNumber === undefined
+    ? null
+    : `${scopedWorkspaceId ?? ''}:${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
+  const currentReviewContext = reviewContext?.key === reviewKey ? reviewContext : null;
+  const workspaceId = currentReviewContext?.workspaceId;
+  const review = currentReviewContext?.review ?? null;
+  const reviewLoading = reviewKey !== null && currentReviewContext === null;
+  const reviewError = currentReviewContext?.error ?? null;
+
   useEffect(() => {
-    setReview(null);
+    setReviewContext(null);
     setReviewNavigation(null);
     setFocusFindingId(null);
-    if (workspaceId === undefined || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
+    if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
-    void window.bridge.findAgentReview(workspaceId, selectedPrRepo, selectedPrNumber)
-      .then(found => { if (!cancelled) setReview(found); })
-      .catch(() => { if (!cancelled) setReview(null); });
+    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId)
+      .then(context => {
+        if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });
+      })
+      .catch(failure => {
+        if (!cancelled) setReviewContext({ key: reviewKey, workspaceId: undefined, review: null, error: remoteErrorMessage(failure) });
+      });
     return () => { cancelled = true; };
-  }, [workspaceId, selectedPrRepo, selectedPrNumber]);
+  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload]);
+
+  const updateReview = useCallback((updated: AgentReviewDto) => {
+    setReviewContext(current => current !== null && current.key === reviewKey
+      && current.workspaceId === updated.workspaceId
+      && updated.repo.toLowerCase() === selectedPrRepo?.toLowerCase() && updated.number === selectedPrNumber
+      ? { ...current, review: updated }
+      : current);
+  }, [reviewKey, selectedPrRepo, selectedPrNumber]);
 
   useEffect(() => {
     if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
@@ -920,6 +966,15 @@ export default function PullsScreen({
             <div className="pull-detail__loading">Loading details…</div>
           ) : detail === null ? (
             !error && <div className="pull-detail__loading">Select a pull request.</div>
+          ) : detailTab === 'review' && (reviewLoading || reviewError !== null) ? (
+            <div className="pull-detail__body pull-detail__review">
+              {reviewLoading ? <div className="hp-loading" role="status">Loading agent review…</div> : (
+                <div className="agr-empty">
+                  <div className="agr-error" role="alert">Could not load agent review. {reviewError}</div>
+                  <button type="button" className="agr-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
+                </div>
+              )}
+            </div>
           ) : (
             <DetailBody
               tab={detailTab}
@@ -930,7 +985,7 @@ export default function PullsScreen({
               review={review}
               reviewNavigation={reviewNavigation}
               focusFindingId={focusFindingId}
-              onReviewChange={setReview}
+              onReviewChange={updateReview}
               onNavigateToChanges={target => {
                 setReviewNavigation(target);
                 setFocusFindingId(null);
@@ -1506,6 +1561,7 @@ function DetailBody({
 }) {
   if (tab === 'review') {
     return <div className="pull-detail__body pull-detail__review"><AgentReviewTab
+      key={`${workspaceId ?? ''}:${detail.repo.toLowerCase()}#${detail.number}`}
       detail={detail}
       workspaceId={workspaceId}
       viewer={viewer}

@@ -57,6 +57,13 @@ eligibility predicate to hide it. Remote publication retains existing
 account/PR eligibility checks; a private review does not grant new remote
 approval or comment permissions.
 
+The global PR view resolves watched workspaces by the PR's monitored repository
+identity, including upstream repositories watched through forks. Reuse the
+first matching workspace with an open review; if none has one, use the first
+matching workspace in saved display order for Start review. An explicitly
+opened workspace keeps its own review context. Loading or failed context reads
+must not be presented as an unwatched repository.
+
 ### Visual contract
 
 The checked-in PR page is the styling source of truth. Reuse its actual

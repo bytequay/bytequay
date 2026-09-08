@@ -15,10 +15,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { Bridge, WorkspaceDto } from '../types';
+import { reviewFixture } from './agent-review/fixtures/review';
 import type { PullTab } from './model';
 import {
   compactToolbar,
+  loadAgentReviewContext,
   mergePullRequestDetailStatus,
   PullFilterTabs,
   pullRequestDetailRefreshDelay,
@@ -28,6 +31,103 @@ import {
   showBlockingDetailLoading,
   tabKeyTarget,
 } from './PullsScreen';
+
+function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
+  return {
+    id,
+    name: 'my-fork/trino',
+    selectedRepositoryId: 1,
+    selectedOwner: 'my-fork',
+    selectedRepo: 'trino',
+    upstreamRepositoryId: 2,
+    upstreamOwner: 'trinodb',
+    upstreamRepo: 'trino',
+    monitoredRepositoryId: 2,
+    monitoredOwner: 'trinodb',
+    monitoredRepo: 'trino',
+    topology: 'FORK',
+    defaultBranch: 'master',
+    upstreamDefaultBranch: 'master',
+    localRepositoryPath: '/tmp/trino',
+    lastCodeSyncAt: null,
+    lastMetadataSyncAt: null,
+    displayOrder: 0,
+    ...overrides,
+  };
+}
+
+describe('loadAgentReviewContext', () => {
+  it('keeps an explicitly opened workspace as the review context', async () => {
+    const review = reviewFixture();
+    const bridge = {
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(review),
+    };
+
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number, review.workspaceId))
+      .resolves.toEqual({ workspaceId: review.workspaceId, review });
+    expect(bridge.listWorkspaces).not.toHaveBeenCalled();
+    expect(bridge.findAgentReview).toHaveBeenCalledWith(review.workspaceId, review.repo, review.number);
+  });
+
+  it('opens the first existing global PR review across matching watched repositories, regardless of casing', async () => {
+    const review = reviewFixture({ workspaceId: 'workspace-2' });
+    const bridge = {
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+        workspace('workspace-1'),
+        workspace('workspace-2', { monitoredOwner: 'TrinoDB', monitoredRepo: 'Trino' }),
+        workspace('workspace-3'),
+      ]),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValueOnce(null).mockResolvedValue(review),
+    };
+
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number))
+      .resolves.toEqual({ workspaceId: review.workspaceId, review });
+    expect(bridge.findAgentReview.mock.calls).toEqual([
+      ['workspace-1', review.repo, review.number],
+      ['workspace-2', review.repo, review.number],
+    ]);
+  });
+
+  it('allows starting review in the first matching workspace when none has a review', async () => {
+    const bridge = {
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+        workspace('workspace-1'), workspace('workspace-2'),
+      ]),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(null),
+    };
+
+    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304))
+      .resolves.toEqual({ workspaceId: 'workspace-1', review: null });
+    expect(bridge.findAgentReview).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires a monitored repository match instead of matching only the selected fork', async () => {
+    const bridge = {
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([workspace('workspace-1')]),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
+    };
+
+    await expect(loadAgentReviewContext(bridge, 'my-fork/trino', 30304))
+      .resolves.toEqual({ workspaceId: undefined, review: null });
+    await expect(loadAgentReviewContext(bridge, 'other/repo', 30304))
+      .resolves.toEqual({ workspaceId: undefined, review: null });
+    expect(bridge.findAgentReview).not.toHaveBeenCalled();
+  });
+
+  it('propagates lookup failures so they cannot appear as an unwatched PR or absent review', async () => {
+    const failure = new Error('Backend unavailable');
+    const bridge = {
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockRejectedValueOnce(failure)
+        .mockResolvedValue([workspace('workspace-1')]),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockRejectedValue(failure),
+    };
+
+    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
+    expect(bridge.findAgentReview).not.toHaveBeenCalled();
+    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
+  });
+});
 
 describe('mergePullRequestDetailStatus', () => {
   it('changes only mergeability and CI fields', () => {

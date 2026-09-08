@@ -13,6 +13,7 @@
  */
 
 import type { AgentEventEnvelope } from './events';
+import { compactHistoryPages } from './history';
 import type { ApprovalBlock } from './transcript';
 import type {
   AgentCapabilitiesDto,
@@ -78,7 +79,7 @@ export interface AgentTaskState {
   turns: Record<string, AgentTurnDto>;
   /** Applied events in sequence order. */
   events: AgentEventEnvelope[];
-  /** Only these bounded pages own transcript payloads. Live notifications never accumulate here. */
+  /** Bounded compact pages own transcript payloads. Live notifications never accumulate here. */
   historyPages: AgentHistoryPageDto[];
   /** Highest sequence applied; what a subscription resumes from. */
   lastSequence: number;
@@ -232,12 +233,12 @@ function observeEvents(state: AgentTaskState, events: AgentEventEnvelope[]): Age
   return { ...state, lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch };
 }
 
-/** Three pages retain at most 3,000 events: 6 MiB stored JSON and 36 MiB normalized JSON. */
+/** Compact repeated output before applying the 3,000-event / 36 MiB retained-window limit. */
 function applyHistoryPage(state: AgentTaskState, page: AgentHistoryPageDto, direction: 'latest' | 'older' | 'newer', earlier: AgentHistoryPageDto[] = []): AgentTaskState {
   if (direction === 'latest' && historyAfter(state) === null && page.latestSequence < (state.historyPages.at(-1)?.latestSequence ?? 0)) return state;
-  const pages = direction === 'latest' ? [...earlier, page].slice(-3)
-    : direction === 'older' ? [page, ...state.historyPages].slice(0, 3)
-    : [...state.historyPages, page].slice(-3);
+  const combined = compactHistoryPages(direction === 'latest' ? [...earlier, page]
+    : direction === 'older' ? [page, ...state.historyPages] : [...state.historyPages, page]);
+  const pages = direction === 'older' ? combined.slice(0, 3) : combined.slice(-3);
   const events = pages.flatMap((entry) => entry.events);
   const retainedTurns = new Set(events.flatMap((event) => event.turnId === null ? [] : [event.turnId]));
   if (state.turn !== null) retainedTurns.add(state.turn.id);

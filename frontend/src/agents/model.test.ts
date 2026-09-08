@@ -671,26 +671,26 @@ describe('bounded history pages', () => {
     expect(agentTaskReducer(state, { type: 'live/changed', sequence: 31, turnId: 'turn-1' }).events).toBe(state.events);
   });
 
-  it('opens a tail above sequence one and retains only three adjacent pages while browsing', () => {
-    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(801, 1000), direction: 'latest' });
+  it('opens a tail above sequence one and bounds uncompacted history while browsing', () => {
+    let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(4001, 5000, 5000), direction: 'latest' });
     expect(state.gap).toBe(false);
-    expect(state.lastSequence).toBe(1000);
-    expect(state.latestTurnId).toBe('turn-801');
-    for (const start of [601, 401, 201, 1]) {
-      state = agentTaskReducer(state, { type: 'history/loaded', page: page(start, start + 199), direction: 'older' });
+    expect(state.lastSequence).toBe(5000);
+    expect(state.latestTurnId).toBe('turn-4001');
+    for (const start of [3001, 2001, 1001, 1]) {
+      state = agentTaskReducer(state, { type: 'history/loaded', page: page(start, start + 999, 5000), direction: 'older' });
       expect(state.historyPages.length).toBeLessThanOrEqual(3);
-      expect(state.events.length).toBeLessThanOrEqual(600);
-      expect(state.lastSequence).toBe(1000);
-      expect(state.latestTurnId).toBe('turn-801');
+      expect(state.events.length).toBeLessThanOrEqual(3000);
+      expect(state.lastSequence).toBe(5000);
+      expect(state.latestTurnId).toBe('turn-4001');
     }
     expect(state.events[0].sequence).toBe(1);
-    expect(state.events.at(-1)?.sequence).toBe(600);
+    expect(state.events.at(-1)?.sequence).toBe(3000);
     expect(historyBefore(state)).toBeNull();
-    expect(historyAfter(state)).toBe('byte-601');
-    state = agentTaskReducer(state, { type: 'history/loaded', page: page(601, 800), direction: 'newer' });
-    expect(state.events[0].sequence).toBe(201);
-    expect(state.events.at(-1)?.sequence).toBe(800);
-    expect(state.events).toHaveLength(600);
+    expect(historyAfter(state)).toBe('byte-3001');
+    state = agentTaskReducer(state, { type: 'history/loaded', page: page(3001, 4000, 5000), direction: 'newer' });
+    expect(state.events[0].sequence).toBe(1001);
+    expect(state.events.at(-1)?.sequence).toBe(4000);
+    expect(state.events).toHaveLength(3000);
   });
 
   it('observes live changes while old pages remain unchanged and rejects stale latest responses', () => {

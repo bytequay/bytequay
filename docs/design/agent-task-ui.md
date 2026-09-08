@@ -24,12 +24,17 @@ Each history page contains at most 1,000 events and 2 MiB of stored event JSON.
 Normalizing defaulted fields in old records can expand the response, so the
 renderer separately enforces a 12 MiB cap on each page's normalized event JSON.
 Opaque byte cursors load adjacent older or newer pages. Scrolling near
-the top loads one older page and preserves the visible scroll anchor. Opening
-or following a task fills the recent three-page window, so small streamed output
-deltas do not crowd out most of the conversation. The
-renderer retains at most three pages (3,000 events, 6 MiB of stored JSON, and
-36 MiB of normalized event JSON),
-evicts content away from the viewport, and can reload evicted pages. Returning
+the top loads one older transport page and preserves the visible scroll anchor.
+Opening or following a task reads at most three recent transport pages.
+Before retention, the renderer combines redundant updates to the same streamed
+item while preserving its first occurrence, text/output, and authoritative
+completion. Other conversation and lifecycle events remain intact. Adjacent
+compact pages coalesce up to 1,000 retained events and 12 MiB of normalized
+JSON per page. The renderer retains at most three of these compact pages
+(3,000 retained events and 36 MiB of normalized event JSON), so thousands of
+output deltas from one command do not evict the surrounding messages.
+The outer byte cursors still address the original log. It evicts content away
+from the viewport and can reload evicted pages. Returning
 to the latest view requests a fresh bounded page. Live updates keep their own
 sequence cursor; browsing older pages never rewinds current task state or
 replays all intervening messages into memory.
@@ -51,8 +56,17 @@ bottom, unless the conversation has become short enough to fit the viewport.
 These JSON budgets do not include JavaScript object, DOM, or decoded-image
 overhead; attachment and UI caches must also remain bounded.
 
-A page can cut through a turn or a streamed item. The UI shows loading text only
-while fetching earlier content, with no instruction to scroll up. It uses durable
+The 2026-09-08 follow-up reproduced a raw-page eviction in the actual task UI:
+one older page replaced the visible conversation and final answer with a single
+collapsed command. Scroll anchoring cannot retain messages removed from the
+window. Compact retention replaces the previous three-transport-page limit;
+the per-request count/byte limits and the retained normalized-JSON budget stay
+bounded. Browser regressions exercise the production task component, CSS,
+projection, and reducer with thousands of command updates and native wheel input.
+
+A page can cut through a turn or a streamed item. The UI shows one loading
+indicator over the transcript while fetching content; it never inserts a row
+that shifts the reading position. It uses durable
 turn facts for controls and headers, and never
 calls unloaded subagent activity expired. Historical approval cards cannot
 become actionable because their resolution lies outside the window. Attachment

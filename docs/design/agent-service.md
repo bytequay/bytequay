@@ -17,10 +17,12 @@ or new durable lifecycle is added.
 HTTP normalization can add defaulted fields to older records. A separate
 12 MiB limit applies to each page's normalized event JSON, allowing an existing
 2 MiB record to remain readable without splitting or truncating it. The largest
-measured expansion from the accepted DTO defaults is 11,247,337 bytes. Three
-retained pages represent at most 3,000 events, 6 MiB of stored JSON and 36 MiB of normalized
-event JSON; JavaScript objects, DOM nodes, and image buffers have additional
-memory costs and their own retention limits.
+measured expansion from the accepted DTO defaults is 11,247,337 bytes. The
+renderer compacts repeated item updates and coalesces adjacent transport pages
+before applying its three-page retention limit: at most 3,000 retained events
+and 36 MiB of normalized event JSON. Original log records and transport page
+limits remain unchanged. JavaScript objects, DOM nodes, and image buffers have
+additional memory costs and their own retention limits.
 
 SSE resumes from the latest page's sequence and reads catch-up from the durable
 log under subscriber demand. It must not materialize an entire replay list or

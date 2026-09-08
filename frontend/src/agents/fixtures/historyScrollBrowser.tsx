@@ -12,11 +12,21 @@
  * limitations under the License.
  */
 
-import { useReducer } from 'react';
+import { useReducer, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { useConversationHistory } from '../AgentConversation';
+import { AgentTaskBody } from '../AgentTaskScreen';
+import type { AgentHistoryPageDto, AgentTurnDto } from '../../types';
 import type { AgentEventEnvelope } from '../events';
+import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState } from '../model';
+import { previewTask } from './previewBridge';
+
+declare global {
+  interface Window {
+    historyTestWheel: (event: { x: number; y: number; deltaY: number }) => Promise<void>;
+  }
+}
 
 type Frame = {
   events: AgentEventEnvelope[];
@@ -109,6 +119,103 @@ function fixture(initial: Partial<Frame> = {}) {
     },
     dispose() { flushSync(() => root.unmount()); host.remove(); },
   };
+}
+
+async function longCommandConversation(): Promise<void> {
+  const events = page(1, 7010).map((event): AgentEventEnvelope => event.sequence <= 7000 ? {
+    ...event, source: { ...event.source, providerItemId: 'long-command' }, type: 'command',
+    payload: {
+      state: 'PROGRESS', argv: ['mvn', 'verify'], output: `Building module ${event.sequence}: compilation complete.\n`,
+      exitCode: null, truncated: false, cwd: '.', durationMs: null, actions: [],
+    },
+  } : {
+    ...event, type: 'assistant_message',
+    payload: {
+      messageKind: event.sequence === 7010 ? 'ANSWER' : 'COMMENTARY', phase: 'FINAL',
+      text: `Reading checkpoint ${event.sequence}. The build finished and this message explains the next step.\n\nThis paragraph should remain readable when earlier command output arrives.`,
+    },
+  });
+  const read = (end: number): AgentHistoryPageDto => {
+    const start = Math.max(0, end - 1000);
+    return { events: events.slice(start, end), beforeCursor: start === 0 ? null : String(start), afterCursor: end === events.length ? null : String(end), latestSequence: events.length };
+  };
+  const turn: AgentTurnDto = {
+    id: 'turn', taskId: 'scroll-fixture', state: 'COMPLETED', version: 1, createdAt: '2026-09-08T00:00:00Z',
+    startedAt: '2026-09-08T00:00:00Z', endedAt: '2026-09-08T00:10:00Z', cancellationRequestedAt: null,
+    delivered: true, knownUnsent: false, settings: null, terminalReason: null,
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT10M' },
+  };
+  const initial = agentTaskReducer({
+    ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn, turns: { turn }, connection: 'open',
+  }, { type: 'history/loaded', page: read(7010), earlier: [read(5010), read(6010)], direction: 'latest' });
+  const host = document.createElement('div');
+  host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
+  document.body.append(host);
+  const root = createRoot(host);
+  const requests: string[] = [];
+  let respond = (): void => { throw new Error('No pending history read'); };
+  function Conversation() {
+    const [state, dispatch] = useReducer(agentTaskReducer, initial);
+    const [loading, setLoading] = useState(false);
+    return <AgentTaskBody
+      state={state} models={[]} historyLoading={loading} turnChoice={{ turn: true }}
+      onLoadHistory={direction => {
+        requests.push(direction);
+        setLoading(true);
+        const end = direction === 'older' ? Number(historyBefore(state))
+          : direction === 'newer' ? Math.min(events.length, Number(historyAfter(state)) + 1000) : events.length;
+        respond = () => { dispatch({ type: 'history/loaded', page: read(end), direction }); setLoading(false); };
+      }}
+      onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}}
+      onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}}
+    />;
+  }
+  try {
+    flushSync(() => root.render(<Conversation />));
+    await settle();
+    const container = host.querySelector<HTMLElement>('.agt-transcript');
+    assert(container !== null, 'The production task transcript is missing');
+    assert(container.scrollHeight > container.clientHeight + 400, 'The production CSS must constrain and scroll the transcript');
+    const paragraphs = [...container.querySelectorAll<HTMLElement>('.agt-text p, .agt-answer p')].map(element => element.textContent ?? '');
+    assert(paragraphs.length === 20, `Expected ten readable messages, found ${paragraphs.length / 2}`);
+    const wheel = async (deltaY: number): Promise<void> => {
+      const bounds = container.getBoundingClientRect();
+      await window.historyTestWheel({ x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2), deltaY });
+      await settle();
+    };
+    for (let step = 0; requests.length === 0 && step < 30; step++) await wheel(-120);
+    assert(requests.join() === 'older', 'Native mouse scrolling should request exactly one older page');
+    const visible = [...container.querySelectorAll<HTMLElement>('.agt-text p')].find(element => {
+      const bounds = element.getBoundingClientRect();
+      const viewport = container.getBoundingClientRect();
+      return element.textContent?.startsWith('Reading checkpoint') && bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+    });
+    assert(visible !== undefined, 'A commentary passage should still be visible while earlier output loads');
+    const readingTop = visible.getBoundingClientRect().top;
+    const readingText = visible.textContent;
+    flushSync(() => respond());
+    await settle();
+    const remaining = [...container.querySelectorAll<HTMLElement>('.agt-text p, .agt-answer p')].map(element => element.textContent ?? '');
+    assert(paragraphs.every(text => remaining.includes(text)), `Loading 1,000 earlier command deltas removed ${paragraphs.length - remaining.length} readable paragraphs`);
+    const retainedPassage = [...container.querySelectorAll<HTMLElement>('.agt-text p')].find(element => element.textContent === readingText);
+    assert(retainedPassage !== undefined && Math.abs(retainedPassage.getBoundingClientRect().top - readingTop) <= 1, 'Loading earlier command output must keep the current commentary passage in place');
+    container.scrollTop = 0;
+    await settle();
+    const firstParagraph = container.querySelector<HTMLElement>('.agt-text p');
+    assert(firstParagraph !== null, 'The first commentary should remain in the completed task');
+    const topBeforeLoading = firstParagraph.getBoundingClientRect().top;
+    await wheel(-120);
+    assert(requests.join() === 'older,older', 'An upward mouse wheel at the top should request the next older page');
+    assert(Math.abs(firstParagraph.getBoundingClientRect().top - topBeforeLoading) <= 1, 'The loading indicator must not push messages down at the top');
+    flushSync(() => respond());
+    await settle();
+    assert(Math.abs(firstParagraph.getBoundingClientRect().top - topBeforeLoading) <= 1, 'Removing the loading indicator must not pull messages up at the top');
+    for (let step = 0; container.scrollHeight - container.scrollTop - container.clientHeight > 1 && step < 30; step++) await wheel(120);
+    const answer = container.querySelector<HTMLElement>('.agt-answer');
+    assert(answer !== null && answer.getBoundingClientRect().bottom > container.getBoundingClientRect().top
+      && answer.getBoundingClientRect().bottom <= container.getBoundingClientRect().bottom, 'Scrolling back down should reach the existing final answer');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -215,5 +322,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     }
     finally { view.dispose(); }
   });
+  await check('keeps production task messages when paging through thousands of command deltas', longCommandConversation);
   return results;
 }

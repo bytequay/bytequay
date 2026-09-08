@@ -775,8 +775,8 @@ export function AgentConversation({
           : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
   return (
     <div className="agt-conversation">
+      {scroll.loading && <div className="agt-history-edge" role="status">Loading activity…</div>}
       <div className="agt-transcript" role="log" aria-label={label} tabIndex={0} {...scroll.transcriptProps}>
-        {scroll.before !== null && scroll.loading && <div className="agt-history-edge" role="status">Loading earlier activity…</div>}
         {pendingApprovals.filter(approval => !turns.some(turn => turn.blocks.some(block => block.kind === 'approval' && block.approvalId === approval.approvalId))).map(approval => (
           <ApprovalView key={approval.approvalId} block={pendingApprovalBlock(approval)} onDecide={onDecide} />
         ))}
@@ -799,7 +799,6 @@ export function AgentConversation({
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} />;
           })}
         {running && scroll.after === null && scroll.following && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />}
-        {scroll.after !== null && scroll.loading && <div className="agt-history-edge">Loading activity…</div>}
         {transcriptFooter}
       </div>
       <div className="agt-bottom">{children}</div>

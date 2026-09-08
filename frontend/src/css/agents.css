@@ -2010,6 +2010,7 @@
 }
 
 .agt-conversation {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -3391,13 +3392,17 @@
   }
 }
 
-/* History navigation stays inside the conversation's existing scroll surface. */
+/* Loading must not insert a row that pushes the passage being read down and back up. */
 .agt-history-edge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: #ffffff;
+  pointer-events: none;
   color: #57606a;
   font-size: 12px;
 }

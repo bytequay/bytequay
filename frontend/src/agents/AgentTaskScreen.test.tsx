@@ -624,6 +624,63 @@ describe('agent task side panel', () => {
     expect(markup).not.toContain('No pull requests from this task yet');
   });
 
+  it('keeps a background pull-request failure out of the transcript and subagents', () => {
+    const pullRequestError = 'Could not refresh the branch pull request.';
+    for (const panel of [{ panelOpen: false }, { panelOpen: true, panelTab: 'agents' as const }]) {
+      const markup = renderToStaticMarkup(
+        <AgentTaskBody state={state} pullRequestError={pullRequestError} {...panel} {...props} />);
+      expect(markup).not.toContain(pullRequestError);
+      expect(markup).not.toContain('class="agt-notice"');
+    }
+  });
+
+  it.each(['pr', 'changes'] as const)('retains the cached pull request and task error after a failed lookup on %s', (panelTab) => {
+    const pullRequestError = 'Could not refresh the branch pull request.';
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...state, notice: 'The message could not be sent.' }}
+        panelOpen panelTab={panelTab}
+        pullRequests={[pullRequest(482, 'Fix preview output limit')]}
+        pullRequestError={pullRequestError}
+        onRefreshPullRequests={() => {}}
+        {...props}
+      />);
+    expect(markup).toContain('PR #482');
+    expect(markup).toContain(pullRequestError);
+    expect(markup).toContain('>Retry</button>');
+    expect(markup).toContain('<div class="agt-notice" role="alert">The message could not be sent.</div>');
+    expect(markup).not.toContain('No pull request yet');
+    expect(markup).not.toContain('this task&#x27;s branch has no pull request');
+  });
+
+  it.each(['pr', 'changes'] as const)('does not report an empty branch or offer to create a PR when lookup failed on %s', (panelTab) => {
+    const pullRequestError = 'Could not refresh the branch pull request.';
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state} panelOpen panelTab={panelTab} pullRequests={[]}
+        pullRequestError={pullRequestError} pullRequestLoading
+        onRefreshPullRequests={() => {}} onCreatePullRequest={() => {}}
+        {...props}
+      />);
+    expect(markup).toContain(pullRequestError);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Retrying…<\/button>/);
+    expect(markup).not.toContain('No pull request yet');
+    expect(markup).not.toContain('this task&#x27;s branch has no pull request');
+    expect(markup).not.toContain('Create draft PR');
+    expect(markup).not.toContain('class="agt-notice"');
+  });
+
+  it('waits for the first pull-request lookup before offering an empty-branch action', () => {
+    const markup = renderToStaticMarkup(
+      <AgentTaskBody
+        state={state} panelOpen pullRequests={[]} pullRequestLoading
+        onCreatePullRequest={() => {}} {...props}
+      />);
+    expect(markup).toContain('Checking for a pull request…');
+    expect(markup).not.toContain('No pull request yet');
+    expect(markup).not.toContain('Create draft PR');
+  });
+
   it('hides the subagents tab when the lane does not advertise nested activity', () => {
     const claudeState = {
       ...state,

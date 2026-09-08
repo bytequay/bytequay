@@ -521,8 +521,11 @@ Both cached reads and GitHub refreshes use that monitored target. The task's
 stored repository identifies its checkout and must not be used as the PR target.
 The refresh is read-only on GitHub and persists the result before displaying it;
 cached rows remain visible while it runs or if it fails. This works independently
-of the selected side-panel tab and does not rely on repository search indexing
-or search results, which omit head branches. No transcript prose or PR URL is
+of the selected side-panel tab. Lookup failures appear only in the PR or Changes
+panel, with a read-only retry; they never replace a task-action error or create a
+conversation-wide failure banner. A failed lookup without a cached PR is unknown,
+so it does not show the no-PR creation state. This lookup does not rely on
+repository search indexing or search results, which omit head branches. No transcript prose or PR URL is
 treated as authoritative association, and no separate durable task-to-PR link
 is introduced. Matching stored rows remains repository plus branch.
 

@@ -42,6 +42,7 @@ import { pasteImage } from './clipboard';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import '../css/agents.css';
 import { AgentConversation, BlockView, clock, codeGraphText, ConversationComposer, ConversationQueue, Glyph, modelName, PlanSteps, serviceTierName, shortDate, Spinner, stateClass, useConversationHistory, useOutputWheel, type AttachmentPreview } from './AgentConversation';
 import {
@@ -581,6 +582,7 @@ function PanelFrame({ label, tabs, width, flush = false, children }: {
  */
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequest,
+  pullRequestError, pullRequestLoading, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
@@ -599,6 +601,9 @@ function SidePanel({
   tab: PanelTab;
   /** The pull request on this task's branch, or null while the branch has none. */
   pullRequest: PullRequestDto | null;
+  pullRequestError: string | null;
+  pullRequestLoading: boolean;
+  onRefreshPullRequests?: () => void;
   pullRequestDetail: TaskPullRequestDetail;
   pullRequestChanges: TaskPullRequestChanges;
   pullRequestCommitRange: CommitRange;
@@ -641,11 +646,22 @@ function SidePanel({
       onHide={onHide}
     />
   );
+  const pullRequestNotice = pullRequestError !== null
+    ? <div className="agt-note" role="status">
+        Could not refresh this task&apos;s pull request. {pullRequestError}{' '}
+        {onRefreshPullRequests !== undefined && <button
+          type="button" className="agt-action" disabled={pullRequestLoading} onClick={onRefreshPullRequests}
+        >{pullRequestLoading ? 'Retrying…' : 'Retry'}</button>}
+      </div>
+    : pullRequest === null && pullRequestLoading
+      ? <div className="agt-muted agt-panel__empty" role="status">Checking for a pull request…</div>
+      : null;
   if (tab === 'pr') {
     return (
       <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width}>
+        {pullRequestNotice}
         {pullRequest === null
-          ? <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
+          ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
           : (
             <TaskPullRequestView
               key={`${pullRequest.repo.toLowerCase()}#${pullRequest.number}`}
@@ -665,7 +681,8 @@ function SidePanel({
   if (tab === 'changes') {
     return (
       <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null}>
-        <TaskChangesView
+        {pullRequestNotice}
+        {(pullRequest !== null || pullRequestNotice === null) && <TaskChangesView
           pr={pullRequest}
           detail={pullRequestDetail.detail}
           changes={pullRequestChanges}
@@ -677,7 +694,7 @@ function SidePanel({
           onRefresh={pullRequestDetail.refresh}
           onDetailUpdate={pullRequestDetail.update}
           onDetailChange={pullRequestDetail.replace}
-        />
+        />}
       </PanelFrame>
     );
   }
@@ -830,6 +847,9 @@ export function AgentTaskBody({
   openAgent = null,
   panelTab = 'pr',
   pullRequests = [],
+  pullRequestError = null,
+  pullRequestLoading = false,
+  onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
   pullRequestCommitRange = null,
@@ -916,6 +936,9 @@ export function AgentTaskBody({
   /** Which side-panel tab is showing, and the pull requests found on the task's branch. */
   panelTab?: PanelTab;
   pullRequests?: PullRequestDto[];
+  pullRequestError?: string | null;
+  pullRequestLoading?: boolean;
+  onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
   pullRequestChanges?: TaskPullRequestChanges;
@@ -1181,6 +1204,9 @@ export function AgentTaskBody({
             now={now}
             tab={visiblePanelTab}
             pullRequest={taskPr}
+            pullRequestError={pullRequestError}
+            pullRequestLoading={pullRequestLoading}
+            onRefreshPullRequests={onRefreshPullRequests}
             pullRequestDetail={pullRequestDetail}
             pullRequestChanges={pullRequestChanges}
             pullRequestCommitRange={pullRequestCommitRange}
@@ -1257,7 +1283,7 @@ function failureText(failure: unknown): string {
     const command = unavailable.signInCommand ? ` Run: ${unavailable.signInCommand}` : '';
     return `${laneLabel(unavailable.laneId)} is not ready — ${unavailable.diagnostic}${command}`;
   }
-  return failure instanceof Error ? failure.message : String(failure);
+  return remoteErrorMessage(failure);
 }
 
 /** Replaces a possibly stale READY row with the typed refusal returned by the turn preflight. */
@@ -1304,6 +1330,9 @@ export default function AgentTaskScreen({
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
+  const [pullRequestError, setPullRequestError] = useState<string | null>(null);
+  const [pullRequestLoading, setPullRequestLoading] = useState(false);
+  const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyLoadingRef = useRef(false);
@@ -1501,22 +1530,33 @@ export default function AgentTaskScreen({
   const pullRequestTurnEndedAt = state.turn?.endedAt ?? null;
   const pullRequestTurnKnown = latestTurnId === null || latestTurnId === pullRequestTurnId;
   const pullRequestPanelVisible = panelOpen && panelTab !== 'agents';
+  const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
   useEffect(() => {
-    if (!taskLoaded || state.connection !== 'open' || !pullRequestTurnKnown || running) return;
+    if (!canRefreshPullRequests) {
+      setPullRequestLoading(false);
+      return;
+    }
     let active = true;
+    setPullRequestLoading(true);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
       if (!active) return;
       setPullRequests(cached);
       const found = await live().listAgentTaskPullRequests(taskId, workspaceId, true);
-      if (active) setPullRequests(found);
+      if (active) {
+        setPullRequests(found);
+        setPullRequestError(null);
+      }
     };
     void lookup()
       .catch((failure: unknown) => {
-        if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+        if (active) setPullRequestError(remoteErrorMessage(failure));
+      })
+      .finally(() => {
+        if (active) setPullRequestLoading(false);
       });
     return () => { active = false; };
-  }, [live, taskLoaded, state.connection, pullRequestTurnKnown, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, taskId, workspaceId, running]);
+  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, pullRequestRefresh, taskId, workspaceId]);
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
@@ -1991,6 +2031,9 @@ export default function AgentTaskScreen({
       openAgent={openAgent}
       panelTab={panelTab}
       pullRequests={pullRequests}
+      pullRequestError={pullRequestError}
+      pullRequestLoading={pullRequestLoading}
+      onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}

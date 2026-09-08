@@ -31,6 +31,7 @@ import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
+import com.google.common.collect.ImmutableSet;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +49,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.HandlerMapping;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -58,6 +60,18 @@ public class GlobalExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     private static final String INTERNAL_SERVER_ERROR_MESSAGE = "Internal server error";
+    private static final Set<String> GITHUB_REFRESH_ROUTES = ImmutableSet.of(
+            "/agent/tasks/{taskId}/pull-requests/sync",
+            "/api/settings/sync/trigger",
+            "/api/workspaces/{workspaceId}/git/commits/refresh",
+            "/api/workspaces/{workspaceId}/issues/refresh",
+            "/api/workspaces/{workspaceId}/issues/{issueNumber}/detail/refresh",
+            "/api/workspaces/{workspaceId}/pull-requests/sync",
+            "/api/workspaces/{workspaceId}/sync",
+            "/prs/detail/refresh",
+            "/prs/detail/refresh-all",
+            "/prs/diffContent/refresh",
+            "/prs/diffFiles/refresh");
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleResponseStatusException(ResponseStatusException exception, HttpServletRequest request)
@@ -79,8 +93,21 @@ public class GlobalExceptionHandler
         log.warn("GitHub did not respond: {} ({})", request.getRequestURI(), exception.getMessage());
         return errorResponse(
                 HttpStatus.SERVICE_UNAVAILABLE.value(),
-                "GitHub did not respond. Refresh before retrying; a submitted action may already have completed.",
+                isGitHubRead(request)
+                        ? "GitHub did not respond. Try refreshing again."
+                        : "GitHub did not respond. Refresh before retrying; a submitted action may already have completed.",
                 request.getRequestURI());
+    }
+
+    private static boolean isGitHubRead(HttpServletRequest request)
+    {
+        if (HttpMethod.GET.matches(request.getMethod()) || HttpMethod.HEAD.matches(request.getMethod())) {
+            return true;
+        }
+        // Refresh routes use POST because they update local snapshots, but never write to GitHub.
+        return HttpMethod.POST.matches(request.getMethod())
+                && request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE) instanceof String route
+                && GITHUB_REFRESH_ROUTES.contains(route);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

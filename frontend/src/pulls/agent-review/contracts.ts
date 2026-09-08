@@ -13,14 +13,14 @@
  */
 /** Wire shapes for the Agent review tab. Parsed once, so a malformed field never reaches a card. */
 
-export type ReviewRunState = 'RUNNING' | 'ACCEPTED' | 'INCOMPLETE' | 'STOPPED' | 'FAILED';
-export type ReviewFindingState = 'OPEN' | 'RESOLVED' | 'WITHDRAWN';
+type ReviewRunState = 'RUNNING' | 'ACCEPTED' | 'INCOMPLETE' | 'STOPPED' | 'FAILED';
+type ReviewFindingState = 'OPEN' | 'RESOLVED' | 'WITHDRAWN';
 export type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 export type ReviewSide = 'LEFT' | 'RIGHT';
 
-export type ReviewCommitDto = { sha: string; message: string; author: string };
+type ReviewCommitDto = { sha: string; message: string; author: string };
 
-export type ReviewSummaryDto = {
+type ReviewSummaryDto = {
   revision: number;
   purpose: string;
   commits: Array<{ sha: string; explanation: string }>;
@@ -29,7 +29,7 @@ export type ReviewSummaryDto = {
   limitations: string[];
 };
 
-export type ReviewCoverageDto = {
+type ReviewCoverageDto = {
   complete: boolean;
   omissions: string[];
   limitations: string[];
@@ -55,7 +55,7 @@ export type ReviewRunDto = {
   endedAt: string | null;
 };
 
-export type ReviewEvidenceDto = {
+type ReviewEvidenceDto = {
   ref: string;
   source: string;
   provenance: string;
@@ -97,7 +97,7 @@ export type ReviewMessageDto = {
   createdAt: string;
 };
 
-export type ReviewTaskDto = {
+type ReviewTaskDto = {
   id: string;
   workspaceId: string;
   state: string;
@@ -110,14 +110,14 @@ export type ReviewTaskDto = {
   nestedAgents: boolean;
 };
 
-export type ReviewTurnDto = {
+type ReviewTurnDto = {
   id: string;
   state: string;
   startedAt: string | null;
   cancellationRequestedAt: string | null;
 };
 
-export type ReviewPublicationDto = {
+type ReviewPublicationDto = {
   state: 'RESERVED' | 'PUBLISHED' | 'UNCERTAIN';
   remoteReviewId: number | null;
   remoteCommentId: number | null;

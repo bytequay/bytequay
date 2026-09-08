@@ -22,7 +22,7 @@ import type {
   ReviewSide,
 } from './pulls/agent-review/contracts';
 
-export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
+type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
   id: number;
   repo: string;
@@ -132,7 +132,7 @@ export type RepoLabelDto = {
   color: string;
 };
 
-export type MergeModeDto = { mergeQueue: boolean };
+type MergeModeDto = { mergeQueue: boolean };
 
 export type PullRequestDetailDto = {
   id: number;
@@ -428,7 +428,7 @@ export type FindResult = {
 };
 
 /** One conflicted path a simulated pick would hit. */
-export type CherryPickConflictFile = {
+type CherryPickConflictFile = {
   path: string;
   /** CONTENT | ADD_ADD | MODIFY_DELETE | BINARY | SUBMODULE | UNKNOWN */
   type: string;
@@ -495,7 +495,7 @@ export type AgentProviderReadiness =
   | 'DEGRADED'
   | 'TEMPORARILY_UNAVAILABLE';
 
-export type AgentCostProvenance = 'PROVIDER_REPORTED' | 'CLI_ESTIMATE' | 'UNAVAILABLE';
+type AgentCostProvenance = 'PROVIDER_REPORTED' | 'CLI_ESTIMATE' | 'UNAVAILABLE';
 
 /** Provider facts that control what the shared task UI may truthfully offer or render. */
 export type AgentCapabilitiesDto = {
@@ -726,7 +726,7 @@ export type AgentDraftAttachmentDto = {
   bytes: Uint8Array;
 };
 
-export type AgentAttachmentBytesDto = {
+type AgentAttachmentBytesDto = {
   mediaType: string;
   bytes: Uint8Array;
 };
@@ -860,13 +860,13 @@ export type CherryPickExecution = {
   items: CherryPickExecutionItem[];
 };
 
-export type WorkspacePushResult = {
+type WorkspacePushResult = {
   remote: string;
   head: string;
   sha: string;
 };
 
-export type WorkspacePullRequestResult = {
+type WorkspacePullRequestResult = {
   providerId: number;
   number: number;
   url: string;
@@ -875,7 +875,7 @@ export type WorkspacePullRequestResult = {
   head: string;
 };
 
-export type WorkspaceCiAutofixStatus = {
+type WorkspaceCiAutofixStatus = {
   runId: string;
   status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
   attemptsUsed: number;
@@ -906,7 +906,7 @@ export type CherryPickExecutionRequest = {
   pullRequestBody: string;
 };
 
-export type GitRemoteDto = {
+type GitRemoteDto = {
   name: string;
   url: string;
   /** The remote's default branch, when its HEAD symref is known locally. */
@@ -950,7 +950,7 @@ export type CommitRefreshStatusDto = {
   error?: string | null;
 };
 
-export type CommitHistorySnapshotDto = {
+type CommitHistorySnapshotDto = {
   commits: GitCommitDto[];
   refresh: CommitRefreshStatusDto;
 };
@@ -961,7 +961,7 @@ export type WorkspaceRemoteDto = {
   role: 'ORIGIN' | 'UPSTREAM' | 'CUSTOM';
 };
 
-export type WorkspaceAgentModelDto = {
+type WorkspaceAgentModelDto = {
   configId: string;
   label: string;
   model: string;
@@ -969,7 +969,7 @@ export type WorkspaceAgentModelDto = {
   effort?: string | null;
 };
 
-export type WorkspaceTokenDto = {
+type WorkspaceTokenDto = {
   maskedToken: string;
   login: string;
 };
@@ -1096,7 +1096,7 @@ export type RecentReason =
   | 'APPROVED'
   | 'MERGED';
 
-export type RecentTextKind = 'COMMENT' | 'REVIEW_BODY' | 'TASK_PROMPT' | 'DRAFT';
+type RecentTextKind = 'COMMENT' | 'REVIEW_BODY' | 'TASK_PROMPT' | 'DRAFT';
 
 export type RecentRowDto = {
   id: string;
@@ -1118,7 +1118,7 @@ export type RecentRowDto = {
   textId: string | null;
 };
 
-export type RecentDayPageDto = {
+type RecentDayPageDto = {
   /** ISO date, or null when the window holds nothing. */
   day: string | null;
   rows: RecentRowDto[];
@@ -1128,7 +1128,7 @@ export type RecentDayPageDto = {
   retentionDays: number;
 };
 
-export type RecentMatchRangeDto = { start: number; end: number };
+type RecentMatchRangeDto = { start: number; end: number };
 
 export type RecentWordHitDto = {
   id: string;
@@ -1561,7 +1561,7 @@ export type Bridge = {
   ) => Promise<() => void>;
 };
 
-export type WorkspaceIssueMetadataDto = {
+type WorkspaceIssueMetadataDto = {
   assignees: string[];
   labels: string[];
 };

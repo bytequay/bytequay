@@ -24,7 +24,7 @@ import type {
  * What the review is doing, derived from task, turn and result facts. There is no stored review
  * lifecycle beyond open and closed; everything here is read from what already happened.
  */
-export type ReviewStatus =
+type ReviewStatus =
   | 'running'
   | 'approval'
   | 'queued'
@@ -36,7 +36,7 @@ export type ReviewStatus =
   | 'stopped'
   | 'ended';
 
-export type ReviewStatusView = {
+type ReviewStatusView = {
   status: ReviewStatus;
   /** The word shown in the status strip, and the tone class the strip and chip share. */
   label: string;
@@ -51,7 +51,7 @@ export function latestRun(review: AgentReviewDto): ReviewRunDto | null {
   return review.runs.length === 0 ? null : review.runs[review.runs.length - 1];
 }
 
-export function acceptedRun(review: AgentReviewDto): ReviewRunDto | null {
+function acceptedRun(review: AgentReviewDto): ReviewRunDto | null {
   return review.runs.filter(run => run.state === 'ACCEPTED').at(-1) ?? null;
 }
 
@@ -169,7 +169,7 @@ export function reviewElapsed(review: AgentReviewDto, now: number): string | nul
 }
 
 export function shortSha(sha: string): string {
-  return sha.length > 7 ? sha.slice(0, 7) : sha;
+  return sha.slice(0, 7);
 }
 
 /** Whether the agent can take a question right now, or the question has to queue behind a turn. */
@@ -197,7 +197,7 @@ export function draftItemFor(draft: ReviewDraftDto | null, findingId: string): R
   return draft?.items.find(item => item.findingId === findingId) ?? null;
 }
 
-export type FindingPublication =
+type FindingPublication =
   | { kind: 'publishable' }
   | { kind: 'draft'; item: ReviewDraftItemDto }
   | { kind: 'published'; item: ReviewDraftItemDto }

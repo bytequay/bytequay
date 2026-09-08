@@ -422,7 +422,7 @@ function LabelPicker({ labels, selected, loading, query, setQuery, updating, onT
     }} />;
 }
 
-export type MetadataPickerOption = {
+type MetadataPickerOption = {
   key: string;
   label: string;
   login?: string;

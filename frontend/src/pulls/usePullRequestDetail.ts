@@ -48,12 +48,12 @@ export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()
 }
 
 /** Addresses one pull request the way GitHub does, so a late response can be matched to its row. */
-export interface PullRequestTarget {
+interface PullRequestTarget {
   repo: string;
   number: number;
 }
 
-export function pullRequestKey(target: PullRequestTarget | null): string | null {
+function pullRequestKey(target: PullRequestTarget | null): string | null {
   return target === null ? null : `${target.repo.toLowerCase()}#${target.number}`;
 }
 
@@ -68,7 +68,7 @@ export interface PullRequestDetailSource {
   replace: (detail: PullRequestDetailDto) => void;
 }
 
-export interface PullRequestDetailOptions {
+interface PullRequestDetailOptions {
   /** Skips the read entirely while the surface showing it is hidden. */
   active?: boolean;
   /** Told when a whole new detail lands, so a list row or an open diff can follow it. */

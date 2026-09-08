@@ -318,7 +318,7 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
 
 
 /** A provider decision this product is willing to answer with, and what it resolves to. */
-export interface AgentApprovalChoice {
+interface AgentApprovalChoice {
   offered: string;
   decision: AgentApprovalDecision;
   label: string;

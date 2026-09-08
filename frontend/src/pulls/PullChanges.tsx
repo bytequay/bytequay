@@ -44,7 +44,7 @@ export type CommitRange = { start: number; end: number } | null;
  * tab draws: one finding ID and one discussion, shown in two places. An outdated finding has no
  * trustworthy location here, so it stays in the tab with its recorded snapshot instead.
  */
-export type AgentReviewProjection = {
+type AgentReviewProjection = {
   review: AgentReviewDto;
   viewer: UserProfileDto | null;
   /** The range Agent review asked to show; a new token re-scrolls even to the same lines. */
@@ -1334,7 +1334,7 @@ function changeBlocks(additions: number, deletions: number): Array<'add' | 'del'
 /** Normalizes both git letter statuses (M/A/D/R) and GitHub word statuses
  *  ("modified", "removed", …) to one status badge. First-letter alone would
  *  collide: "removed" and "renamed" both start with R. */
-export function fileStatusBadge(status: string): { letter: string; kind: string; title: string } {
+function fileStatusBadge(status: string): { letter: string; kind: string; title: string } {
   const normalized = status.toLowerCase();
   if (normalized === 'a' || normalized === 'added') return { letter: 'A', kind: 'added', title: 'added' };
   if (normalized === 'd' || normalized === 'removed' || normalized === 'deleted') {

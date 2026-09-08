@@ -24,7 +24,7 @@ export function formatMinuteOfDay(minute: number): string {
   return `${hour12}:${minutes} ${hour24 < 12 ? 'AM' : 'PM'}`;
 }
 
-export type ProviderStatusTone = { label: string; tone: 'is-ok' | 'is-warn' | 'is-neutral' | 'is-danger' };
+type ProviderStatusTone = { label: string; tone: 'is-ok' | 'is-warn' | 'is-neutral' | 'is-danger' };
 
 export function providerAvailable(readiness: AgentProviderReadiness): boolean {
   return readiness === 'READY' || readiness === 'DEGRADED';
@@ -68,7 +68,7 @@ export function effortLabel(effort: string): string {
  * the user's own shell. So every state resolves to a command they run themselves plus a re-probe,
  * and `retry` is always offered because a probe can go stale the moment it finishes.
  */
-export type ProviderRemedy = {
+type ProviderRemedy = {
   kind: 'install' | 'login' | 'report' | 'retry';
   title: string;
   detail: string;

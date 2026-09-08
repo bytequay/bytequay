@@ -32,7 +32,7 @@ const STATE_LABEL: Record<TaskState, string> = {
   canceled: 'CANCELED',
 };
 
-export function taskTitle(execution: CherryPickExecution): string {
+function taskTitle(execution: CherryPickExecution): string {
   if (execution.pullRequestDraft?.title) return execution.pullRequestDraft.title;
   return `Cherry-pick ${execution.items.length} commits into ${execution.localTargetBranch}`;
 }

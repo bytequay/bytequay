@@ -113,10 +113,10 @@ import {
 
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
-export type PanelTab = 'pr' | 'changes' | 'agents';
+type PanelTab = 'pr' | 'changes' | 'agents';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
-export interface AgentTaskScreenProps {
+interface AgentTaskScreenProps {
   workspaceId: string;
   taskId: string;
   /** Electron's bridge unless a test supplies its own. */

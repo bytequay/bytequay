@@ -26,7 +26,7 @@ import type { RecentEventDto } from './types';
 /** Renders a list of narrative segments. Linked segments become
  *  borderless link-buttons that fire {@link onLinkClick} (so the host
  *  component decides between an in-app jump vs. an external open). */
-export function NarrativeText({
+function NarrativeText({
   segments,
   onLinkClick,
 }: {

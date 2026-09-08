@@ -315,7 +315,7 @@ export function previewMarkdown(body: string | null | undefined): string {
 
 /* ── Floating panels ────────────────────────────────────────────── */
 
-export type PanelAnchor = { top: number; bottom: number; left: number; right: number };
+type PanelAnchor = { top: number; bottom: number; left: number; right: number };
 
 /**
  * Places a floating panel under its anchor, flipping it above and clamping it

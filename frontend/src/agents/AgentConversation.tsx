@@ -31,7 +31,7 @@ import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatD
 export type AttachmentPreview = { status: 'notLoaded' } | { status: 'loading' } | { status: 'ready'; url: string; loadOriginal?: () => Promise<Blob> } | { status: 'unavailable' };
 
 /** A stored image as a tile: the picture when its bytes arrived, otherwise its name and state. */
-export function AttachmentTile({ attachment, preview, compact = false }: {
+function AttachmentTile({ attachment, preview, compact = false }: {
   attachment: { id: string; name: string; mediaType: string };
   preview: AttachmentPreview | undefined;
   compact?: boolean;
@@ -69,7 +69,7 @@ export function serviceTierName(models: ModelOptionDto[], model: string | null, 
 }
 
 /** Backend policy names are enum values, not prose, and not provider wire strings. */
-export function permissionLabel(policy: string): string {
+function permissionLabel(policy: string): string {
   return policy === 'AUTO' ? 'Auto' : policy;
 }
 
@@ -108,7 +108,7 @@ function memberState(member: ActivityMember): 'running' | 'ok' | 'failed' | 'unk
   return member.kind === 'command' && member.exitCode !== null && member.exitCode !== 0 ? 'failed' : 'ok';
 }
 
-export function currentActivityLabel(turn: TranscriptTurn | undefined): string {
+function currentActivityLabel(turn: TranscriptTurn | undefined): string {
   const running = turn?.blocks.flatMap((block) => block.kind === 'activity' ? block.members : [])
     .filter((member) => memberState(member) === 'running') ?? [];
   const member = running.at(-1);
@@ -124,7 +124,7 @@ export function currentActivityLabel(turn: TranscriptTurn | undefined): string {
   return 'Thinking';
 }
 
-export function LiveActivity({ label, animated = true }: { label: string; animated?: boolean }): React.JSX.Element {
+function LiveActivity({ label, animated = true }: { label: string; animated?: boolean }): React.JSX.Element {
   return <div className="agt-live" role="status" aria-live="polite">
     <span className={`agt-live__label${animated ? ' is-active' : ''}`} title={label}>{label}</span>
   </div>;
@@ -321,7 +321,7 @@ const OUTCOME_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelled',
 };
 
-export function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock {
+function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock {
   return {
     kind: 'approval', id: approval.approvalId, approvalId: approval.approvalId,
     title: approval.title, detail: approval.detail, approvalKind: approval.approvalKind,
@@ -331,7 +331,7 @@ export function pendingApprovalBlock(approval: AgentPendingApprovalDto): Approva
   };
 }
 
-export function ApprovalView({ block, onDecide }: {
+function ApprovalView({ block, onDecide }: {
   block: ApprovalBlock;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
 }): React.JSX.Element {
@@ -565,7 +565,7 @@ export type ConversationQueuedInput = {
   modelLabel?: string;
 };
 
-export const QUEUE_LABELS: Record<string, string> = {
+const QUEUE_LABELS: Record<string, string> = {
   STARTING: 'Starting',
   PAUSED: 'Paused',
   UNCERTAIN: 'Delivery uncertain',

@@ -30,7 +30,7 @@ const TILES: [string, string][] = [
   ['#eceff2', '#57606a'],
 ];
 
-export function ownerTile(owner: string): [string, string] {
+function ownerTile(owner: string): [string, string] {
   let hash = 0;
   for (let index = 0; index < owner.length; index++) {
     hash = (hash * 31 + owner.charCodeAt(index)) % 997;

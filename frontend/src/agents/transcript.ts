@@ -21,7 +21,7 @@ import type { AgentTurnDto } from '../types';
  */
 
 /** UNKNOWN is a display-only state when an item's outcome is outside the retained history. */
-export type ActivityState = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED' | 'UNKNOWN';
+type ActivityState = 'STARTED' | 'PROGRESS' | 'COMPLETED' | 'FAILED' | 'UNKNOWN';
 
 export type CommandAction = { kind: 'READ' | 'LIST_FILES' | 'SEARCH' | 'OTHER'; name?: string | null; path: string | null; query: string | null };
 
@@ -38,7 +38,7 @@ export type CommandMember = {
   actions: CommandAction[];
 };
 
-export type FileMember = {
+type FileMember = {
   kind: 'file';
   id: string;
   path: string;
@@ -48,7 +48,7 @@ export type FileMember = {
   removed: number;
 };
 
-export type ToolMember = {
+type ToolMember = {
   kind: 'tool';
   id: string;
   name: string;
@@ -59,7 +59,7 @@ export type ToolMember = {
 
 export type ActivityMember = CommandMember | FileMember | ToolMember;
 
-export type TextBlock = {
+type TextBlock = {
   anchorId?: string;
   kind: 'text';
   id: string;
@@ -73,7 +73,7 @@ export type TextBlock = {
 
 export type PlanStep = { text: string; state: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' };
 
-export type PlanBlock = { kind: 'plan'; id: string; steps: PlanStep[] };
+type PlanBlock = { kind: 'plan'; id: string; steps: PlanStep[] };
 
 export type ActivityBlock = {
   anchorId?: string;
@@ -101,12 +101,12 @@ export type ApprovalBlock = {
   at: string;
 };
 
-export type ErrorBlock = { kind: 'error'; id: string; code: string; message: string; retryable: boolean };
+type ErrorBlock = { kind: 'error'; id: string; code: string; message: string; retryable: boolean };
 
-export type NoteBlock = { kind: 'note'; id: string; text: string };
+type NoteBlock = { kind: 'note'; id: string; text: string };
 
 /** Subagents that started or finished together, shown as one row of chips in the parent. */
-export type AgentsBlock = { kind: 'agents'; id: string; phase: 'started' | 'finished'; threadIds: string[] };
+type AgentsBlock = { kind: 'agents'; id: string; phase: 'started' | 'finished'; threadIds: string[] };
 
 export type TurnBlock = TextBlock | PlanBlock | ActivityBlock | ApprovalBlock | ErrorBlock | NoteBlock | AgentsBlock;
 
@@ -125,7 +125,7 @@ export type AgentNode = {
   backfilling: boolean;
 };
 
-export type UserBlock = {
+type UserBlock = {
   id: string;
   text: string;
   attachments: Array<{ id: string; name: string; mediaType: string }>;
@@ -133,7 +133,7 @@ export type UserBlock = {
   at: string;
 };
 
-export type UsageFacts = {
+type UsageFacts = {
   inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
@@ -164,7 +164,7 @@ function itemAnchor(event: AgentEventEnvelope): string {
 }
 
 /** The thread an event came from: null for the task's own root thread. */
-export function agentThreadOf(event: AgentEventEnvelope): string | null {
+function agentThreadOf(event: AgentEventEnvelope): string | null {
   return event.source.parentProviderThreadId === null ? null : event.source.providerThreadId;
 }
 
@@ -720,7 +720,7 @@ export function turnLabel(turn: TranscriptTurn, now: number, waitingOnUser: bool
   return duration === null ? `${label} · Done` : `${label} · Worked for ${duration}`;
 }
 
-export function planCounts(steps: PlanStep[]): { completed: number; inProgress: number; pending: number } {
+function planCounts(steps: PlanStep[]): { completed: number; inProgress: number; pending: number } {
   return {
     completed: steps.filter((step) => step.state === 'COMPLETED').length,
     inProgress: steps.filter((step) => step.state === 'IN_PROGRESS').length,

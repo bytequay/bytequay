@@ -18,7 +18,7 @@ import { Chevron } from '../Chevron';
 import { displayModelName, effortLabel } from '../settings/model';
 import type { ModelOptionDto } from '../types';
 
-export type PickerView = 'menu' | 'models' | 'effort';
+type PickerView = 'menu' | 'models' | 'effort';
 
 /**
  * The composer's model control: the chip opens a floating card with two rows, Model and Effort,

@@ -53,7 +53,7 @@ function openUrl(url: string) {
 /** Match a github.com URL of the form {@code /<owner>/<repo>} or
  *  {@code /<owner>/<repo>/pull/<n>}. Returns null for anything else
  *  (profiles, issues, gists, raw, …). */
-export function parseGithubUrl(url: string): { owner: string; repo: string; prNumber?: number } | null {
+function parseGithubUrl(url: string): { owner: string; repo: string; prNumber?: number } | null {
   try {
     const u = new URL(url);
     if (u.hostname !== 'github.com') return null;
@@ -78,7 +78,7 @@ export function parseGithubUrl(url: string): { owner: string; repo: string; prNu
 
 /** Fill the title omitted by some GitHub activity payloads using the
  * existing cached single-PR endpoint. Duplicate events share one lookup. */
-export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
+async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
   const missing = new Map(events
     .filter(event => event.type.startsWith('PullRequest') && event.prNumber > 0 && !event.prTitle)
     .map(event => [`${event.repo}#${event.prNumber}`, event] as const));

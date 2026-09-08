@@ -17,7 +17,7 @@ import type { AgentStreamPayload } from '../types';
 import { readAgentStream } from './sse';
 
 /** What a stream needs from the WebContents it feeds, so a test can stand in for one. */
-export interface StreamSender {
+interface StreamSender {
   isDestroyed(): boolean;
   send(channel: string, message: unknown): void;
   on(event: 'did-navigate', listener: () => void): unknown;

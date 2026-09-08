@@ -32,7 +32,7 @@ export interface PreviewCommand {
   args: unknown[];
 }
 
-export interface PreviewOptions {
+interface PreviewOptions {
   /** How the simulated stream misbehaves, so each case is exercised on purpose. */
   delivery?: 'ordered' | 'duplicate' | 'gap' | 'reconnect';
   /** Events replayed before the subscription starts; the rest arrive live. */

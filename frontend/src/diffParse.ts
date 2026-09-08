@@ -19,7 +19,7 @@ export type DiffRow = {
   content: string;
 };
 
-export type DiffHunk = {
+type DiffHunk = {
   header: string;
   oldStart: number;
   oldCount: number;

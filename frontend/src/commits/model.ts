@@ -69,9 +69,9 @@ export function spanFromShas(
   return { anchors: [commits[first].sha, commits[second].sha] };
 }
 
-export type DayGroup = { label: string; commits: Array<{ commit: GitCommitDto; index: number }> };
+type DayGroup = { label: string; commits: Array<{ commit: GitCommitDto; index: number }> };
 
-export type LimitedDayGroup = DayGroup & { totalCommits: number };
+type LimitedDayGroup = DayGroup & { totalCommits: number };
 
 const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
   year: 'numeric',
@@ -175,7 +175,7 @@ export function filterTasks(executions: CherryPickExecution[], filter: TaskFilte
   return executions.filter(task => (filter === 'open' ? isOpenTask(task) : !isOpenTask(task)));
 }
 
-export type NavRow<T> =
+type NavRow<T> =
   | { kind: 'item'; value: T }
   | { kind: 'fold'; label: string; expand: boolean };
 

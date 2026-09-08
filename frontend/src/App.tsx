@@ -56,7 +56,7 @@ function pageFromRoute(hash: string): AppPage {
 }
 
 /** Splits a Recent item key back into the repository and number it points at. */
-export function parseItemKey(itemKey: string): { repo: string; number: number } | null {
+function parseItemKey(itemKey: string): { repo: string; number: number } | null {
   const match = /^[a-z]+:(.+)#(\d+)$/.exec(itemKey);
   return match ? { repo: match[1], number: Number(match[2]) } : null;
 }

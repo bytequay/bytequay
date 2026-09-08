@@ -42,7 +42,7 @@ function sparkKey(workspace: WorkspaceDto): string {
   return `workspace-spark:${workspace.id}:${workspace.monitoredRepositoryId}:${workspace.upstreamDefaultBranch ?? workspace.defaultBranch}`;
 }
 
-export type WorkspaceActivity = {
+type WorkspaceActivity = {
   openPrs: number;
   needsYou: number;
   tasks: number;
@@ -52,7 +52,7 @@ export type WorkspaceActivity = {
   runningTask: string | null;
 };
 
-export type WorkspaceFailure = { at: number; message: string };
+type WorkspaceFailure = { at: number; message: string };
 
 export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: string) => void }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);

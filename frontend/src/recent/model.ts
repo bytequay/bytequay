@@ -106,7 +106,7 @@ export function roleTone(row: Pick<RecentRowDto, 'type' | 'mine'>): 'mine' | 'th
   return row.mine ? 'mine' : 'theirs';
 }
 
-export type HighlightPart = { text: string; match: boolean };
+type HighlightPart = { text: string; match: boolean };
 
 /** Splits a sentence on the backend's match offsets so the renderer never re-finds the term. */
 export function highlightParts(
@@ -133,7 +133,7 @@ export function rowMarkdown(row: RecentRowDto): string {
   return row.htmlUrl ? `[${row.title}${number}](${row.htmlUrl})` : `${row.title}${number}`;
 }
 
-export type CalendarCell = { iso: string; day: number; active: boolean; inWindow: boolean };
+type CalendarCell = { iso: string; day: number; active: boolean; inWindow: boolean };
 
 /** One month of squares. Days outside the kept window cannot be picked, which is how retention explains itself. */
 export function calendarCells(

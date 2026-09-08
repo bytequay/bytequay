@@ -29,12 +29,12 @@ import { ImageAttachment } from './ImageAttachment';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
-export type TaskTab = 'active' | 'archived';
+type TaskTab = 'active' | 'archived';
 
 /** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
-export const AUTO_ARCHIVE_DAYS = 7;
+const AUTO_ARCHIVE_DAYS = 7;
 
-export interface AgentTasksViewProps {
+interface AgentTasksViewProps {
   workspaceId: string;
   /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
   children?: React.ReactNode;
@@ -85,16 +85,16 @@ export function taskArchived(task: Pick<AgentTaskDto, 'archivedAt'>): boolean {
 }
 
 /** A task something may still be writing to; deleting waits for it to stop. */
-export function taskBusy(task: AgentTaskDto): boolean {
+function taskBusy(task: AgentTaskDto): boolean {
   return task.state === 'OPEN' && task.mutationClaim !== null && task.mutationClaim !== undefined;
 }
 
 /** The branch the backend derives for a task, named before deletion so the person knows what goes with it. */
-export function taskBranch(task: Pick<AgentTaskDto, 'id'>): string {
+function taskBranch(task: Pick<AgentTaskDto, 'id'>): string {
   return `bytequay/task/${task.id}`;
 }
 
-export type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };
+type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };
 
 function dayStart(at: Date): Date {
   return new Date(at.getFullYear(), at.getMonth(), at.getDate());

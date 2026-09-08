@@ -20,7 +20,7 @@ export const AGENT_MARK_FAMILY = [
   'planet', 'shooting-star', 'sparkle', 'butterfly', 'feather', 'acorn',
 ] as const;
 export const AGENT_MARK_PALETTE = ['#0969da', '#8250df', '#bf3989', '#1a7f37', '#9a6700', '#bc4c00', '#1b7c83', '#cf222e'] as const;
-export type AgentMarkShape = typeof AGENT_MARK_FAMILY[number];
+type AgentMarkShape = typeof AGENT_MARK_FAMILY[number];
 
 /**
  * FNV-1a over the name plus one mixing round, exactly as the design computes it, so the same agent

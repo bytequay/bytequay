@@ -37,7 +37,7 @@ import type {
   ModelSettingsDto,
 } from '../types';
 
-export const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
+const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
 
 /**
  * Narrows the backend's task, turn, approval and completion responses.
@@ -311,7 +311,7 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
 }
 
 /** Narrows a provider capability shape before it can decide which renderer controls exist. */
-export function parseAgentCapabilities(value: unknown, path = 'capabilities'): AgentCapabilitiesDto {
+function parseAgentCapabilities(value: unknown, path = 'capabilities'): AgentCapabilitiesDto {
   const source = object(value, path);
   return {
     sessionResume: flag(source.sessionResume, `${path}.sessionResume`),

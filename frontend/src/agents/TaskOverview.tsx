@@ -18,7 +18,7 @@ import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
 
-export interface TaskOverviewProps {
+interface TaskOverviewProps {
   workspaceId: string;
   bridge?: AgentBridgePort;
   /** The task open behind the overlay, ringed so the user knows where they came from. */

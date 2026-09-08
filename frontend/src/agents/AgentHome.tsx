@@ -45,7 +45,7 @@ function hiddenTasksKey(workspaceId: string): string {
   return `bq.home.hiddenTasks.${workspaceId}`;
 }
 
-export function loadHiddenTasks(workspaceId: string): Set<string> {
+function loadHiddenTasks(workspaceId: string): Set<string> {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(hiddenTasksKey(workspaceId)) ?? '[]');
     return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []);
@@ -109,7 +109,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   return { candidates, handled, applyHandled };
 }
 
-export interface AgentHomeProps {
+interface AgentHomeProps {
   workspaceId: string;
   /** "owner/repo", the monitored repository the page belongs to. */
   repository: string;

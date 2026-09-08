@@ -60,7 +60,7 @@ export function pullRequestFromRoute(hash: string): { repo: string; number: numb
   }
 }
 
-export async function findLocalIssue(reference: GitHubReference): Promise<{
+async function findLocalIssue(reference: GitHubReference): Promise<{
   workspaceId: string;
   issue: RepositoryIssueSnapshotDto['issues'][number];
 } | null> {

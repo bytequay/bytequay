@@ -14,7 +14,7 @@
 
 export type NavigationMode = 'push' | 'replace';
 
-export type NavigationPosition = {
+type NavigationPosition = {
   index: number;
   end: number;
 };

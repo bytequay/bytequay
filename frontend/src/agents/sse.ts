@@ -19,7 +19,7 @@ import { AgentEventEnvelope, parseAgentEventSequence } from './events';
 export type AgentStreamStatus = 'connecting' | 'open' | 'reconnecting' | 'failed';
 
 /** One complete Server-Sent Events frame. */
-export interface SseFrame {
+interface SseFrame {
   id?: string;
   event?: string;
   data: string;
@@ -103,7 +103,7 @@ export function isTerminalStatus(status: number): boolean {
   return status >= 400 && status < 500;
 }
 
-export interface AgentStreamOptions {
+interface AgentStreamOptions {
   /** Opens the stream from an exclusive sequence cursor. */
   request: (after: number, signal: AbortSignal) => Promise<Response>;
   after?: number;
@@ -220,7 +220,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
 }
 
 /** The task's own closing event: a lifecycle event outside any turn that says the task ended. */
-export function isTaskTerminalEvent(event: AgentEventEnvelope): boolean {
+function isTaskTerminalEvent(event: AgentEventEnvelope): boolean {
   return event.type === 'lifecycle'
     && event.turnId === null
     && (event.payload.phase === 'TASK_COMPLETED' || event.payload.phase === 'TASK_FAILED');
@@ -261,7 +261,7 @@ export function createAgentStreamReceiver(
 }
 
 /** A frame the renderer's contract cannot represent, which reconnecting cannot fix. */
-export class AgentStreamSchemaError extends Error {}
+class AgentStreamSchemaError extends Error {}
 
 function parseFrameEvents(frame: SseFrame, cursor: number): AgentEventEnvelope[] {
   let payload: unknown;

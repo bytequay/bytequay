@@ -591,7 +591,7 @@ const COMPARISON_COLUMNS: { label: string; value: (arm: CodeGraphArmComparisonDt
 ];
 
 /** One workspace's arms side by side; every number after the counts is a median per finished turn. */
-export function CodeGraphComparisonTable({ workspace }: { workspace: CodeGraphWorkspaceComparisonDto }) {
+function CodeGraphComparisonTable({ workspace }: { workspace: CodeGraphWorkspaceComparisonDto }) {
   return (
     <div className="sets-card-note">
       <div className="sets-compare-title">{workspace.repository}</div>

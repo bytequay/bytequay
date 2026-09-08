@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { RecentItemType } from '../types';
 
-export type RecentTarget = {
+type RecentTarget = {
   type: RecentItemType;
   repo: string;
   number: number;

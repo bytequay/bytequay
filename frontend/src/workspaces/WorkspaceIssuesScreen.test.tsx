@@ -134,7 +134,7 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).not.toContain('aria-label="Add reaction"');
     expect(html).toContain('class="pr-composer"');
     expect(html).toContain('>Close issue</button>');
-    expect(html).not.toContain('>Better words</button>');
+    expect(html).toContain('<footer><button class="pr-better-words" type="button" disabled="" aria-busy="false">Better words</button>');
   });
 
   it('uses the pull-request heading treatment for issue-form sections', () => {

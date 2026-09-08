@@ -658,7 +658,8 @@ export function IssueOverview({
             : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
           {timelineLoading && <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>}
         </section>
-        <DiscussionComposer candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"
+        <DiscussionComposer betterWords workspaceId={workspaceId}
+          candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"
           onClose={onClose} onSubmit={onComment} />
       </main>
     </div>

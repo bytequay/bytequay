@@ -128,9 +128,10 @@ class TestBetterWordsService
         verify(session).start(command.capture());
         assertThat(command.getValue().message())
                 .contains(
-                        "natural, native-sounding",
-                        "precise, concise",
-                        "professional, and friendly",
+                        "GitHub code review or related issue discussion",
+                        "professional, friendly, and concise",
+                        "without inventing details",
+                        "Keep requirements firm and suggestions optional",
                         "rename this var pls")
                 .contains("Do not use tools");
         verify(session).close();

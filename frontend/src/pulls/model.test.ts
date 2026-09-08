@@ -111,9 +111,9 @@ describe('rowsForTab', () => {
     expect(rowsForTab([stale], 'active', null).map(row => row.id)).toEqual([2]);
   });
 
-  it('uses clear compact tab labels', () => {
-    expect(PULL_TABS.find(tab => tab.key === 'active')?.short).toBe('My PRs');
-    expect(PULL_TABS.find(tab => tab.key === 'reviewed')?.short).toBe('Viewed');
+  it('orders the filters the way the shortcuts and the tab slots read them', () => {
+    expect(PULL_TABS.map(tab => tab.key)).toEqual(['all', 'active', 'req', 'monitored', 'reviewed', 'done']);
+    expect(PULL_TABS.map(tab => tab.label)).toEqual(['Open', 'My work', 'Review', 'Monitored', 'Reviewed', 'Closed']);
   });
 
   it('preserves monitoring state in pull request cards', () => {
@@ -121,6 +121,17 @@ describe('rowsForTab', () => {
     const unmonitored = pr({ id: 2, monitoredAt: null });
 
     expect(rowsForTab([monitored, unmonitored], 'all').map(row => row.monitored)).toEqual([true, false]);
+  });
+
+  it('lists the pinned set under Monitored, whoever authored it and whether or not it closed', () => {
+    const mine = pr({ id: 1, monitoredAt: '2026-09-06T00:00:00Z', origin: 'AUTHORED' });
+    const theirs = pr({ id: 2, monitoredAt: '2026-09-05T00:00:00Z', origin: 'OTHER' });
+    const merged = pr({ id: 3, monitoredAt: '2026-09-04T00:00:00Z', state: 'merged' });
+    const unpinned = pr({ id: 4, monitoredAt: null });
+
+    expect(rowsForTab([mine, theirs, merged, unpinned], 'monitored').map(row => row.id).sort())
+      .toEqual([1, 2, 3]);
+    expect(rowsForTab([unpinned], 'monitored')).toEqual([]);
   });
 
   it('keeps a commented pull request open after it leaves Needs review', () => {

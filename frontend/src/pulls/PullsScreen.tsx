@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
-import { Check, Diff, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw } from 'lucide-react';
+import { Bell, Check, CircleSlash, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
@@ -89,13 +90,9 @@ export function pullRequestSyncNotice(failure: unknown): string | null {
     : null;
 }
 
-/** Toolbar width under which counts drop and the search placeholder shortens. */
+/** Toolbar width under which the search placeholder shortens. */
 const TOOLBAR_COMPACT_WIDTH = 440;
 
-/**
- * Counts hide for every tab at once. Hiding one tab's count would resize that
- * tab alone and shift the ones after it.
- */
 export function compactToolbar(width: number) {
   return width < TOOLBAR_COMPACT_WIDTH;
 }
@@ -117,47 +114,142 @@ export function shortcutTab(event: Pick<KeyboardEvent, 'altKey' | 'ctrlKey' | 'k
 }
 
 /**
- * The pull-request list filters. Its own component rather than the segmented
- * control the issue list still uses: selection here may only change color and
- * background, so no tab moves when another is picked.
+ * Tabs the strip has room for at a pane width. Four is a cap rather than a
+ * fit: a fifth tab still fits a wide pane but stops being scannable.
  */
-export function PullFilterTabs({ tab, searching, counts, compact, panelId, onSelect }: {
+export function tabSlots(width: number) {
+  return width < 320 ? 2 : width < 430 ? 3 : 4;
+}
+
+/**
+ * The filters that get a tab, in the fixed order. The selection takes the
+ * last slot when the order would otherwise hide it, so no filter is ever
+ * selected and reachable only through the overflow menu.
+ */
+export function visibleTabs(tab: PullTab, width: number): PullTab[] {
+  const slots = tabSlots(width);
+  const keys = PULL_TABS.slice(0, slots).map(item => item.key);
+  return keys.includes(tab) ? keys : [...keys.slice(0, slots - 1), tab];
+}
+
+const TAB_ICONS: Record<PullTab, LucideIcon> = {
+  all: GitPullRequest,
+  active: UserRound,
+  req: Eye,
+  monitored: Bell,
+  reviewed: Check,
+  done: CircleSlash,
+};
+
+/**
+ * The pull-request list filters: as many tabs as the pane fits, the rest
+ * behind an overflow menu. Its own component rather than the segmented
+ * control the issue list still uses, because only this one has to decide how
+ * many of its filters are on screen.
+ */
+export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelect }: {
   tab: PullTab;
   /** A search overrides the filter, so no tab reads as selected while one runs. */
   searching: boolean;
   counts: string[];
-  compact: boolean;
+  /** Of the list pane, not the window: the list also renders beside the detail pane. */
+  width: number;
   panelId: string;
   onSelect: (tab: PullTab) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const filters = useRef<HTMLDivElement | null>(null);
+  const visible = visibleTabs(tab, width);
+  const shown = PULL_TABS.filter(item => visible.includes(item.key));
+  const hidden = PULL_TABS.filter(item => !visible.includes(item.key));
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    // Pointerdown, not click: the menu has to be gone before whatever was
+    // clicked underneath it reacts.
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!filters.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('pointerdown', closeOnOutsidePress);
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('pointerdown', closeOnOutsidePress);
+    };
+  }, [menuOpen]);
+
   const moveSelection = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const target = tabKeyTarget(event.key, PULL_TABS.findIndex(item => item.key === tab), PULL_TABS.length);
+    const target = tabKeyTarget(event.key, shown.findIndex(item => item.key === tab), shown.length);
     if (target === null) return;
     event.preventDefault();
-    onSelect(PULL_TABS[target].key);
+    onSelect(shown[target].key);
     (event.currentTarget.children[target] as HTMLElement | undefined)?.focus();
   };
 
+  const pick = (next: PullTab) => {
+    setMenuOpen(false);
+    onSelect(next);
+  };
+
   return (
-    <div className="pulls-toolbar__tabs" role="tablist" aria-label="Pull request filters" onKeyDown={moveSelection}>
-      {PULL_TABS.map((item, index) => (
-        <button
-          key={item.key}
-          id={`${panelId}-${item.key}`}
-          className="pulls-tab"
-          type="button"
-          role="tab"
-          title={item.label}
-          aria-label={item.label}
-          aria-selected={!searching && item.key === tab}
-          aria-controls={panelId}
-          tabIndex={item.key === tab ? 0 : -1}
-          onClick={() => onSelect(item.key)}
-        >
-          {item.short}
-          {!compact && <span className="pulls-tab__count">{counts[index]}</span>}
-        </button>
-      ))}
+    <div className="pulls-toolbar__filters" ref={filters}>
+      <div className="pulls-toolbar__tabs" role="tablist" aria-label="Pull request filters" onKeyDown={moveSelection}>
+        {shown.map(item => (
+          <button
+            key={item.key}
+            id={`${panelId}-${item.key}`}
+            className="pulls-tab"
+            type="button"
+            role="tab"
+            aria-selected={!searching && item.key === tab}
+            aria-controls={panelId}
+            tabIndex={item.key === tab ? 0 : -1}
+            onClick={() => pick(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+      <button
+        className={`pulls-tab-more${menuOpen ? ' is-open' : ''}`}
+        type="button"
+        title="More filters"
+        aria-label="More filters"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen(open => !open)}
+      >
+        <Ellipsis size={15} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      {menuOpen && (
+        <div className="pulls-filter-menu" role="menu" aria-label="More filters">
+          {hidden.map(item => {
+            const index = PULL_TABS.indexOf(item);
+            const Glyph = TAB_ICONS[item.key];
+            const checked = !searching && item.key === tab;
+            return (
+              <button
+                key={item.key}
+                className="pulls-filter-menu__item"
+                type="button"
+                role="menuitemradio"
+                aria-checked={checked}
+                onClick={() => pick(item.key)}
+              >
+                <Glyph className="pulls-filter-menu__glyph" size={13} strokeWidth={1.7} aria-hidden="true" />
+                <span className="pulls-filter-menu__label">{item.label}</span>
+                {/* Counts live here rather than on the tabs: the menu has the
+                    room to show them whole. */}
+                <span className="pulls-filter-menu__count">{counts[index]}</span>
+                <span className="pulls-filter-menu__key" aria-hidden="true">{`⌘${index + 1}`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -857,19 +949,17 @@ export default function PullsScreen({
     <div className="pulls-page">
       <section className="pulls-list">
         <header className="pulls-toolbar" ref={toolbar}>
-          {repositoryScope && (
-            <span className="pulls-scope" title={`Showing ${repositoryScope.repository}`}>
-              {repositoryScope.repository}
-            </span>
-          )}
           <PullFilterTabs
             tab={tab}
             searching={query !== ''}
             counts={tabCounts}
-            compact={compact}
+            width={toolbarWidth}
             panelId={rowsId}
             onSelect={selectTab}
           />
+          {/* The only element allowed to give: everything around it is
+              flex: none, so the row can never scroll sideways. */}
+          <div className="pulls-toolbar__spacer" />
           <button
             className={`pulls-toolbar-button${syncing ? ' is-syncing' : ''}`}
             type="button"
@@ -901,6 +991,11 @@ export default function PullsScreen({
             aria-label="Search pull requests by title or number"
             onChange={event => setSearch(event.target.value)}
           />
+          {repositoryScope && (
+            <span className="pulls-scope" title={`Showing ${repositoryScope.repository}`}>
+              {repositoryScope.repository}
+            </span>
+          )}
         </div>
         <div className="pulls-list__rows" id={rowsId} role="tabpanel" aria-labelledby={`${rowsId}-${tab}`}>
           {loading && <div className="hp-loading">Loading…</div>}

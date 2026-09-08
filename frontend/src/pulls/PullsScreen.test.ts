@@ -18,7 +18,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { Bridge, WorkspaceDto } from '../types';
 import { reviewFixture } from './agent-review/fixtures/review';
-import type { PullTab } from './model';
+import { PULL_TABS, type PullTab } from './model';
 import {
   compactToolbar,
   loadAgentReviewContext,
@@ -30,6 +30,8 @@ import {
   shortcutTab,
   showBlockingDetailLoading,
   tabKeyTarget,
+  tabSlots,
+  visibleTabs,
 } from './PullsScreen';
 
 function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
@@ -203,58 +205,131 @@ function properties(selector: string): string[] {
   return declarations(selector).map(declaration => declaration.split(':')[0].trim());
 }
 
-function tabsMarkup(tab: PullTab, compact = false): string {
+const COUNTS = ['42', '6', '4', '11', '3', '18'];
+
+function tabsMarkup(tab: PullTab, width = 640): string {
   return renderToStaticMarkup(createElement(PullFilterTabs, {
     tab,
     searching: false,
-    compact,
+    width,
     panelId: 'rows',
-    counts: ['42', '6', '4', '11', '3'],
+    counts: COUNTS,
     onSelect: () => undefined,
   }));
 }
 
-/**
- * jsdom is not installed and would report zero-sized boxes anyway, so the
- * no-reflow rule is asserted where it actually lives: identical markup for
- * every selection, and a selected-state rule that changes no metric. Same
- * boxes plus same declarations means the same
- * `getBoundingClientRect().left` for every tab.
- */
-describe('filter tabs hold their position', () => {
-  it('renders the same boxes whichever tab is selected', () => {
-    const withoutState = (markup: string) => markup
-      .replace(/ aria-selected="(?:true|false)"/g, '')
-      .replace(/ tabindex="(?:0|-1)"/g, '');
+/** The labels of the rendered tabs, in the order the strip shows them. */
+function tabLabels(tab: PullTab, width = 640): string[] {
+  return [...tabsMarkup(tab, width).matchAll(/role="tab"[^>]*>([^<]*)</g)].map(match => match[1]);
+}
 
-    for (const tab of ['active', 'req', 'reviewed', 'done'] as PullTab[]) {
-      expect(withoutState(tabsMarkup(tab))).toBe(withoutState(tabsMarkup('all')));
+describe('responsive tab slots', () => {
+  it('gives the pane two tabs under 320px, three under 430px, and never more than four', () => {
+    expect([288, 300, 319, 320, 352, 429, 430, 640, 1200].map(tabSlots))
+      .toEqual([2, 2, 2, 3, 3, 3, 4, 4, 4]);
+  });
+
+  it('fills slots from the fixed order, so a tab never moves as the pane resizes', () => {
+    expect(visibleTabs('all', 300)).toEqual(['all', 'active']);
+    expect(visibleTabs('all', 352)).toEqual(['all', 'active', 'req']);
+    expect(visibleTabs('all', 640)).toEqual(['all', 'active', 'req', 'monitored']);
+    expect(tabLabels('all', 300)).toEqual(['Open', 'My work']);
+    expect(tabLabels('all', 640)).toEqual(['Open', 'My work', 'Review', 'Monitored']);
+  });
+
+  it('promotes a selected filter the order would hide into the last slot', () => {
+    expect(visibleTabs('monitored', 300)).toEqual(['all', 'monitored']);
+    expect(visibleTabs('done', 352)).toEqual(['all', 'active', 'done']);
+    expect(visibleTabs('reviewed', 640)).toEqual(['all', 'active', 'req', 'reviewed']);
+    expect(tabLabels('monitored', 300)).toEqual(['Open', 'Monitored']);
+    expect(tabsMarkup('monitored', 300)).toContain('aria-selected="true"');
+  });
+
+  it('keeps every filter reachable, on a tab or in the menu', () => {
+    for (const width of [288, 300, 352, 430, 640]) {
+      for (const item of PULL_TABS) {
+        const visible = visibleTabs(item.key, width);
+        expect(visible).toContain(item.key);
+        expect(visible).toHaveLength(tabSlots(width));
+      }
     }
   });
+});
 
-  it('marks selection with more than color, and with nothing that resizes a tab', () => {
-    expect(tabsMarkup('req')).toContain('aria-selected="true"');
-    expect(properties('.pulls-tab[aria-selected=\'true\']')).toEqual(['background', 'color']);
-    expect(declarations('.pulls-tab')).toContain('font-weight: 600');
+/**
+ * The menu opens from component state, and these tests have no DOM to click
+ * in. What is asserted here is everything that decides the menu without it:
+ * which filters land in it, the closed strip around it, and its layout.
+ */
+describe('overflow menu', () => {
+  it('holds exactly the filters that have no tab', () => {
+    const overflow = (tab: PullTab, width: number) =>
+      PULL_TABS.filter(item => !visibleTabs(tab, width).includes(item.key)).map(item => item.label);
+
+    expect(overflow('all', 300)).toEqual(['Review', 'Monitored', 'Reviewed', 'Closed']);
+    expect(overflow('all', 640)).toEqual(['Reviewed', 'Closed']);
+    expect(overflow('monitored', 300)).toEqual(['My work', 'Review', 'Reviewed', 'Closed']);
   });
 
-  it('clips the tab strip rather than the buttons pinned after it', () => {
-    expect(declarations('.pulls-toolbar__tabs')).toEqual(
-      expect.arrayContaining(['flex: 1', 'min-width: 0', 'overflow: hidden']),
+  it('never puts a count on a tab', () => {
+    for (const count of COUNTS) expect(tabLabels('all', 640).join(' ')).not.toContain(count);
+    expect(tabsMarkup('all', 300)).not.toContain('pulls-tab__count');
+  });
+
+  it('announces itself as a menu the tab strip owns, closed until pressed', () => {
+    expect(tabsMarkup('all', 300)).toContain('aria-haspopup="menu"');
+    expect(tabsMarkup('all', 300)).toContain('aria-expanded="false"');
+    expect(tabsMarkup('all', 300)).not.toContain('pulls-filter-menu');
+  });
+
+  it('lays the menu out over the list instead of inside a clipped strip', () => {
+    expect(declarations('.pulls-filter-menu')).toEqual(expect.arrayContaining([
+      'position: absolute', 'width: 218px', 'border: 1px solid #d0d7de', 'border-radius: 10px', 'padding: 5px',
+    ]));
+    expect(declarations('.pulls-toolbar__filters')).toContain('position: relative');
+    expect(properties('.pulls-toolbar__filters')).not.toContain('overflow');
+    expect(properties('.pulls-toolbar__tabs')).not.toContain('overflow');
+  });
+
+  it('right-aligns a menu count before its shortcut hint', () => {
+    expect(declarations('.pulls-filter-menu__label')).toContain('flex: 1');
+    expect(declarations('.pulls-filter-menu__key')).toContain('text-align: right');
+  });
+});
+
+describe('the strip never overflows its row', () => {
+  it('marks selection with background, color, and weight, matching the design', () => {
+    expect(tabsMarkup('req')).toContain('aria-selected="true"');
+    expect(declarations('.pulls-tab[aria-selected=\'true\']')).toEqual(
+      expect.arrayContaining(['background: #e4e4e8', 'color: #1f2328', 'font-weight: 600']),
     );
+    expect(declarations('.pulls-tab')).toEqual(
+      expect.arrayContaining(['flex: none', 'padding: 4px 9px', 'border-radius: 6px', 'font-size: 12.5px']),
+    );
+  });
+
+  it('lets only the spacer give, so the trailing buttons stay on screen', () => {
+    for (const selector of ['.pulls-toolbar__filters', '.pulls-toolbar__tabs', '.pulls-tab', '.pulls-tab-more']) {
+      expect(declarations(selector), selector).toContain('flex: none');
+    }
+    expect(declarations('.pulls-toolbar__spacer')).toEqual(expect.arrayContaining(['flex: 1', 'min-width: 6px']));
     expect(declarations('.pulls-toolbar .pulls-toolbar-button')).toContain('flex: 0 0 26px');
     expect(properties('.pulls-toolbar')).not.toContain('overflow');
+  });
+
+  it('moves the repository chip onto the search row, where it can ellipsize', () => {
+    expect(declarations('.pulls-search')).toEqual(expect.arrayContaining(['display: flex', 'gap: 7px']));
+    expect(declarations('.pulls-search input')).toEqual(expect.arrayContaining(['flex: 1', 'min-width: 0']));
+    expect(declarations('.pulls-search .pulls-scope')).toEqual(
+      expect.arrayContaining(['flex: none', 'min-width: 0', 'max-width: 118px']),
+    );
+    expect(declarations('.pulls-scope')).toEqual(expect.arrayContaining(['text-overflow: ellipsis', 'overflow: hidden']));
   });
 });
 
 describe('narrow toolbars', () => {
-  it('keeps counts only at 440px and wider', () => {
+  it('shortens the search placeholder only under 440px', () => {
     expect([320, 420, 440, 560, 760].map(compactToolbar)).toEqual([true, true, false, false, false]);
-  });
-
-  it('drops every count at once, never one tab alone', () => {
-    expect(tabsMarkup('all', true)).not.toContain('pulls-tab__count');
-    expect(tabsMarkup('all').match(/pulls-tab__count/g)).toHaveLength(5);
   });
 });
 
@@ -268,11 +343,12 @@ describe('filter keyboard', () => {
     expect(tabKeyTarget('Enter', 2, 5)).toBeNull();
   });
 
-  it('selects a filter for each Command digit it has a tab for', () => {
+  it('reaches every filter by Command digit, hidden ones included', () => {
     const press = { altKey: false, ctrlKey: false, metaKey: true };
-    expect(shortcutTab({ ...press, key: '1' })).toBe('all');
-    expect(shortcutTab({ ...press, key: '4' })).toBe('reviewed');
-    expect(shortcutTab({ ...press, key: '6' })).toBeNull();
+    expect(PULL_TABS.map((_, index) => shortcutTab({ ...press, key: String(index + 1) })))
+      .toEqual(['all', 'active', 'req', 'monitored', 'reviewed', 'done']);
+    expect(visibleTabs('reviewed', 300)).toContain('reviewed');
+    expect(shortcutTab({ ...press, key: '7' })).toBeNull();
     expect(shortcutTab({ ...press, key: 'f' })).toBeNull();
     expect(shortcutTab({ ...press, altKey: true, key: '1' })).toBeNull();
     expect(shortcutTab({ ...press, metaKey: false, key: '1' })).toBeNull();

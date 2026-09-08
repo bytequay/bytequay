@@ -14,19 +14,20 @@
 import type { PullRequestDetailDto, PullRequestDto } from '../types';
 import { relativeTime } from '../relativeTime';
 
-export type PullTab = 'all' | 'active' | 'req' | 'reviewed' | 'done';
+export type PullTab = 'all' | 'active' | 'req' | 'monitored' | 'reviewed' | 'done';
 /**
- * `short` is what the tab shows; `label` is the full name, kept for the
- * tooltip and the screen-reader name, and `empty` names the filter in the
- * empty state. Short labels are what keep four filters plus the toolbar
- * buttons on one row in a narrow split pane.
+ * One fixed order, used for three things at once: the Command-digit
+ * shortcuts, the order tab slots fill, and the order of the overflow menu. A
+ * filter therefore never moves to a different slot as the pane resizes.
+ * `empty` names the filter in the empty state.
  */
-export const PULL_TABS: { key: PullTab; label: string; short: string; empty: string }[] = [
-  { key: 'all', label: 'Open', short: 'Open', empty: 'open pull requests' },
-  { key: 'active', label: 'My PRs', short: 'My PRs', empty: 'pull requests you authored' },
-  { key: 'req', label: 'Needs review', short: 'Review', empty: 'pull requests needing your review' },
-  { key: 'reviewed', label: 'Reviewed', short: 'Viewed', empty: 'pull requests you reviewed' },
-  { key: 'done', label: 'Closed', short: 'Closed', empty: 'closed pull requests' },
+export const PULL_TABS: { key: PullTab; label: string; empty: string }[] = [
+  { key: 'all', label: 'Open', empty: 'open pull requests' },
+  { key: 'active', label: 'My work', empty: 'pull requests you authored' },
+  { key: 'req', label: 'Review', empty: 'pull requests needing your review' },
+  { key: 'monitored', label: 'Monitored', empty: 'monitored pull requests' },
+  { key: 'reviewed', label: 'Reviewed', empty: 'pull requests you reviewed' },
+  { key: 'done', label: 'Closed', empty: 'closed pull requests' },
 ];
 
 export type PullRow = {
@@ -86,6 +87,10 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab, viewerLogin?: st
       const reviewed = !authored && pr.handledAction !== null;
       if (tab === 'active') return authored;
       if (tab === 'done') return done;
+      // Monitored is the set the user pinned, not a state the repository
+      // derives. ponytail: a pinned pull request stays listed after it is
+      // merged; whether merging should unpin it is still an open question.
+      if (tab === 'monitored') return pr.monitoredAt != null;
       if (done) return false;
       if (tab === 'req') return pullRequestNeedsReview(pr);
       if (tab === 'reviewed') return reviewed;

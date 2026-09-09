@@ -116,8 +116,7 @@ The task surface completed CP11 and ships ungated. The accepted decisions are:
    executor/environment and loopback-listener design is not part of the shipped
    topology; one task-owned process runs per active turn in the managed
    worktree. The App Server
-   risk was accepted on 2026-08-31 and reconfirmed when CP11 passed on
-   2026-09-04.
+   risk was accepted and reconfirmed when CP11 passed.
 5. **Delivery order:** protocol/replay foundations, usable Codex tasks, rich
    transcript, subagents, steer/queue, and Claude parity are all implemented.
 6. **Checkout isolation:** every agent task receives a separate
@@ -145,7 +144,7 @@ root/child/item quiescence, and revalidated worktree-ownership criteria in
 Codex App Server is also a conscious release-risk decision: its official
 documentation currently marks the command experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the first
-agent-task release on 2026-08-31 and reconfirmed it at CP11. ByteQuay maintains
+agent-task release and reconfirmed it at CP11. ByteQuay maintains
 a fixed reference fixture for the launch profiles and background-terminal
 methods used by isolation and quiescence; task sessions opt into
 `experimentalApi` solely for background-terminal inventory and termination.
@@ -207,12 +206,12 @@ tool processes remain credential-free: model-requested commands must prove that 
 `OPENAI_API_KEY`, `CODEX_HOME`, and the App Server-only sentinel are absent.
 API-key fixture support is deferred. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture
-passed locally with that subscription-backed profile on 2026-08-31. CP0
+passed locally with that subscription-backed profile. CP0
 through CP11 are complete: the workspace-scoped task/turn contract, typed
 readiness, schema-v2 event/source and approval contracts, crash-safe replay,
 task isolation, recursive item reconciliation plus verified per-turn process
 stop, rich UI, queue/steer behavior, and Claude parity are implemented and the
 development gate is removed. The seven-day
-detailed-runtime retention policy was accepted for this release on 2026-09-04.
+detailed-runtime retention policy was accepted for this release.
 Process-environment stripping still does not create a same-user
 filesystem-read boundary around the persistent login profile.

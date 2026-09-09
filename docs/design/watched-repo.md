@@ -1,6 +1,6 @@
 # Watched Repository / Workspace Design
 
-Status: implemented through Checkpoint 8, with fork-first watch routing approved on 2026-09-06.
+Status: implemented through Checkpoint 8, with fork-first watch routing approved.
 
 This design connects the existing watched-repository entry point to the existing workspace
 commits and cherry-pick experience. A watched GitHub repository becomes a durable ByteQuay

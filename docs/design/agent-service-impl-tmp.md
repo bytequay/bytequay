@@ -185,7 +185,7 @@ must use the real runtime rather than fixtures.
 Purpose: preserve the working backend path and decide whether the proposed
 experimental dependency is acceptable before extending it.
 
-**Status (2026-08-31): COMPLETE.** The engineering baseline is verified.
+**Status: COMPLETE.** The engineering baseline is verified.
 Product accepted the experimental App Server dependency, the stock executor's
 same-host trust boundary, a separate ByteQuay-owned worktree per task, and a
 development-only UI gate through CP11. The canonical worktree contract and
@@ -198,10 +198,10 @@ Implementation and decisions:
 - [x] Accept shipping the first product surface over Codex App
   Server while the official documentation describes the command as
   experimental and unsupported for production workloads. This decision was
-  recorded on 2026-08-31 and does not waive the compatibility release gate.
+  recorded and does not waive the compatibility release gate.
 - [x] Accept the unauthenticated same-host boundary of the reviewed stock task
-  executor for the first release. This decision was recorded on
-  2026-08-31 and does not describe the loopback listener as authenticated.
+  executor for the first release. This recorded decision does not describe
+  the loopback listener as authenticated.
 - [x] Choose Codex CLI/App Server `0.151.0` for the compatibility spike;
   this exact version and its hashes are reference-only and do not gate the
   production CLI.
@@ -271,7 +271,7 @@ runtime, and logs.
 Purpose: fail fast before persistence and UI depend on an experimental runtime
 shape.
 
-**Status (2026-08-31):** CP1's technical evidence is complete. The checked-in
+**Status:** CP1's technical evidence is complete. The checked-in
 offline fixture and both explicit local subscription-backed live gates passed with
 `codex-cli 0.151.0` and `gpt-5.6-sol`. The no-child run proved one real command
 approval, bounded Git-worktree writes, a yielded background terminal with
@@ -284,13 +284,13 @@ Production adoption of the shared isolation guards and a CP1-approved
 child-capable launch profile belongs to CP4. See
 [Codex App Server compatibility fixture](codex-app-server-compat.md).
 
-**Go/no-go (2026-08-31): GO.** The reviewed experimental App Server shape is
+**Go/no-go: GO.** The reviewed experimental App Server shape is
 technically sufficient for CP2 provider-neutral contract work, and CP0's
 product decisions and baseline evidence are complete. This is not
 production-release approval or a general same-user filesystem-confinement
 claim.
 
-**Progress (2026-08-31):** the offline gate now projects and codec-tests the
+**Progress:** the offline gate now projects and codec-tests the
 v0.151.0 modern approval methods, top-level fields, requiredness, both command
 kinds, every command/file decision shape, and the opaque permission payload
 with its response scope. Legacy `applyPatchApproval` and
@@ -532,7 +532,7 @@ Primary files:
 Purpose: establish one safe, versioned, provider-neutral contract for JSONL,
 REST/SSE, Electron IPC, and React.
 
-**Progress (2026-09-01):** CP2 has frozen the provider-neutral task, turn,
+**Progress:** CP2 has frozen the provider-neutral task, turn,
 readiness, approval, and schema-v2 event contracts. Interactive tasks have one
 workspace discriminator and immutable requested defaults; each accepted turn
 retains its exact requested settings and opaque attachment references. Provider
@@ -544,7 +544,7 @@ frozen but not yet active; CP3 subsequently supplied the durable worktree
 implementation and crash-safe event outbox and activated them. CP4 then applied
 the snapshotted settings to the real App Server runtime. The full backend reactor,
 frontend lint and type checks, all 230 frontend tests, and the packaged desktop
-build passed on 2026-09-01.
+build passed.
 
 The managed-worktree boundary remains deliberately small. `agent-core` owns
 only synchronous `provision(command)`, `inspect(worktree)`, and
@@ -673,7 +673,7 @@ Primary files:
 Purpose: implement the synchronous worktree boundary and make the event stream
 an authoritative reconstruction source rather than a best-effort activity log.
 
-**Completed (2026-09-01):** every repository-scoped task now owns one
+**Completed:** every repository-scoped task now owns one
 persisted immutable `TaskWorktree` created by the stateless synchronous
 `WorktreeService`. Interactive tasks, cherry-pick, CI Autofix, Branch Rebase,
 pull-request activation, and the CI shell entry point all use that boundary;
@@ -918,7 +918,7 @@ Primary files:
 Purpose: turn the CP1 compatibility proof into the production Codex execution
 path and prevent one task or old process from mutating another task's worktree.
 
-**Status (2026-09-04): COMPLETE.** The launch protocol, model-advertised V1/V2
+**Status: COMPLETE.** The launch protocol, model-advertised V1/V2
 profiles, per-turn process isolation, recursive child surfacing, quiescence,
 durable ownership, and fail-closed process recovery are implemented and
 verified. The owning row was deliberately narrowed to one fact after review;
@@ -962,7 +962,7 @@ review of the change and each with a test that fails without it:
   deltas could fill the backlog and lose its own completion, wedging the turn
   forever. Only streamed text is shed now; everything else is always queued.
 
-**Quiescence (2026-09-02).** A turn no longer completes when its root thread
+**Quiescence.** A turn no longer completes when its root thread
 says so. The root reporting completion is necessary but not sufficient, so the
 turn stays live until the process is shown quiet.
 
@@ -1090,7 +1090,7 @@ Implementation:
   doing work before replying.
 
   What the session does with a child thread was the actual defect, and it was
-  measured on 2026-09-02 against the running v0.151.0 CLI. A model asked to
+  measured against the running v0.151.0 CLI. A model asked to
   delegate spawned one child thread that produced 33 notifications; 29 carried
   the child's own turn id and were dropped by `CodexSession`'s turn filter, and
   the remaining 4 decoded to `UnknownNotification`, which maps to no event at
@@ -1209,7 +1209,7 @@ Exit gate:
   marker vanished, and process facts that could not have followed the committed
   intent are all `UNVERIFIABLE`.
 - [x] No fixture leaves a writer outside both ByteQuay's ownership and App
-  Server's registry. Measured 2026-09-02 against the shipped topology (one
+  Server's registry. Measured against the shipped topology (one
   task-owned App Server for the active turn, rooted at the task worktree, with
   no exec-server or environment): a
   turn told to yield `exec /bin/sleep 300` left exactly one writer, and it
@@ -1757,7 +1757,7 @@ name and pull-request queries
 
 **Visible UI:** yes, development-only
 
-**Status: complete.** Landed on 2026-09-04 as nine commits: the task-name
+**Status: complete.** Landed as nine commits: the task-name
 contract, the pull-request tab, the list/marks/header, the composer card,
 Home windows and the overview, and three rounds of fidelity fixes found by
 rendering every screen from fixture data and comparing it to the design HTML.
@@ -1807,7 +1807,7 @@ Scope rules:
   other gap that needs an endpoint, DTO field, event kind, or IPC operation is
   recorded against CP10 or CP11 rather than guessed here.
 
-Decisions, resolved 2026-09-03:
+Resolved decisions:
 
 - [x] Creation follows the HTML: sending the first message creates the task and
   there is no title field. A background naming request proposes the name and the user can change
@@ -1949,7 +1949,7 @@ controls
 
 **Visible UI:** yes
 
-**Status: implemented and verified in the working tree on 2026-09-04.** Steering is a capability on the
+**Status: implemented and verified in the working tree.** Steering is a capability on the
 provider SPI (`AgentCapabilities.steering`, true for Codex, false for Claude)
 and one `RunningTurn.steer` call; the Codex driver sends `turn/steer` with the
 thread and the expected turn, which App Server itself refuses for any other
@@ -2048,7 +2048,7 @@ Exit gate:
 
 **Visible UI:** yes; release candidate
 
-**Design audit, 2026-09-04:** CP11 completed after correcting the release gaps
+**Design audit:** CP11 completed after correcting the release gaps
 in the canonical documents: Codex uses one task-owned App Server per active
 turn, verified stopped before claim release, rather than a shared router;
 attended Claude tasks use CLI `manual` mode so
@@ -2123,7 +2123,7 @@ Implementation:
   fixture. The legacy environment/exec-server fixture is not evidence for the
   current per-task production topology.
 - [x] Run the credentialed latest-installed-Codex ByteQuay UI journey.
-- [x] Reconfirmed 2026-09-04: ship the first release as a local desktop app for
+- [x] Reconfirmed: ship the first release as a local desktop app for
   daily work. Agent processes run under the signed-in macOS account and rely on
   sandboxing plus explicit approvals. ByteQuay exposes no network listener;
   Codex App Server communication stays on private stdio. Separate OS-account or
@@ -2184,7 +2184,7 @@ Release checks:
   and claim, and a later verified Stop releases it without resending the old
   turn.
 
-**Engineering and release evidence, 2026-09-04:** the final clean backend
+**Engineering and release evidence:** the final clean backend
 reactor verification passed 1,130 tests with no failures, errors, or skips. The
 post-gate frontend lint, TypeScript, and 418-test Vitest suite passed, as did the
 auth-free exact-v0.151.0 fixture and both exact no-extra-flag credentialed shell
@@ -2214,7 +2214,7 @@ CP0 through CP11 and their product-policy decisions are complete.
   API, executor process, or loopback listener.
 - [x] Use the user-managed Codex CLI and do not disable task start because of any
   reported version text, including unparseable output. Include the detected text
-  when an actual protocol operation fails. **Revised 2026-09-02:** the startup
+  when an actual protocol operation fails. **Revised:** the startup
   update is a floor, not a refresh. `codex update` installs the latest release,
   so running it every start walked the user's CLI past the schema the protocol
   records were generated from — that is what moved this machine off the pin. It
@@ -2222,17 +2222,17 @@ CP0 through CP11 and their product-policy decisions are complete.
   test ties to the reference projection's `codexVersion`. A newer or unreadable
   version is left alone.
 - [x] Is the experimental App Server dependency acceptable for the intended
-  release audience? Accepted for the first release on 2026-08-31,
+  release audience? Accepted for the first release,
   subject to the compatibility and release gates that CP11 subsequently passed.
 - [x] Is the unauthenticated loopback task-executor boundary acceptable on the
-  same host? Moot: the executor and its listener were removed on 2026-09-02, so
+  same host? Moot: the executor and its listener were removed, so
   ByteQuay opens no local listener of its own.
 - [x] CP7 was the first usable real-runtime milestone; images, rich folding,
   subagents, queueing, and Claude parity followed in their recorded checkpoints.
 - [x] Has CP0 selected and canonically designed one separate managed worktree
   per task, shared across interactive, cherry-pick, and CI Autofix workflows?
 - [x] Is seven-day detailed runtime retention still the desired product policy?
-  Yes for the first release, accepted on 2026-09-04; successful and failed
+  Yes for the first release; successful and failed
   terminal tasks keep detailed runtime data for seven days before cleanup.
 
 ## 8. Completed implementation state

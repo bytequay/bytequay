@@ -297,7 +297,7 @@ the baseline design, because a 38 s first call is the common case on a
 repository of this size, not a corner case. ByteQuay still adds no watcher,
 daemon, or exact-path cursor.
 
-### Measured on 2026-09-04 with the pinned bundle
+### Measured with the pinned bundle
 
 The same machine, macOS 26.5.1, the pinned 1.6.0 darwin-arm64 bundle with
 the five-line external-index patch, and the index outside the worktree.
@@ -566,7 +566,7 @@ insufficient.
 
 ## 12. Benefit measurement
 
-Status: shipped on 2026-09-05: the `on`/`off`/`compare` setting, the arm
+Status: shipped. This includes the `on`/`off`/`compare` setting, the arm
 stamped on each task, the five counters, and the per-workspace comparison
 table.
 
@@ -643,7 +643,7 @@ Deliberately not included: statistical tests, agent self-assessment,
 per-model or per-effort breakdown, a benefit badge, live per-turn charts, and
 export.
 
-### Probe (2026-09-04)
+### Probe
 
 A bounded first answer to "is the graph worth it", run before any product
 code: one repository, one model, exploration questions only, two runs per
@@ -686,7 +686,7 @@ a reason the product bridge is root-agent only.
 
 ## 13. First version
 
-Status: approved 2026-09-05. Redesigned after the 2026-09-04 measurements
+Status: approved. Redesigned after the pinned-bundle measurements
 showed that a fresh per-task index costs 38 s on a Trino-sized repository,
 which is the common case, not a corner case. The design keeps one disposable
 index per task worktree and adds one derived cache per repository so that
@@ -876,7 +876,7 @@ the cwd walk-up.
 
 ### Reconciled
 
-Sections 1, 4, 5, 6, 7, 8, 10, and 11 were rewritten on 2026-09-05 to match
+Sections 1, 4, 5, 6, 7, 8, 10, and 11 were rewritten to match
 this section; the per-worktree index, the fail-open contract, the security
 bounds, and the storage-outside-the-worktree rule were unchanged by the
 redesign. After the implementation shipped the same day, Sections 2, 3, 4,

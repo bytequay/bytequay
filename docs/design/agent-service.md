@@ -20,7 +20,7 @@ ownership selects Review, and helpers receive only Global user skills.
 Scope and native
 child inheritance are specified in the linked skills design.
 
-## Bounded history correction (2026-09-06)
+## Bounded history correction
 
 The task window reads bounded event pages rather than subscribing from sequence
 zero to reconstruct every message. `readHistory(taskId, before, after)` uses
@@ -52,9 +52,9 @@ streaming reader and builds the existing event-ID deduplication index; that
 writer-only metadata index can still grow with the event count. Task
 status and approval authority remain independent of the displayed history
 window. Frontend paging, eviction, and scroll anchoring are specified in
-[Agent Task UI Design](agent-task-ui.md#bounded-history-correction-2026-09-06).
+[Agent Task UI Design](agent-task-ui.md#bounded-history-correction).
 
-Backend verification on 2026-09-06: full `mvn verify` passed 1,283 tests with
+Backend verification: full `mvn verify` passed 1,283 tests with
 Checkstyle and license checks. Storage regressions cover count and byte caps,
 bidirectional and append-stable cursors, exact-limit records, and torn tails.
 A 1 GiB sparse-file fixture with an unreadable unloaded prefix verifies that
@@ -72,7 +72,7 @@ The exact service and method sequence is defined in
 The shared provisioning and cleanup boundary is defined in
 [Managed Worktree Service](worktree-service.md).
 
-## Current implementation (2026-09-05)
+## Current implementation
 
 This status note records the implemented, ungated, shipped boundary.
 It supersedes older wording that described the agent subsystem or its rich task
@@ -101,8 +101,8 @@ surface as future work.
   passes remain historical protocol evidence; they do not establish a v0.153.4
   executable compatibility pass. The detected version text is retained for
   status and incompatibility diagnostics. The product accepted the experimental
-  dependency for the first task release on 2026-08-31; CP11
-  compatibility and release acceptance passed on 2026-09-04.
+  dependency for the first task release; CP11
+  compatibility and release acceptance passed.
 - The official documentation currently marks the `app-server` command itself,
   not only WebSocket transport, as experimental and unsupported for production
   workloads. The existing stdio integration therefore remains an explicit,
@@ -2883,8 +2883,8 @@ required surface, and compact Java projection. Its recorded live slice proves
 the superseded environment/exec-server boundary rather than the current
 production task-process topology, so CP11 uses it only as protocol and
 configuration evidence. That historical fixture covered two independent root
-tasks and three turns. Both subscription-backed paths passed locally on
-2026-08-31 with `gpt-5.6-sol`; the recursive run used its advertised V2 graph
+tasks and three turns. Both subscription-backed paths passed locally
+with `gpt-5.6-sol`; the recursive run used its advertised V2 graph
 while validating a supplementary V1 collaboration record. The default fixture
 remains offline, authentication-free, deterministic, and safe for CI. The `--live` and
 `--live-children` paths are explicit local real-model smoke gates and are not
@@ -3483,7 +3483,7 @@ work is empty:
 
 Failed tasks use the same seven-day period, measured from their terminal
 timestamp. The product owner accepted this seven-day detailed-runtime window
-for the first release on 2026-09-04.
+for the first release.
 
 ### Explicit workspace deletion
 

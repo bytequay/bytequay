@@ -1,6 +1,6 @@
 # Agent Task UI Design
 
-## Shared conversation presentation (2026-09-07)
+## Shared conversation presentation
 
 Tasks and PR review Activity use `AgentConversation` for the transcript,
 approvals, live activity, queue, composer, and history scrolling. They also use
@@ -11,13 +11,13 @@ not custom control rows or review-specific labels. Review Activity does
 not mount the interactive Tasks route or manufacture an interactive task DTO.
 Changes to conversation behavior belong in this shared implementation.
 
-## Bounded history correction (2026-09-06)
+## Bounded history correction
 
 Opening a task shows a bounded recent window, not a replay of its whole log.
 The same rule applies to open, completed, and failed tasks and to task cards.
 History comes from ByteQuay's JSONL event store, never provider transcript reads.
 
-The 2026-09-07 transcript follow-up expands the original 200-event page and
+The transcript follow-up expands the original 200-event page and
 600-event window allowances to the count limits below, keeping the byte caps.
 
 Each history page contains at most 1,000 events and 2 MiB of stored event JSON.
@@ -56,7 +56,7 @@ bottom, unless the conversation has become short enough to fit the viewport.
 These JSON budgets do not include JavaScript object, DOM, or decoded-image
 overhead; attachment and UI caches must also remain bounded.
 
-The 2026-09-08 follow-up reproduced a raw-page eviction in the actual task UI:
+A follow-up reproduced a raw-page eviction in the actual task UI:
 one older page replaced the visible conversation and final answer with a single
 collapsed command. Scroll anchoring cannot retain messages removed from the
 window. Compact retention replaces the previous three-transport-page limit;
@@ -90,7 +90,7 @@ whole subscriber backlog. Large-log verification must cover page byte limits,
 scroll anchoring, eviction/reload, live updates while reading old history,
 terminal tasks, and reconnect without lost or duplicated events.
 
-Verification on 2026-09-06: 498 frontend tests, full lint and TypeScript checks,
+Verification: 498 frontend tests, full lint and TypeScript checks,
 and desktop packaging passed. Hidden Electron tests exercised the production
 task body and screen wrapper: initial and short pages did not load older history
 automatically, paging stayed within 600 events, and ten visible-passage checks
@@ -119,7 +119,7 @@ The implemented surface carries an explicit product risk: the
 [official Codex App Server documentation](https://learn.chatgpt.com/docs/app-server)
 currently marks the `app-server` command as experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the first
-release on 2026-08-31 and reconfirmed it when CP11 passed on 2026-09-04. The
+release and reconfirmed it when CP11 passed. The
 fixed reference-schema fixture remains historical protocol evidence. Production
 independently configures `0.153.4` as its minimum Codex CLI version, upgrades
 older installations at startup to that exact configured release through npm, and keeps
@@ -164,8 +164,8 @@ production code and neither claims backend or provider integration.
 ## 1. Decision summary
 
 This section describes the implemented shape. CP0 selected a separate
-ByteQuay-managed worktree per task and accepted experimental App Server on
-2026-08-31. The earlier unauthenticated loopback executor boundary was removed:
+ByteQuay-managed worktree per task and accepted experimental App Server.
+The earlier unauthenticated loopback executor boundary was removed:
 each active Codex turn now runs in a task-owned App Server, verified stopped at
 turn completion, and opens no ByteQuay listener.
 The remaining same-host risk is ordinary same-user filesystem and provider

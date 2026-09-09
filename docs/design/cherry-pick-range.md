@@ -1,7 +1,7 @@
 # Cherry-pick Range Design
 
-> **Status: implemented and verified with the shared managed-worktree boundary
-> on 2026-09-01.** Range ordering, conflict history, and accounting remain
+> **Status: implemented and verified with the shared managed-worktree boundary.**
+> Range ordering, conflict history, and accounting remain
 > unchanged. Worktree creation, inspection, and non-destructive cleanup use the
 > shared
 > [Managed Worktree Service](worktree-service.md).

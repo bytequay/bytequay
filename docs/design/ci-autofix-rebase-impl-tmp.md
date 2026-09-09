@@ -1,6 +1,6 @@
 # CI Autofix Program-owned Rebase Checklist
 
-Status: implementation complete and verified on 2026-08-20.
+Status: implementation complete and verified.
 
 Canonical behavior remains in [CI Autofix Service](ci-autofix-service.md) and
 [Branch Rebase Service](rebase-service.md). This migration changes only who

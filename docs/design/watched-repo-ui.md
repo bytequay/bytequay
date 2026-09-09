@@ -1,7 +1,7 @@
 # Watched Repository / Workspace UI Design
 
 Status: original mockups for the four changed surfaces, with current watch routing and workspace
-retention behavior updated on 2026-09-07. Canonical behavior:
+retention behavior documented. Canonical behavior:
 [watched-repo.md](watched-repo.md). Mockups live in
 [watched-repo-ui/](watched-repo-ui/) as interactive HTML state boards (open in a
 browser) plus PNG exports.
@@ -15,7 +15,7 @@ browser) plus PNG exports.
 
 ## Current watch routing
 
-The 2026-09-06 watch flow supersedes the original board's optional upstream-link step.
+The current watch flow supersedes the original board's optional upstream-link step.
 Selecting upstream or any fork resolves the original source and the signed-in user's personal
 fork. If the source belongs to the user, it stays direct. Otherwise the preview names the
 upstream being followed, its default branch, the personal fork receiving branches, and the

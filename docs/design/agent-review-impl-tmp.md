@@ -213,7 +213,7 @@ because the broker composes it (`registration.instruction()`); the Codex lane
 delivers it with the tool registration and the Claude lane appends it with
 `--append-system-prompt`, asserted in `TestReviewToolBroker`.
 
-Claude subagent correction, 2026-09-07: the review launch now selects a fixed
+Claude subagent correction: the review launch now selects a fixed
 native file/shell/source tool list, disables slash commands, and denies
 `Agent`, `Task`, `Skill`, `Workflow`, and `SendMessage` before approval.
 Ordinary task delegation remains available. The projection advertises no

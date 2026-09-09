@@ -317,8 +317,8 @@ returns `accept`, and failure diagnostics report only bounded metadata, never
 raw command text or output. This still is not an OS filesystem-read boundary:
 the App Server and its tools run as the same macOS user, so an
 absolute path could reach the dedicated profile if a command learned it. CP0's
-same-host trust decision accepted that boundary for the first release
-on 2026-08-31; a future OS-user/container boundary may strengthen it.
+same-host trust decision accepted that boundary for the first release;
+a future OS-user/container boundary may strengthen it.
 
 After both tasks finish and task A's background process is cleaned, the fixture
 stops and verifies the old App Server and executor process groups. It starts a
@@ -353,7 +353,7 @@ each run.
 
 ## Evidence and conditional decision
 
-The current offline gate passed on 2026-08-31 with `codex-cli 0.151.0`:
+The current offline gate passed with `codex-cli 0.151.0`:
 
 ```text
 PASS compact Java projection matches the exact generated schema
@@ -364,7 +364,7 @@ PASS App Server multi-agent-v1-enabled launch profile and config-source isolatio
 PASS App Server multi-agent-v2-enabled launch profile and config-source isolation
 ```
 
-Both safe subscription-backed live gates then passed on 2026-08-31 with the
+Both safe subscription-backed live gates then passed with the
 dedicated fixture profile and `gpt-5.6-sol`. The no-child evidence was:
 
 ```text
@@ -385,7 +385,7 @@ PASS exactly one root child and one grandchild with completed markers
 PASS child profile isolation, clean worktree, and empty background terminals
 ```
 
-An earlier two-turn behavior slice passed on 2026-08-30 with
+An earlier two-turn behavior slice passed with
 ChatGPT authentication and the advertised default model `gpt-5.6-sol`. Its
 live-specific evidence was:
 

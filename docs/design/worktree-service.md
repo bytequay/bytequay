@@ -1,7 +1,7 @@
 # Managed Worktree Service
 
-> **Status: implemented and verified for every agent-backed workflow on
-> 2026-09-01.** This document records the separate-worktree decision for every
+> **Status: implemented and verified for every agent-backed workflow.**
+> This document records the separate-worktree decision for every
 > agent-backed workflow. It replaces flow-specific worktree creation and the
 > former existing-checkout lease model.
 

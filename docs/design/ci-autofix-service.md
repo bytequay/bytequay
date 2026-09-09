@@ -1,9 +1,9 @@
 # CI Autofix Service Design
 
-> **Status: backend and managed-worktree migration implemented and verified on
-> 2026-09-01.** The current implementation follows the
+> **Status: backend and managed-worktree migration implemented and verified.**
+> The current implementation follows the
 > locked scope, authority boundary, services, durable status model, and program
-> control facts approved on 2026-08-17. CI Autofix uses the shared
+> approved control facts. CI Autofix uses the shared
 > [Managed Worktree Service](worktree-service.md). Verification evidence for
 > the current flow is recorded in [Implementation status](#12-implementation-status).
 
@@ -872,12 +872,12 @@ agent response text to control the program.
 
 ## 12. Implementation status
 
-The initial backend implementation completed on 2026-08-18. The managed
-worktree migration completed on 2026-09-01: the public start accepts a saved
+The initial backend implementation is complete. The managed
+worktree migration is complete: the public start accepts a saved
 `workspaceId`, creates a fresh task worktree at the verified PR head, and uses
 the shared inspect and non-destructive cleanup boundary.
 
-The program-owned target-rebase migration completed on 2026-08-20.
+The program-owned target-rebase migration is complete.
 `mvn verify` passed the full reactor in 1 minute 8 seconds with zero
 Checkstyle violations; the `app` module ran 250 tests with no failures or
 errors and produced the repackaged backend jar. The focused tests cover exact
@@ -887,7 +887,7 @@ Git target-moved journey proves the program starts and continues the rebase,
 while the conflict agent only edits and stages the stopped conflict. The
 two-context restart journey also passed against the persisted schema.
 
-Managed-worktree verification evidence (2026-09-01):
+Managed-worktree verification evidence:
 
 - `mvn verify` passed all seven reactor modules with zero Checkstyle violations;
   the `app` module ran 592 tests with no failures or errors, packaged the

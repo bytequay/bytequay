@@ -5,7 +5,7 @@ below.
 
 The checked boxes describe the current implementation. The managed-worktree
 migration replaced renderer/workflow path inputs and `CherryPickWorkspace`
-through the shared service on 2026-09-01; its evidence is tracked in
+through the shared service; its evidence is tracked in
 [Agent Service Implementation Checkpoints](agent-service-impl-tmp.md) and did
 not reopen the range semantics below.
 

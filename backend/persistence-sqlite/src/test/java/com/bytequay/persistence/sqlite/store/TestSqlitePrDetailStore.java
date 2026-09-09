@@ -13,10 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
@@ -93,6 +95,72 @@ class TestSqlitePrDetailStore
         pullRequest.setLabelColors(ImmutableMap.of());
         pullRequest.setSyncedAt(NOW);
         prId = pullRequests.saveAndFlush(pullRequest).getId();
+    }
+
+    @Test
+    void readsOnlyRequestedCachedAuthorAvatars()
+    {
+        String avatar = "https://avatars.githubusercontent.com/u/123?v=4";
+        store.save(prId, avatarDetail(avatar));
+        store.save(prId + 100, avatarDetail("https://avatars.githubusercontent.com/u/456?v=4"));
+
+        assertThat(store.findAuthorAvatarUrls(ImmutableSet.of(prId, prId + 200)))
+                .containsExactlyEntriesOf(ImmutableMap.of(prId, avatar));
+        assertThat(store.findAuthorAvatarUrls(ImmutableSet.of())).isEmpty();
+
+        store.save(prId, avatarDetail(null));
+        assertThat(store.findAuthorAvatarUrls(ImmutableSet.of(prId))).isEmpty();
+        store.save(prId, avatarDetail(" "));
+        assertThat(store.findAuthorAvatarUrls(ImmutableSet.of(prId))).isEmpty();
+    }
+
+    @Test
+    void readsLatestGitHubActivityWithoutUsingLocalOrSubscriptionEvents()
+    {
+        PrActivitySummary expected = new PrActivitySummary("labeled", Optional.of("maintainer"), NOW.plusSeconds(1),
+                Optional.empty(), Optional.of("stale-ignore"), Optional.empty());
+        store.save(prId, detail(ImmutableList.of(
+                remote(1, NOW),
+                new PrTimelineEvent(2L, "labeled", "maintainer", NOW.plusSeconds(1), null,
+                        PrTimelinePayload.builder().label("stale-ignore").build(), Optional.empty()),
+                new PrTimelineEvent(3L, "mentioned", "viewer", NOW.plusSeconds(2), null, Optional.empty()),
+                new PrTimelineEvent(4L, "subscribed", "viewer", NOW.plusSeconds(3), null, Optional.empty()),
+                new PrTimelineEvent(5L, "unsubscribed", "viewer", NOW.plusSeconds(4), null, Optional.empty()),
+                remote(6, null))));
+        store.recordLocalTimelineEvent(PULL_REQUEST, new PrTimelineEvent(
+                null, "ci_autofix", "viewer", NOW.plusSeconds(5), "local work", Optional.of("local:activity")));
+        store.save(prId + 100, detail(remote(7, NOW.plusSeconds(6))));
+
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId, prId + 200)))
+                .containsExactlyEntriesOf(ImmutableMap.of(prId, expected));
+        assertThat(store.findLatestActivities(ImmutableSet.of())).isEmpty();
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId + 200))).isEmpty();
+    }
+
+    @Test
+    void usesTheLatestInlineReplyActorAndTime()
+    {
+        PrTimelineComment reply = new PrTimelineComment(11L, "replier", null, false, NOW.plusSeconds(3), "reply body", null, null, 10L, ImmutableList.of());
+        store.save(prId, detail(ImmutableList.of(
+                new PrTimelineEvent(10L, "review_thread", "root-author", NOW, null,
+                        PrTimelinePayload.builder().comments(ImmutableList.of(reply)).build(), Optional.empty()),
+                remote(12, NOW.plusSeconds(2)))));
+
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId))).containsExactlyEntriesOf(ImmutableMap.of(prId,
+                new PrActivitySummary("review_thread", Optional.of("replier"), NOW.plusSeconds(3), Optional.empty(), Optional.empty(), Optional.empty())));
+    }
+
+    @Test
+    void keepsReviewVerdictsAndRequestRecipientsWithTheirOwnEvents()
+    {
+        store.save(prId, detail(new PrTimelineEvent(1L, "reviewed", "reviewer", NOW, null,
+                PrTimelinePayload.builder().state("APPROVED").build(), Optional.empty())));
+        store.save(prId + 1, detail(new PrTimelineEvent(2L, "review_requested", "maintainer", NOW, null,
+                PrTimelinePayload.builder().requestedReviewer("viewer").build(), Optional.empty())));
+
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId, prId + 1))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
+                prId, new PrActivitySummary("reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty()),
+                prId + 1, new PrActivitySummary("review_requested", Optional.of("maintainer"), NOW, Optional.empty(), Optional.empty(), Optional.of("viewer"))));
     }
 
     @Test
@@ -339,6 +407,17 @@ class TestSqlitePrDetailStore
         assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId))
                 .hasSize(2)
                 .allSatisfy(row -> assertThat(row.getId()).isEqualTo(rowIds.get(row.getEvent())));
+    }
+
+    private static StoredPrDetail avatarDetail(String avatarUrl)
+    {
+        return new StoredPrDetail(
+                new PrRawDetail(
+                        "Overview", "https://github/pr/42", "open", "alice", avatarUrl,
+                        NOW, NOW, null, "body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(),
+                        null, false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
+                        "a".repeat(40), "feature", "main"),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static StoredPrDetail detail(List<PrTimelineEvent> events)

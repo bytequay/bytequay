@@ -13,10 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
@@ -27,11 +29,14 @@ import com.bytequay.persistence.sqlite.entity.PrTimelineEntity;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
+import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.AuthorAvatar;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
+import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.ActivityCandidate;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +53,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -97,6 +103,47 @@ public class SqlitePrDetailStore
                 checkRunRepo.findByPrId(prId).stream().map(PrCheckRunEntity::toDomain).collect(toImmutableList()),
                 detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of(),
                 Boolean.TRUE.equals(detail.getViewerCanWrite())));
+    }
+
+    @Override
+    public Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return detailRepo.findAuthorAvatarUrls(prIds).stream()
+                .collect(toImmutableMap(AuthorAvatar::getPrId, AuthorAvatar::getAuthorAvatarUrl));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        Map<Long, PrActivitySummary> latest = new HashMap<>();
+        for (ActivityCandidate event : timelineRepo.findLatestActivityCandidates(prIds, ImmutableSet.of("mentioned", "subscribed", "unsubscribed"))) {
+            PrTimelinePayload payload = Optional.ofNullable(event.getPayload()).orElseGet(PrTimelinePayload::empty);
+            if (event.getTimestamp() != null) {
+                mergeActivity(latest, event.getPrId(), new PrActivitySummary(
+                        event.getEvent(), Optional.ofNullable(event.getActor()), event.getTimestamp(),
+                        Optional.ofNullable(payload.state()), Optional.ofNullable(payload.label()), Optional.ofNullable(payload.requestedReviewer())));
+            }
+            if ("review_thread".equals(event.getEvent())) {
+                payload.comments().stream().filter(comment -> comment.timestamp() != null).forEach(comment -> mergeActivity(
+                        latest, event.getPrId(), new PrActivitySummary(
+                                "review_thread", Optional.ofNullable(comment.actor()), comment.timestamp(), Optional.empty(), Optional.empty(), Optional.empty())));
+            }
+        }
+        return ImmutableMap.copyOf(latest);
+    }
+
+    private static void mergeActivity(Map<Long, PrActivitySummary> latest, long prId, PrActivitySummary activity)
+    {
+        latest.merge(prId, activity, (left, right) -> left.timestamp().isAfter(right.timestamp()) ? left : right);
     }
 
     @Override

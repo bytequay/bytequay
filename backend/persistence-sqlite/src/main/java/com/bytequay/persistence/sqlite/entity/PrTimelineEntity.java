@@ -23,6 +23,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -32,7 +33,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 @Entity
-@Table(name = "pr_timeline")
+@Table(name = "pr_timeline", indexes = @Index(name = "idx_pr_timeline_pr_timestamp", columnList = "pr_id,timestamp,id"))
 @Getter
 @Setter
 public class PrTimelineEntity

@@ -40,6 +40,7 @@ import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
@@ -139,6 +140,39 @@ class TestPullRequestService
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
+    }
+
+    @Test
+    void readsAttentionAvatarsFromTheCachedProjectionWithoutFetchingDetails()
+    {
+        String avatar = "https://avatars.githubusercontent.com/u/123?v=4";
+        when(detailStore.findAuthorAvatarUrls(ImmutableSet.of(12L, 13L)))
+                .thenReturn(ImmutableMap.of(12L, avatar));
+
+        assertThat(service.findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L)))
+                .containsExactlyEntriesOf(ImmutableMap.of(12L, avatar));
+
+        verify(detailStore).findAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+    }
+
+    @Test
+    void readsCachedActivityWithoutAttributingAnUnexplainedLaterUpdateToItsActor()
+    {
+        PrActivitySummary activity = new PrActivitySummary("commented", Optional.of("reviewer"), REVIEWED_AT,
+                Optional.empty(), Optional.empty(), Optional.empty());
+        when(detailStore.findLatestActivities(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, activity));
+
+        assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT, null))))
+                .containsExactlyEntriesOf(ImmutableMap.of(12L, activity));
+        assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT.minusSeconds(1), null))))
+                .containsExactlyEntriesOf(ImmutableMap.of(12L, activity));
+        assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT.plusSeconds(1), null)))).isEmpty();
+
+        verify(detailStore, times(3)).findLatestActivities(ImmutableSet.of(12L));
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
     }
 
     @Test

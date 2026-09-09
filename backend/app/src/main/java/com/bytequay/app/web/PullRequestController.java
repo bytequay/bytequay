@@ -20,12 +20,14 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -65,10 +69,18 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/attention")
-    public List<PullRequest> attention()
+    public List<AttentionPullRequest> attention()
     {
-        return pullRequests.listAttentionCandidates();
+        List<PullRequest> candidates = pullRequests.listAttentionCandidates();
+        Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(
+                candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
+        Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
+        return candidates.stream()
+                .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id())))
+                .collect(toImmutableList());
     }
+
+    public record AttentionPullRequest(@JsonUnwrapped PullRequest pullRequest, String authorAvatarUrl, PrActivitySummary latestActivity) {}
 
     @PatchMapping("/prs/{prId}/monitor")
     public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request)

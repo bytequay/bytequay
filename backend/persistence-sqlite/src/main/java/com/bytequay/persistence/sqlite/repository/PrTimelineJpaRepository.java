@@ -13,19 +13,48 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.persistence.sqlite.entity.PrTimelineEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface PrTimelineJpaRepository
         extends JpaRepository<PrTimelineEntity, Long>
 {
     List<PrTimelineEntity> findByPrIdOrderByTimestampAscIdAsc(Long prId);
+
+    // Inline replies carry their own timestamps inside the payload, so every thread remains a candidate.
+    @Query("""
+            SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp, e.payload AS payload
+            FROM PrTimelineEntity e
+            WHERE e.prId IN :ids AND e.localEventKey IS NULL AND e.event NOT IN :ignored
+              AND (e.event = 'review_thread' OR (e.timestamp IS NOT NULL AND NOT EXISTS (
+                  SELECT newer.id FROM PrTimelineEntity newer
+                  WHERE newer.prId = e.prId AND newer.localEventKey IS NULL AND newer.event NOT IN :ignored
+                    AND (newer.timestamp > e.timestamp OR (newer.timestamp = e.timestamp AND newer.id > e.id)))))
+            ORDER BY e.id
+            """)
+    List<ActivityCandidate> findLatestActivityCandidates(@Param("ids") Set<Long> ids, @Param("ignored") Set<String> ignored);
+
+    interface ActivityCandidate
+    {
+        long getPrId();
+
+        String getEvent();
+
+        String getActor();
+
+        Instant getTimestamp();
+
+        PrTimelinePayload getPayload();
+    }
 
     Optional<PrTimelineEntity> findByPrIdAndLocalEventKey(Long prId, String localEventKey);
 

@@ -29,6 +29,7 @@ export type PullRequestDto = {
   number: number;
   title: string;
   author: string | null;
+  authorAvatarUrl?: string | null;
   htmlUrl: string;
   createdAt: string | null;
   updatedAt: string;
@@ -55,6 +56,15 @@ export type PullRequestDto = {
   activityAt?: string | null;
   reviewRequestedAt?: string | null;
   reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | null;
+  /** Latest known GitHub action; local change-detection timestamps are separate. */
+  latestActivity?: {
+    event: string;
+    actor: string | null;
+    timestamp: string;
+    state: string | null;
+    label: string | null;
+    requestedReviewer: string | null;
+  } | null;
 };
 
 export type PullRequestPageDto = {

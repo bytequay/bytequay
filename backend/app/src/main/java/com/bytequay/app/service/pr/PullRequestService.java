@@ -33,6 +33,7 @@ import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -185,6 +186,25 @@ public class PullRequestService
     public List<PullRequest> listAttentionCandidates()
     {
         return store.findAttentionCandidates();
+    }
+
+    /** Reads cached avatar URLs without loading full details or contacting GitHub. */
+    public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
+    {
+        return snapshots.findAuthorAvatarUrls(prIds);
+    }
+
+    public Map<Long, PrActivitySummary> findCachedLatestActivities(List<PullRequest> pullRequests)
+    {
+        Map<Long, PrActivitySummary> activities = snapshots.findLatestActivities(pullRequests.stream().map(PullRequest::id).collect(toImmutableSet()));
+        ImmutableMap.Builder<Long, PrActivitySummary> latest = ImmutableMap.builder();
+        for (PullRequest pullRequest : pullRequests) {
+            // GitHub can update a PR without a timeline event; an older actor cannot explain that update.
+            Optional.ofNullable(activities.get(pullRequest.id()))
+                    .filter(activity -> !activity.timestamp().isBefore(pullRequest.updatedAt()))
+                    .ifPresent(activity -> latest.put(pullRequest.id(), activity));
+        }
+        return latest.buildOrThrow();
     }
 
     public PullRequest setMonitored(long prId, boolean monitored)

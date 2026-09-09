@@ -13,11 +13,13 @@
  */
 package com.bytequay.core.store;
 
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -26,6 +28,12 @@ public interface PrDetailStore
     Optional<Instant> findSyncedAt(String repo, int number);
 
     Optional<StoredPrDetail> find(long prId);
+
+    /** Reads only cached author avatar URLs; missing details or avatars have no entry. */
+    Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds);
+
+    /** Reads the latest cached GitHub timeline action for each requested PR, including inline replies. */
+    Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds);
 
     Optional<String> findEtag(long prId);
 

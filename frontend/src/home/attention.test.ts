@@ -17,7 +17,7 @@ import {
   anchorPanel,
   assignedIssues,
   attentionCandidates,
-  attentionDetail,
+  attentionActivity,
   attentionKind,
   handledEntry,
   handledSummary,
@@ -62,6 +62,15 @@ function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
 }
 
 describe('attentionKind', () => {
+  it('keeps the cached upstream PR author avatar and handles an uncached author', () => {
+    const avatarUrl = 'https://avatars.githubusercontent.com/u/123';
+    const [withAvatar] = attentionCandidates([pr({ authorAvatarUrl: avatarUrl })]);
+    const [withoutAvatar] = attentionCandidates([pr({})]);
+
+    expect(withAvatar.authorAvatarUrl).toBe(avatarUrl);
+    expect(withoutAvatar.authorAvatarUrl).toBeNull();
+  });
+
   it('keeps every authored PR eligible, with truthful status reasons', () => {
     expect(attentionKind(pr({ mergeableState: 'blocked' }))).toBe('blocked');
     expect(attentionKind(pr({ reviewDecision: 'CHANGES_REQUESTED' }))).toBe('changes');
@@ -128,6 +137,15 @@ describe('attentionKind', () => {
     ]);
 
     expect(rows.map(row => row.number)).toEqual([3, 2, 1]);
+  });
+
+  it('orders equal-priority rows by GitHub activity instead of local observation time', () => {
+    const rows = attentionCandidates([
+      pr({ id: 1, number: 1, origin: 'REVIEW_REQUESTED', activityAt: '2026-09-08T01:47:58Z',
+        latestActivity: { event: 'commented', actor: 'bob', timestamp: '2026-08-16T00:00:00Z', state: null, label: null, requestedReviewer: null } }),
+      pr({ id: 2, number: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-17T00:00:00Z', activityAt: '2026-09-08T01:47:55Z' }),
+    ]);
+    expect(rows.map(row => row.number)).toEqual([2, 1]);
   });
 
   it('places assigned issues right after review requests', () => {
@@ -299,25 +317,30 @@ function snapshot(): RepositoryIssueSnapshotDto {
   };
 }
 
-describe('attentionDetail', () => {
-  const base: Omit<AttentionItem, 'kind'> = {
-    key: 'o/r#1', type: 'pr', repo: 'o/r', number: 1, title: 't', author: 'alice', authorAvatarUrl: null,
+describe('attentionActivity', () => {
+  const base: AttentionItem = {
+    key: 'o/r#1', type: 'pr', kind: 'review', repo: 'o/r', number: 1, title: 't', author: 'alice', authorAvatarUrl: null,
     createdAt: null, updatedAt: '2026-08-28T00:00:00Z', labels: [], pr: null, body: '', commentCount: 3, workspaceId: null,
   };
 
-  it('says what happened in words the list payload can back up', () => {
-    expect(attentionDetail({ ...base, kind: 'review' })).toBe('alice asked for your review');
-    expect(attentionDetail({ ...base, kind: 'review', author: null })).toBe('your review was requested');
-    expect(attentionDetail({ ...base, kind: 'assigned', type: 'issue', commentCount: 1 })).toBe('opened by alice · 1 comment');
-    expect(attentionDetail({ ...base, kind: 'changes' })).toBe('reviewer requested changes · 3 comments');
-    expect(attentionDetail({ ...base, kind: 'blocked' })).toBe('merge requirements are not met · 3 comments');
-    expect(attentionDetail({ ...base, kind: 'ci' })).toBe('ci · checks failed');
-    expect(attentionDetail({ ...base, kind: 'commits', pr: pr({ reviewedAt: '2026-08-14T00:00:00Z' }) })).toBe('new commits since your review');
-    expect(attentionDetail({ ...base, kind: 'commits' })).toBe('new commits since your review request');
-    expect(attentionDetail({ ...base, kind: 'merge', pr: pr({}) })).toBe('checks green · mergeable');
-    expect(attentionDetail({ ...base, kind: 'merge' })).toBe('mergeable');
-    expect(attentionDetail({ ...base, kind: 'updated' })).toBe('pull request updated · 3 comments');
-    expect(attentionDetail({ ...base, kind: 'updated', pr: pr({ state: 'closed' }) })).toBe('pull request closed');
-    expect(attentionDetail({ ...base, kind: 'updated', pr: pr({ state: 'merged' }) })).toBe('pull request merged');
+  function activity(overrides: Partial<NonNullable<PullRequestDto['latestActivity']>>) {
+    return attentionActivity({ ...base, pr: pr({ latestActivity: {
+      event: 'commented', actor: 'bob', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null, ...overrides,
+    } }) });
+  }
+
+  it('keeps the actual actor, action and timestamp together instead of inferring them from the PR author', () => {
+    expect(activity({})).toEqual({ label: 'Commented', detail: 'bob', timestamp: base.updatedAt });
+    expect(activity({ event: 'reviewed', state: 'approved' }).label).toBe('Approved');
+    expect(activity({ event: 'reviewed', state: 'CHANGES_REQUESTED' }).label).toBe('Changes requested');
+    expect(activity({ event: 'labeled', label: 'stale-ignore' })).toMatchObject({ label: 'Label added', detail: 'bob · stale-ignore' });
+    expect(activity({ event: 'review_requested', requestedReviewer: 'jack' })).toMatchObject({ label: 'Review requested', detail: 'bob · review from jack' });
+    expect(activity({ actor: null }).detail).toBe('on GitHub');
+  });
+
+  it('uses GitHub updatedAt without inventing an action or actor when no event is known', () => {
+    const item = { ...base, pr: pr({ activityAt: '2026-09-08T01:47:58Z', reviewRequestedAt: '2026-09-08T01:47:58Z' }) };
+    expect(attentionActivity(item)).toEqual({ label: 'Updated', detail: 'pull request updated', timestamp: base.updatedAt });
+    expect(attentionActivity({ ...base, type: 'issue' })).toEqual({ label: 'Updated', detail: 'issue updated', timestamp: base.updatedAt });
   });
 });

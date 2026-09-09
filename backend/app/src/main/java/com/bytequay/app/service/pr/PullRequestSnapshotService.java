@@ -26,6 +26,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullReques
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -43,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
@@ -79,6 +81,16 @@ public class PullRequestSnapshotService
         return details.find(prId)
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(
                         prId, repo, number, stored, stored.viewerCanWrite()));
+    }
+
+    Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds)
+    {
+        return details.findAuthorAvatarUrls(prIds);
+    }
+
+    Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds)
+    {
+        return details.findLatestActivities(prIds);
     }
 
     void rerunFailedChecks(PullRequestRef pullRequest)

@@ -26,9 +26,13 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,8 +40,11 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
@@ -57,6 +64,51 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestPullRequestRefreshControllers
 {
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
+
+    @Test
+    void attentionKeepsTheFlatPullRequestShapeAndIncludesCachedActivity()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        String avatar = "https://avatars.githubusercontent.com/u/123?v=4";
+        List<PullRequest> candidates = ImmutableList.of(attentionPullRequest(12), attentionPullRequest(13));
+        when(pullRequests.listAttentionCandidates()).thenReturn(candidates);
+        when(pullRequests.findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L))).thenReturn(ImmutableMap.of(12L, avatar));
+        when(pullRequests.findCachedLatestActivities(candidates)).thenReturn(ImmutableMap.of(12L, new PrActivitySummary(
+                "reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty())));
+
+        standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
+                .perform(get("/prs/attention"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(12))
+                .andExpect(jsonPath("$[0].repo").value("trinodb/trino"))
+                .andExpect(jsonPath("$[0].author").value("alice"))
+                .andExpect(jsonPath("$[0].authorAvatarUrl").value(avatar))
+                .andExpect(jsonPath("$[0].latestActivity.event").value("reviewed"))
+                .andExpect(jsonPath("$[0].latestActivity.actor").value("reviewer"))
+                .andExpect(jsonPath("$[0].latestActivity.state").value("APPROVED"))
+                .andExpect(jsonPath("$[0].latestActivity.body").doesNotExist())
+                .andExpect(jsonPath("$[0].pullRequest").doesNotExist())
+                .andExpect(jsonPath("$[1].id").value(13))
+                .andExpect(jsonPath("$[1].authorAvatarUrl").value(nullValue()))
+                .andExpect(jsonPath("$[1].latestActivity").value(nullValue()));
+
+        verify(pullRequests).listAttentionCandidates();
+        verify(pullRequests).findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
+        verify(pullRequests).findCachedLatestActivities(candidates);
+        verifyNoMoreInteractions(pullRequests);
+        verifyNoInteractions(refresh);
+    }
+
+    private static PullRequest attentionPullRequest(long id)
+    {
+        return new PullRequest(
+                id, "trinodb/trino", (int) id, "Review this", "alice", "https://github.com/trinodb/trino/pull/" + id,
+                NOW, NOW, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false,
+                null, null, null, ImmutableList.of("viewer"), null, 0, 0, 0, null, "open", null, null,
+                null, null, null, "feature", null, null, null, null);
+    }
 
     @Test
     void dashboardRefreshCompletesBeforeTheRequestReturns()

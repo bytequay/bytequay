@@ -20,6 +20,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -32,4 +33,15 @@ public interface PrDetailJpaRepository
 
     @Query("SELECT e.syncedAt FROM PrDetailEntity e WHERE e.prId = :prId")
     Optional<Instant> findSyncedAtByPrId(@Param("prId") long prId);
+
+    @Query("SELECT e.prId AS prId, e.authorAvatarUrl AS authorAvatarUrl FROM PrDetailEntity e "
+            + "WHERE e.prId IN :ids AND e.authorAvatarUrl IS NOT NULL AND TRIM(e.authorAvatarUrl) <> ''")
+    List<AuthorAvatar> findAuthorAvatarUrls(@Param("ids") Set<Long> ids);
+
+    interface AuthorAvatar
+    {
+        long getPrId();
+
+        String getAuthorAvatarUrl();
+    }
 }

@@ -94,7 +94,7 @@ function pullRequestItem(pr: PullRequestDto, kind: AttentionKind): AttentionItem
     number: pr.number,
     title: pr.title,
     author: pr.author,
-    authorAvatarUrl: null,
+    authorAvatarUrl: pr.authorAvatarUrl ?? null,
     createdAt: pr.createdAt,
     updatedAt: pr.updatedAt,
     labels: pr.labels,
@@ -146,25 +146,33 @@ export function attentionCandidates(
     .concat(issues);
   return items.sort((left, right) =>
     PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind)
-    || Date.parse(right.pr?.activityAt ?? right.updatedAt) - Date.parse(left.pr?.activityAt ?? left.updatedAt));
+    || Date.parse(attentionActivity(right).timestamp) - Date.parse(attentionActivity(left).timestamp));
 }
 
-/** The row's second line: what happened, in words the list payload can back up. */
-export function attentionDetail(item: AttentionItem): string {
-  const comments = item.commentCount === 1 ? '1 comment' : `${item.commentCount} comments`;
-  switch (item.kind) {
-    case 'review': return item.author ? `${item.author} asked for your review` : 'your review was requested';
-    case 'assigned': return item.author ? `opened by ${item.author} · ${comments}` : comments;
-    case 'changes': return `reviewer requested changes · ${comments}`;
-    case 'blocked': return `merge requirements are not met · ${comments}`;
-    case 'ci': return 'ci · checks failed';
-    case 'commits': return item.pr?.reviewedAt == null ? 'new commits since your review request' : 'new commits since your review';
-    case 'merge': return item.pr?.ciStatus === 'PASSING' ? 'checks green · mergeable' : 'mergeable';
-    case 'updated':
-      if (item.pr?.state === 'merged') return 'pull request merged';
-      if (item.pr?.state === 'closed') return 'pull request closed';
-      return `pull request updated · ${comments}`;
+/** The action and age describe the same GitHub event, independently of the attention reason. */
+export function attentionActivity(item: AttentionItem): { label: string; detail: string; timestamp: string } {
+  const activity = item.pr?.latestActivity;
+  if (!activity) {
+    return { label: 'Updated', detail: item.type === 'issue' ? 'issue updated' : 'pull request updated', timestamp: item.updatedAt };
   }
+  const labels: Record<string, string> = {
+    commented: 'Commented', review_thread: 'Commented', committed: 'Committed',
+    review_requested: 'Review requested', review_request_removed: 'Review request removed',
+    labeled: 'Label added', unlabeled: 'Label removed', renamed: 'Title changed',
+    'cross-referenced': 'Mentioned', head_ref_force_pushed: 'Force-pushed',
+    closed: 'Closed', merged: 'Merged', reopened: 'Reopened',
+    convert_to_draft: 'Converted to draft', ready_for_review: 'Ready for review',
+    milestoned: 'Milestone added', demilestoned: 'Milestone removed',
+    assigned: 'Assigned', unassigned: 'Unassigned',
+    added_to_merge_queue: 'Queued for merge', removed_from_merge_queue: 'Removed from merge queue',
+  };
+  const label = activity.event === 'reviewed'
+    ? activity.state?.toUpperCase() === 'APPROVED' ? 'Approved'
+      : activity.state?.toUpperCase() === 'CHANGES_REQUESTED' ? 'Changes requested' : 'Reviewed'
+    : labels[activity.event] ?? 'Updated';
+  const context = activity.event === 'labeled' || activity.event === 'unlabeled' ? activity.label
+    : activity.event === 'review_requested' && activity.requestedReviewer ? `review from ${activity.requestedReviewer}` : null;
+  return { label, detail: [activity.actor, context].filter(Boolean).join(' · ') || 'on GitHub', timestamp: activity.timestamp };
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */

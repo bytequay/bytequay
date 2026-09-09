@@ -33,7 +33,7 @@ import AttentionPreview from './AttentionPreview';
 import {
   anchorPanel,
   ATTENTION_KINDS,
-  attentionDetail,
+  attentionActivity,
   handledEntry,
   handledSummary,
   SNOOZE_OPTIONS,
@@ -204,6 +204,7 @@ export default function AttentionList({
       <div className="atn-list">
         {visible.map(item => {
           const kind = ATTENTION_KINDS[item.kind];
+          const activity = attentionActivity(item);
           const Icon = KIND_ICONS[item.kind];
           const [owner, repo] = item.repo.split('/');
           return (
@@ -223,8 +224,9 @@ export default function AttentionList({
               onMouseEnter={event => enterRow(item, event.currentTarget)}
               onMouseLeave={leaveRow}
             >
-              <span className="atn-row__icon" style={{ color: kind.color, background: kind.background }} aria-hidden="true">
-                <Icon size={16} strokeWidth={1.9} />
+              <span className="atn-row__icon" style={{ color: kind.color, background: kind.background }}
+                role="img" aria-label={`Needs attention: ${kind.label}`} title={`Needs attention: ${kind.label}`}>
+                <Icon size={16} strokeWidth={1.9} aria-hidden="true" />
               </span>
               <span className="atn-row__body">
                 <span className="atn-row__subject">
@@ -232,14 +234,17 @@ export default function AttentionList({
                   <span className="atn-row__meta">#{item.number}</span>
                 </span>
                 <span className="atn-row__detail">
-                  <span className="atn-row__kind" style={{ color: kind.color }}>{kind.label}</span>
+                  <span className="atn-row__kind" style={{ color: kind.color }}>{activity.label}</span>
                   <span className="atn-row__sep" aria-hidden="true">·</span>
-                  <span className="atn-row__what">{attentionDetail(item)}</span>
+                  <span className="atn-row__what">{activity.detail}</span>
                 </span>
               </span>
               {variant === 'home' && <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />}
               <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={22} />
-              <span className="atn-row__age">{relativeTime(item.pr?.activityAt ?? item.updatedAt, { suffix: false })}</span>
+              <time className="atn-row__age" dateTime={activity.timestamp}
+                title={`${activity.label} · ${new Date(activity.timestamp).toLocaleString()}`}>
+                {relativeTime(activity.timestamp, { suffix: false })}
+              </time>
               <div className="atn-row__actions" role="group" aria-label={`Actions for #${item.number}`}>
                 <button
                   className="atn-iconbtn is-ack"

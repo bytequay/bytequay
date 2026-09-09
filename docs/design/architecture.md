@@ -351,6 +351,14 @@ the fresh activity while retaining cached write access; a missing detail remains
 Subsequent changes enter Needs attention. Stored activity timestamps include
 check changes that do not advance GitHub's PR update timestamp.
 
+Attention rows display the latest known GitHub action, its actor, and its own event timestamp.
+The local timeline supplies this summary in one batch read; display never fetches GitHub or loads
+full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
+GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
+without attributing it to a person. The row's age and ordering within each attention reason use
+this GitHub timestamp, while the reason remains on the icon tooltip and preview. Local activity
+timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
+
 Electron checks the local attention projection every 30 seconds and shows a native notification for
 new monitored activity discovered by GitHub refresh. This continues while the app runs with its window
 closed. Notification clicks open the PR in ByteQuay. Delivery marks and a copy of the renderer's local

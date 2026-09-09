@@ -165,7 +165,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       setWorkspaces(previous => previous.filter(row => row.id !== workspace.id));
       setRetired(previous => [workspace, ...previous.filter(row => row.id !== workspace.id)]);
       setRefresh(previous => previous + 1);
-      flash(`Moved ${workspace.selectedOwner}/${workspace.selectedRepo} to Retired. Open it there to access saved tasks and files.`);
+      flash(`Moved ${workspace.monitoredOwner}/${workspace.monitoredRepo} to Retired. Open it there to access saved tasks and files.`);
     }
     catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -275,7 +275,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
             setRetired(previous => previous.filter(row => row.id !== dto.id));
             setRefresh(previous => previous + 1);
             setTab('watched');
-            flash(`Watching ${dto.selectedOwner}/${dto.selectedRepo} — syncing in the background`);
+            flash(`Watching ${dto.monitoredOwner}/${dto.monitoredRepo} — syncing in the background`);
           }}
           onOpenWorkspace={onOpen}
           onClose={() => setShowModal(false)}
@@ -319,19 +319,19 @@ export function RetiredWorkspaceCards({ workspaces, onOpen, onWatch, onDelete }:
   return (
     <div className="ws-grid">
       {workspaces.map(workspace => {
-        const repository = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
+        const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
         return <article className="ws-card" key={workspace.id} data-workspace-id={workspace.id}>
           <div className="ws-card-title">
-            <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={20} />
+            <RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={20} />
             <span className="ws-card-name">{workspace.name}</span>
             <span className="ws-topo">Retired</span>
           </div>
-          <div className="ws-card-path" title={repository}>{repository} · {workspace.defaultBranch}</div>
+          <div className="ws-card-path" title={repository}>{repository} · {workspace.upstreamDefaultBranch ?? workspace.defaultBranch}</div>
           <p className="ws-retired-note">Local data kept. Open to access saved tasks and files.</p>
           <div className="ws-card-actions">
             <button type="button" aria-label={`Open ${repository}`} onClick={() => onOpen(workspace.id)}>Open</button>
             <button type="button" aria-label={`Watch ${repository} again`} onClick={() => onWatch(workspace)}>Watch again</button>
-            <button type="button" className="is-danger" aria-label={`Delete ${repository} local data`} onClick={() => onDelete(workspace)}>Delete…</button>
+            <button type="button" className="is-danger" aria-label={`Delete ${workspace.selectedOwner}/${workspace.selectedRepo} local data`} onClick={() => onDelete(workspace)}>Delete…</button>
           </div>
         </article>;
       })}
@@ -398,8 +398,8 @@ export function WorkspaceCards({
   return (
     <div className="ws-grid">
       {workspaces.map(workspace => {
-        const name = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
-        const upstream = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+        const name = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+        const defaultBranch = workspace.upstreamDefaultBranch ?? workspace.defaultBranch;
         const fork = workspace.topology === 'FORK';
         const failure = failures[workspace.id];
         const busy = retrying.includes(workspace.id);
@@ -435,17 +435,17 @@ export function WorkspaceCards({
             />
             <div className="ws-card-title">
               <RepoAvatar
-                owner={workspace.selectedOwner}
-                repo={workspace.selectedRepo}
+                owner={workspace.monitoredOwner}
+                repo={workspace.monitoredRepo}
                 size={20}
               />
               <span className="ws-card-name">{workspace.name}</span>
               <span className={`ws-topo${failure ? ' is-failed' : fork ? ' is-fork' : ''}`}>
-                {failure ? 'needs attention' : fork ? `⑂ ${upstream}` : 'direct'}
+                {failure ? 'needs attention' : fork ? `⑂ ${name}` : 'direct'}
               </span>
             </div>
             <div className="ws-card-path">
-              {fork ? `${workspace.defaultBranch} · follows ${upstream}` : workspace.defaultBranch}
+              {fork ? `${defaultBranch} · follows ${name}` : defaultBranch}
             </div>
 
             <div className="ws-stats">
@@ -514,7 +514,7 @@ export function WorkspaceCards({
                 type="button"
                 className="is-danger"
                 disabled={unwatching.includes(workspace.id)}
-                aria-label={`Delete ${name} local data`}
+                aria-label={`Delete ${workspace.selectedOwner}/${workspace.selectedRepo} local data`}
                 onClick={() => onDelete(workspace)}
               >Delete…</button>}
             </div>}

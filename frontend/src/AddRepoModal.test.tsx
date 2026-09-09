@@ -100,6 +100,9 @@ describe('watch repository fork consent', () => {
     const { html, onWatch, confirm } = confirmation({ ...selected, pushWritable: true, forkRequired: false });
 
     expect(html).toContain('reuse your existing personal fork octocat/trino');
+    expect(html).toContain('class="modal-preview__name">trinodb/trino</span>');
+    expect(html).toContain('src="https://github.com/trinodb.png?size=64"');
+    expect(html).not.toContain('octocat.png');
     expect(html).toContain('follow trinodb/trino for commits, issues and pull requests');
     expect(html).toContain('>Watch repository</button>');
     expect(html).not.toContain('Create fork and watch');

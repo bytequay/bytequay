@@ -70,13 +70,13 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
     <div className="modal-preview">
       <div className="modal-preview__title-row">
         <Avatar
-          login={preview.selectedRepository.owner}
+          login={preview.monitoredRepository.owner}
           size={32}
           className="modal-preview__avatar"
         />
         <div>
           <div className="modal-preview__name-row">
-            <span className="modal-preview__name">{fullName(preview.selectedRepository)}</span>
+            <span className="modal-preview__name">{fullName(preview.monitoredRepository)}</span>
             <span className={`modal-chip${preview.topology === 'FORK' ? ' is-fork' : ' is-direct'}`}>
               {preview.topology === 'FORK' ? '⑂ personal fork workflow' : 'your repository'}
             </span>

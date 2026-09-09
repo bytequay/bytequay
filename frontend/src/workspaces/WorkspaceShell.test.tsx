@@ -48,10 +48,12 @@ describe('watched repository workspace UI', () => {
     expect(workspaceSidebar).toContain('class="app-sidebar__item" aria-label="Home"');
     expect(workspaceSidebar).toContain('class="app-sidebar__item is-active" aria-label="Workspace home"');
     expect(workspaceSidebar).toContain('aria-label="contributor/project workspace home"');
+    expect(workspaceSidebar).toContain('src="https://github.com/upstream.png?size=36"');
+    expect(workspaceSidebar).not.toContain('contributor.png');
   });
 
   it('shows the same durable ID and state on Home and Workspaces', () => {
-    const value = workspace('FORK');
+    const value = { ...workspace('FORK'), upstreamDefaultBranch: 'master' };
     const home = renderToStaticMarkup(<WatchedReposGrid
       workspaces={[value]}
       loading={false}
@@ -66,7 +68,13 @@ describe('watched repository workspace UI', () => {
 
     for (const html of [home, list]) {
       expect(html).toContain('data-workspace-id="workspace-id"');
+      expect(html).toContain('aria-label="upstream/project"');
+      expect(html).toContain('src="https://github.com/upstream.png?size=');
+      expect(html).not.toContain('contributor.png');
     }
+    expect(home).toContain('class="home-repo-tile__name">upstream/project</span>');
+    expect(list).toContain('class="ws-card-path">master · follows upstream/project</div>');
+    expect(list).not.toContain('main · follows');
     // Nothing has synced yet, so the card reports the queued state.
     expect(list).toContain('queued');
   });
@@ -107,8 +115,8 @@ describe('watched repository workspace UI', () => {
     const actions = card.props.children[7] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
     const html = renderToStaticMarkup(cards);
 
-    expect(html).toMatch(/<a[^>]*aria-label="Open contributor\/project"[^>]*><\/a>/);
-    expect(html).toContain('aria-label="Unwatch contributor/project"');
+    expect(html).toMatch(/<a[^>]*aria-label="Open upstream\/project"[^>]*><\/a>/);
+    expect(html).toContain('aria-label="Unwatch upstream/project"');
     expect(html).toContain('aria-label="Delete contributor/project local data"');
     expect(html).toContain('Move to Retired and keep all local data');
 
@@ -123,7 +131,15 @@ describe('watched repository workspace UI', () => {
   });
 
   it('opens retired data by its original workspace ID and keeps watch and delete actions separate', () => {
-    const value = { ...workspace('DIRECT'), id: 'original-upstream-workspace', name: 'My saved Trino tasks', selectedOwner: 'trinodb', selectedRepo: 'trino' };
+    const value = {
+      ...workspace('DIRECT'),
+      id: 'original-upstream-workspace',
+      name: 'My saved Trino tasks',
+      selectedOwner: 'trinodb',
+      selectedRepo: 'trino',
+      monitoredOwner: 'trinodb',
+      monitoredRepo: 'trino',
+    };
     const onOpen = vi.fn();
     const onWatch = vi.fn();
     const onDelete = vi.fn();
@@ -152,6 +168,25 @@ describe('watched repository workspace UI', () => {
     actions.props.children[2].props.onClick?.({} as MouseEvent<HTMLButtonElement>);
     expect(onDelete).toHaveBeenCalledWith(value);
     expect(onOpen).toHaveBeenCalledOnce();
+  });
+
+  it('shows retired fork metadata from upstream and keeps Delete tied to the physical checkout', () => {
+    const value = { ...workspace('FORK'), name: 'Saved release work', upstreamDefaultBranch: 'master' };
+    const html = renderToStaticMarkup(<RetiredWorkspaceCards
+      workspaces={[value]}
+      onOpen={vi.fn()}
+      onWatch={vi.fn()}
+      onDelete={vi.fn()}
+    />);
+
+    expect(html).toContain('Saved release work');
+    expect(html).toContain('title="upstream/project">upstream/project · master</div>');
+    expect(html).toContain('src="https://github.com/upstream.png?size=40"');
+    expect(html).toContain('aria-label="Open upstream/project"');
+    expect(html).toContain('aria-label="Watch upstream/project again"');
+    expect(html).toContain('aria-label="Delete contributor/project local data"');
+    expect(html).not.toContain('contributor/project · main');
+    expect(html).not.toContain('contributor.png');
   });
 
   it('explains where unwatched repositories are kept when Retired is empty', () => {
@@ -274,7 +309,7 @@ describe('watched repository workspace UI', () => {
 
   it('shows workspace fields and lets a watched repository fill a remote URL', () => {
     const html = renderToStaticMarkup(<WorkspaceSettings
-      workspace={workspace('FORK')}
+      workspace={{ ...workspace('FORK'), upstreamDefaultBranch: 'master' }}
       onWorkspaceChanged={() => {}}
       onRemoved={() => {}}
     />);
@@ -285,6 +320,7 @@ describe('watched repository workspace UI', () => {
     expect(html).toContain('aria-label="Select workspace repository"');
     expect(html).toContain('Select repo…');
     expect(html).toContain('value="https://github.com/contributor/project.git"');
+    expect(html).toContain('aria-label="Default branch" value="master"');
     expect(html).toContain('Unwatch workspace');
     expect(html).toContain('Delete workspace local data');
     expect(html).not.toContain('extra remotes for browsing history');

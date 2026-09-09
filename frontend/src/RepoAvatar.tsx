@@ -44,8 +44,10 @@ function ownerTile(owner: string): [string, string] {
  * reflows and an unreachable avatar still reads as that repository.
  */
 export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const source = `https://github.com/${encodeURIComponent(owner)}.png?size=${size * 2}`;
+  const loaded = loadedSource === source && failedSource !== source;
   const name = `${owner}/${repo}`;
   const [background, color] = ownerTile(owner);
 
@@ -65,14 +67,14 @@ export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
       }}
     >
       {!loaded && (owner.trim().charAt(0).toUpperCase() || '?')}
-      {!failed && owner.trim() !== '' && (
+      {failedSource !== source && owner.trim() !== '' && (
         <img
           className="repo-avatar__image"
-          src={`https://github.com/${encodeURIComponent(owner)}.png?size=${size * 2}`}
+          src={source}
           alt=""
           style={{ borderRadius: radius, opacity: loaded ? 1 : 0 }}
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
+          onLoad={() => setLoadedSource(source)}
+          onError={() => setFailedSource(source)}
         />
       )}
     </span>

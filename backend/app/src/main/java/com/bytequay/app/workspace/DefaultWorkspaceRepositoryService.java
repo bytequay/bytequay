@@ -460,7 +460,7 @@ public class DefaultWorkspaceRepositoryService
         return new WatchRepositoryPreview(
                 selected.id(),
                 repositoryRef(selected),
-                selected.visibility(),
+                monitored.visibility(),
                 routing.fork() ? Topology.FORK : Topology.DIRECT,
                 routing.upstream().map(UserRepo::id),
                 routing.upstream().map(DefaultWorkspaceRepositoryService::repositoryRef),

@@ -54,8 +54,8 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
       ) : (
         <div className="home-repo-grid">
           {workspaces.map(workspace => {
-            const fullName = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
-            const counts = repoCounts(prs, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`);
+            const fullName = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+            const counts = repoCounts(prs, fullName);
             const state = workspaceSyncState(workspace);
             return (
               <div
@@ -76,8 +76,8 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
               >
                 <div className="home-repo-tile__head">
                   <RepoAvatar
-                    owner={workspace.selectedOwner}
-                    repo={workspace.selectedRepo}
+                    owner={workspace.monitoredOwner}
+                    repo={workspace.monitoredRepo}
                     size={18}
                   />
                   <span className="home-repo-tile__name">{fullName}</span>

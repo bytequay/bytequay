@@ -495,6 +495,31 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
+    void forkPreviewUsesUpstreamVisibilityAndKeepsTheRequestedAndPushRepositories()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        UserRepo upstream = new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "internal", false,
+                "master", "https://github.com/upstream/project.git", Optional.empty());
+        UserRepo personalFork = new UserRepo(200, "owner", "project", "owner/project", Optional.empty(), true, "private", true,
+                "fork-default", "https://github.com/owner/project.git", Optional.of(new UserRepo.Upstream(
+                        300, "upstream", "project", "master", "https://github.com/upstream/project.git")));
+        when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(personalFork));
+        when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
+
+        WatchRepositoryPreview preview = service(store, gitHub).previewWatch(200);
+
+        assertThat(preview.visibility()).isEqualTo("internal");
+        assertThat(preview.selectedRepositoryId()).isEqualTo(200);
+        assertThat(preview.selectedRepository()).isEqualTo(RepoRef.of("owner", "project"));
+        assertThat(preview.monitoredRepositoryId()).isEqualTo(300);
+        assertThat(preview.monitoredRepository()).isEqualTo(RepoRef.of("upstream", "project"));
+        assertThat(preview.defaultBranch()).isEqualTo("master");
+        assertThat(preview.pushRepository()).isEqualTo(RepoRef.of("owner", "project"));
+        assertThat(preview.pushWritable()).isTrue();
+    }
+
+    @Test
     void linksAndUnlinksAnyReadableRepository()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();

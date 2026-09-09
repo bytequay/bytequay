@@ -44,7 +44,7 @@ function avatarHandle(login: string): string {
  * slot and its text would wrap at 3 chars per line.
  */
 function Avatar({ login, avatarUrl, size = 20, className, allowGitHubFallback = true }: Props) {
-  const [failed, setFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
   const classes = ['avatar', className].filter(Boolean).join(' ');
   const hasLogin = login.trim().length > 0;
   const source = avatarUrl?.trim()
@@ -52,7 +52,7 @@ function Avatar({ login, avatarUrl, size = 20, className, allowGitHubFallback = 
       ? `https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`
       : null);
 
-  if (failed || !hasLogin || !source) {
+  if (failedSource === source || !hasLogin || !source) {
     const initial = hasLogin ? login.trim().charAt(0).toUpperCase() : '?';
     return (
       <span
@@ -77,7 +77,7 @@ function Avatar({ login, avatarUrl, size = 20, className, allowGitHubFallback = 
       alt={login}
       width={size}
       height={size}
-      onError={() => setFailed(true)}
+      onError={() => setFailedSource(source)}
     />
   );
 }

@@ -204,7 +204,7 @@ function WorkspaceCard({ workspace, onWorkspaceChanged, onError }: {
         <span className="wss-label">Local path</span>
         <input value={workspace.localRepositoryPath} readOnly className="wss-input is-wide sets-mono" aria-label="Local path" />
         <span className="wss-label">Default branch</span>
-        <input value={workspace.defaultBranch} readOnly className="wss-input is-narrow sets-mono" aria-label="Default branch" />
+        <input value={workspace.upstreamDefaultBranch ?? workspace.defaultBranch} readOnly className="wss-input is-narrow sets-mono" aria-label="Default branch" />
       </div>
     </section>
   );

@@ -47,6 +47,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDefaultWorkspaceMetadataService
@@ -243,6 +245,61 @@ class TestDefaultWorkspaceMetadataService
         verify(gitHub, never()).fetchLabels("token", DIRECT);
         verify(gitHub, never()).fetchOverview("token", DIRECT);
         verify(pullRequests, never()).fetchAssignableRepositoryUsers("token", DIRECT);
+    }
+
+    @Test
+    void freshForkWorkspaceStillRefreshesItsExpiredUpstreamOverview()
+    {
+        Workspace fork = workspace("fork", 300, UPSTREAM, Topology.FORK).withMetadataSyncAt(Optional.of(NOW.minusSeconds(60)), NOW);
+        workspaces.put(fork.id(), fork);
+        snapshots.put(300L, new RepositoryMetadataSnapshot(
+                300, UPSTREAM, "Old upstream description", 1, ImmutableMap.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                Optional.of(NOW.minusSeconds(3601)), Optional.of(NOW), Optional.of(NOW), Optional.of(NOW)));
+        when(gitHub.fetchOverview("token", UPSTREAM)).thenReturn(overview());
+
+        WorkspaceMetadataSyncResult result = service.synchronize(fork.id());
+
+        assertThat(result.successful()).isTrue();
+        assertThat(service.getSnapshot(fork.id()).description()).isEqualTo("Description");
+        assertThat(service.getSnapshot(fork.id()).overviewSyncedAt()).contains(NOW);
+        assertThat(service.getSnapshot(fork.id()).repositoryId()).isEqualTo(300);
+        assertThat(workspaces.get(fork.id()).lastMetadataSyncAt()).contains(NOW);
+        verify(gitHub).fetchOverview("token", UPSTREAM);
+        verifyNoMoreInteractions(gitHub);
+        verifyNoInteractions(pullRequests, avatarCache);
+    }
+
+    @Test
+    void missingUpstreamContributorsAreFetchedWithoutUsingTheForkCache()
+    {
+        Workspace fork = workspace("fork", 300, UPSTREAM, Topology.FORK).withMetadataSyncAt(Optional.of(NOW), NOW);
+        workspaces.put(fork.id(), fork);
+        RepositoryContributor forkContributor = new RepositoryContributor(1, "fork-user", "fork-avatar", false);
+        RepositoryContributor upstreamContributor = new RepositoryContributor(2, "upstream-user", "upstream-avatar", false);
+        RepositoryMetadataSnapshot forkSnapshot = new RepositoryMetadataSnapshot(
+                fork.selectedRepositoryId(), fork.selectedRepository(), "Fork description", 0, ImmutableMap.of(),
+                ImmutableList.of(forkContributor), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                Optional.of(NOW), Optional.of(NOW), Optional.of(NOW), Optional.of(NOW));
+        snapshots.put(fork.selectedRepositoryId(), forkSnapshot);
+        snapshots.put(300L, new RepositoryMetadataSnapshot(
+                300, UPSTREAM, "Upstream description", 7, ImmutableMap.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                Optional.of(NOW), Optional.empty(), Optional.of(NOW), Optional.of(NOW)));
+        when(gitHub.fetchContributors("token", UPSTREAM)).thenReturn(ImmutableList.of(upstreamContributor));
+
+        assertThat(service.synchronize(fork.id()).successful()).isTrue();
+
+        RepositoryMetadataSnapshot upstreamSnapshot = service.getSnapshot(fork.id());
+        assertThat(upstreamSnapshot.repository()).isEqualTo(UPSTREAM);
+        assertThat(upstreamSnapshot.repositoryId()).isEqualTo(300);
+        assertThat(upstreamSnapshot.contributors()).containsExactly(upstreamContributor);
+        assertThat(upstreamSnapshot.contributorsSyncedAt()).contains(NOW);
+        assertThat(upstreamSnapshot.description()).isEqualTo("Upstream description");
+        assertThat(snapshots.get(fork.selectedRepositoryId())).isEqualTo(forkSnapshot);
+        verify(gitHub).fetchContributors("token", UPSTREAM);
+        verifyNoMoreInteractions(gitHub);
+        verifyNoInteractions(pullRequests, avatarCache);
     }
 
     @Test

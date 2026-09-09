@@ -23,6 +23,13 @@ upstream PR target. A renamed existing fork is reused. A missing fork requires t
 **Create fork and watch** action; Back or Cancel creates nothing. Fork consent belongs to this
 confirmed watch, and is not a blanket account preference.
 
+Repository labels, owner avatars, default-branch information, and the confirmed watch header
+describe the upstream for a fork workspace. The sidebar, Home tiles, and workspace cards use
+the same monitored identity. Physical fork names remain visible where users inspect the origin
+or confirm deletion of its local checkout. Saved workspace names remain editable local labels.
+Needs attention uses saved PR author avatar URLs when available; an image failure must not carry
+over when the displayed user, repository owner, or image URL changes.
+
 Only the resolved preview can offer **Open workspace**. A search result's stored workspace may
 still be an older direct checkout; it must not skip the routing preview. Existing task worktrees
 keep their original identities. Watching an older foreign direct workspace establishes the
@@ -49,8 +56,9 @@ Workspaces offers **Watched** and **Retired** tabs with separate counts. Retired
 repository is no longer watched but its local data is retained; it is not deleted. Home continues
 to show only watched repositories.
 
-The Retired tab reads `GET /api/workspaces/retired`. Its rows name the saved workspace and physical
-repository, and offer **Open**, **Watch again**, and **Delete…**. Open uses the retained workspace
+The Retired tab reads `GET /api/workspaces/retired`. Its rows show the saved workspace name and the
+monitored repository's identity and default branch, and offer **Open**, **Watch again**, and
+**Delete…**. Deletion identifies the physical checkout. Open uses the retained workspace
 ID to access its existing tasks, files, history, and settings without changing watched membership.
 Retired rows do not show clone progress, stale-sync badges, or automatic retry controls.
 

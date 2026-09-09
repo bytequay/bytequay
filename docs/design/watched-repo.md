@@ -171,10 +171,22 @@ may later select any GitHub-readable repository as an explicit upstream override
 | `origin` remote | selected repository | selected repository |
 | `upstream` remote | absent | selected upstream repository |
 | Monitored issues/PRs | selected repository | selected upstream repository |
+| Repository names, owner avatars, and reference metadata | selected repository | selected upstream repository |
 | Contributors | selected repository | selected upstream repository |
 | Development base | `origin/<branch>` | `upstream/<upstream-default-branch>` |
 | Work branch push | `origin` when writable | `origin` when writable |
 | Pull-request base | selected repository | selected upstream repository |
+
+Repository displays on Home, workspace cards, the sidebar, and the confirmed watch preview use
+the monitored repository's identity and default branch. User avatars describe the authors and
+participants returned for that repository. The fork's identity is retained for physical checkout
+ownership, origin configuration, push permissions, and explicit local-data deletion. A user-chosen
+workspace name remains a local label. Selecting a fork in repository search does not make that
+fork the source of the confirmed workspace's display metadata.
+
+Needs attention includes an author's saved PR-detail avatar URL when available, using a local
+batch lookup rather than fetching full PR details for each displayed row. Missing images keep a
+fallback, and avatar components retry when their owner, user, or image source changes.
 
 Linking configures and fetches the source repository as `upstream`. Unlinking removes that remote
 and returns monitoring to the selected repository. Git uses `remote.pushDefault=origin`; ByteQuay
@@ -492,6 +504,7 @@ public interface WorkspaceMetadataService
 
 The first implementation uses fixed cache intervals rather than a new settings system:
 
+- repository overview, description, stars, and languages: refresh when absent or older than one hour;
 - contributor accounts: refresh when absent or older than seven days;
 - assignable picker users and newly discovered avatars: refresh when absent or older than seven days;
 - labels and repository topics/tags: refresh when absent or older than thirty days;
@@ -504,9 +517,9 @@ multiple workspaces linked to the same upstream do not multiply GitHub calls.
 
 Metadata refresh persists no lifecycle state or error. A successful freshness check or refresh
 advances `lastMetadataSyncAt`; failure leaves the previous timestamp and cached snapshot unchanged.
-The caller owns any temporary spinner. The workspace timestamp uses the shortest metadata cache
-interval (seven days); the metadata store still applies its separate seven-day contributor and
-picker-user intervals and thirty-day label/topic interval. Picker reads use the saved snapshot and
+The caller owns any temporary spinner. Each projection's timestamp is checked independently; a
+fresh workspace or picker timestamp cannot suppress an expired overview or a missing upstream
+projection. Picker reads use the saved snapshot and
 localhost avatar URLs; opening a reviewer or assignee picker does not contact GitHub.
 
 Issues and pull requests are active repository data, not part of this slow reference-metadata

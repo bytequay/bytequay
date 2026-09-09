@@ -108,7 +108,10 @@ public final class DefaultWorkspaceMetadataService
             Instant now = clock.instant();
             RepositoryMetadataSnapshot current = snapshot(workspace);
             if (!expired(workspace.lastMetadataSyncAt(), now, CONTRIBUTOR_TTL)
-                    && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)) {
+                    && !expired(current.overviewSyncedAt(), now, OVERVIEW_TTL)
+                    && !expired(current.contributorsSyncedAt(), now, CONTRIBUTOR_TTL)
+                    && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)
+                    && !expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL)) {
                 return WorkspaceMetadataSyncResult.of(workspaceId, true, current);
             }
             refreshExpired(workspace);

@@ -180,7 +180,7 @@ export default function AppSidebar({
             title={workspace.localRepositoryPath}
             onClick={() => onWorkspaceTab('home')}
           >
-            <Avatar login={workspace.selectedOwner} size={18} />
+            <Avatar login={workspace.monitoredOwner} size={18} />
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">

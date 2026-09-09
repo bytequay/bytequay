@@ -355,7 +355,7 @@ export default function App() {
             onOpenWorkspace={openWorkspace}
           />
         )}
-        {page === 'recent' && <RecentPage onOpenRow={openRecentRow} />}
+        <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
         {page === 'pulls' && (
           <PullsScreen
             initialPr={initialPr}

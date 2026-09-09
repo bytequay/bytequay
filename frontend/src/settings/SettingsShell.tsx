@@ -497,6 +497,7 @@ function RecentCard() {
     setError(null);
     window.bridge.clearRecent()
       .then(() => {
+        window.dispatchEvent(new Event('bytequay:recent-cleared'));
         setConfirming(false);
       })
       .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));

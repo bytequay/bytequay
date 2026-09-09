@@ -62,8 +62,11 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDto) => void }) {
-  const today = useMemo(() => isoDay(new Date()), []);
+export default function RecentPage({ active = true, onOpenRow }: {
+  active?: boolean;
+  onOpenRow: (row: RecentRowDto) => void;
+}) {
+  const today = isoDay(new Date());
   const [range, setRange] = useState<RangeKey>('last7');
   // One type at a time: All, PRs, or Issues. The chips are a single choice,
   // not a set — combining them says the same thing as All.
@@ -72,13 +75,17 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
   const [workspace, setWorkspace] = useState<string>('');
   const [changedOnly, setChangedOnly] = useState(false);
   const [narrow, setNarrow] = useState('');
+  const [query, setQuery] = useState('');
   const [days, setDays] = useState<LoadedDay[]>([]);
   const [activeDays, setActiveDays] = useState<string[]>([]);
   const [retentionDays, setRetentionDays] = useState(14);
   const [cursor, setCursor] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<{
+    message: string; from: string | null; reset: boolean; quiet: boolean;
+  } | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [changes, setChanges] = useState<Record<string, RecentChangeDto>>({});
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
@@ -89,21 +96,36 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
   const streamRef = useRef<HTMLDivElement>(null);
   const request = useRef(0);
   const inFlight = useRef(false);
+  const loaded = useRef(false);
+  const oldestDay = useRef<string | null>(null);
 
   const window_ = useMemo(() => rangeWindow(range, today), [range, today]);
-  const filterKey = `${window_.from}|${window_.to}|${type ?? ''}|${action}|${workspace}|${changedOnly}|${narrow}`;
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(narrow.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [narrow]);
 
   useEffect(() => {
-    void window.bridge.listWorkspaces().then(setWorkspaces).catch(() => setWorkspaces([]));
-  }, []);
+    if (!active) return;
+    let cancelled = false;
+    void window.bridge.listWorkspaces().then(list => {
+      if (!cancelled) setWorkspaces(list);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [active]);
 
   useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
     window.bridge.fetchRecentChanges()
-      .then(list => setChanges(Object.fromEntries(list.map(change => [change.itemKey, change]))))
-      .catch(() => setChanges({}));
-  }, []);
+      .then(list => {
+        if (!cancelled) setChanges(Object.fromEntries(list.map(change => [change.itemKey, change])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [active]);
 
-  const load = useCallback(async (from: string | null, reset: boolean) => {
+  const load = useCallback(async (from: string | null, reset: boolean, quiet = false) => {
     // Only paging is allowed to be dropped when a request is already out —
     // stacking scroll loads would page past the day the user is reading. A
     // filter change must always re-run, or a second filter toggled while the
@@ -111,29 +133,45 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
     if (!mayLoad(reset, inFlight.current)) return;
     const current = ++request.current;
     inFlight.current = true;
-    if (reset) setLoading(true);
+    setLoading(true);
+    setRefreshing(quiet);
+    setError(null);
     try {
-      const page = await window.bridge.fetchRecent({
+      const fetchDay = (cursor: string | null) => window.bridge.fetchRecent({
         from: window_.from,
         to: window_.to,
         types: type ? [type] : undefined,
         action: action || undefined,
         workspace: workspace || undefined,
         changedSinceRead: changedOnly || undefined,
-        text: narrow || undefined,
-        cursor: from ?? undefined,
+        text: query || undefined,
+        cursor: cursor ?? undefined,
       });
+      const page = await fetchDay(from);
+      if (request.current !== current) return;
+      // Revalidate the loaded span together so returning never discards older
+      // pages, and changed filters cannot leave stale rows in those pages.
+      const pages = [page];
+      const oldest = oldestDay.current;
+      if (quiet && oldest !== null) {
+        pages.push(...await Promise.all(page.activeDays
+          .filter(day => day !== page.day && day >= oldest)
+          .map(fetchDay)));
+      }
       if (request.current !== current) return;
       setError(null);
       setActiveDays(page.activeDays);
       setRetentionDays(page.retentionDays);
-      setCursor(page.nextCursor);
-      setDone(page.endOfWindow);
-      const loaded = page.day ? [{ day: page.day, rows: page.rows }] : [];
-      setDays(previous => (reset ? loaded : [...previous, ...loaded]));
+      const last = pages[pages.length - 1];
+      setCursor(last.nextCursor);
+      setDone(last.endOfWindow);
+      const nextDays = pages.flatMap(result => result.day ? [{ day: result.day, rows: result.rows }] : []);
+      setDays(previous => (reset ? nextDays : [...previous, ...nextDays]));
+      oldestDay.current = last.day;
+      loaded.current = true;
     }
     catch (failure) {
-      if (request.current === current) setError(streamErrorMessage(failure));
+      if (request.current === current) setError({ message: streamErrorMessage(failure), from, reset, quiet });
     }
     finally {
       // Only the newest request clears the flag; an older one finishing late
@@ -141,24 +179,51 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
       if (request.current === current) {
         inFlight.current = false;
         setLoading(false);
+        setRefreshing(false);
       }
     }
-  }, [action, changedOnly, narrow, type, window_.from, window_.to, workspace]);
+  }, [action, changedOnly, query, type, window_.from, window_.to, workspace]);
+
+  const loadedFilter = useRef(load);
+  useEffect(() => {
+    if (!active) return;
+    const filterChanged = loadedFilter.current !== load;
+    if (!filterChanged && inFlight.current) return;
+    loadedFilter.current = load;
+    if (filterChanged) {
+      setDays([]);
+      setCursor(null);
+      setDone(false);
+      loaded.current = false;
+      oldestDay.current = null;
+    }
+    void load(null, true, loaded.current);
+  }, [active, load]);
 
   useEffect(() => {
-    setDays([]);
-    setCursor(null);
-    setDone(false);
-    void load(null, true);
-    // filterKey collapses every query input into one dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey]);
+    const clear = () => {
+      request.current++;
+      inFlight.current = false;
+      loaded.current = false;
+      oldestDay.current = null;
+      setDays([]);
+      setChanges({});
+      setCursor(null);
+      setDone(false);
+      setError(null);
+      setLoading(true);
+      setRefreshing(false);
+      if (active) void load(null, true);
+    };
+    window.addEventListener('bytequay:recent-cleared', clear);
+    return () => window.removeEventListener('bytequay:recent-cleared', clear);
+  }, [active, load]);
 
   // Page a day at a time as the bottom comes into view, and end-cap rather
   // than spin once the window is spent.
   useEffect(() => {
     const node = streamRef.current;
-    if (!node || done || loading) return;
+    if (!active || !node || done || loading || error) return;
     const onScroll = () => {
       if (node.scrollTop + node.clientHeight >= node.scrollHeight - 120 && cursor) {
         void load(cursor, false);
@@ -167,11 +232,11 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
     node.addEventListener('scroll', onScroll);
     onScroll();
     return () => node.removeEventListener('scroll', onScroll);
-  }, [cursor, done, load, loading]);
+  }, [active, cursor, done, error, load, loading]);
 
   // Jumping to a date scrolls the stream to it; the days either side stay reachable.
   useEffect(() => {
-    if (!scrollTo) return;
+    if (!active || !scrollTo || loading || error || inFlight.current) return;
     const target = document.getElementById(`rc-day-${scrollTo}`);
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -184,7 +249,7 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
       return;
     }
     void load(cursor, false);
-  }, [cursor, days, done, load, scrollTo]);
+  }, [active, cursor, days, done, error, load, loading, scrollTo]);
 
   // Picking the type that is already showing goes back to All, so the filters
   // never dead-end on a selection you cannot leave.
@@ -200,7 +265,7 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
   const windowStart = shiftDay(today, -(retentionDays - 1));
 
   return (
-    <div className="rc-page" onClick={() => setMenu(null)}>
+    <div className="rc-page" style={active ? undefined : { display: 'none' }} onClick={() => setMenu(null)}>
       <header className="rc-head" onClick={event => event.stopPropagation()}>
         <div className="rc-head__row">
           <h1>Recent</h1>
@@ -298,7 +363,11 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
       </header>
 
       <div className="rc-stream" ref={streamRef}>
-        {error && <div className="rc-empty" role="alert">{error}</div>}
+        {error && <div className="rc-empty" role="alert">
+          {error.message}{' '}
+          <button type="button" className="bq-button"
+            onClick={() => { void load(error.from, error.reset, error.quiet); }}>Retry</button>
+        </div>}
         {days.map(group => (
           <div key={group.day} id={`rc-day-${group.day}`}>
             <div className="rc-daymark">
@@ -317,11 +386,13 @@ export default function RecentPage({ onOpenRow }: { onOpenRow: (row: RecentRowDt
             ))}
           </div>
         ))}
-        {!loading && !error && days.length === 0 && (
+        {(!loading || refreshing) && !error && days.length === 0 && (
           <div className="rc-empty">Nothing recorded in this window yet.</div>
         )}
-        {(loading || (!done && cursor !== null)) && (
-          <div className="rc-foot"><span className="rc-spin" aria-hidden="true" />Loading earlier days…</div>
+        {loading && !refreshing && (
+          <div className="rc-foot" role="status"><span className="rc-spin" aria-hidden="true" />
+            {days.length === 0 ? 'Loading recent…' : 'Loading earlier days…'}
+          </div>
         )}
         {done && days.length > 0 && (
           <div className="rc-foot is-end">Nothing older — {retentionDays} days is everything kept.</div>

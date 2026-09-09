@@ -48,6 +48,9 @@ historical checkpoint evidence and explicitly deferred future work.
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
   separately.
+- [Development Task Delivery](development-delivery.md) proposes finishing a
+  development task as a draft PR and handing it to the existing bounded CI
+  Autofix loop. It is pending approval and does not add review-comment fixing.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,
   intended for explicit branch rebases and to replace CI Autofix's unverified

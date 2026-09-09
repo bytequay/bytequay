@@ -61,7 +61,7 @@ public final class PinnedCodeGraphService
     static final String STILL_PREPARING = "CodeGraph index is still being prepared; retry shortly";
     static final int DEFAULT_RESULT_LIMIT_BYTES = 16 * 1024;
     static final int MAXIMUM_QUERY_LENGTH = 2000;
-    // Measured on 2026-09-04: above roughly five percent of the tracked files an unscoped sync
+    // Above roughly five percent of the tracked files an unscoped sync
     // costs more than a full rebuild (Trino: 924 changed files synced in 47 s, rebuilt in 42 s).
     static final double REBUILD_FRACTION = 0.05;
     static final String INDEX_DIRECTORY = "codegraph";

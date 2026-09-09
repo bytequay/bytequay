@@ -724,10 +724,9 @@ public class GitHubPullRequestReadClient
         // GitHub returns timeline events oldest-first, capped at per_page=100
         // per request. Long-lived PRs blow past 100 events easily (force
         // pushes + reviews + comments add up), and without pagination the
-        // newest activity gets silently dropped — see #27922 where the
-        // first page only reaches 2026-03-25 even though replies continued
-        // into late April. Walk pages until we get a short page or hit the
-        // safety cap.
+        // newest activity gets silently dropped — see #27922 where replies
+        // continued weeks beyond the first page. Walk pages until we get a
+        // short page or hit the safety cap.
         //
         // When `since` is provided we narrow the request to events after
         // that watermark — this is the incremental-sync hot path, where

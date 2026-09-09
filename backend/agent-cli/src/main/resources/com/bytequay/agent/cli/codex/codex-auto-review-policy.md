@@ -1,6 +1,6 @@
 <!--
 Native tenant policy copied in full from codex-cli 0.152.1, core/assets/guardian/policy.md,
-verified against the installed Codex binary and official tagged source on 2026-09-06. The native reviewer template
+verified against the installed Codex binary and official tagged source. The native reviewer template
 and response format remain provider-owned. Local auto_review.policy replaces the
 native tenant policy, so retain every native rule when updating this resource.
 Source: https://github.com/openai/codex/blob/rust-v0.152.1/codex-rs/core/assets/guardian/policy.md

@@ -28,4 +28,6 @@ public interface AgentReviewJpaRepository
     Optional<AgentReviewEntity> findByTaskId(String taskId);
 
     List<AgentReviewEntity> findByStateOrderByCreatedAtAsc(AgentReview.State state);
+
+    List<AgentReviewEntity> findByWorkspaceIdOrderByUpdatedAtDescIdAsc(String workspaceId);
 }

@@ -110,6 +110,13 @@ public class SqliteAgentReviewStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<AgentReview> listReviews(String workspaceId)
+    {
+        return reviews.findByWorkspaceIdOrderByUpdatedAtDescIdAsc(workspaceId).stream().map(AgentReviewEntity::toDomain).collect(toImmutableList());
+    }
+
+    @Override
     @Transactional
     public ReviewRun insertRun(ReviewRun run)
     {

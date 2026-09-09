@@ -250,6 +250,20 @@ class TestSqliteReviewStores
     }
 
     @Test
+    void listsOpenAndClosedWorkspaceReviewsInStableUpdateOrder()
+    {
+        AgentReview older = store.insertReview(newReview("review-old", "workspace-a", "bytequay/sample", 7, "task-old", NOW));
+        AgentReview ended = store.insertReview(newReview("review-ended", "workspace-a", "bytequay/sample", 7, "task-ended", NOW.minusSeconds(10))
+                .closed(NOW.plusSeconds(5)));
+        AgentReview tied = store.insertReview(newReview("review-tied", "workspace-a", "bytequay/sample", 9, "task-tied", NOW.plusSeconds(5)));
+        store.insertReview(newReview("review-other", "workspace-b", "bytequay/sample", 7, "task-other", NOW.plusSeconds(10)));
+        entityManager.clear();
+
+        assertThat(store.listReviews("workspace-a")).containsExactly(ended, tied, older);
+        assertThat(store.listReviews("workspace-missing")).isEmpty();
+    }
+
+    @Test
     void savesDraftOnFirstWriteAndRejectsStaleVersions()
     {
         ReviewDraft saved = draftStore.save(ReviewDraft.empty("ByteQuay/Sample", 7, NOW));

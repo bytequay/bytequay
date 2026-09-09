@@ -26,10 +26,12 @@ import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type Ta
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
+import { ReviewTasksView } from './ReviewTasksView';
+import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
-type TaskTab = 'active' | 'archived';
+type TaskTab = 'active' | 'archived' | 'reviews';
 
 /** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
 const AUTO_ARCHIVE_DAYS = 7;
@@ -42,6 +44,7 @@ interface AgentTasksViewProps {
   bridge?: AgentBridgePort;
   /** The route owns which task is open, so opening one is a navigation. */
   onOpenTask: (taskId: string) => void;
+  onOpenReview: (review: AgentReviewDto) => void;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
   /** Initial provider selection; the person may change it until the first message creates a task. */
@@ -435,6 +438,7 @@ export default function AgentTasksView({
   children,
   bridge: explicitBridge,
   onOpenTask,
+  onOpenReview,
   onOpenSettings,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentTasksViewProps): React.JSX.Element {
@@ -485,6 +489,7 @@ export default function AgentTasksView({
       onOpenSettings={onOpenSettings}
       onArchive={archive}
       onDelete={remove}
+      reviewTasks={<ReviewTasksView workspaceId={workspaceId} onOpenReview={onOpenReview} />}
     >
       {children}
     </AgentTaskList>
@@ -677,7 +682,7 @@ function TaskRow({ task, providers, now, checked, selecting, onOpen, onToggle, o
 type ToastState = { id: number; text: string; undo?: () => void };
 
 export function AgentTaskList({
-  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children,
+  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
   now = Date.now(), initialTab = 'active',
@@ -694,6 +699,7 @@ export function AgentTaskList({
   /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
   children?: React.ReactNode;
+  reviewTasks?: React.ReactNode;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
@@ -800,9 +806,19 @@ export function AgentTaskList({
                 {label}<span className="agt-tab__count">{count}</span>
               </button>
             ))}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'reviews'}
+              className={`agt-tab${tab === 'reviews' ? ' is-active' : ''}`}
+              onClick={() => switchTab('reviews')}
+            >
+              Review tasks
+            </button>
           </div>
         </div>
         {active && children}
+        {tab === 'reviews' ? reviewTasks : (
         <section className="agt-section" aria-label={active ? 'Agent tasks' : 'Archived tasks'}>
           <div className="agt-head">
             {selecting ? (
@@ -877,6 +893,7 @@ export function AgentTaskList({
             ))}
           </div>
         </section>
+        )}
       </div>
 
       {/* Anchored under the list: sending this first message is what creates a task. */}

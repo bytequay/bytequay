@@ -59,9 +59,31 @@ function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): Workspace
 }
 
 describe('loadAgentReviewContext', () => {
+  it('opens the exact ended review from Tasks even when the PR has a newer open review', async () => {
+    const review = reviewFixture({ id: 'ended-review', state: 'CLOSED' });
+    const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>().mockResolvedValue(review),
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
+    };
+
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number, review.workspaceId, review.id))
+      .resolves.toEqual({ workspaceId: review.workspaceId, review });
+    expect(bridge.getAgentReview).toHaveBeenCalledWith(review.id);
+    expect(bridge.findAgentReview).not.toHaveBeenCalled();
+    expect(bridge.listWorkspaces).not.toHaveBeenCalled();
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number, 'other-workspace', review.id))
+      .rejects.toThrow('does not belong');
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number + 1, review.workspaceId, review.id))
+      .rejects.toThrow('does not belong');
+    await expect(loadAgentReviewContext(bridge, 'other/repo', review.number, review.workspaceId, review.id))
+      .rejects.toThrow('does not belong');
+  });
+
   it('keeps an explicitly opened workspace as the review context', async () => {
     const review = reviewFixture();
     const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
       listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>(),
       findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(review),
     };
@@ -75,6 +97,7 @@ describe('loadAgentReviewContext', () => {
   it('opens the first existing global PR review across matching watched repositories, regardless of casing', async () => {
     const review = reviewFixture({ workspaceId: 'workspace-2' });
     const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
       listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
         workspace('workspace-1'),
         workspace('workspace-2', { monitoredOwner: 'TrinoDB', monitoredRepo: 'Trino' }),
@@ -93,6 +116,7 @@ describe('loadAgentReviewContext', () => {
 
   it('allows starting review in the first matching workspace when none has a review', async () => {
     const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
       listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
         workspace('workspace-1'), workspace('workspace-2'),
       ]),
@@ -106,6 +130,7 @@ describe('loadAgentReviewContext', () => {
 
   it('requires a monitored repository match instead of matching only the selected fork', async () => {
     const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
       listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([workspace('workspace-1')]),
       findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>(),
     };
@@ -120,6 +145,7 @@ describe('loadAgentReviewContext', () => {
   it('propagates lookup failures so they cannot appear as an unwatched PR or absent review', async () => {
     const failure = new Error('Backend unavailable');
     const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
       listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockRejectedValueOnce(failure)
         .mockResolvedValue([workspace('workspace-1')]),
       findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockRejectedValue(failure),

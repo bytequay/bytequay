@@ -511,6 +511,9 @@ class TestReviewTools
         }
 
         @Override
+        public List<AgentReview> listReviews(String workspaceId) { throw new UnsupportedOperationException(); }
+
+        @Override
         public ReviewRun insertRun(ReviewRun run)
         {
             runs.put(run.id(), run);

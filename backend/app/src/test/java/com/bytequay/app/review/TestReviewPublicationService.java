@@ -470,6 +470,9 @@ class TestReviewPublicationService
         public List<AgentReview> listOpenReviews() { throw new UnsupportedOperationException(); }
 
         @Override
+        public List<AgentReview> listReviews(String workspaceId) { throw new UnsupportedOperationException(); }
+
+        @Override
         public ReviewRun insertRun(ReviewRun run) { throw new UnsupportedOperationException(); }
 
         @Override

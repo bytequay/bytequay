@@ -1472,6 +1472,8 @@ export type Bridge = {
   pasteAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
   readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
   removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
+  /** Private reviews belonging to this workspace, including ended reviews. */
+  listAgentReviews: (workspaceId: string) => Promise<AgentReviewDto[]>;
   /** The open Agent review of a pull request, or null when it has none. */
   findAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto | null>;
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */

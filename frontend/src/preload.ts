@@ -292,6 +292,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:stop-impact', taskId, workspaceId),
   stopAgentRuntime: (taskId, workspaceId, generation) =>
     ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
+  listAgentReviews: workspaceId => ipcRenderer.invoke('review:list', workspaceId),
   findAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:find', workspaceId, repo, number),
   startAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:start', workspaceId, repo, number),
   getAgentReview: reviewId => ipcRenderer.invoke('review:get', reviewId),

@@ -623,9 +623,16 @@ print stream does not expose its internal session title. ByteQuay therefore
 owns the same fallback-plus-background-generation lifecycle itself.
 
 The Tasks tab is [Tasks.dc.html](Tasks.dc.html). Its heading carries an
-**Active** / **Archived** segmented control with counts; Active shows the
+**Active** / **Archived** segmented control with counts and a **Review tasks**
+tab. The heading reserves space for the pinned overview button and wraps at
+narrow widths so the controls remain separate. Active shows the
 cherry-pick executions and then the agent tasks with the composer anchored
-beneath, Archived shows only shelved tasks and no composer. Tasks are grouped
+beneath, Archived shows only shelved tasks and no composer. Review tasks lists
+this workspace's open and ended PR-owned reviews with their derived review
+status. Selecting a row opens that exact review in the existing PR detail
+overlay's Agent review tab; closing the overlay returns to the selected list.
+Review rows use review-scoped reads and actions and do not expose interactive
+task creation, archive, or deletion. Tasks are grouped
 into Commits-style day cards by the local calendar day of `updatedAt`
 (**Today**, **Yesterday**, then the weekday and date), newest first. A row is a
 selection slot, the title, mono `lane · model · age`, the state pill, always

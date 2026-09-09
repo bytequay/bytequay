@@ -915,6 +915,15 @@ class TestDefaultAgentReviewService
         }
 
         @Override
+        public List<AgentReview> listReviews(String workspaceId)
+        {
+            return reviews.values().stream()
+                    .filter(review -> review.workspaceId().equals(workspaceId))
+                    .sorted(Comparator.comparing(AgentReview::updatedAt).reversed().thenComparing(AgentReview::id))
+                    .collect(toImmutableList());
+        }
+
+        @Override
         public ReviewRun insertRun(ReviewRun run)
         {
             runs.put(run.id(), run);

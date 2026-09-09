@@ -52,11 +52,20 @@ type AgentReviewContext = {
 };
 
 export async function loadAgentReviewContext(
-  bridge: Pick<Bridge, 'listWorkspaces' | 'findAgentReview'>,
+  bridge: Pick<Bridge, 'listWorkspaces' | 'findAgentReview' | 'getAgentReview'>,
   repo: string,
   number: number,
   workspaceId?: string,
+  reviewId?: string,
 ): Promise<AgentReviewContext> {
+  if (reviewId !== undefined) {
+    const review = await bridge.getAgentReview(reviewId);
+    if (review.id !== reviewId || review.repo.toLowerCase() !== repo.toLowerCase() || review.number !== number
+      || (workspaceId !== undefined && review.workspaceId !== workspaceId)) {
+      throw new Error('This review does not belong to the selected pull request and workspace.');
+    }
+    return { workspaceId: review.workspaceId, review };
+  }
   if (workspaceId !== undefined) {
     return { workspaceId, review: await bridge.findAgentReview(workspaceId, repo, number) };
   }
@@ -257,6 +266,7 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
 export default function PullsScreen({
   initialPr,
   initialTab,
+  initialReviewId,
   repositoryScope,
   browserOpen = false,
   onSelectPullRequest,
@@ -265,6 +275,8 @@ export default function PullsScreen({
   initialPr?: { repo: string; number: number };
   /** Filter tab to open on (from the Home review card). */
   initialTab?: PullTab;
+  /** Opens an exact retained review from the workspace Tasks list. */
+  initialReviewId?: string;
   repositoryScope?: { workspaceId: string; repository: string };
   browserOpen?: boolean;
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
@@ -286,7 +298,7 @@ export default function PullsScreen({
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
-  const [detailTab, setDetailTab] = useState<DetailTab>('overview');
+  const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
   const [diffs, setDiffs] = useState<DiffFileDto[] | null>(null);
   const [diffCommits, setDiffCommits] = useState<DiffCommitDto[]>([]);
   const [diffRange, setDiffRange] = useState<CommitRange>(null);
@@ -748,9 +760,11 @@ export default function PullsScreen({
   }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   const scopedWorkspaceId = repositoryScope?.workspaceId;
+  const requestedReviewId = selectedPrRepo?.toLowerCase() === initialPr?.repo.toLowerCase() && selectedPrNumber === initialPr?.number
+    ? initialReviewId : undefined;
   const reviewKey = selectedPrRepo === undefined || selectedPrNumber === undefined
     ? null
-    : `${scopedWorkspaceId ?? ''}:${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
+    : `${scopedWorkspaceId ?? ''}:${selectedPrRepo.toLowerCase()}#${selectedPrNumber}:${requestedReviewId ?? ''}`;
   const currentReviewContext = reviewContext?.key === reviewKey ? reviewContext : null;
   const workspaceId = currentReviewContext?.workspaceId;
   const review = currentReviewContext?.review ?? null;
@@ -763,7 +777,7 @@ export default function PullsScreen({
     setFocusFindingId(null);
     if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
-    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId)
+    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, requestedReviewId)
       .then(context => {
         if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });
       })
@@ -771,7 +785,7 @@ export default function PullsScreen({
         if (!cancelled) setReviewContext({ key: reviewKey, workspaceId: undefined, review: null, error: remoteErrorMessage(failure) });
       });
     return () => { cancelled = true; };
-  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload]);
+  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId]);
 
   const updateReview = useCallback((updated: AgentReviewDto) => {
     setReviewContext(current => current !== null && current.key === reviewKey

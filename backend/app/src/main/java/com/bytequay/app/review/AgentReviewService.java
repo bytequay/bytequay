@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -30,6 +31,9 @@ public interface AgentReviewService
     Optional<AgentReviewProjection> find(String workspaceId, String repo, int number);
 
     AgentReviewProjection get(String reviewId);
+
+    /** Lists open and closed workspace reviews by descending update time, without starting work or refreshing GitHub. */
+    List<AgentReviewProjection> list(String workspaceId);
 
     /** Starts a review, or returns the open one: one review per workspace and pull request. */
     AgentReviewProjection start(String workspaceId, String repo, int number);

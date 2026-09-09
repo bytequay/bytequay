@@ -20,6 +20,7 @@ import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
+import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import WorkspaceSettings from './WorkspaceSettings';
 import type { CherryPickExecution, WorkspaceDto } from '../types';
@@ -51,6 +52,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
   const [overviewOpen, setOverviewOpen] = useState(false);
+  const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
   const agentScreens = tab === 'home' || tab === 'tasks';
   useEffect(() => {
     if (!agentScreens) return;
@@ -87,6 +89,16 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           onOpenTask={(taskId) => { setOverviewOpen(false); onSelectAgentTask(taskId, 'push'); }}
           onNewTask={() => { setOverviewOpen(false); onSelectTab('tasks'); }}
           onDismiss={() => setOverviewOpen(false)}
+        />
+      )}
+      {openReview !== null && (
+        <PullsScreen
+          key={openReview.id}
+          initialPr={openReview}
+          initialReviewId={openReview.id}
+          repositoryScope={{ workspaceId: workspace.id, repository: openReview.repo }}
+          browserOpen={browserOpen}
+          onClose={() => setOpenReview(null)}
         />
       )}
     </div>
@@ -191,6 +203,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return stage(
       <AgentTasksView
         workspaceId={workspace.id}
+        onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
         onOpenSettings={() => onSelectTab('settings')}
       >

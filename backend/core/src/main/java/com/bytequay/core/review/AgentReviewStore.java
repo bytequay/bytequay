@@ -32,6 +32,9 @@ public interface AgentReviewStore
 
     List<AgentReview> listOpenReviews();
 
+    /** Lists open and closed workspace reviews by descending update time, then ascending ID. */
+    List<AgentReview> listReviews(String workspaceId);
+
     ReviewRun insertRun(ReviewRun run);
 
     ReviewRun updateRun(ReviewRun run);

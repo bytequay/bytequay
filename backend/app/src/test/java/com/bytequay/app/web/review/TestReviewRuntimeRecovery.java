@@ -48,6 +48,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -65,6 +66,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 class TestReviewRuntimeRecovery
 {
@@ -82,6 +87,40 @@ class TestReviewRuntimeRecovery
             new AgentServingGate(), launchStore, taskStore, turnStore);
     private final ReviewController controller = new ReviewController(
             reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery);
+
+    @Test
+    void workspaceListingAndPullRequestLookupKeepTheirOwnResponseShapes()
+            throws Exception
+    {
+        AgentReviewProjection projection = projection();
+        when(reviews.list("workspace-1")).thenReturn(ImmutableList.of(projection));
+        when(reviews.find("workspace-1", "owner/repo", 7)).thenReturn(Optional.of(projection));
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(REVIEW_ID))
+                .andExpect(jsonPath("$[0].task.laneLabel").value("Claude Code"));
+        mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1").param("repo", "owner/repo").param("number", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(REVIEW_ID));
+
+        verify(reviews).list("workspace-1");
+        verify(reviews).find("workspace-1", "owner/repo", 7);
+        verifyNoMoreInteractions(reviews);
+        verifyNoInteractions(turns, supervisor, taskStore, turnStore, launchStore);
+    }
+
+    @Test
+    void listingRequiresANonBlankWorkspace()
+            throws Exception
+    {
+        MockMvc mvc = standaloneSetup(controller).build();
+        mvc.perform(get("/api/agent-review")).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/agent-review").param("workspaceId", " ")).andExpect(status().isBadRequest());
+        verifyNoInteractions(reviews, turns, supervisor, taskStore, turnStore, launchStore);
+    }
 
     @Test
     void scopesTheImpactToTheReviewOwnedTask()

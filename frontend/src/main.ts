@@ -35,6 +35,7 @@ import {
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseAgentReview,
+  parseAgentReviews,
   parseReviewDraft,
   parseReviewIneligible,
   parseReviewPublishResult,
@@ -781,6 +782,8 @@ function registerIpc(): void {
     backendJson(reviewUrl(path, query), { headers: agentHeaders(init?.body !== undefined), ...init })
       .then(parseReviewDraft);
 
+  ipcMain.handle('review:list', (_event, workspaceId: string) =>
+    backendJson(reviewUrl('', { workspaceId }), { headers: agentHeaders() }).then(parseAgentReviews));
   ipcMain.handle('review:find', async (_event, workspaceId: string, repo: string, number: number) => {
     const response = await fetch(reviewUrl('', { workspaceId, repo, number: String(number) }), { headers: agentHeaders() });
     if (response.status === 204) return null;

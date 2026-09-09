@@ -64,6 +64,18 @@ matching workspace in saved display order for Start review. An explicitly
 opened workspace keeps its own review context. Loading or failed context reads
 must not be presented as an unwatched repository.
 
+Workspace **Tasks** also provides a **Review tasks** tab listing that workspace's
+open and ended reviews. Opening a row selects the exact review ID in the existing
+PR-owned Agent review pane, including an ended review when a newer review exists
+for the same PR. This is workspace navigation; review ownership and controls stay
+in the PR workflow. Interactive task routes remain restricted to interactive tasks.
+
+`GET /api/agent-review?workspaceId=...` reads those reviews from local storage in
+descending update order, with review ID as the stable ascending tie-breaker. It
+returns the existing review projection and neither refreshes GitHub nor starts or
+reconciles agent execution. Supplying `repo` and `number` retains the existing
+single-PR lookup; `GET /api/agent-review/{reviewId}` opens an exact retained review.
+
 ### Visual contract
 
 The checked-in PR page is the styling source of truth. Reuse its actual

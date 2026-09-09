@@ -364,6 +364,11 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
   };
 }
 
+export function parseAgentReviews(value: unknown): AgentReviewDto[] {
+  if (!Array.isArray(value)) throw new Error('Invalid review list');
+  return value.map(parseAgentReview);
+}
+
 export function parseAgentReview(value: unknown): AgentReviewDto {
   const review = object(value, 'review');
   const task = object(review.task, 'review task');

@@ -152,6 +152,12 @@ public class DefaultAgentReviewService
     }
 
     @Override
+    public List<AgentReviewProjection> list(String workspaceId)
+    {
+        return store.listReviews(workspaceId).stream().map(review -> projection(review.id())).collect(toImmutableList());
+    }
+
+    @Override
     public AgentReviewProjection start(String workspaceId, String repo, int number)
     {
         String repository = normalize(repo);

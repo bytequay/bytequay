@@ -64,7 +64,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * The Agent review pane's routes.
  *
- * <p>Every route resolves its review first, so a review's task can never be reached through this
+ * <p>Task operations resolve their review first, so a review's task can never be reached through this
  * controller by task id, and the interactive task routes stay closed to a workflow-owned task.
  */
 @RestController
@@ -94,7 +94,14 @@ public class ReviewController
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
     }
 
-    @GetMapping
+    @GetMapping(params = {"!repo", "!number"})
+    public List<ReviewHttpModels.ReviewResponse> list(@RequestParam String workspaceId)
+    {
+        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        return reviews.list(workspaceId).stream().map(ReviewHttpModels::review).collect(toImmutableList());
+    }
+
+    @GetMapping(params = {"repo", "number"})
     public ResponseEntity<ReviewHttpModels.ReviewResponse> find(
             @RequestParam String workspaceId,
             @RequestParam String repo,

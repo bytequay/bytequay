@@ -209,6 +209,10 @@ const bridge: Bridge = {
   addModelApiKey: (provider, alias, key) =>
     ipcRenderer.invoke('settings:api-keys:add', provider, alias, key),
   removeModelApiKey: alias => ipcRenderer.invoke('settings:api-keys:remove', alias),
+  getAgentSkills: () => ipcRenderer.invoke('settings:agent-skills'),
+  addAgentSkill: skill => ipcRenderer.invoke('settings:agent-skills:add', skill),
+  updateAgentSkill: (id, skill) => ipcRenderer.invoke('settings:agent-skills:update', id, skill),
+  removeAgentSkill: id => ipcRenderer.invoke('settings:agent-skills:remove', id),
   getQuietHours: () => ipcRenderer.invoke('settings:quiet-hours'),
   saveQuietHours: quietHours => ipcRenderer.invoke('settings:quiet-hours:save', quietHours),
   getCodeGraphSetting: () => ipcRenderer.invoke('settings:codegraph'),

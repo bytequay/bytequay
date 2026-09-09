@@ -26,6 +26,8 @@ import {
   parseAgentQueue,
   parseAgentQueuedInput,
   parseAgentRuntimeStopImpact,
+  parseAgentSkillInput,
+  parseAgentSkills,
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
@@ -1063,6 +1065,17 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
       method: 'DELETE',
     }).then(parseModelSettings));
+  ipcMain.handle('settings:agent-skills', () =>
+    backendJson(`${backendBase()}/api/settings/agent-skills`).then(parseAgentSkills));
+  ipcMain.handle('settings:agent-skills:add', (_event, skill: unknown) =>
+    backendJson(`${backendBase()}/api/settings/agent-skills`, jsonInit('POST', parseAgentSkillInput(skill)))
+      .then(parseAgentSkills));
+  ipcMain.handle('settings:agent-skills:update', (_event, id: string, skill: unknown) =>
+    backendJson(`${backendBase()}/api/settings/agent-skills/${encodeURIComponent(id)}`, jsonInit('PUT', parseAgentSkillInput(skill)))
+      .then(parseAgentSkills));
+  ipcMain.handle('settings:agent-skills:remove', (_event, id: string) =>
+    backendJson(`${backendBase()}/api/settings/agent-skills/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(parseAgentSkills));
   ipcMain.handle('settings:quiet-hours', () =>
     backendJson(`${backendBase()}/api/settings/quiet-hours`));
   ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>

@@ -297,6 +297,23 @@ not the truth of the agent's semantic conclusion. The agent remains
 responsible for checking its reasoning; no mandatory second verifier agent
 is introduced.
 
+The internal [review skill](agent-skills.md#review-guidance) makes executable
+proof the top review priority. Before reporting an issue, opinion, or finding,
+run an existing test that exercises the trigger or write and actually run a
+focused reproduction whenever feasible. Include the command, expected/actual
+result, decisive output, and test setup with the finding; capture source and
+command-output evidence references. If execution is blocked, identify why and
+report only claims established by direct code evidence, explicitly unverified
+by execution. Test failures caused by the experiment or environment do not
+establish a PR defect.
+
+Select at most ten distinct findings per full or incremental round, ranked by
+severity and impact. Require Critical, High, or Medium by default; Low is
+included only at the user's explicit request. Discussions, retries, and report
+repair share the round's limit. Complete commit coverage and limitations remain
+required. This is managed review guidance, delivered only through the existing
+review bridge; it introduces no UI setting or report-filtering state.
+
 ## 6. Local reporting contract
 
 Register a fixed set of root-agent-only tools through the existing task MCP

@@ -80,6 +80,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -87,6 +88,7 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * Runs Codex tasks, one App Server process per task.
@@ -816,6 +818,12 @@ public final class CodexCliDriver
             Optional<AgentSessionRef> existing = context.sessionReference();
             String approvalPolicy = approvalPolicy();
             String sandbox = context.textOnly() ? "read-only" : "workspace-write";
+            // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
+            String developerInstructions = Stream.of(
+                            context.managedInstructions(),
+                            codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::instruction).orElse(""))
+                    .filter(instruction -> !instruction.isBlank())
+                    .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
                     childProfile,
                     codeGraph.isPresent(),
@@ -835,7 +843,8 @@ public final class CodexCliDriver
                         approvalPolicy,
                         approvalsReviewer(),
                         config,
-                        sandbox);
+                        sandbox,
+                        developerInstructions);
             }
             else {
                 method = "thread/start";
@@ -846,6 +855,7 @@ public final class CodexCliDriver
                         approvalsReviewer(),
                         config,
                         sandbox,
+                        developerInstructions,
                         context.textOnly(),
                         "ByteQuay",
                         ImmutableList.of(),

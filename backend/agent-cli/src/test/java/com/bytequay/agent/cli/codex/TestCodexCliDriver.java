@@ -2163,7 +2163,8 @@ class TestCodexCliDriver
                 plain.model(),
                 plain.effort(),
                 plain.textOnly(),
-                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")));
+                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
+                "Keep explanations concise");
 
         AgentSession session = driver.open(bridged, event -> {});
         List<String> arguments = supervisor.serverArgv().getFirst();
@@ -2179,8 +2180,36 @@ class TestCodexCliDriver
         assertThat(arguments).noneMatch(argument -> argument.contains(token));
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
+        assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
+                .isEqualTo("Keep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
+    }
+
+    @Test
+    void replacesManagedInstructionsOnResumeWithoutAddingTools()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (String instruction : ImmutableList.of("Keep explanations concise", "Lead with the next action", "")) {
+            AgentSessionContext plain = context(reference, new AtomicReference<>());
+            AgentSessionContext configured = new AgentSessionContext(
+                    plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.textOnly(), plain.codeGraph(), instruction);
+            AgentSession session = driver.open(configured, event -> {});
+            AppServerProcess server = supervisor.servers().getLast();
+            JsonNode request = server.threadRequests().getFirst();
+            assertThat(request.has("developerInstructions")).isTrue();
+            assertThat(request.path("developerInstructions").asText()).isEqualTo(instruction);
+            assertThat(request.path("config").path("mcp_servers")).isEmpty();
+            assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.startsWith("mcp_servers"));
+            assertThat(server.resumeCount()).isEqualTo(reference.isPresent() ? 1 : 0);
+            reference = Optional.of(session.reference());
+            session.close();
+        }
+        assertThat(supervisor.environments()).noneMatch(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"));
+        driver.close();
     }
 
     @Test

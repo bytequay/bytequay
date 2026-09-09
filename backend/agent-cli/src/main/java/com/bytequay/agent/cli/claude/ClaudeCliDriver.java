@@ -73,6 +73,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -366,6 +367,7 @@ public final class ClaudeCliDriver
             Optional<String> model,
             Optional<String> effort,
             boolean textOnly,
+            String managedInstructions,
             String sessionId,
             boolean resume,
             List<AgentAttachment> attachments)
@@ -418,7 +420,15 @@ public final class ClaudeCliDriver
         codeGraph.ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME));
         registration.review().ifPresent(bridge -> bridge.tools()
                 .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
-        registration.instruction().ifPresent(instruction -> argv.add("--append-system-prompt", instruction));
+        String instruction = Stream.of(managedInstructions, registration.instruction().orElse(""))
+                .filter(value -> !value.isBlank())
+                .collect(joining("\n\n"));
+        if (instruction.isEmpty()) {
+            argv.add("--append-system-prompt=");
+        }
+        else {
+            argv.add("--append-system-prompt", instruction);
+        }
         List<String> allowed = allowedTools.build();
         if (!allowed.isEmpty()) {
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));
@@ -857,6 +867,7 @@ public final class ClaudeCliDriver
                             command.model().or(session.context::model),
                             command.effort().or(session.context::effort),
                             session.context.textOnly(),
+                            session.context.managedInstructions(),
                             session.reference.providerValue(),
                             resume,
                             attachments),

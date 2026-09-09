@@ -1035,6 +1035,19 @@ export type ModelSettingsDto = {
   keyProviders: Array<{ name: string; models: string[] }>;
 };
 
+export type AgentSkillScope = 'GLOBAL' | 'DEVELOPMENT' | 'REVIEW';
+
+export type AgentSkillInput = {
+  name: string;
+  instructions: string;
+  enabled: boolean;
+  scope: AgentSkillScope;
+};
+
+export type AgentSkillDto = AgentSkillInput & {
+  id: string;
+};
+
 /** How new agent tasks get the CodeGraph tool; COMPARE gives each new task an arm at random. */
 export type CodeGraphMode = 'ON' | 'OFF' | 'COMPARE';
 export type CodeGraphSettingDto = { mode: CodeGraphMode };
@@ -1381,6 +1394,10 @@ export type Bridge = {
   setMainModel: (configId: string) => Promise<ModelSettingsDto>;
   addModelApiKey: (provider: string, alias: string, key: string) => Promise<ModelSettingsDto>;
   removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;
+  getAgentSkills: () => Promise<AgentSkillDto[]>;
+  addAgentSkill: (skill: AgentSkillInput) => Promise<AgentSkillDto[]>;
+  updateAgentSkill: (id: string, skill: AgentSkillInput) => Promise<AgentSkillDto[]>;
+  removeAgentSkill: (id: string) => Promise<AgentSkillDto[]>;
   getQuietHours: () => Promise<QuietHoursDto>;
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
   getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;

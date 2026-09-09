@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Chevron } from '../Chevron';
 import { relativeTime } from '../relativeTime';
+import AgentSkillsCard from './AgentSkillsCard';
 import type {
   CodeGraphArmComparisonDto,
   CodeGraphComparisonDto,
@@ -47,6 +48,7 @@ export default function SettingsShell() {
     <main className="sets-page">
       <h1>Settings</h1>
       <ModelsCard />
+      <AgentSkillsCard />
       <GitHubAccountCard />
       <QuietHoursCard />
       <CodeGraphCard />

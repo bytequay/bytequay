@@ -2743,6 +2743,13 @@
           "sample": "workspace-write"
         },
         {
+          "javaName": "developerInstructions",
+          "wireName": "developerInstructions",
+          "required": false,
+          "nullable": true,
+          "sample": ""
+        },
+        {
           "javaName": "ephemeral",
           "wireName": "ephemeral",
           "required": false,
@@ -3045,6 +3052,13 @@
           "required": false,
           "nullable": true,
           "sample": "workspace-write"
+        },
+        {
+          "javaName": "developerInstructions",
+          "wireName": "developerInstructions",
+          "required": false,
+          "nullable": true,
+          "sample": ""
         }
       ]
     },

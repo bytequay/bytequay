@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { AgentSkillDto } from '../types';
 import fixture from './fixtures/agent-contracts-v1.json';
 import {
   parseAgentApproval,
@@ -24,6 +25,8 @@ import {
   parseAgentProviderUnavailable,
   parseAgentQueue,
   parseAgentQueuedInput,
+  parseAgentSkillInput,
+  parseAgentSkills,
   parseAgentTask,
   parseAgentTasks,
   parseAgentTurn,
@@ -45,6 +48,32 @@ const capabilities = {
   permissionPolicies: ['AUTO'],
   attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
 };
+
+describe('agent skills bridge contract', () => {
+  const skill: AgentSkillDto = { id: 'release-notes', name: 'Release notes', instructions: 'Use our release note format.', enabled: true, scope: 'GLOBAL' };
+
+  it('preserves instructions while dropping backend-only fields', () => {
+    expect(parseAgentSkills([{ ...skill, internalPath: '/private/skills' }])).toEqual([skill]);
+    expect(parseAgentSkillInput(skill)).toEqual({ name: skill.name, instructions: skill.instructions, enabled: true, scope: 'GLOBAL' });
+    expect(parseAgentSkills([])).toEqual([]);
+  });
+
+  it.each(['GLOBAL', 'DEVELOPMENT', 'REVIEW'])('preserves the %s scope in both directions', scope => {
+    expect(parseAgentSkillInput({ ...skill, scope }).scope).toBe(scope);
+    expect(parseAgentSkills([{ ...skill, scope }])[0].scope).toBe(scope);
+  });
+
+  it.each([undefined, null, '', 'global', 'SYSTEM', 42])('rejects an invalid or missing scope %s in both directions', scope => {
+    expect(() => parseAgentSkillInput({ ...skill, scope })).toThrow('agentSkill.scope is not an agent skill scope');
+    expect(() => parseAgentSkills([{ ...skill, scope }])).toThrow('agentSkills[0].scope is not an agent skill scope');
+  });
+
+  it('rejects malformed instructions or toggle state before they reach the renderer or backend', () => {
+    expect(() => parseAgentSkills({ skills: [skill] })).toThrow('agentSkills is not an array');
+    expect(() => parseAgentSkills([{ ...skill, instructions: 42 }])).toThrow('agentSkills[0].instructions is not a string');
+    expect(() => parseAgentSkillInput({ ...skill, enabled: 'false' })).toThrow('agentSkill.enabled is not a boolean');
+  });
+});
 
 describe('agent contract parsing', () => {
   it('reads a task the backend actually returns', () => {

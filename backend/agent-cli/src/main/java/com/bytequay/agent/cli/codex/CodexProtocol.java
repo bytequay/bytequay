@@ -1267,6 +1267,7 @@ final class CodexProtocol
             String approvalsReviewer,
             Map<String, Object> config,
             String sandbox,
+            String developerInstructions,
             boolean ephemeral,
             String serviceName,
             List<Object> dynamicTools,
@@ -1280,6 +1281,7 @@ final class CodexProtocol
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
             config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
             checkIdentifier(sandbox, "sandbox");
+            requireNonNull(developerInstructions, "developerInstructions is null");
             checkIdentifier(serviceName, "serviceName");
             dynamicTools = ImmutableList.copyOf(requireNonNull(dynamicTools, "dynamicTools is null"));
             selectedCapabilityRoots = ImmutableList.copyOf(requireNonNull(
@@ -1295,7 +1297,8 @@ final class CodexProtocol
             String approvalPolicy,
             String approvalsReviewer,
             Map<String, Object> config,
-            String sandbox)
+            String sandbox,
+            String developerInstructions)
     {
         ThreadResumeParams
         {
@@ -1306,6 +1309,7 @@ final class CodexProtocol
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
             config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
             checkIdentifier(sandbox, "sandbox");
+            requireNonNull(developerInstructions, "developerInstructions is null");
         }
     }
 

@@ -102,6 +102,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
@@ -134,6 +135,7 @@ public final class DefaultAgentTurnService
     private final AgentApprovalService approvalService;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final CodeGraphService codeGraph;
+    private final Function<AgentTask, String> managedInstructions;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
     /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
@@ -157,6 +159,7 @@ public final class DefaultAgentTurnService
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
+            Function<AgentTask, String> managedInstructions,
             Clock clock,
             Duration maximumTurnRuntime,
             Executor queueStarter)
@@ -176,6 +179,7 @@ public final class DefaultAgentTurnService
         this.approvalService = requireNonNull(approvalService, "approvalService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.managedInstructions = requireNonNull(managedInstructions, "managedInstructions is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
@@ -1124,7 +1128,8 @@ public final class DefaultAgentTurnService
                         settings.model(),
                         settings.effort(),
                         false,
-                        codeGraphBridge(task, resources)),
+                        codeGraphBridge(task, resources),
+                        managedInstructions.apply(task)),
                 event -> routeEvent(task.id(), event)), "opened session is null");
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {

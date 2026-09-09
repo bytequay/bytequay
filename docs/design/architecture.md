@@ -1,5 +1,18 @@
 # ByteQuay Architecture
 
+App-wide [managed agent skills](agent-skills.md) combine private packaged
+system guidance with user-added skills in the existing SQLite application-settings
+port. Application services own the composition and user skill collection;
+agent core supplies task identity when resolving each session's instructions.
+User skills have Global, Development, or Review scope. Global applies to all
+sessions; development identity or open review ownership adds only the matching
+user skills, and helpers receive Global only.
+The application includes development guidance only for development tasks and
+adds private review guidance through the bridge for open review-owned tasks.
+Helper sessions receive common guidance. `agent-spi` carries these instructions
+to each provider adapter. No additional Maven module or
+provider plugin system is introduced.
+
 ByteQuay is a local-first macOS desktop application. Its Electron and React
 frontend talks to one Spring Boot sidecar on localhost. The sidecar integrates
 with GitHub, stores durable local state in SQLite, and hosts the implemented

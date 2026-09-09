@@ -17,16 +17,20 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewRun;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /** The managed review policy and the ByteQuay-built requests that drive a review task. */
 final class ReviewPrompts
 {
-    static final String INSTRUCTION = """
+    static final String INSTRUCTION = loadReviewInstructions() + "\n\n" + """
             You are performing a private code review of one GitHub pull request for the ByteQuay user. \
             Nothing you write is published; the user decides later what, if anything, becomes a comment.
 
@@ -55,6 +59,17 @@ final class ReviewPrompts
             """;
 
     private ReviewPrompts() {}
+
+    private static String loadReviewInstructions()
+    {
+        try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
+            checkState(resource != null, "ByteQuay review guidance is missing");
+            return new String(resource.readAllBytes(), UTF_8).strip();
+        }
+        catch (IOException failure) {
+            throw new IllegalStateException("ByteQuay review guidance could not be read", failure);
+        }
+    }
 
     static String reviewRequest(AgentReview review, ReviewRun run, Optional<ReviewRun> previous, List<ReviewFinding> priorFindings, String userLogin)
     {
@@ -90,8 +105,9 @@ final class ReviewPrompts
     static String completionRepair(ReviewRun run)
     {
         return "Your previous turn ended without recording the review result for head " + shortSha(run.headSha())
-                + ". Call review_save_summary if the summary is missing, then call review_finish with an honest coverage statement now. "
-                + "Do not restart the investigation.";
+                + ". Reuse the investigation and evidence already collected; run any feasible missing reproduction before reporting an unverified claim. "
+                + "Call review_save_summary if the summary is missing, then call review_finish with an honest coverage statement. "
+                + "Do not restart the full investigation or add new findings merely to repair reporting.";
     }
 
     static String question(String targetLabel, int targetRevision, String headSha, String message)

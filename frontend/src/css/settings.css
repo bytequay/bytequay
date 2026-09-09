@@ -92,3 +92,10 @@
 .sets-toggle.is-on { background: #0969da; }
 .sets-toggle-knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .12s ease; }
 .sets-toggle.is-on .sets-toggle-knob { left: 16px; }
+.sets-toggle:disabled, .sets-link:disabled { opacity: .55; cursor: default; }
+.sets-skill-description { margin: 0; color: #57606a; font-size: var(--ui-font-size); line-height: 1.5; }
+.sets-skill-row { border-top: 1px solid #f0f0f2; }
+.sets-skill-row .sets-name { overflow-wrap: anywhere; }
+.sets-skill-form textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; line-height: 1.5; resize: vertical; min-height: 120px; }
+.sets-skill-form .sets-skill-enabled { flex-direction: row; align-items: center; gap: 8px; }
+.sets-skill-enabled input { margin: 0; }

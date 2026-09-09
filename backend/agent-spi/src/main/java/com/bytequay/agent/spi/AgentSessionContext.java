@@ -31,7 +31,8 @@ public record AgentSessionContext(
         Optional<String> model,
         Optional<String> effort,
         boolean textOnly,
-        Optional<CodeGraphBridge> codeGraph)
+        Optional<CodeGraphBridge> codeGraph,
+        String managedInstructions)
 {
     public AgentSessionContext(
             String taskId,
@@ -78,7 +79,8 @@ public record AgentSessionContext(
                 model,
                 effort,
                 textOnly,
-                Optional.empty());
+                Optional.empty(),
+                "");
     }
 
     public AgentSessionContext
@@ -93,6 +95,7 @@ public record AgentSessionContext(
         requireNonNull(model, "model is null").ifPresent(value -> checkNotBlank(value, "model"));
         requireNonNull(effort, "effort is null").ifPresent(value -> checkNotBlank(value, "effort"));
         requireNonNull(codeGraph, "codeGraph is null");
+        requireNonNull(managedInstructions, "managedInstructions is null");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");

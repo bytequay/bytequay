@@ -71,6 +71,7 @@ import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
+import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
@@ -101,6 +102,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
@@ -108,6 +110,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -137,6 +140,8 @@ class TestDefaultAgentTurnService
     private AgentRuntimeRegistry runtimeRegistry;
     private FixedWorktreeService worktrees;
     private final RecordingCodeGraphService codeGraph = new RecordingCodeGraphService();
+    private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
+    private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
     private CodeGraphArm nextArm = CodeGraphArm.ON;
 
     @BeforeEach
@@ -1105,6 +1110,58 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void resolvesManagedInstructionsWithInteractiveAndWorkflowTaskIdentity()
+    {
+        AgentTask interactive = interactiveTask("Implement the change");
+
+        for (AgentTask candidate : ImmutableList.of(task, interactive)) {
+            service.start(new StartAgentTurnCommand(candidate.id(), "first", ImmutableList.of(), "identity"));
+            assertThat(instructionTasks.getLast()).isEqualTo(candidate);
+            driver.complete("done");
+        }
+        assertThat(instructionTasks).extracting(AgentTask::interactive).containsExactly(false, true);
+        assertThat(instructionTasks).extracting(AgentTask::permissionPolicy).containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.AUTO);
+    }
+
+    @Test
+    void refreshesManagedInstructionsForNewResumedAndQueuedTurns()
+    {
+        managedInstructions.set("Lead with the next action.");
+        service.start(command("first", "key-1"));
+        AgentSessionContext firstContext = driver.openedContexts().getFirst();
+        assertThat(firstContext.managedInstructions()).isEqualTo("Lead with the next action.");
+        assertThat(instructionTasks).containsExactly(task);
+
+        managedInstructions.set("Keep each explanation short.");
+        assertThat(firstContext.managedInstructions()).isEqualTo("Lead with the next action.");
+        driver.complete("first response");
+        AgentSessionRef reference = stores.find(task.id()).orElseThrow().sessionReference().orElseThrow();
+
+        DeterministicAgentDriver resumedDriver = new DeterministicAgentDriver();
+        DefaultAgentTurnService resumedService = service(resumedDriver, new AgentRuntimeRegistry());
+        resumedService.start(command("second", "key-2"));
+        assertThat(resumedDriver.openedContexts()).singleElement().satisfies(context -> {
+            assertThat(context.sessionReference()).contains(reference);
+            assertThat(context.managedInstructions()).isEqualTo("Keep each explanation short.");
+        });
+
+        resumedService.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "third", ImmutableList.of(), "queue-1"));
+        managedInstructions.set("");
+        resumedDriver.complete("second response");
+
+        assertThat(resumedDriver.openedContexts()).extracting(AgentSessionContext::managedInstructions).containsExactly("Keep each explanation short.", "");
+        assertThat(resumedDriver.commands()).extracting(AgentTurnCommand::message).containsExactly("second", "third");
+        assertThat(instructionTasks).hasSize(3).allSatisfy(instructionTask -> {
+            assertThat(instructionTask.id()).isEqualTo(task.id());
+            assertThat(instructionTask.interactive()).isFalse();
+            assertThat(instructionTask.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
+        });
+        assertThat(instructionTasks.get(1).sessionReference()).contains(reference);
+        assertThat(instructionTasks.get(2).sessionReference()).contains(reference);
+        resumedDriver.complete("third response");
+    }
+
+    @Test
     void keepsUncertainStartActiveAndBlocksAnotherSend()
     {
         driver.failNextStart();
@@ -1968,6 +2025,10 @@ class TestDefaultAgentTurnService
                 configuredApprovals,
                 runtimeRegistry,
                 codeGraph,
+                instructionTask -> {
+                    instructionTasks.add(instructionTask);
+                    return managedInstructions.get();
+                },
                 clock,
                 Duration.ofMinutes(5),
                 queueStarter);

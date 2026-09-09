@@ -1,5 +1,25 @@
 # Agent Service Design
 
+## Managed skills
+
+[Managed Agent Skills](agent-skills.md) adds hidden, always-applied ByteQuay
+system guidance and app-wide user-added prompt skills. Settings and skill APIs
+expose only user-added skills, with Global, Development, or Review scope.
+Core resolves the combined text at each provider
+session opening, including resumed/queued turns and title helpers, and passes
+it through `AgentSessionContext.managedInstructions`. Codex and Claude deliver
+the same content through their managed instruction channels independently of
+tool registration. Settings changes take effect on the next turn. This does
+not enable provider plugins, hooks, or ambient skill discovery.
+Development tasks additionally receive private implementation guidance selected
+from their existing interactive or workflow identity. Open review-owned tasks
+receive private review guidance through their existing review bridge, with
+executable proof as the first priority and at most ten qualifying findings per
+round. User skills combine Global with the matching task scope; open review
+ownership selects Review, and helpers receive only Global user skills.
+Scope and native
+child inheritance are specified in the linked skills design.
+
 ## Bounded history correction (2026-09-06)
 
 The task window reads bounded event pages rather than subscribing from sequence

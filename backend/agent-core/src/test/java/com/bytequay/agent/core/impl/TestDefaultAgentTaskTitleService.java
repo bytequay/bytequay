@@ -86,6 +86,7 @@ class TestDefaultAgentTaskTitleService
     private TurnId ownerTurnId;
     private Path runtimeDirectory;
     private DefaultAgentTaskTitleService service;
+    private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
 
     @BeforeEach
     void setUp()
@@ -135,6 +136,7 @@ class TestDefaultAgentTaskTitleService
                 outbox,
                 events,
                 runtimeRegistry,
+                managedInstructions::get,
                 Runnable::run,
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneOffset.UTC),
                 Duration.ofMillis(100));
@@ -143,6 +145,7 @@ class TestDefaultAgentTaskTitleService
     @Test
     void generatesACompactTitleInAnIsolatedTextOnlySession()
     {
+        managedInstructions.set("Keep each explanation short.");
         AtomicReference<AgentEventOutboxEntry> pending = new AtomicReference<>();
         doAnswer(invocation -> {
             pending.set(invocation.getArgument(0));
@@ -166,6 +169,7 @@ class TestDefaultAgentTaskTitleService
         assertThat(context.getValue().runtimeDirectory().getParent()).isEqualTo(runtimeDirectory);
         assertThat(context.getValue().model()).contains("model-a");
         assertThat(context.getValue().effort()).contains("high");
+        assertThat(context.getValue().managedInstructions()).isEqualTo("Keep each explanation short.");
         ArgumentCaptor<AgentTurnCommand> command = ArgumentCaptor.forClass(AgentTurnCommand.class);
         verify(session).start(command.capture());
         assertThat(command.getValue().turnId()).isEqualTo(ownerTurnId.toString());
@@ -256,6 +260,7 @@ class TestDefaultAgentTaskTitleService
     @Test
     void schedulesOnlyOneNamingRequestWhileAnotherIsInFlight()
     {
+        managedInstructions.set("Original instructions.");
         AtomicReference<Runnable> scheduled = new AtomicReference<>();
         Executor queued = command -> assertThat(scheduled.compareAndSet(null, command)).isTrue();
         service = titleService(Duration.ofMillis(100), queued);
@@ -267,8 +272,11 @@ class TestDefaultAgentTaskTitleService
 
         assertThat(scheduled.get()).isNotNull();
         verify(driver, never()).open(any(), any());
+        managedInstructions.set("Updated instructions.");
         scheduled.get().run();
-        verify(driver).open(any(), any());
+        ArgumentCaptor<AgentSessionContext> context = ArgumentCaptor.forClass(AgentSessionContext.class);
+        verify(driver).open(context.capture(), any());
+        assertThat(context.getValue().managedInstructions()).isEqualTo("Updated instructions.");
         assertThat(titleScratch()).isEmpty();
     }
 
@@ -297,6 +305,7 @@ class TestDefaultAgentTaskTitleService
                 outbox,
                 events,
                 runtimeRegistry,
+                managedInstructions::get,
                 executor,
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneOffset.UTC),
                 maximumRuntime);

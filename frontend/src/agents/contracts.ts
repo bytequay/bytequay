@@ -25,6 +25,8 @@ import type {
   AgentProviderUnavailableDto,
   AgentQueuedInputDto,
   AgentRuntimeStopImpactDto,
+  AgentSkillDto,
+  AgentSkillInput,
   AgentTaskDefaultsDto,
   AgentTaskDto,
   AgentTaskSummaryDto,
@@ -431,6 +433,31 @@ export function parseModelSettings(value: unknown): ModelSettingsDto {
       };
     }),
   };
+}
+
+export function parseAgentSkillInput(value: unknown, path = 'agentSkill'): AgentSkillInput {
+  const source = object(value, path);
+  const scope = source.scope;
+  if (scope !== 'GLOBAL' && scope !== 'DEVELOPMENT' && scope !== 'REVIEW') {
+    throw new Error(`${path}.scope is not an agent skill scope`);
+  }
+  return {
+    name: text(source.name, `${path}.name`),
+    instructions: text(source.instructions, `${path}.instructions`),
+    enabled: flag(source.enabled, `${path}.enabled`),
+    scope,
+  };
+}
+
+export function parseAgentSkills(value: unknown): AgentSkillDto[] {
+  return list(value, 'agentSkills').map((entry, index) => {
+    const path = `agentSkills[${index}]`;
+    const source = object(entry, path);
+    return {
+      ...parseAgentSkillInput(source, path),
+      id: text(source.id, `${path}.id`),
+    };
+  });
 }
 
 export function parseAgentQueuedInput(value: unknown, path = 'queuedInput'): AgentQueuedInputDto {

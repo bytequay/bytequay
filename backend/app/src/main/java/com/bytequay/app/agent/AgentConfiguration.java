@@ -60,6 +60,7 @@ import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -255,6 +256,7 @@ public class AgentConfiguration
             AgentEventOutboxStore outboxStore,
             AgentEventService eventService,
             AgentRuntimeRegistry runtimeRegistry,
+            AgentSkillService skills,
             Clock agentClock)
     {
         return new DefaultAgentTaskTitleService(
@@ -265,6 +267,7 @@ public class AgentConfiguration
                 outboxStore,
                 eventService,
                 runtimeRegistry,
+                skills::instructions,
                 command -> Thread.ofVirtual().name("bytequay-task-title").start(command),
                 agentClock);
     }
@@ -285,6 +288,7 @@ public class AgentConfiguration
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
+            AgentSkillService skills,
             Clock agentClock,
             AgentProperties properties)
     {
@@ -303,6 +307,7 @@ public class AgentConfiguration
                 approvalService,
                 runtimeRegistry,
                 codeGraph,
+                skills::instructions,
                 agentClock,
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the

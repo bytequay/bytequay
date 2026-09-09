@@ -34,6 +34,11 @@ historical checkpoint evidence and explicitly deferred future work.
   steering, queue, Electron transport, and incremental delivery sequence. The
   linked document records commit `84af81c73cea7ae2cf7a53681827f550c598b706`
   as the approved static visual and state prototype.
+- [Managed Agent Skills](agent-skills.md) specifies app-wide prompt skill
+  management in Settings with Global, Development, and Review scopes, SQLite
+  storage, and per-turn provider-neutral
+  instruction delivery, including always-applied internal ByteQuay guidance
+  that is excluded from user-facing skill management.
 - [Agent Review](agent-review.md) locks the initial PR-owned review design:
   a sibling PR-pane tab, reused agent tasks and PR cards, private discussions,
   evidence-backed local findings, incremental review, and explicit user

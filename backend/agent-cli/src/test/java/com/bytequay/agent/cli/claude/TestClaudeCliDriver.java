@@ -264,7 +264,8 @@ class TestClaudeCliDriver
                 plain.model(),
                 plain.effort(),
                 plain.textOnly(),
-                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")));
+                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
+                "");
 
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
@@ -278,9 +279,35 @@ class TestClaudeCliDriver
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
-        assertThat(plainSpec.argv()).doesNotContain("--append-system-prompt");
+        assertThat(plainSpec.argv()).contains("--append-system-prompt=");
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
         unbridged.close();
+    }
+
+    @Test
+    void replacesManagedInstructionsOnResumeWithoutAddingTools()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (String instruction : ImmutableList.of("Keep explanations concise", "Lead with the next action", "")) {
+            AgentSession session = driver.open(context(reference, instruction), event -> {});
+            await(session.start(command("configured")));
+            List<String> arguments = supervisor.turns().getLast().spec().argv();
+            if (instruction.isEmpty()) {
+                assertThat(arguments).contains("--append-system-prompt=");
+            }
+            else {
+                assertThat(arguments).containsSequence("--append-system-prompt", instruction);
+            }
+            assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
+            assertThat(arguments).noneMatch(argument -> argument.contains("codegraph_explore") || argument.contains("review_finish"));
+            assertThat(arguments.contains("--resume")).isEqualTo(reference.isPresent());
+            reference = Optional.of(session.reference());
+            session.close();
+        }
+        driver.close();
     }
 
     @Test
@@ -784,16 +811,18 @@ class TestClaudeCliDriver
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
         ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review));
-        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+        AgentSession session = driver.open(context(Optional.empty(), "Keep explanations concise"), event -> {});
         await(session.start(command("review")));
         AgentSessionRef reference = session.reference();
         session.close();
-        AgentSession resumed = driver.open(context(Optional.of(reference)), event -> {});
+        AgentSession resumed = driver.open(context(Optional.of(reference), "Keep explanations concise"), event -> {});
         await(resumed.start(command("review-again")));
 
         for (ScriptedTurn turn : supervisor.turns()) {
             List<String> argv = turn.spec().argv();
             assertThat(argv).contains("--disable-slash-commands");
+            assertThat(argv).containsSequence("--append-system-prompt", "Keep explanations concise\n\nReview this PR");
+            assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
             assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
                     .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
@@ -1032,6 +1061,14 @@ class TestClaudeCliDriver
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
     {
         return context(reference, AgentPermissionPolicy.AUTO);
+    }
+
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, String managedInstructions)
+    {
+        AgentSessionContext plain = context(reference);
+        return new AgentSessionContext(
+                plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.textOnly(), plain.codeGraph(), managedInstructions);
     }
 
     private AgentSessionContext context(

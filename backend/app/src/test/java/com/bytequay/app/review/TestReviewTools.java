@@ -13,7 +13,14 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.git.GitCommandRunner;
@@ -42,6 +49,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -55,6 +64,7 @@ import java.util.OptionalLong;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -63,7 +73,7 @@ class TestReviewTools
 {
     private static final String REVIEW_ID = "review-1";
     private static final String RUN_ID = "run-1";
-    private static final String TASK_ID = "task-1";
+    private static final String TASK_ID = "e4469e62-6122-4c61-b279-459a6ad35f20";
     private static final String WORKSPACE_ID = "workspace-1";
     private static final String REPO = "acme/widgets";
     private static final String HEAD_SHA = "1111111111111111111111111111111111111111";
@@ -80,6 +90,7 @@ class TestReviewTools
     private ObjectMapper objectMapper;
     private ReviewTools tools;
     private ReviewBridge bridge;
+    private AgentEventService events;
 
     @BeforeEach
     void setUp()
@@ -90,7 +101,7 @@ class TestReviewTools
 
         PullRequestService pullRequests = mock(PullRequestService.class);
         RepoService repositories = mock(RepoService.class);
-        AgentEventService events = mock(AgentEventService.class);
+        events = mock(AgentEventService.class);
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         GitCommandRunner git = mock(GitCommandRunner.class);
         objectMapper = new ObjectMapper();
@@ -114,7 +125,8 @@ class TestReviewTools
     }
 
     @Test
-    void bridgeExposesExactlySixNamespacedTools()
+    void bridgeExposesPackagedReviewPolicyAndExactlySixNamespacedTools()
+            throws IOException
     {
         assertThat(bridge.tools()).extracting(ReviewTool::name).containsExactly(
                 "review_get_context",
@@ -124,7 +136,13 @@ class TestReviewTools
                 "review_withdraw_finding",
                 "review_finish");
         assertThat(bridge.tools()).allSatisfy(tool -> assertThat(tool.name()).startsWith(ReviewTool.NAME_PREFIX));
-        assertThat(bridge.instruction()).isNotBlank();
+        try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
+            assertThat(resource).isNotNull();
+            String policy = new String(resource.readAllBytes(), UTF_8).strip();
+            assertThat(policy).isNotBlank();
+            assertThat(bridge.instruction()).startsWith(policy + "\n\n");
+        }
+        assertThat(bridge.tools()).allSatisfy(tool -> assertThat(bridge.instruction()).contains(tool.name()));
     }
 
     @Test
@@ -178,6 +196,50 @@ class TestReviewTools
         assertThat(stored.anchor().excerpt()).containsExactly("beta");
         assertThat(stored.evidence()).extracting(ReviewEvidence::ref).containsExactly("E1");
         assertThat(store.findRun(RUN_ID).orElseThrow().version()).isPositive();
+    }
+
+    @Test
+    void commandResultsCanBeCapturedAndCitedWithFrozenSourceEvidence()
+    {
+        readSource();
+        TurnId turnId = TurnId.random();
+        String command = "mvn -Dtest=TestWidget#rejectsNull test";
+        String output = "Tests run: 1, Failures: 1\nExpected rejection but the null value was accepted.";
+        AgentEventEnvelope completed = new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.random(),
+                1,
+                TaskId.valueOf(TASK_ID),
+                Optional.of(turnId),
+                AgentEventSource.root(),
+                NOW,
+                new AgentEventPayload.CommandActivity(
+                        AgentEventPayload.ActivityState.COMPLETED,
+                        ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
+                        Optional.of(output),
+                        Optional.of(1),
+                        false));
+        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
+
+        JsonNode commands = call("review_get_context", ImmutableMap.of("kind", "command_output")).path("commands");
+        assertThat(commands).hasSize(1);
+        JsonNode recorded = commands.get(0);
+        assertThat(recorded.path("command").asText()).isEqualTo(command);
+        assertThat(recorded.path("exitCode").asText()).isEqualTo("1");
+        assertThat(recorded.path("output").asText()).contains(output);
+        String ref = recorded.path("evidenceRef").asText();
+        JsonNode saved = call("review_save_finding", finding("reproduced", "Null input is accepted", "A2", ImmutableList.of(
+                evidence("E1"),
+                ImmutableMap.of("ref", ref, "explanation", "The focused test expected rejection and failed because null was accepted; exit code 1."))));
+
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID).getFirst().evidence()).hasSize(2).last().satisfies(evidence -> {
+            assertThat(evidence.ref()).isEqualTo(ref);
+            assertThat(evidence.excerpt()).contains(command, output);
+            assertThat(evidence.provenance()).contains(turnId.toString());
+            assertThat(evidence.explanation()).contains("exit code 1");
+        });
     }
 
     @Test

@@ -845,6 +845,7 @@ class TestSqliteAgentStores
                 approvals,
                 runtimeRegistry,
                 new NoCodeGraphService(),
+                task -> "",
                 clock,
                 Duration.ofMinutes(5),
                 Runnable::run);

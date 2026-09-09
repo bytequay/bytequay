@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
 import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
@@ -36,6 +37,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -54,15 +56,19 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -73,6 +79,14 @@ class TestBetterWordsService
 
     @TempDir
     private Path temporaryDirectory;
+
+    private final AgentSkillService skills = mock(AgentSkillService.class);
+
+    @BeforeEach
+    void setUp()
+    {
+        when(skills.instructions()).thenReturn("Use plain language.");
+    }
 
     @Test
     void usesTextOnlyCliSessionAndDeletesScratchResources()
@@ -122,6 +136,7 @@ class TestBetterWordsService
         assertThat(context.getValue().textOnly()).isTrue();
         assertThat(context.getValue().model()).contains("sonnet");
         assertThat(context.getValue().effort()).contains("Low");
+        assertThat(context.getValue().managedInstructions()).isEqualTo("Use plain language.");
         assertThat(context.getValue().worktree()).startsWith(runtime);
 
         ArgumentCaptor<AgentTurnCommand> command = ArgumentCaptor.forClass(AgentTurnCommand.class);
@@ -132,9 +147,11 @@ class TestBetterWordsService
                         "professional, friendly, and concise",
                         "without inventing details",
                         "Keep requirements firm and suggestions optional",
+                        "These rewrite requirements take precedence over style preferences",
                         "rename this var pls")
                 .contains("Do not use tools");
         verify(session).close();
+        verify(skills).instructions();
 
         ArgumentCaptor<TaskId> taskId = ArgumentCaptor.forClass(TaskId.class);
         verify(resources).allocate(taskId.capture());
@@ -201,6 +218,9 @@ class TestBetterWordsService
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-openai-secret"))
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.instructions", containsString("Use plain language.")))
+                .andExpect(jsonPath("$.instructions", containsString("Return only the rewritten comment")))
+                .andExpect(jsonPath("$.instructions", containsString("These rewrite requirements take precedence over style preferences")))
                 .andExpect(content().json("""
                         {
                           "model": "gpt-5.2-mini",
@@ -211,6 +231,13 @@ class TestBetterWordsService
                         """, false))
                 .andRespond(withSuccess("""
                         {"status":"completed","output":[{"content":[{"type":"output_text","text":"Could we address this soon?"}]}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(once(), requestTo("https://openai.test/v1/responses"))
+                .andExpect(jsonPath("$.instructions", containsString("Use the updated terminology.")))
+                .andExpect(jsonPath("$.instructions", not(containsString("Use plain language."))))
+                .andExpect(jsonPath("$.instructions", containsString("Return only the rewritten comment")))
+                .andRespond(withSuccess("""
+                        {"status":"completed","output_text":"Please resolve this soon."}
                         """, MediaType.APPLICATION_JSON));
 
         BetterWordsService service = service(
@@ -223,7 +250,11 @@ class TestBetterWordsService
                 unusedClient());
         assertThat(service.improve("fix it asap", REPOSITORY, Optional.of("ws-without-override")))
                 .isEqualTo("Could we address this soon?");
-        verify(settings).mainModel();
+        when(skills.instructions()).thenReturn("Use the updated terminology.");
+        assertThat(service.improve("fix it asap", REPOSITORY, Optional.of("ws-without-override")))
+                .isEqualTo("Please resolve this soon.");
+        verify(settings, times(2)).mainModel();
+        verify(skills, times(2)).instructions();
         server.verify();
     }
 
@@ -239,6 +270,9 @@ class TestBetterWordsService
         server.expect(once(), requestTo("https://deepseek.test/chat/completions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-deepseek-secret"))
+                .andExpect(jsonPath("$.messages[0].content", containsString("Use plain language.")))
+                .andExpect(jsonPath("$.messages[0].content", containsString("Return only the rewritten comment")))
+                .andExpect(jsonPath("$.messages[0].content", containsString("These rewrite requirements take precedence over style preferences")))
                 .andExpect(content().json("""
                         {
                           "model": "deepseek-chat",
@@ -264,6 +298,7 @@ class TestBetterWordsService
                 deepSeekBuilder.build());
         assertThat(service.improve("why u do this?", REPOSITORY, Optional.empty()))
                 .isEqualTo("Could you explain the reason for this change?");
+        verify(skills).instructions();
         server.verify();
     }
 
@@ -403,7 +438,7 @@ class TestBetterWordsService
                 .hasMessageContaining("does not belong");
     }
 
-    private static BetterWordsService service(
+    private BetterWordsService service(
             ModelSettingsService settings,
             WorkspaceStore workspaces,
             ModelApiKeyStore keys,
@@ -412,7 +447,7 @@ class TestBetterWordsService
             RestClient openAi,
             RestClient deepSeek)
     {
-        return new BetterWordsService(settings, workspaces, keys, drivers, resources, openAi, deepSeek);
+        return new BetterWordsService(settings, workspaces, keys, drivers, resources, skills, openAi, deepSeek);
     }
 
     private static WorkspaceStore workspaceStore(String workspaceId, RepoRef repository)

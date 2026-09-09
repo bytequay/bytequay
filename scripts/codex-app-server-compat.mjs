@@ -445,6 +445,7 @@ const referenceRecordBindings = [
     component("approvalsReviewer", "approvalsReviewer", "auto_review"),
     component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
+    component("developerInstructions", "developerInstructions", ""),
     component("ephemeral", "ephemeral", false),
     component("serviceName"),
     component("dynamicTools", "dynamicTools", []),
@@ -515,6 +516,7 @@ const referenceRecordBindings = [
     component("approvalsReviewer", "approvalsReviewer", "auto_review"),
     component("config", "config", {}),
     component("sandbox", "sandbox", "workspace-write"),
+    component("developerInstructions", "developerInstructions", ""),
   ]),
   recordBinding("TextInput", "encode", [
     schemaSource("v2", "UserInput", "type", "text"),

@@ -59,6 +59,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
@@ -96,6 +97,7 @@ public final class DefaultAgentTaskTitleService
     private final AgentDriverRegistry drivers;
     private final AgentEventCommitter eventCommitter;
     private final AgentRuntimeRegistry runtimeRegistry;
+    private final Supplier<String> managedInstructions;
     private final Executor executor;
     private final Clock clock;
     private final Duration maximumRuntime;
@@ -109,6 +111,7 @@ public final class DefaultAgentTaskTitleService
             AgentEventOutboxStore outboxStore,
             AgentEventService events,
             AgentRuntimeRegistry runtimeRegistry,
+            Supplier<String> managedInstructions,
             Executor executor,
             Clock clock)
     {
@@ -120,6 +123,7 @@ public final class DefaultAgentTaskTitleService
                 outboxStore,
                 events,
                 runtimeRegistry,
+                managedInstructions,
                 executor,
                 clock,
                 DEFAULT_MAXIMUM_RUNTIME);
@@ -133,6 +137,7 @@ public final class DefaultAgentTaskTitleService
             AgentEventOutboxStore outboxStore,
             AgentEventService events,
             AgentRuntimeRegistry runtimeRegistry,
+            Supplier<String> managedInstructions,
             Executor executor,
             Clock clock,
             Duration maximumRuntime)
@@ -142,6 +147,7 @@ public final class DefaultAgentTaskTitleService
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.eventCommitter = new AgentEventCommitter(unitOfWork, outboxStore, events);
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
+        this.managedInstructions = requireNonNull(managedInstructions, "managedInstructions is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumRuntime = requireNonNull(maximumRuntime, "maximumRuntime is null");
@@ -208,7 +214,9 @@ public final class DefaultAgentTaskTitleService
                             ProviderApprovalDecision.deny()),
                     task.defaults().model(),
                     task.defaults().effort(),
-                    true);
+                    true,
+                    Optional.empty(),
+                    managedInstructions.get());
             processMayBeRunning = true;
             session = driver.open(context, event -> {});
             RunningTurn running = session.start(new AgentTurnCommand(

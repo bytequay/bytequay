@@ -220,14 +220,18 @@ describe('DiffViewer', () => {
       reviewActivity(105, 'Resolved discussion', { line: 95, resolved: true }),
     ])} />);
 
-    expect(html.match(/<tr class="is-review-thread">/g)).toHaveLength(4);
+    expect(html.match(/<tr class="is-review-thread is-/g)).toHaveLength(4);
+    expect(html.match(/<tr class="is-review-thread is-context">/g)).toHaveLength(2);
+    expect(html).toContain('<tr class="is-review-thread is-add">');
+    expect(html).toContain('<tr class="is-review-thread is-del">');
     expect(html.indexOf('Old-side discussion')).toBeGreaterThan(html.indexOf('old value'));
     expect(html.indexOf('Old-side discussion')).toBeLessThan(html.indexOf('aVeryLongReplacementValue'));
     expect(html.indexOf('New-side discussion')).toBeGreaterThan(html.indexOf('aVeryLongReplacementValue'));
     expect(html.indexOf('Range discussion')).toBeGreaterThan(html.indexOf('trailing'));
-    expect(html).toContain('<code>src/Example.java:L96</code>');
-    expect(html).toContain('<code>src/Example.java:R96</code>');
-    expect(html).toContain('<code>src/Example.java:R95–R97</code>');
+    expect(html).toContain('Comment on line <strong>L96</strong>');
+    expect(html).toContain('Comment on line <strong>R96</strong>');
+    expect(html).toContain('Comment on lines <strong>R95–R97</strong>');
+    expect(html).not.toContain('<code>src/Example.java');
     expect(html).toContain('A reply in this discussion');
     expect(html).toContain('src="https://example.com/bob.png"');
     expect(html).toContain('src="https://example.com/carol.png"');
@@ -249,7 +253,7 @@ describe('DiffViewer', () => {
       reviewActivity(105, 'Binary-file discussion', { path: binary.filename }),
     ])} />);
 
-    expect(html).not.toContain('<tr class="is-review-thread">');
+    expect(html).not.toContain('<tr class="is-review-thread ');
     expect(html.match(/aria-label="Review comments outside the visible lines"/g)).toHaveLength(2);
     expect(html).toContain('Outdated</span>');
     for (const body of ['Outdated discussion', 'Hidden-line discussion', 'Unknown-side discussion', 'Missing-line discussion', 'Binary-file discussion']) {
@@ -273,7 +277,7 @@ describe('DiffViewer', () => {
     const html = renderToStaticMarkup(<DiffViewer files={[file]} commits={commits} commitRange={{ start: 1, end: 1 }}
       reviewThreads={reviewThreads([reviewActivity(101, 'Full-PR discussion')])} />);
 
-    expect(html).not.toContain('<tr class="is-review-thread">');
+    expect(html).not.toContain('<tr class="is-review-thread ');
     expect(html).toContain('aria-label="Review comments on the full pull request"');
     expect(html).toContain('Full-PR discussion');
     expect(html.indexOf('Full-PR discussion')).toBeGreaterThan(html.indexOf('</table>'));

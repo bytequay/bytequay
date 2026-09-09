@@ -898,6 +898,14 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
   const resolved = optimisticResolved ?? payload.resolved;
+  const startLine = payload.line === null ? payload.originalStartLine : payload.startLine;
+  const sidePrefix = payload.side === 'LEFT' ? 'L' : payload.side === 'RIGHT' ? 'R' : '';
+  const isRange = startLine !== null && startLine !== targetLine;
+  const location = showCode
+    ? <code>{threadLocation(payload.path, resolved || !commentedLine ? targetLine : null, payload.side, startLine)}</code>
+    : targetLine === null
+      ? <span>Comment on file</span>
+      : <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${sidePrefix}${startLine}–` : ''}{sidePrefix}{targetLine}</strong></span>;
   const submit = async () => {
     if (!rootCommentId || !body.trim()) return;
     setPosting(true);
@@ -996,8 +1004,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
       <details className="pr-thread-row">
         <summary>
           <span className="pr-thread-chevron" aria-hidden="true">›</span>
-          <code>{threadLocation(payload.path, targetLine, payload.side,
-            payload.line === null ? payload.originalStartLine : payload.startLine)}</code>
+          {location}
           <span className="pr-thread-row__resolved"><CircleCheck size={14} aria-hidden="true" /> Resolved</span>
         </summary>
         <div className="pr-thread-row__comments">
@@ -1012,8 +1019,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
     <details className="pr-inline-thread" open>
       <summary>
         <span className="pr-thread-chevron" aria-hidden="true">›</span>
-        <code>{threadLocation(payload.path, commentedLine ? null : targetLine, payload.side,
-          payload.line === null ? payload.originalStartLine : payload.startLine)}</code>
+        {location}
         {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
       </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}

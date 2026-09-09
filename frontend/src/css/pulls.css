@@ -913,7 +913,7 @@
 .pr-thread-row { margin-left: 43px; overflow: hidden; border: 1px solid #e4e8ec; border-radius: 10px; background: #f6f8fa; }
 .pr-thread-row > summary,
 .pr-inline-thread > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #59636e; cursor: pointer; list-style: none; }
-.pr-thread-row > summary { padding: 7px 14px; }
+.pr-thread-row > summary { background: #f6f0ff; padding: 7px 14px; }
 .pr-thread-row > summary::-webkit-details-marker,
 .pr-inline-thread > summary::-webkit-details-marker { display: none; }
 .pr-thread-row > summary code,
@@ -925,7 +925,7 @@
 .pr-thread-row__resolved svg { color: #8250df; }
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
 .pr-inline-thread { margin-left: 43px; }
-.pr-inline-thread > summary { overflow: hidden; background: #f6f8fa; padding: 9px 14px; white-space: nowrap; }
+.pr-inline-thread > summary { overflow: hidden; background: #fff8e6; padding: 9px 14px; white-space: nowrap; }
 .pr-inline-thread[open] > summary { border-bottom: 1px solid #d8dee4; }
 .pr-thread-outdated { flex: 0 0 auto; border: 1px solid #d4a72c; border-radius: 999px; background: #fff8c5; color: #7d4e00; padding: 2px 8px; font-size: 11.5px; font-weight: 600; }
 .pr-commented-code-line { display: grid; overflow-x: auto; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
@@ -1064,10 +1064,11 @@
 .pull-file-tree__file-icon.is-renamed { color: #0969da; }
 .pull-file-tree__label { min-width: 0; overflow: hidden; flex: 1; color: #1f2328; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 
-.pull-changes__scroll { min-width: 0; min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; padding: 12px 14px 40px; background: #fafbfc; }
-.pull-diff-file { min-width: 0; overflow: hidden; border: 1px solid #d5dbe1; border-radius: 10px; background: #fff; }
+.pull-changes__scroll { min-width: 0; min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; padding: 0 14px 40px; background: #fafbfc; }
+.pull-changes__scroll > :first-child { margin-top: 12px; }
+.pull-diff-file { min-width: 0; overflow: clip; border: 1px solid #d5dbe1; border-radius: 10px; background: #fff; }
 .pull-diff-file + .pull-diff-file { margin-top: 14px; }
-.pull-diff-file__header { display: flex; width: 100%; min-width: 0; min-height: 42px; align-items: center; gap: 9px; border: 0; border-bottom: 1px solid #e7e9ec; background: #f6f8fa; color: #1f2328; padding: 8px 13px; text-align: left; }
+.pull-diff-file__header { position: sticky; z-index: 3; top: 0; display: flex; width: 100%; min-width: 0; min-height: 42px; align-items: center; gap: 9px; border: 0; border-bottom: 1px solid #e7e9ec; background: #f6f8fa; color: #1f2328; padding: 8px 13px; text-align: left; }
 .pull-diff-file__toggle { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 9px; border: 0; background: none; color: inherit; padding: 0; text-align: left; }
 .pull-diff-file__header .pr-copy-button { display: grid; position: relative; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #59636e; }
 .pull-diff-file__header .pr-copy-button:hover,
@@ -1113,7 +1114,9 @@
 .pull-diff-code tr.is-gap td { background: #ddf4ff; color: #0550ae; padding: 4px 14px; font-size: 10.5px; }
 .pull-diff-code tr.is-gap button { width: 100%; border: 0; background: transparent; color: inherit; padding: 0; font: inherit; text-align: left; }
 .pull-diff-code tr.is-gap button:hover { text-decoration: underline; }
-.pull-diff-code tr.is-review-composer td { background: #f6f8fa; padding: 10px 12px 10px 84px; }
+.pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread) > td { background: linear-gradient(to right, #f6f8fa 84px, #fff 84px); padding: 10px 12px 10px 90px; }
+.pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread).is-add > td { background: linear-gradient(to right, var(--diff-add-num) 84px, var(--diff-add) 84px); }
+.pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread).is-del > td { background: linear-gradient(to right, var(--diff-del-num) 84px, var(--diff-del) 84px); }
 .pull-diff-review,
 .pull-diff-pending { width: 100%; max-width: 780px; }
 .pull-diff-review { display: grid; gap: 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; padding: 10px 12px 12px; font-family: var(--font-sans); }
@@ -1137,11 +1140,8 @@
 .pull-diff-review footer button { border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 5px 9px; font-size: var(--ui-font-size); }
 .pull-diff-review footer button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
 .pull-diff-review footer button:disabled { opacity: 0.5; }
-.pull-diff-code tr.is-pending-review > td { background: #fff; padding: 10px 12px 10px 84px; }
-.pull-diff-code tr.is-pending-review.is-add > td { background: var(--diff-add); }
-.pull-diff-code tr.is-pending-review.is-del > td { background: var(--diff-del); }
 .pull-diff-pending { overflow: hidden; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; color: #24292f; font-family: var(--font-sans); line-height: 1.4; }
-.pull-diff-pending summary { display: flex; min-height: 38px; align-items: center; gap: 8px; cursor: pointer; list-style: none; padding: 8px 12px; color: #59636e; user-select: none; }
+.pull-diff-pending summary { display: flex; min-height: 38px; align-items: center; gap: 8px; cursor: pointer; list-style: none; background: #fff8e6; padding: 8px 12px; color: #59636e; user-select: none; }
 .pull-diff-pending summary::-webkit-details-marker { display: none; }
 .pull-diff-pending summary strong { color: #24292f; font-weight: 600; }
 .pull-diff-pending__chevron { flex: 0 0 auto; font-size: 20px; line-height: 1; transition: transform 120ms ease; }
@@ -1153,7 +1153,6 @@
 .pull-diff-pending__actions button { border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 5px 9px; font: inherit; }
 .pull-diff-pending__actions button.is-destructive { color: #cf222e; }
 .pull-diff-pending__editor { border: 0; border-top: 1px solid #d8dee4; border-radius: 0; }
-.pull-diff-code tr.is-review-thread > td { background: #f6f8fa; padding: 10px 12px 10px 84px; }
 .pull-diff-code .pr-inline-thread, .pull-diff-code .pr-thread-row,
 .pull-diff-threads .pr-inline-thread, .pull-diff-threads .pr-thread-row { max-width: 780px; margin: 0; font-family: var(--font-sans); line-height: 1.4; }
 .pull-diff-threads { display: grid; gap: 10px; padding: 12px; background: #f6f8fa; }

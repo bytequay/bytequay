@@ -16,7 +16,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
@@ -593,6 +593,20 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-thread-row__comments"');
     expect(html).toContain('class="pr-thread-reply__open"');
     expect(html).toContain('>Unresolve</button>');
+  });
+
+  it.each([false, true])('shows only the original line range in a diff thread when resolved is %s', resolved => {
+    const html = renderToStaticMarkup(<ReviewThread pr={pullRequest()} showCode={false}
+      onRefresh={async () => {}} onDetailUpdate={() => {}} activity={{
+        actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+        payload: {
+          ...emptyPayload, path: 'src/Example.java', originalLine: 44, originalStartLine: 42,
+          startLine: 39, side: 'RIGHT', outdated: true, resolved,
+        },
+      }} />);
+
+    expect(html).toContain('<span>Comment on lines <strong>R42–R44</strong></span>');
+    expect(html).not.toContain('src/Example.java');
   });
 
   it('parses the markdown blocks used by GitHub descriptions', () => {

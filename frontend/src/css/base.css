@@ -53,8 +53,8 @@
   --purple-soft: rgba(130, 80, 223, 0.1);
   --purple-border: rgba(130, 80, 223, 0.28);
 
-  --diff-add: #e6ffec;
-  --diff-add-num: #ccffd8;
+  --diff-add: #dafbe1;
+  --diff-add-num: #aceebb;
   --diff-del: #ffebe9;
   --diff-del-num: #ffd7d5;
 

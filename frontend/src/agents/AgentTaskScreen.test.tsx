@@ -751,8 +751,8 @@ describe('agent task side panel', () => {
     // Both render the diff; only the one holding a detail can place the thread that is on it.
     expect(withoutDetail).toContain('src/Example.java');
     expect(withoutDetail).not.toContain('pr-inline-thread');
-    expect(withDetail).toContain('class="is-review-thread"');
-    expect(withDetail).toContain('src/Example.java:R2');
+    expect(withDetail).toContain('class="is-review-thread is-add"');
+    expect(withDetail).toContain('Comment on line <strong>R2</strong>');
   });
 
   it('shows the no-pull-request state with the branch, the repository and the draft action', () => {

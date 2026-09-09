@@ -981,7 +981,7 @@ function DiffFileCard({
           </td></tr>
         ))}
         {reviewThreads && rowThreads.map(activity => (
-          <tr className="is-review-thread" key={`thread:${activity.githubId}`}><td colSpan={3}>
+          <tr className={`is-review-thread is-${displayRow.kind}`} key={`thread:${activity.githubId}`}><td colSpan={3}>
             <ReviewThread {...reviewThreads} activity={activity} showCode={false} />
           </td></tr>
         ))}
@@ -1006,7 +1006,7 @@ function DiffFileCard({
           />
         ))}
         {composerAfter && !selectingRange && (
-          <tr className="is-review-composer"><td colSpan={3}>
+          <tr className={`is-review-composer is-${displayRow.kind}`}><td colSpan={3}>
             <div className="pull-diff-review">
               <header className="pull-diff-review__header">
                 <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22}

@@ -106,7 +106,10 @@
   gap: 3px;
   padding: 9px 10px;
   border-bottom: 1px solid #f0f0f2;
+  -webkit-app-region: drag;
 }
+
+.pulls-toolbar button { -webkit-app-region: no-drag; }
 
 /* Anchors the overflow menu, so no ancestor of the strip may clip. */
 .pulls-toolbar__filters {
@@ -383,7 +386,8 @@
   padding: 15px 20px 0;
 }
 .pull-detail__header--tabs { border-bottom: 0; padding: 10px; }
-.pull-detail__toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.pull-detail__toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 14px; -webkit-app-region: drag; }
+.pull-detail__toolbar button { -webkit-app-region: no-drag; }
 
 .pull-detail__title-row { display: flex; align-items: flex-start; gap: 16px; }
 .pull-detail__title-row h1 { min-width: 0; flex: 1; margin: 0; color: #17191c; font-size: 15px; font-weight: 500; line-height: 1.4; }

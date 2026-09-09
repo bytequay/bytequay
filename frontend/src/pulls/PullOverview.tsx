@@ -14,6 +14,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
+import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
 import type {
@@ -88,6 +89,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
   onDetailChange?: (detail: PullRequestDetailDto) => void;
 }) {
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
+  const [repoOwner, repoName = ''] = detail.repo.split('/');
   const title = detail.title ?? pr.title;
   const state = detail.state ?? pr.state;
   const displayState = state === 'merged'
@@ -114,7 +116,10 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           <span className={`pr-state is-${displayState.toLowerCase()}`}>
             <PullRequestIcon merged={displayState === 'Merged'} /> {displayState}
           </span>
-          <code>{detail.baseRef ?? 'base unavailable'}</code>
+          <span className="pr-overview__base-branch">
+            <RepoAvatar owner={repoOwner} repo={repoName} size={24} />
+            <code>{detail.baseRef ?? 'base unavailable'}</code>
+          </span>
           <span aria-hidden="true">←</span>
           <span className="pr-overview__head-branch">
             <code>{detail.headRef ?? pr.headRef ?? 'branch unavailable'}</code>

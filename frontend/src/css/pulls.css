@@ -690,6 +690,7 @@
 .pull-request-overview .pr-overview__branches { margin-top: 18px; }
 .pr-overview__branches code { max-width: 440px; overflow: hidden; border-radius: 8px; background: #ddf4ff; color: #0969da; padding: 3px 9px; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .pull-request-overview .pr-overview__branches code { padding: 4px 10px; font-size: 13.5px; }
+.pr-overview__base-branch { display: inline-flex; min-width: 0; align-items: center; gap: 9px; }
 .pr-overview__head-branch { display: inline-flex; min-width: 0; align-items: stretch; border-radius: 8px; background: #ddf4ff; }
 .pr-overview__head-branch code { border-radius: 8px 0 0 8px; }
 .pr-overview__head-branch button { width: 30px; height: auto; border-left: 1px solid #b6e3ff; border-radius: 0 8px 8px 0; }

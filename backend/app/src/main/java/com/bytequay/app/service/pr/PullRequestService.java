@@ -898,11 +898,7 @@ public class PullRequestService
         }
         viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId), Instant.now());
         recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
-        // Drop the cached detail so the next /prs/detail call re-pulls the
-        // timeline and the new "merged" / "closed" events surface
-        // immediately, instead of waiting for the next background sync
-        // (~2 min) to refresh the cached StoredPrDetail.
-        invalidatePullRequestCaches(repo, number);
+        invalidatePullRequestDetail(repo, number);
         return result;
     }
 
@@ -911,7 +907,8 @@ public class PullRequestService
         String nodeId = merges.pullRequestNodeId(pat, ref)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         MergeResult result = merges.enqueuePullRequest(pat, nodeId);
-        invalidatePullRequestCaches(repo, number);
+        // Queueing does not change the diff; retain it while the timeline refreshes.
+        invalidatePullRequestDetail(repo, number);
         return result;
     }
 

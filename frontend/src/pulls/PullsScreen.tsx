@@ -881,6 +881,7 @@ export default function PullsScreen({
   const refresh = useCallback(async () => {
     if (!selectedPr || detailLoading) return;
     const selectedKey = `${selectedPr.repo.toLowerCase()}#${selectedPr.number}`;
+    if (selectedPullRequest.current?.key !== selectedKey) return;
     const request = ++manualDetailRefreshRequest.current;
     const listVersion = listRequest.current;
     const requestMutationVersion = detailMutationVersion.current;
@@ -1359,7 +1360,7 @@ export function PullDetailHeader({
             <button
               className={`pull-detail__merge-action${conflicts || mergeBlocked ? ' is-conflicts' : mergeLoading ? ' is-loading' : ''}`}
               type="button"
-              disabled={!mergeModeReady || conflicts}
+              disabled={!mergeModeReady || conflicts || refreshing}
               onClick={() => setMergeOpen(true)}>
               {conflicts || mergeBlocked
                 ? <ConflictIcon />
@@ -1575,6 +1576,12 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
   const [error, setError] = useState<string | null>(null);
   const { pending, failing, successful, unresolved, checksReported, state } = mergeStatus(detail);
   const blocked = state === 'failed' || state === 'blocked';
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   useEffect(() => {
     const close = (keyboardEvent: KeyboardEvent) => {
@@ -1591,8 +1598,9 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
     setError(null);
     try {
       await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
-      await onRefresh();
+      if (!mounted.current) return;
       onClose();
+      await onRefresh();
     }
     catch (value) {
       setError(value instanceof Error ? value.message : String(value));

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
@@ -211,6 +212,57 @@ describe('PullOverview', () => {
     expect(html).toContain('All checks have passed');
     expect(html).toContain('class="pr-merge-success-icon"');
     expect(html).not.toContain('class="pr-merge-ready-icon"');
+  });
+
+  it.each([true, false])('closes an accepted merge before the detail refresh finishes (queue: %s)', async mergeQueue => {
+    const merge = Promise.withResolvers<void>();
+    const refresh = Promise.withResolvers<void>();
+    const mergePr = vi.fn(() => merge.promise);
+    const onClose = vi.fn();
+    const onRefresh = vi.fn(() => {
+      expect(onClose).toHaveBeenCalledOnce();
+      return refresh.promise;
+    });
+    const value: PullRequestDetailDto = { ...detail(), checkRuns: [], ciStatus: 'PASSING' };
+    const submit = captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue, onClose, onRefresh });
+    vi.stubGlobal('window', { bridge: { mergePr } });
+    try {
+      submit();
+      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'queue' : 'rebase');
+      expect(onClose).not.toHaveBeenCalled();
+      expect(onRefresh).not.toHaveBeenCalled();
+
+      merge.resolve();
+      await merge.promise;
+
+      await vi.waitFor(() => {
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(onRefresh).toHaveBeenCalledOnce();
+      });
+    }
+    finally {
+      refresh.resolve();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a rejected merge open without starting a refresh', async () => {
+    const merge = Promise.withResolvers<void>();
+    const onClose = vi.fn();
+    const onRefresh = vi.fn(async () => {});
+    const submit = captureMergeSubmit({ pr: pullRequest(), detail: detail(), mergeQueue: true, onClose, onRefresh });
+    vi.stubGlobal('window', { bridge: { mergePr: () => merge.promise } });
+    try {
+      submit();
+      merge.reject(new Error('Pull request cannot be queued'));
+      await merge.promise.catch(() => {});
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(onRefresh).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('blocks merging without a progress ring after checks fail', () => {
@@ -1057,6 +1109,18 @@ describe('PullOverview', () => {
     }, 'bob')).toBe(false);
   });
 });
+
+function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0]): () => void {
+  let submit: () => void;
+  function CaptureDialog() {
+    const view = MergeDialog(props);
+    const footer = view.props.children.props.children.find((child: ReactElement) => child.type === 'footer');
+    submit = footer.props.children[1].props.onClick;
+    return view;
+  }
+  renderToStaticMarkup(<CaptureDialog />);
+  return submit;
+}
 
 function pullRequest(): PullRequestDto {
   return {

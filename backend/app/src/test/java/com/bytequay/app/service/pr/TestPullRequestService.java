@@ -1195,7 +1195,9 @@ class TestPullRequestService
 
         assertThat(result.merged()).isTrue();
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("head"), any(Instant.class));
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore, never()).deleteByPrIds(any());
+        verifyNoInteractions(diffStore);
     }
 
     @Test
@@ -1213,7 +1215,9 @@ class TestPullRequestService
 
         assertThat(result.queued()).isTrue();
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(diffStore, gitHub, actions);
     }
 
     @Test
@@ -1229,7 +1233,9 @@ class TestPullRequestService
         assertThat(result.queued()).isTrue();
         verify(merges, never()).mergePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
-        verify(detailStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(diffStore, gitHub, actions);
     }
 
     @Test

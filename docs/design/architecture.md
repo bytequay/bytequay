@@ -323,6 +323,10 @@ full file bodies refresh only after the user requests that range or expands that
 persisted before they are displayed.
 
 GitHub writes remain behind direct comment, approve, failed-check rerun, or merge actions.
+Merge and queue submission finishes when GitHub acknowledges the write; the dialog closes before
+the detail and list refresh completes. These writes invalidate the detail ETag while retaining
+the stored snapshot and diffs, so refresh can reuse unchanged patches and concurrent readers
+continue to see cached data.
 
 Home and Workspace Home read an unpaginated personal attention projection. Authored PRs follow all
 activity, including drafts and closure. Other PRs qualify for review requests, or new commits and

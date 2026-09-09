@@ -362,21 +362,34 @@ const referenceRecordBindings = [
   recordBinding("ThreadReadResponse", "decode", [
     schemaSource("v2", "ThreadReadResponse"),
   ], [component("thread")]),
+  recordBinding("ThreadTurnsListParams", "encode", [
+    schemaSource("v2", "ThreadTurnsListParams"),
+  ], [
+    component("threadId"),
+    component("limit", "limit", 1),
+    component("sortDirection"),
+    component("itemsView"),
+  ]),
+  recordBinding("ThreadTurnsListResponse", "decode", [
+    schemaSource("v2", "ThreadTurnsListResponse"),
+  ], [component("data")]),
   recordBinding("ThreadBackgroundTerminalsListParams", "encode", [
     schemaSource("v2", "ThreadBackgroundTerminalsListParams"),
   ], [component("threadId"), component("cursor")]),
   recordBinding("ThreadBackgroundTerminalsListResponse", "decode", [
     schemaSource("v2", "ThreadBackgroundTerminalsListResponse"),
   ], [component("data"), component("nextCursor")]),
-  recordBinding("ThreadItemsListParams", "encode", [
-    schemaSource("v2", "ThreadItemsListParams"),
-  ], [component("threadId"), component("cursor")]),
-  recordBinding("ThreadItemsListResponse", "decode", [
-    schemaSource("v2", "ThreadItemsListResponse"),
+  recordBinding("ThreadListParams", "encode", [
+    schemaSource("v2", "ThreadListParams"),
+  ], [
+    component("parentThreadId"),
+    component("sourceKinds"),
+    component("modelProviders"),
+    component("cursor"),
+  ]),
+  recordBinding("ThreadListResponse", "decode", [
+    schemaSource("v2", "ThreadListResponse"),
   ], [component("data"), component("nextCursor")]),
-  recordBinding("ThreadItemEntry", "decode", [
-    schemaSource("v2", "ThreadItemEntry"),
-  ], [component("item"), component("turnId")]),
   recordBinding("ThreadBackgroundTerminalsTerminateParams", "encode", [
     schemaSource("v2", "ThreadBackgroundTerminalsTerminateParams"),
   ], [component("threadId"), component("processId")]),
@@ -393,9 +406,13 @@ const referenceRecordBindings = [
     component("sessionId"),
     component("parentThreadId"),
     component("turns"),
+    component("status"),
     component("agentNickname"),
     component("agentRole"),
   ]),
+  recordBinding("ThreadStatus", "decode", [
+    mergedSchemaSource("v2", "ThreadStatus", "type"),
+  ], [component("type")]),
   recordBinding("TurnStartResponse", "decode", [
     schemaSource("v2", "TurnStartResponse"),
   ], [component("turn")]),

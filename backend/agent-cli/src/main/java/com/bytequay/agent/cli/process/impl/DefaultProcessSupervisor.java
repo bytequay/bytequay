@@ -759,6 +759,7 @@ public final class DefaultProcessSupervisor
         private final AtomicBoolean stdoutTruncationReported = new AtomicBoolean();
         private final AtomicBoolean stderrTruncationReported = new AtomicBoolean();
         private final AtomicBoolean inputClosed = new AtomicBoolean();
+        private final AtomicBoolean outputClosed = new AtomicBoolean();
         private final AtomicBoolean terminating = new AtomicBoolean();
         private final AtomicBoolean verifiedStopped = new AtomicBoolean();
         private final AtomicBoolean observingDescendants = new AtomicBoolean(true);
@@ -825,7 +826,7 @@ public final class DefaultProcessSupervisor
             bytes.duplicate().get(copy);
             return CompletableFuture.runAsync(() -> {
                 synchronized (inputLock) {
-                    if (inputClosed.get() || marker.workFinished() || !launcher.isAlive()) {
+                    if (inputClosed.get() || terminating.get() || marker.workFinished() || !launcher.isAlive()) {
                         throw new AgentUnavailableException("Process input is closed");
                     }
                     try {
@@ -881,6 +882,7 @@ public final class DefaultProcessSupervisor
                 return CompletableFuture.completedFuture(ProcessExit.TreeTermination.VERIFIED_STOPPED);
             }
             reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.CANCELLED);
+            terminating.set(true);
             CompletableFuture<ProcessExit.TreeTermination> verification = new CompletableFuture<>();
             Thread.ofVirtual().name("bytequay-process-verify-" + payloadPid).start(() -> {
                 try {
@@ -938,6 +940,12 @@ public final class DefaultProcessSupervisor
             if (truncated.get()) {
                 return;
             }
+            if (source == ProcessStream.STDOUT && spec.stdoutCaptureLimit().isEmpty()) {
+                byte[] copy = new byte[count];
+                System.arraycopy(buffer, 0, copy, 0, count);
+                offerProtocol(new OutputChunk(source, copy));
+                return;
+            }
             AtomicInteger observed = observed(source);
             int accepted = Math.min(count, limit(source) - observed.get());
             if (accepted <= 0) {
@@ -958,6 +966,23 @@ public final class DefaultProcessSupervisor
             }
         }
 
+        private void offerProtocol(OutputChunk chunk)
+        {
+            try {
+                // Wait outside outputLock so diagnostics can still be drained independently.
+                while (!stdoutTruncated.get() && !outputClosed.get()) {
+                    if (outputQueue.offer(chunk, 100, TimeUnit.MILLISECONDS)) {
+                        return;
+                    }
+                }
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                stdoutTruncated.set(true);
+                cancel();
+            }
+        }
+
         private void dispatchOutput()
         {
             try {
@@ -974,10 +999,15 @@ public final class DefaultProcessSupervisor
             }
             catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-            }
-            catch (RuntimeException ignored) {
                 stdoutTruncated.set(true);
                 stderrTruncated.set(true);
+                cancel();
+            }
+            catch (RuntimeException failure) {
+                stdoutTruncated.set(true);
+                stderrTruncated.set(true);
+                log.warn("Process output consumer failed for launch {}: {}", launchId(), failure.getClass().getSimpleName());
+                cancel();
             }
         }
 
@@ -1134,7 +1164,6 @@ public final class DefaultProcessSupervisor
         /** Requests idempotent tree termination without blocking the caller for the grace period. */
         private void terminate()
         {
-            closeInput();
             if (!terminating.compareAndSet(false, true)) {
                 return;
             }
@@ -1147,12 +1176,13 @@ public final class DefaultProcessSupervisor
                 if (verifiedStopped.get()) {
                     return ProcessExit.TreeTermination.VERIFIED_STOPPED;
                 }
-                closeInput();
+                // A blocked stdin write owns inputLock; stop the readers before closing their pipe.
                 terminateGroup(processGroup, spec.cancellationGrace());
                 launcher.descendants().forEach(ProcessHandle::destroyForcibly);
                 stopObservingDescendants();
                 marker.descendants().ifPresent(identities -> terminateIdentities(identities, spec.cancellationGrace()));
                 launcher.destroyForcibly();
+                closeInput();
                 closeOutputStreams();
                 ProcessExit.TreeTermination termination = verifyTreeStopped();
                 ProcessExit terminal = exit.getNow(null);
@@ -1173,6 +1203,7 @@ public final class DefaultProcessSupervisor
 
         private void closeOutputStreams()
         {
+            outputClosed.set(true);
             try {
                 launcher.getInputStream().close();
             }
@@ -1200,7 +1231,7 @@ public final class DefaultProcessSupervisor
 
         private int limit(ProcessStream stream)
         {
-            return stream == ProcessStream.STDOUT ? spec.maximumStdoutBytes() : spec.maximumStderrBytes();
+            return stream == ProcessStream.STDOUT ? spec.stdoutCaptureLimit().orElseThrow() : spec.maximumStderrBytes();
         }
 
         private AtomicInteger observed(ProcessStream stream)

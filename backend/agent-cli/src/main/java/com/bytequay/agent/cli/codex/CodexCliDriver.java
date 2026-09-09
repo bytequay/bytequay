@@ -73,7 +73,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -93,11 +92,10 @@ import static java.util.stream.Collectors.joining;
 /**
  * Runs Codex tasks, one App Server process per task.
  *
- * <p>The process working directory is the task worktree, and that is the whole execution boundary:
- * under {@code workspace-write} App Server's default environment confines writes to its own
- * working directory, so nothing registers an execution environment and nothing declares the
- * experimental API. The launch owner is the task id, so a process recovered after a crash is
- * attributable to the task that leaked it.
+ * <p>The process working directory is the task worktree, with the provider's {@code workspace-write}
+ * sandbox and no custom execution environment. The launch owner is the task id, so process cleanup
+ * after a crash remains attributable to that task. Normal completion checks the provider's agent
+ * and background-command inventories before stopping the App Server.
  *
  * <p>Opening a session is what starts a process. The driver holds none between calls; the session
  * owns its process and closes it.
@@ -117,10 +115,9 @@ import static java.util.stream.Collectors.joining;
  *     '- turn/start                            carries the turn's own model/effort snapshot
  * </pre>
  *
- * <p>Inbound messages arrive on the dispatcher's consumer thread, never the reader. Every thread
- * in this process belongs to this task, so a non-root thread is one of its subagents: its activity
- * is reported, while turn completion and the final answer stay gated on the root thread, because a
- * subagent's {@code turn/completed} arrives before the root's.
+ * <p>Inbound messages arrive on the dispatcher's consumer thread, never the reader. Child activity
+ * is routed through confirmed provider lineage. The root owns the final answer, but its completion
+ * does not establish that its children have finished; the driver checks them recursively.
  *
  * <pre>
  *   onNotification --&gt; eventMapper --&gt; AgentEventSink --&gt; agent-core (sequenced, then SSE)
@@ -145,7 +142,6 @@ public final class CodexCliDriver
     private static final int MAX_PENDING_CHILD_NOTIFICATIONS = 128;
     private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
-    private static final int MAX_APP_SERVER_STDOUT_BYTES = 64 * 1024 * 1024;
     private static final int MAX_APP_SERVER_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROBE_OUTPUT_BYTES = 16 * 1024;
     private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
@@ -293,7 +289,7 @@ public final class CodexCliDriver
                         CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly),
                         workingDirectory,
                         processEnvironment,
-                        MAX_APP_SERVER_STDOUT_BYTES,
+                        OptionalInt.empty(),
                         MAX_APP_SERVER_STDERR_BYTES,
                         APP_SERVER_RUNTIME,
                         PROCESS_CANCELLATION_GRACE),
@@ -646,7 +642,7 @@ public final class CodexCliDriver
                 argv,
                 workingDirectory,
                 environment,
-                maximumStdoutBytes,
+                OptionalInt.of(maximumStdoutBytes),
                 maximumStderrBytes,
                 maximumRuntime,
                 PROCESS_CANCELLATION_GRACE);
@@ -721,9 +717,6 @@ public final class CodexCliDriver
     /** A subagent's place in the task: the thread that spawned it and the name it is shown under. */
     private record ChildFacts(String parent, String label, Optional<String> purpose) {}
 
-    /** Item ids are only unique within their source thread and turn. */
-    private record ItemIdentity(String threadId, String turnId, String itemId) {}
-
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
     {
@@ -744,8 +737,6 @@ public final class CodexCliDriver
         private final Map<String, String> v2AgentPaths = new ConcurrentHashMap<>();
         private final Set<String> announcedChildren = ConcurrentHashMap.newKeySet();
         private final Set<String> promptedChildren = ConcurrentHashMap.newKeySet();
-        /** Completed item identities already emitted live or recovered from history. */
-        private final Set<ItemIdentity> completedItems = ConcurrentHashMap.newKeySet();
         private final CodexEventMapper.ThreadLineage lineage = new CodexEventMapper.ThreadLineage()
         {
             @Override
@@ -763,8 +754,6 @@ public final class CodexCliDriver
                 return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
             }
         };
-        /** Items reported started and not yet reported terminal, by the thread that owns them. */
-        private final ConcurrentMap<String, Set<ItemIdentity>> liveItems = new ConcurrentHashMap<>();
         /** Out-of-order child activity awaiting an explicit route to the root. Guarded by this session. */
         private final Map<String, List<CodexProtocol.Notification>> pendingNotifications = new HashMap<>();
         private int pendingNotificationCount;
@@ -927,9 +916,6 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            // An item the previous turn left unresolved belonged to that turn's outcome, which is
-            // already decided. Carrying it forward would fail every later turn for the same reason.
-            liveItems.clear();
             running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime(), this::userInput);
             return running;
         }
@@ -1032,6 +1018,10 @@ public final class CodexCliDriver
                     // would end it are queued behind this handler.
                     CodexRunningTurn completing = running;
                     CodexProtocol.Turn reported = turnCompleted.params().turn();
+                    reported.items().stream()
+                            .filter(CodexProtocol.AgentMessageItem.class::isInstance)
+                            .map(CodexProtocol.AgentMessageItem.class::cast)
+                            .forEach(message -> completing.observeMessage(message.phase(), redactor.redact(message.text())));
                     // An interrupt and a natural finish can both report the turn complete. Only the
                     // first starts the wait, or the second would repeat its work and terminate a
                     // background process twice.
@@ -1117,40 +1107,6 @@ public final class CodexCliDriver
                     .isPresent();
         }
 
-        private synchronized Optional<String> pendingLineageDiagnostic()
-        {
-            Optional<String> buffered = pendingNotifications.entrySet().stream()
-                    .findFirst()
-                    .map(entry -> entry.getValue().size() + " buffered notification(s) on thread "
-                            + entry.getKey() + " have no confirmed lineage");
-            if (buffered.isPresent()) {
-                return buffered;
-            }
-            if (childProfile != CodexLaunchProfile.ChildProfile.V2) {
-                return Optional.empty();
-            }
-            return children.keySet().stream()
-                    .filter(this::confirmedLineage)
-                    .filter(threadId -> !v2AgentPaths.containsKey(threadId))
-                    .findFirst()
-                    .map(threadId -> "thread " + threadId + " has no canonical V2 STARTED path");
-        }
-
-        /**
-         * A message, reasoning, or plan item is model output. The App Server leaves one open when
-         * a turn is interrupted mid-token, and it cannot have written anything, so waiting for it
-         * would fail a cancelled turn over a writer that never existed.
-         */
-        private static boolean canTouchWorktree(CodexProtocol.ThreadItem item)
-        {
-            return !(item instanceof CodexProtocol.AgentMessageItem
-                    || item instanceof CodexProtocol.UserMessageItem
-                    || item instanceof CodexProtocol.ReasoningItem
-                    || item instanceof CodexProtocol.PlanTextItem
-                    || item instanceof CodexProtocol.ContextCompactionItem
-                    || item instanceof CodexProtocol.ModelOutputItem);
-        }
-
         /**
          * The path an image input may name: a verified image inside this task's own runtime
          * directory. Anything else never reaches the App Server, whatever the caller claims.
@@ -1181,31 +1137,9 @@ public final class CodexCliDriver
             }
             if (notification instanceof CodexProtocol.ItemStartedNotification started) {
                 registerSpawned(started.params().item(), started.threadId());
-                if (!canTouchWorktree(started.params().item())) {
-                    return;
-                }
-                liveItems
-                        .computeIfAbsent(started.threadId(), thread -> ConcurrentHashMap.newKeySet())
-                        .add(new ItemIdentity(
-                                started.threadId(),
-                                started.params().turnId(),
-                                started.params().item().id()));
             }
             else if (notification instanceof CodexProtocol.ItemCompletedNotification completed) {
                 registerSpawned(completed.params().item(), completed.threadId());
-                if (completed.threadId().equals(reference.providerValue()) || routableThread(completed.threadId())) {
-                    completedItems.add(new ItemIdentity(
-                            completed.threadId(),
-                            completed.params().turnId(),
-                            completed.params().item().id()));
-                }
-                Set<ItemIdentity> items = liveItems.get(completed.threadId());
-                if (items != null) {
-                    items.remove(new ItemIdentity(
-                            completed.threadId(),
-                            completed.params().turnId(),
-                            completed.params().item().id()));
-                }
             }
         }
 
@@ -1461,42 +1395,6 @@ public final class CodexCliDriver
                     Optional.empty());
         }
 
-        /** Appends one page of child history that the live stream never delivered. */
-        private void backfill(
-                String threadId,
-                List<CodexProtocol.ThreadItemEntry> entries,
-                boolean rootThread)
-        {
-            List<CodexProtocol.ThreadItemEntry> unseen = entries.stream()
-                    .filter(entry -> completedItems.add(new ItemIdentity(threadId, entry.turnId(), entry.item().id())))
-                    .collect(toImmutableList());
-            if (unseen.isEmpty()) {
-                return;
-            }
-            events.emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.of(threadId + ":backfill-started"),
-                    Optional.empty(),
-                    ProviderAgentEvent.LifecyclePhase.BACKFILL_STARTED,
-                    "Recovering this agent's activity from its history",
-                    childSource(threadId)));
-            for (CodexProtocol.ThreadItemEntry entry : unseen) {
-                if (rootThread && entry.item() instanceof CodexProtocol.AgentMessageItem message) {
-                    CodexRunningTurn active = running;
-                    if (active != null) {
-                        active.observeMessage(message.phase(), redactor.redact(message.text()));
-                    }
-                }
-                eventMapper.mapHistoryItem(entry.item(), threadId, entry.turnId(), rootThread, lineage)
-                        .forEach(events::emit);
-            }
-            events.emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.of(threadId + ":backfill-completed"),
-                    Optional.empty(),
-                    ProviderAgentEvent.LifecyclePhase.BACKFILL_COMPLETED,
-                    "Recovered this agent's activity from its history",
-                    childSource(threadId)));
-        }
-
         /**
          * Finishes a turn once its process is quiet, or fails it when that cannot be shown.
          *
@@ -1526,16 +1424,23 @@ public final class CodexCliDriver
                 closed = true;
             }
             try {
-                // Item and terminal inventories do not expose a descendant turn status. A
-                // verified stop of this per-turn process is the final proof that no child or tool
-                // can still touch the worktree, including on every failed quiescence path.
-                client.close();
+                if (unsettled.isEmpty()) {
+                    client.closeAfterWorkFinished();
+                }
+                else {
+                    client.close();
+                }
             }
             catch (RuntimeException failure) {
                 String message = Optional.ofNullable(failure.getMessage())
                         .filter(value -> !value.isBlank())
                         .orElse("the App Server process tree could not be verified stopped");
-                turn.completeUnverifiable(reported, redactor.redact(message));
+                if (unsettled.isEmpty()) {
+                    turn.complete(reported, Optional.of(redactor.redact(message)));
+                }
+                else {
+                    turn.completeUnverifiable(reported, unsettled.orElseThrow() + "; " + redactor.redact(message));
+                }
                 return;
             }
             if (unsettled.isEmpty()) {
@@ -1546,13 +1451,10 @@ public final class CodexCliDriver
         }
 
         /**
-         * Waits until nothing this task's process started is still running.
+         * Waits for each agent's current work, tools, and children to finish.
          *
-         * <p>App Server v0.151.0 does not expose turns through {@code thread/read}, but
-         * {@code thread/items/list} is the recursive item and relationship history source. It is
-         * combined with the live item stream and the background-terminal inventory that reports
-         * commands still running after their item went terminal. A pass that changes nothing is
-         * not enough on its own, because a subagent can appear between two reads.
+         * <p>The provider's turn status repairs missed completion notifications. Background commands have
+         * their own inventory because they can outlive the turn that started them.
          *
          * @param providerTurnId current root turn; older root history belongs to earlier processes
          * @param stopBackgroundWork whether outstanding background processes should be terminated
@@ -1572,25 +1474,19 @@ public final class CodexCliDriver
                     return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
                 }
                 Set<String> threads = ImmutableSet.copyOf(observedThreads);
-                // History reconciles a live start whose terminal notification was missed, and it
-                // can expand the recursive thread closure before the live/background check.
-                Optional<String> unfinished = firstUnfinishedInHistory(threads, providerTurnId);
+                Set<String> visited = new HashSet<>();
+                Optional<String> unfinished = firstUnfinishedAgent(reference.providerValue(), providerTurnId, stopBackgroundWork, visited);
                 if (unfinished.isPresent()) {
                     lastSeen = unfinished.orElseThrow();
                     stablePasses = 0;
                     sleep(QUIESCENCE_POLL);
                     continue;
                 }
-                Optional<String> outstanding = firstOutstanding(threads, stopBackgroundWork);
-                if (outstanding.isPresent()) {
-                    lastSeen = outstanding.orElseThrow();
-                    stablePasses = 0;
-                    sleep(QUIESCENCE_POLL);
-                    continue;
-                }
-                Optional<String> pending = pendingLineageDiagnostic();
-                if (pending.isPresent()) {
-                    lastSeen = pending.orElseThrow();
+                if (!visited.containsAll(observedThreads)) {
+                    // Missing display metadata does not keep an idle agent running. An observed
+                    // thread outside the reconciled tree, however, still has unknown ownership.
+                    lastSeen = "thread " + observedThreads.stream().filter(thread -> !visited.contains(thread)).findFirst().orElseThrow()
+                            + " is absent from the task's agent inventory";
                     stablePasses = 0;
                     sleep(QUIESCENCE_POLL);
                     continue;
@@ -1608,99 +1504,92 @@ public final class CodexCliDriver
             return Optional.empty();
         }
 
-        /**
-         * Returns the first still-running item or background terminal across the given threads.
-         *
-         * @param stopBackgroundWork terminate a background terminal instead of waiting for it
-         */
-        private Optional<String> firstOutstanding(Set<String> threads, boolean stopBackgroundWork)
+        /** A finished agent has terminal own work, no running tools, and only finished children. */
+        private Optional<String> firstUnfinishedAgent(String threadId, String providerTurnId, boolean stopBackgroundWork, Set<String> visited)
         {
-            for (String thread : threads) {
-                Set<ItemIdentity> items = liveItems.get(thread);
-                if (items != null && !items.isEmpty()) {
-                    return Optional.of("item " + items.iterator().next().itemId() + " on thread " + thread);
+            if (!visited.add(threadId)) {
+                return Optional.of("the agent inventory contains a cycle or repeated parent for " + threadId);
+            }
+            CodexProtocol.HistoryThread thread;
+            List<CodexProtocol.Turn> turns;
+            try {
+                // Full history can be megabytes of old tool output. Completion needs only native
+                // activity status and the latest turn, with no items loaded or replayed.
+                thread = client.request(
+                        "thread/read",
+                        new CodexProtocol.ThreadReadParams(threadId, Optional.of(false)),
+                        CodexProtocol.ThreadReadResponse.class,
+                        REQUEST_TIMEOUT).thread();
+                // Ephemeral text-only helpers have no persisted turn history. Their terminal
+                // notification supplies the result; native idle status and inventories still gate cleanup.
+                turns = context.textOnly() ? ImmutableList.of() : client.request(
+                        "thread/turns/list",
+                        new CodexProtocol.ThreadTurnsListParams(threadId, 1, "desc", "notLoaded"),
+                        CodexProtocol.ThreadTurnsListResponse.class,
+                        REQUEST_TIMEOUT).data();
+            }
+            catch (RuntimeException failure) {
+                return Optional.of("thread " + threadId + " could not be read: " + failure.getMessage());
+            }
+            if (!thread.id().equals(threadId)) {
+                return Optional.of("thread history returned another agent for " + threadId);
+            }
+            boolean rootThread = threadId.equals(reference.providerValue());
+            if (!context.textOnly() && turns.isEmpty()) {
+                return Optional.of("thread " + threadId + " has no current turn history");
+            }
+            if (!context.textOnly() && (turns.size() != 1 || (rootThread && !turns.getFirst().id().equals(providerTurnId)))) {
+                return Optional.of("thread " + threadId + " did not return the expected current turn");
+            }
+            boolean unloadedChild = !rootThread && thread.status().type().equals("notLoaded");
+            if ((!thread.status().type().equals("idle") && !unloadedChild) || turns.stream().anyMatch(turn -> !turn.terminal())) {
+                return Optional.of("agent " + threadId + " has not finished its turn");
+            }
+            // A closed child has no runtime, and its background API deliberately rejects reads.
+            // Its descendants can still be loaded, so recurse through the inventory below.
+            if (!unloadedChild) {
+                Optional<String> background = firstBackgroundTerminal(threadId, stopBackgroundWork);
+                if (background.isPresent()) {
+                    return background;
                 }
             }
-            for (String thread : threads) {
-                Optional<String> terminal = firstBackgroundTerminal(thread, stopBackgroundWork);
-                if (terminal.isPresent()) {
-                    return terminal;
+            Set<String> childIds = childThreads(threadId);
+            for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
+                if (child.getValue().parent().equals(threadId)) {
+                    childIds.add(child.getKey());
+                }
+            }
+            for (String childId : childIds) {
+                Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, stopBackgroundWork, visited);
+                if (childWork.isPresent()) {
+                    return childWork;
                 }
             }
             return Optional.empty();
         }
 
-        /**
-         * Returns the first item any known thread's history still reports unfinished.
-         *
-         * <p>The live stream can miss an item; history cannot. An inventory that cannot be read is
-         * not an empty one.
-         *
-         * @param threads every thread this process has shown
-         * @param providerTurnId current root turn whose entries are relevant
-         * @return what is unfinished, or empty when history agrees nothing is
-         */
-        private Optional<String> firstUnfinishedInHistory(Set<String> threads, String providerTurnId)
+        private Set<String> childThreads(String parentThreadId)
         {
-            // Ephemeral text-only helpers have no persisted history. Their terminal notification
-            // supplies the result; live activity, background terminals, and verified shutdown still gate completion.
-            if (context.textOnly()) {
-                return Optional.empty();
-            }
-            for (String thread : threads) {
-                if (!thread.equals(reference.providerValue()) && !routableThread(thread)) {
-                    continue;
+            Set<String> childIds = new HashSet<>();
+            Optional<String> cursor = Optional.empty();
+            do {
+                // Legacy turn history omits collaboration items. Ask the provider for direct
+                // children instead of depending on notifications or reconstructing spawn history.
+                CodexProtocol.ThreadListResponse page = client.request(
+                        "thread/list",
+                        new CodexProtocol.ThreadListParams(parentThreadId, ImmutableList.of("subAgent"), ImmutableList.of(), cursor),
+                        CodexProtocol.ThreadListResponse.class,
+                        REQUEST_TIMEOUT);
+                for (CodexProtocol.HistoryThread child : page.data()) {
+                    if (!child.parentThreadId().filter(parentThreadId::equals).isPresent()) {
+                        throw new AgentUnavailableException("Codex returned a child with another parent for " + parentThreadId);
+                    }
+                    childIds.add(child.id());
                 }
-                Optional<String> cursor = Optional.empty();
-                do {
-                    CodexProtocol.ThreadItemsListResponse page;
-                    try {
-                        page = client.request(
-                                "thread/items/list",
-                                new CodexProtocol.ThreadItemsListParams(thread, cursor),
-                                CodexProtocol.ThreadItemsListResponse.class,
-                                REQUEST_TIMEOUT);
-                    }
-                    catch (RuntimeException failure) {
-                        return Optional.of("the items of thread " + thread
-                                + " could not be listed: " + failure.getMessage());
-                    }
-                    List<CodexProtocol.ThreadItemEntry> relevantEntries = page.data().stream()
-                            .filter(entry -> !thread.equals(reference.providerValue())
-                                    || entry.turnId().equals(providerTurnId))
-                            .collect(toImmutableList());
-                    for (CodexProtocol.ThreadItemEntry entry : relevantEntries) {
-                        // The selected model profile decides which historical item is a graph
-                        // edge. Each new thread expands the next fixed-point pass, so the same
-                        // rule discovers children and grandchildren recursively.
-                        List<String> discovered = registerSpawned(entry.item(), thread);
-                        if (!discovered.isEmpty()) {
-                            announceChildren(Optional.empty());
-                            flushPendingNotifications();
-                        }
-                        if (!entry.item().terminal()) {
-                            return Optional.of("item " + entry.item().id()
-                                    + " on thread " + thread + " is still running");
-                        }
-                        Set<ItemIdentity> live = liveItems.get(thread);
-                        if (live != null) {
-                            live.remove(new ItemIdentity(thread, entry.turnId(), entry.item().id()));
-                        }
-                    }
-                    if (thread.equals(reference.providerValue()) || routableThread(thread)) {
-                        // History is a recurring recovery source, not a one-shot snapshot: a
-                        // later pass can contain an item the live stream and an earlier page both
-                        // missed.
-                        backfill(
-                                thread,
-                                relevantEntries,
-                                thread.equals(reference.providerValue()));
-                    }
-                    cursor = page.nextCursor();
-                }
-                while (cursor.isPresent());
+                cursor = page.nextCursor();
             }
-            return Optional.empty();
+            while (cursor.isPresent());
+            return childIds;
         }
 
         private Optional<String> firstBackgroundTerminal(String thread, boolean stopBackgroundWork)
@@ -2139,9 +2028,8 @@ public final class CodexCliDriver
         /**
          * Reports a turn whose root finished while its process could still be doing work.
          *
-         * <p>Reported FAILED rather than COMPLETED so the task stays open and keeps its worktree:
-         * a clean completion here would release the claim over files something may still be
-         * writing.
+         * <p>The recursive completion check failed, so the root answer alone cannot establish a
+         * completed turn. The separate quiescence flag retains the worktree claim.
          *
          * @param turn the completion App Server reported
          * @param unsettled what could not be shown stopped
@@ -2179,6 +2067,11 @@ public final class CodexCliDriver
 
         private void complete(CodexProtocol.Turn turn)
         {
+            complete(turn, Optional.empty());
+        }
+
+        private void complete(CodexProtocol.Turn turn, Optional<String> cleanupFailure)
+        {
             AgentTurnResult.State state = switch (turn.status()) {
                 case COMPLETED -> AgentTurnResult.State.COMPLETED;
                 case INTERRUPTED -> cancellationRequested.get()
@@ -2196,7 +2089,11 @@ public final class CodexCliDriver
                 case CANCELLED -> Optional.of(detail);
                 case FAILED, INTERRUPTED -> Optional.of("Codex CLI " + rememberAppServerVersion() + ": " + detail);
             };
-            completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn)));
+            if (cleanupFailure.isPresent()) {
+                log.warn("Codex turn {} finished, but runtime cleanup is unresolved: {}", reference.value(), cleanupFailure.orElseThrow());
+                reason = reason.map(value -> value + "; Runtime cleanup: " + cleanupFailure.orElseThrow());
+            }
+            completion.complete(new AgentTurnResult(state, finalResponse, reason, elapsed(turn), cleanupFailure.isEmpty()));
         }
 
         /**

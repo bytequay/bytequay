@@ -94,6 +94,7 @@ final class CodexAppServerClient
     private final AtomicLong requestIds = new AtomicLong();
     private final AtomicBoolean disconnected = new AtomicBoolean();
     private final AtomicReference<String> codexHome = new AtomicReference<>();
+    private final AtomicReference<ProcessExit.TreeTermination> treeTermination = new AtomicReference<>();
     private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
             new ConcurrentHashMap<>();
     private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
@@ -103,7 +104,7 @@ final class CodexAppServerClient
     private volatile Thread readerThread;
     private volatile ManagedProcess process;
     private volatile boolean closed;
-    private volatile ProcessExit.TreeTermination treeTermination;
+    private volatile boolean workFinished;
 
     CodexAppServerClient(
             ProcessSupervisor supervisor,
@@ -315,7 +316,8 @@ final class CodexAppServerClient
     private void processExited(ProcessExit result, Throwable failure)
     {
         if (result != null) {
-            treeTermination = result.treeTermination();
+            // The original exit receipt may arrive after a newer explicit stop verification.
+            treeTermination.compareAndSet(null, result.treeTermination());
         }
         try {
             protocolLines.finish();
@@ -421,41 +423,44 @@ final class CodexAppServerClient
     /**
      * Whether the process tree is known to have stopped.
      *
-     * @return empty until the process has exited, then true only when every owned member was
-     * observed gone
+     * @return empty until exit or explicit shutdown verification, then true only after verified
+     * runtime cleanup
      */
     Optional<Boolean> processTreeVerifiedStopped()
     {
-        ProcessExit.TreeTermination termination = treeTermination;
+        ProcessExit.TreeTermination termination = treeTermination.get();
         return termination == null
                 ? Optional.empty()
                 : Optional.of(termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
     }
 
-    /**
-     * Stops the App Server process and returns once its whole process tree is verified stopped.
-     *
-     * <p>Root exit is not enough: a tool the model started can outlive the server, and it is the
-     * task worktree those tools write to. The verification is repeated on every call, so a caller
-     * refused the proof once can ask again rather than being told the process is gone.
-     *
-     * @throws AgentUnavailableException when the tree could not be verified stopped in time
-     */
+    /** Closes after the provider has confirmed that every agent and tool in this run finished. */
+    void closeAfterWorkFinished()
+    {
+        synchronized (lifecycleLock) {
+            // No request may start new work after the provider completion fact is recorded.
+            closed = true;
+            workFinished = true;
+        }
+        close();
+    }
+
+    /** Stops this launch, retaining its provider completion fact when cleanup is retried. */
     @Override
     public void close()
     {
         ManagedProcess current;
         synchronized (lifecycleLock) {
             current = process;
-            if (!closed) {
-                closed = true;
-                if (current != null) {
-                    current.close();
-                }
-            }
+            closed = true;
         }
         if (current != null) {
-            awaitVerifiedStop(current);
+            try {
+                awaitVerifiedStop(current);
+            }
+            finally {
+                current.close();
+            }
         }
         disconnect(new AgentUnavailableException("Codex App Server closed"));
         dispatcher.close();
@@ -465,7 +470,8 @@ final class CodexAppServerClient
     {
         ProcessExit.TreeTermination termination;
         try {
-            termination = current.stopAndVerify().toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            termination = (workFinished ? current.stopAfterWorkFinished() : current.stopAndVerify())
+                    .toCompletableFuture().get(STOP_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -478,7 +484,7 @@ final class CodexAppServerClient
             throw new AgentUnavailableException("Codex App Server did not stop within " + STOP_TIMEOUT.toSeconds()
                     + " seconds, so its process tree is not verified stopped", e);
         }
-        treeTermination = termination;
+        treeTermination.set(termination);
         if (termination != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
             throw new AgentUnavailableException("Codex App Server exited but its process tree could not be verified stopped");
         }

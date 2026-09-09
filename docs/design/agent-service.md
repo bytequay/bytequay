@@ -78,6 +78,16 @@ This status note records the implemented, ungated, shipped boundary.
 It supersedes older wording that described the agent subsystem or its rich task
 surface as future work.
 
+**Completion correction:** normal turns use recursive provider
+completion followed by separate process cleanup, as specified in
+[5.6](#56-process-ownership-correction). The supervisor preserves known
+identities and observation gaps; a durable provider-completion fact resolves
+those gaps only after known-process cleanup is verified. This replaces the
+previous proposal for general macOS process containment. Implemented and
+verified; evidence is recorded in section 5.6. A subsequent
+protocol-output truncation report adds the bounded status reads and lossless
+protocol-stream correction below, also verified.
+
 ### Current situation
 
 - The Codex lane already uses the official App Server transport.
@@ -354,8 +364,8 @@ changes `TaskState`.
 
 A provider terminal, failed, cancelled, or interrupted status alone does not
 prove that its tools stopped. ByteQuay retains the blocking turn or mutation
-claim until recursive item/history/background-terminal reconciliation and
-owned-process verification prove quiescence. Only then may it release the
+claim until recursive current-run agent/tool reconciliation and process
+cleanup prove quiescence under section 5.6. Only then may it release the
 claim and project the still-`OPEN` task as idle. The guarded mark-failed action
 is the only recovery-required path to `FAILED`; there is no recovery state
 machine, timer, or automatic retry loop.
@@ -400,9 +410,10 @@ The implementation must enforce these invariants:
   acceptance/queue claims and completion.
 - A turn's claim covers its root run and every discovered descendant. Root
   `turn/completed` does not release it or start queued work. The driver first
-  reaches a stable relationship/item/background fixed point, then closes the
-  per-turn App Server and requires its complete owned process tree to be
-  `VERIFIED_STOPPED`. Item history alone cannot prove descendant termination.
+  verifies each current-run agent is terminal, its tools have stopped, and all
+  children are finished. It records that provider fact before closing the
+  per-turn App Server. Only verified cleanup releases the claim; cleanup
+  failure does not rewrite a proven provider result.
 - Provider execution uses the selected App Server sandbox and approval policy
   inside the generated task worktree. Provider control-plane traffic is a separate
   trust boundary: ByteQuay selects the provider configuration, but the first
@@ -667,7 +678,7 @@ public interface AgentTurnService
      * every known active descendant, then cleans the matching App Server
      * background terminals. Stopping the supervised provider process is a
      * last resort because it interrupts every thread in this task. An already
-     * {@code INTERRUPTED} turn may retain its claim until item/history and
+     * {@code INTERRUPTED} turn may retain its claim until provider status and
      * background-terminal reconciliation succeeds.
      *
      * @param turnId turn to cancel
@@ -1331,13 +1342,13 @@ public interface RunningTurn
      * Returns a stage completed exactly once with a terminal fact and explicit quiescence result.
      *
      * <p>A root terminal message is necessary but not sufficient. Recursive
-     * item history discovers the reachable V1/V2 graph and reconciles observed
-     * execution-capable items and background terminals, but it carries no
-     * descendant turn status. After that closure succeeds or fails, the driver
-     * closes the per-turn App Server and classifies its complete owned process
-     * tree. Success requires both a stable closure and {@code VERIFIED_STOPPED};
-     * a failed closure returns a failed result, and its provider-quiescent flag
-     * is true only after the same verified stop.
+     * provider status, latest-turn status, and background-terminal checks establish
+     * that each current-run agent and its tools have finished. The driver
+     * records that fact before closing the per-turn App Server. Cleanup failure
+     * preserves a proven provider result but sets providerQuiescent to false;
+     * only verified cleanup permits the task claim to be released. A failed
+     * provider check supplies no finished-work proof and follows conservative
+     * process shutdown.
      * The stage completes normally; provider or transport failure is an
      * interrupted or failed terminal result, never exceptional completion.
      * After transport loss, interruption is not reported as quiescent until
@@ -1496,8 +1507,9 @@ public interface PreparedProcess
     /**
      * Starts the already prepared argv-based process.
      *
-     * <p>No shell is used. Stdout and stderr are drained independently, output
-     * limits are enforced, and the sink is called in observed stream order.
+     * <p>No shell is used. Stdout and stderr are drained independently. Finite
+     * capture limits apply only when configured; protocol stdout uses bounded
+     * backpressure and never drops bytes. The sink observes stream order.
      */
     ManagedProcess start(ProcessOutputSink output);
 
@@ -1508,8 +1520,24 @@ public interface PreparedProcess
 
 `ProcessSpec` carries an agent-cli-local opaque owner string; it never imports a
 `TaskId` or `TurnId` type from `agent-core`. The owning driver maps that value
-back to durable domain state. `ProcessOwner.Kind` also carries one closed
-`ExecutionProfile` value rather than arbitrary sandbox text:
+back to durable domain state.
+
+`ProcessSpec.stdoutCaptureLimit` is an `OptionalInt`: a present positive value
+bounds finite command capture; empty selects a protocol stream with no lifetime
+byte cap. The real Codex App Server and Claude `stream-json` sessions use the
+protocol setting. Their bounded output queue applies backpressure to pipe
+readers instead of dropping stdout bytes, because one missing byte can corrupt
+JSON framing or lose a required response. Bounded stderr capture, protocol frame
+limits, and UI output limits remain independent. This does not accumulate an
+unbounded transcript in the supervisor.
+
+Cancellation rejects queued input and starts process termination without taking
+the stdin writer's lock. It stops the owned process group and known descendants
+before closing stdin, so a blocked write cannot prevent cancellation while
+stdout is backpressured.
+
+`ProcessOwner.Kind` also carries one closed `ExecutionProfile` value rather
+than arbitrary sandbox text:
 
 - `PROVIDER_CONTROL` owns one task's App Server or one Claude turn process and
   does not claim an endpoint-level network allowlist;
@@ -1556,15 +1584,13 @@ launcher exists. A crash after spawn but before identity fsync closes the gate,
 so the launcher exits without executing the payload. Once released, the marker
 also records the owner process group/job identity and observed member
 PID/start-token pairs; this permits recovery after the root exits while a child
-remains. This proves only recorded membership. A descendant that can escape
-before observation makes the result `UNVERIFIABLE`; ByteQuay does not infer
-containment from one readiness fixture or from root exit. The narrow exception
-is a control-only launch whose descendant disappears between the OS snapshot
-and start-token read. A live unreadable descendant, or any unidentified
-descendant of a task-worktree-capable launch, remains `UNVERIFIABLE`. Recovery
-blocks the affected claim unless the validated launch path provides a stronger
-platform primitive or all relevant execution is reconciled through the
-provider contract instead.
+remains. This proves recorded membership, not arbitrary native-process
+containment: polling can miss a descendant that detaches before observation.
+The supervisor therefore preserves known identities and records observation
+gaps separately. For normal Codex turns, the provider's recursive completion
+fact can resolve a historical observation gap after known-process cleanup;
+without that fact, incomplete tracking remains `UNVERIFIABLE`. The exact
+contract and legacy receipt handling are specified in section 5.6.
 
 The owning row records one durable fact, whether the owner had committed to
 spawning, while the marker supplies every finer launch fact. Recovery uses both:
@@ -1655,7 +1681,7 @@ public interface ManagedProcess
      * distinguishes {@code VERIFIED_STOPPED} from {@code UNVERIFIABLE}; root
      * PID exit alone is never sufficient to release a worktree-mutation claim.
      *
-     * @return root exit code, full-tree termination proof, terminal reason,
+     * @return root exit code, runtime-cleanup result, terminal reason,
      * timing, and truncation flags
      */
     CompletionStage<ProcessExit> exit();
@@ -1664,10 +1690,19 @@ public interface ManagedProcess
      * Requests graceful termination followed by forced process-tree termination.
      *
      * <p>The method is idempotent and does not block for the grace period.
-     * Callers await {@link #exit()} and treat only a verified full-tree stop as
-     * quiescent.
+     * Callers await verification and release the claim only after cleanup
+     * succeeds under the matching provider/launch contract.
      */
     void cancel();
+
+    /** Retries termination and verification using the durable launch evidence. */
+    CompletionStage<ProcessExit.TreeTermination> stopAndVerify();
+
+    /**
+     * Records provider-confirmed finished work before stopping the runtime.
+     * The caller must send no further input after establishing this fact.
+     */
+    CompletionStage<ProcessExit.TreeTermination> stopAfterWorkFinished();
 
     /**
      * Releases streams and terminates a still-running process.
@@ -1677,19 +1712,20 @@ public interface ManagedProcess
 }
 ```
 
-`ProcessExit.treeTermination()` is `VERIFIED_STOPPED` only after every owned
-process-group/job member and recorded descendant is observed gone. Detached/background-child uncertainty returns
-`UNVERIFIABLE`; recovery keeps the task claim held and its worktree untouched. The same
-rule applies to normal cancellation, backend-startup recovery, and forced
-close. Each task's App Server and each Claude
-process use this exact rule.
-Per-command lifecycle is additionally reconciled through the provider contract
-in section 5.3.
+`ProcessExit.treeTermination()` is `VERIFIED_STOPPED` after identity-checked
+cleanup of the root, process group, and recorded descendants. Incomplete
+tracking remains `UNVERIFIABLE` unless the matching launch carries a durable
+provider-completion fact as defined in section 5.6. A known live member or
+failed exit check always blocks release. Normal close, Stop, and startup
+recovery evaluate the same receipt. This is the supported provider lifecycle
+boundary, not a general native-process containment guarantee; a provider
+adapter must establish its own completion contract before recording proof.
 
 ### 5.3 Task process boundary
 
 A turn's task-owned App Server process runs with the task worktree as its working
-directory, and that is the whole boundary. Under `sandbox: workspace-write`
+directory. This defines the provider's filesystem scope, not a process-lifetime
+containment guarantee. Under `sandbox: workspace-write`
 App Server's default environment is rooted at its own working directory.
 Attended `AUTO` also permits the provider's ordinary `/tmp` and `$TMPDIR`
 writes; other policies retain their temporary-directory exclusions. Writes
@@ -1703,8 +1739,9 @@ That removes an entire mechanism rather than reimplementing it. There is no
 `environment/info` handshake, no `environments` selection on threads or turns,
 and no unauthenticated loopback listener to treat as a same-host trust
 boundary. Task App Server sessions declare
-`capabilities.experimentalApi: true` solely for the background-terminal
-inventory and termination methods required by quiescence and cancellation.
+`capabilities.experimentalApi: true` for parent-filtered `thread/list` child
+inventory and the background-terminal inventory/termination methods required
+by completion and cancellation.
 That declaration does not restore the removed environment family or authorize
 any other experimental method.
 
@@ -1715,13 +1752,13 @@ task that leaked it rather than to a single process shared by the backend.
 and `agent_process_launch` rows written before this change still deserialize.
 
 A per-turn session owns its task's process. After root completion and bounded
-history/background reconciliation, or after that reconciliation fails, the
-turn service closes the session and requires the supervisor to classify the
-whole owned process tree as `VERIFIED_STOPPED`. The next accepted turn resumes
+recursive provider reconciliation, or after that reconciliation fails, the
+turn service closes the session and requires verified runtime cleanup under
+section 5.6 before releasing the claim. The next accepted turn resumes
 the stored provider thread in a new process selected from that turn's immutable
 model snapshot. `AgentRuntimeRegistry` also implements `AutoCloseable` and is
-wired as the bean's destroy method, so a backend shutdown with open tasks cannot
-strand a process.
+wired as the bean's destroy method, so backend shutdown also attempts cleanup
+of remaining task runtimes; unresolved evidence remains available to recovery.
 
 #### ByteQuay-owned Codex home
 
@@ -1744,46 +1781,65 @@ capabilities.
 
 ### 5.4 Turn quiescence
 
-A turn completes when its process is quiet, not when its root thread reports
-completion. A yielded command outlives the item that started it, and a subagent
-can still be working, so a clean completion at that moment would release the
-task's claim over files something may still be writing.
+Provider work is finished when the current agent turn is terminal, its own
+tools have stopped, and each child recursively satisfies the same rule.
+A root final answer alone does not establish these facts. Process cleanup is a
+separate step before releasing the worktree claim.
 
-Pre-stop reconciliation uses the live item stream plus
-`thread/backgroundTerminals/list` for every thread the process has shown. Item
-notifications are never shed, which is what makes the live stream sound to
-reason from; only streamed text is dropped under backlog pressure.
-`capabilities.experimentalApi` is true solely for those background-terminal
-methods.
+The Codex adapter reads `thread/read(includeTurns: false)` for native thread
+status, then `thread/turns/list` with `limit: 1`, `sortDirection: "desc"`, and
+`itemsView: "notLoaded"` for the latest turn's status. It never hydrates the
+transcript during completion polling. It pages `thread/list` with the current
+agent's `parentThreadId`,
+`sourceKinds: ["subAgent"]`, and `modelProviders: []` to inventory direct
+children across providers. The local recursion unions these IDs with already
+observed children and checks every descendant; it does not build a second
+persisted agent tree. The latest root turn ID must equal the accepted provider
+turn ID. Every child, including saved children of a resumed thread, must have
+a terminal latest turn.
 
-Each pass first closes over history with `thread/items/list`, which is the only
-thing that can see an item or relationship the notification stream never
-delivered. Root entries are restricted to the current provider turn so a
-resumed process cannot rediscover an old child or fail on an old unfinished
-item. Terminal history reconciles a live item whose completion notification was
-missed before the in-memory and background-terminal inventories are checked.
-`thread/items/list` does not report a descendant turn's terminal status, so even
-an empty, stable item/background fixed point is not proof that a child stopped.
-`thread/read(includeTurns: true)` remains unimplemented.
+An `idle` agent must have a terminal latest turn and no background terminal.
+A `notLoaded` agent has no loaded runtime but must still have a terminal latest turn;
+its children are still inspected recursively. `active`, `systemError`, missing,
+or unknown status cannot finish the check. An empty latest-turn response is
+not a completed turn. All observed thread IDs must be visited, so missing display lineage cannot
+silently remove an agent from completion. Legacy history can omit collaboration
+relationships, so item replay is not the child inventory.
 
-The wait runs on its own thread, never the message consumer, because the
-consumer's queue holds the notifications that would end the wait. It repeats
-until two consecutive passes find no live item, no background terminal, and no
-thread that appeared mid-pass. Then it closes the per-turn App Server and waits
-for `VERIFIED_STOPPED`; only that process fact proves quiescence. A history,
-item, or background check that cannot settle makes the turn `FAILED`, but the
-driver still closes the process. That failure is quiescent only if the full
-owned tree is verified stopped. An unverifiable stop reports
-`providerQuiescent: false`, so `agent-core` retains the worktree claim.
+Metadata-only `thread/read` and the bounded `thread/turns/list` status page are
+supported by the installed 0.152.1 probe and the exact 0.151.0 reference schema.
+`thread/items/list` requires paginated mode and is unavailable for legacy
+threads. Full legacy history also synthesizes item IDs and omits
+command/collaboration items; it cannot repair exact lost tool activity or be
+matched against live item IDs. Completion therefore reads statuses and
+background inventory, without downloading old messages or command output.
+
+The wait runs on its own thread so the message consumer can continue processing
+notifications. Two consecutive passes must find every agent terminal or
+unloaded with a terminal latest turn, no owned background terminal, and no newly
+discovered or unvisited thread. Completion comes from authoritative provider
+status and child inventory even if a live completion notification was missed;
+this does not recreate missing transcript events. Experimental capabilities are used for
+the parent-filtered child list and background-terminal methods.
+
+After this barrier succeeds, the driver durably records finished provider work
+and closes the per-turn App Server through section 5.6's cleanup path. Verified
+cleanup sets `providerQuiescent: true`; a failed cleanup preserves the provider
+result, logs a cleanup diagnostic, and sets it to false. The core then retains
+the claim while keeping the answer and actual provider result intact. If
+provider reconciliation fails, it supplies no completion proof, returns a
+failed/interrupted result, and still attempts conservative process shutdown.
 
 ### 5.5 Claim retention and abandonment
 
 A turn releases its worktree mutation claim only when the provider was shown
-quiet. `AgentTurnResult` carries `providerQuiescent`; for Codex this is true only
-after the per-turn App Server's complete owned process tree is
-`VERIFIED_STOPPED`, and Claude applies the same rule to the process tree of its
-per-turn CLI invocation. Exceptional provider completion and any unverified
-session close are non-quiescent by definition.
+quiet. `AgentTurnResult` carries `providerQuiescent`; this is true only after
+verified cleanup of the task's per-turn provider runtime. The provider result
+and this cleanup flag are independent: a completed provider answer can retain its
+claim if cleanup fails. Each adapter must establish its own provider completion
+contract; a Claude CLI result is not silently treated as Codex's recursive
+completion proof. Exceptional provider completion and unverified session close
+remain non-quiescent.
 
 When it is false the claim is retained. That deliberately blocks every later
 turn on the task, because the alternative is handing a turn a worktree that
@@ -1800,6 +1856,10 @@ allows a new turn or paused queue item to be retried; it never resends the old
 turn. Another unverifiable close leaves the claim in place. The operation is confirmed
 against the generation returned by `GET /agent/tasks/{taskId}/runtime/stop-impact`
 and reachable at `POST /agent/tasks/{taskId}/runtime/stop`.
+Retry can resolve a still-running member or a temporary inspection failure.
+It reuses a valid durable finished-work fact from the same launch, but cannot
+invent one for a run that never established it. Missing historical evidence
+remains explicit under section 5.6; repeated Stop is not a guaranteed repair.
 `AgentCompletionService.abandon` is the way out of the task itself. It is guarded
 the same way completion is, by naming the claim it discards, refuses a task
 with an active turn, stops and verifies the task's own process first, and
@@ -1817,14 +1877,52 @@ launch stopped is what releases it.
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,
 yielded commands must appear in background-terminal listing, and clean or
-terminate must stop them. A command that escapes both process ownership and App
-Server's registries makes the result `UNVERIFIABLE` and the Codex lane
-ineligible for release; one successful fixture is not generalized into a proof
-about arbitrary detached descendants. Failure of the sandbox path or
-background-terminal API in the running CLI disables the affected Codex
-development task and reports the detected Codex version.
+terminate must stop them. Status checks must distinguish an active descendant
+from a terminal one even when its item list is empty. These fixtures validate
+the provider-managed agent/tool boundary, not arbitrary detached native
+programs. Failure of a required status, sandbox, or background-terminal API in
+the running CLI blocks the affected operation and reports the detected version;
+the driver never substitutes a guessed completed status.
 
 ### 5.6 Process-ownership correction
+
+**Decision:** use the provider's recursive completion contract for
+normal turn completion and keep process cleanup separate. This replaces the
+earlier proposal to build a general macOS process-containment mechanism. It
+keeps the existing task states, task-local claims, provider adapters, and one
+App Server per active turn. The implementation passed full backend verification
+and the installed-provider checks below. Deployment to an already
+running app remains separate from this source verification.
+
+#### Confirmed failure
+
+The production `hello` turn returned its answer but remained Recovering. Before
+`turn/start`, the supervisor encountered two startup descendants without
+readable start tokens. `LaunchMarker.withIncompleteDescendantTracking` discarded
+the known identity map; `verifyTreeStopped` subsequently returned
+`UNVERIFIABLE` even after exit code `0` and an empty group. The failed close
+then rewrote the provider result as failed and retained the worktree claim.
+The logs do not identify those children or establish why their tokens were
+unavailable.
+
+The installed 0.152.1 probe also identified a protocol error:
+`thread/items/list` is unavailable for legacy threads.
+`thread/read(includeTurns: true)` works after the first message in both legacy
+and paginated modes and returns turn status, items, and thread status. The
+previous reconciliation selected the wrong method, and its error was hidden
+by the later process-cleanup failure. Legacy full history also synthesizes
+item IDs and omits command/collaboration items; even a completed `/usr/bin/true`
+command is absent. The correction uses native thread status and latest-turn status for agent
+work, background inventory for remaining commands, and parent-filtered
+`thread/list` for children. It does not replay these incomplete
+history items as live activity.
+
+Polling also has the opposite limitation: it can miss a child that immediately
+leaves the parent's process group. An empty observation map is therefore not a
+complete inventory. A second implementation bug allowed a later readable child
+in the same batch to recreate the map, erase uncertainty, and lose earlier
+identities. These findings require preserving evidence and separating provider
+work from process cleanup; they do not justify another process framework.
 
 The Claude review adapter previously converted a process-observation gap into
 an interrupted turn even after Claude returned a terminal result and all
@@ -1832,6 +1930,51 @@ foreground tools had finished. The adapter must use
 the complete typed stream at EOF to establish finished work, then verify the
 recorded processes and group. An otherwise completed review must not require
 user recovery merely because a short-lived child disappeared during sampling.
+
+#### One recursive completion rule
+
+For each agent participating in the current run:
+
+```java
+finished = ownTurnTerminal
+        && ownToolsFinished
+        && children.stream().allMatch(Agent::isFinished);
+```
+
+The Codex adapter applies this rule to its existing task-local thread registry.
+`thread/read(includeTurns: false)` supplies native status; a one-turn
+`thread/turns/list` page with `itemsView: "notLoaded"` supplies latest-turn status.
+A final answer or an empty item list alone does not prove completion. Completion
+never hydrates old history or reconciles synthetic history items against live IDs.
+`thread/list(parentThreadId, sourceKinds: ["subAgent"],
+modelProviders: [])` pages the authoritative direct-child inventory; the same
+recursion includes children already observed through live events. The latest
+root turn must match the accepted turn ID; every child's latest turn must be
+terminal. An idle agent also needs an empty background-terminal inventory.
+A not-loaded agent needs a terminal latest turn, and its children still need
+the same recursive check. Missing or
+unreadable status is unknown. Failed and cancelled turns can be terminal
+without being successful.
+
+Use these verified provider status APIs inside the adapter; do not create a
+second persisted agent tree, ask the model to self-report completion, or assume
+that a thread ID is an OS process identity. Completion-only inventory does not
+manufacture UI lineage, a V2 path, or activity cards. Typed live notifications
+supply provider activity, and ByteQuay's already-persisted events supply replay.
+The provider contract covers its
+agents and managed tools. It is not a promise to contain arbitrary native
+programs deliberately detached outside those inventories. Tests must state
+that boundary explicitly.
+
+#### Record finished work, then clean up
+
+After the recursive check succeeds, the adapter accepts no further input for
+that runtime. `ManagedProcess.stopAfterWorkFinished()` fsyncs
+`workFinished: true` on the matching format-3 launch marker before
+starting process shutdown. The proof is scoped to that launch and cannot be
+reused by another task or turn. Failure to persist it does not authorize a
+release. The Codex adapter is responsible for establishing the provider fact;
+the process supervisor does not interpret Codex thread or item state.
 
 Cleanup still stops and verifies the root, its process group, and every known
 PID/start-token identity. A missing historical observation does not mean that
@@ -1847,6 +1990,30 @@ the gap or discard earlier identities. Continue identity-checked termination
 even when evidence is incomplete; never signal an old PID without matching its
 start token. Do not fabricate an empty map or reclassify a task runtime as a
 control-only probe.
+
+Provider outcome and cleanup outcome are independent. Once the provider barrier
+succeeds, a cleanup failure preserves the completed, failed, or cancelled
+provider result and logs the cleanup diagnostic with
+`providerQuiescent: false`. A completed result retains an empty terminal reason;
+cleanup does not become a provider failure. The claim remains held, so Send, queued starts, and
+Complete cannot reuse the worktree. A later verified Stop releases that claim
+without changing or resending the recorded turn. When provider reconciliation
+itself fails, there is no finished-work proof; shutdown follows the conservative
+process path and may still retain the claim.
+
+#### Recovery and compatibility
+
+A crash before the finished-work marker is durable leaves no provider proof.
+Stop and startup may retry termination of identified members, but they cannot
+invent missing provider status or historical identities. An unresolved receipt
+keeps its existing task-local recovery claim and worktree. A crash after the
+proof uses that same receipt to finish cleanup; it never replays the user input.
+
+Legacy marker formats 1 and 2 remain readable. An absent descendant map means
+incomplete tracking; an empty map means no descendants were recorded. Neither
+implies `workFinished`. Do not backfill proof into an unresolved old launch or
+reopen already-settled tasks merely to manufacture new receipts. The upgrade
+adds no task lifecycle state or whole-workspace migration gate.
 
 An unresolved old run can recover after an independently verified operating
 system restart. Format-4 launch markers retain an optional macOS boot-session
@@ -1867,6 +2034,78 @@ session; `kern.boottime` can change with clock adjustments and therefore cannot
 establish this boundary for old launch timestamps. ByteQuay never restarts the
 computer automatically. The recovery action explains when a Mac restart and
 reopening ByteQuay are needed, preserving the review/task and its worktree.
+
+The UI distinguishes a completed answer whose runtime cleanup is blocked from
+an interrupted or failed provider turn. An unverifiable receipt means ByteQuay
+could not confirm cleanup, not that a process is definitely running. Stop
+retries only that task's runtime, and Mark task failed cannot bypass cleanup
+checks or discard the worktree.
+
+#### Protocol-output correction
+
+A later report showed protocol-output truncation. Replaying a clone of the
+affected paginated thread through the old packaged Java client reproduced the
+failure three times: its 2,617,139-byte history response overflowed the
+supervisor's 256-chunk output queue after about 2.1 MB, below the separate
+64 MiB capture cap. The supervisor dropped protocol bytes under pressure.
+Repeated full-history completion reads made this traffic grow with the
+transcript; the finite lifetime cap was an additional protocol failure path.
+
+The correction uses bounded metadata/latest-turn reads and the lossless
+protocol stdout setting specified in section 5.1. Tests must exceed the former
+lifetime byte cap and force a slow consumer, preserving every protocol byte and
+its order without unbounded queue memory. Finite probes still truncate at their
+configured capture limit. Completion tests must verify the latest root ID,
+active/latest child status, and absence of item hydration.
+
+The corrected actual Java client decoded all four turns of that same
+2,617,139-byte response in 92 ms with no truncation. The completion reads returned
+only 1,561 JSON bytes of metadata/latest-turn status and no items. A focused
+transport test preserved 69,206,022 bytes across a slow consumer, exceeding the
+former lifetime cap. Installed 0.152.1 with a local fake Responses provider also
+passed fresh/resumed turns through the actual compact-reading driver and
+supervisor: one answer per turn, repeated close, and scratch receipt recovery.
+A bounded regression reproduced cancellation hanging with blocked stdin and
+backpressured stdout before the lock-order correction; both cancellation paths
+now pass. Full `backend/mvn verify` passed with that correction.
+
+#### Regression gate
+
+| Case | Required result |
+| --- | --- |
+| Fresh/resumed `hello` with short-lived startup children | Recursive provider completion plus verified known-process cleanup releases the claim without false recovery |
+| Root answer while a child, grandchild, command, or background terminal remains active; missed notifications | Native status and recursive inventory keep the claim until work ends; a missed completion does not leave a stale item blocker or manufacture transcript activity |
+| Unknown identity followed by a readable child in one observation batch | Preserve prior identities and the separate incomplete flag; a known live child always blocks verified cleanup |
+| Crash before/after finished-work fsync, legacy receipts, repeated Stop, PID reuse | Reuse only valid launch-scoped proof; no unsafe signal, fabricated proof, or replay |
+| Provider completes but cleanup fails; two concurrent tasks | Preserve the provider result and held claim; a later Stop affects only its owning task and enables reuse only after verified cleanup |
+
+Use fake provider responses for missed-event and status races, real subprocesses
+for process cleanup, and an installed-provider smoke for normal turns. A native
+immediate-detachment fixture documents the limits of observation; it must not
+be presented as proof that the provider-completion contract covers arbitrary
+unmanaged programs.
+
+**Verified:** full `backend/mvn verify` passed, including the
+recursive driver, protocol projection, delayed-exit receipt, process cleanup,
+and restart-recovery regressions. The exact 0.151.0 schema projection and
+keyless launch-profile compatibility gate also passed.
+
+With installed Codex 0.152.1 and a local fake Responses provider, the actual
+Java driver and process supervisor completed fresh and resumed `hello` turns
+on the same provider thread. Both launches encountered incomplete descendant
+tracking, yet returned `COMPLETED` and `providerQuiescent: true`; repeated close
+succeeded. A final run verified one answer item per turn. Recovery verified all
+three original scratch launch receipts, including a receipt still marked
+running after durable `workFinished` but before the asynchronous terminal write.
+These checks used scratch profiles and no authentication or real model calls;
+they did not clear any user's old unresolved receipt.
+
+The retained keyless API probes are
+[`codex-completion-probe.py`](../../scripts/codex-completion-probe.py) and
+[`codex-child-completion-probe.py`](../../scripts/codex-child-completion-probe.py).
+They cover both history modes, V1/V2 children, an active grandchild beneath an
+idle parent, and closing a child's tracked background command. They also
+preserve the observed legacy-history limits described above.
 
 ## 6. Persistence ports
 
@@ -2303,7 +2542,7 @@ coordinates the narrower interfaces shown in the last column.
 | 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
-| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | A root terminal event remains visible while recursive item/background reconciliation runs. Because item history has no descendant turn status, the per-turn App Server then closes and its owned tree must be `VERIFIED_STOPPED` before core releases the worktree claim. Reconciliation failure records a failed turn; verified stop still permits safe release, while an unverifiable stop retains the claim. Core atomically finalizes metrics/state and inserts terminal events, and only a quiescent success may claim the FIFO head |
+| 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | The root answer remains visible while recursive native status, latest-turn status, child inventory, and background checks verify work has finished. The driver durably records that fact before closing the per-turn App Server. Verified cleanup releases the claim; failed cleanup preserves a proven provider result and retains the claim. A failed provider check supplies no proof and triggers conservative shutdown. Core atomically finalizes metrics/state and terminal events; only a quiescent success may claim the FIFO head |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef`, creates one new `TurnId`, and launches a new matching-profile process; non-success leaves queued work paused |
 | 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentCompletionService.abandon(TaskId, String)`, then optional `cleanupWorktree(TaskId)` | Refuses an active turn, closes the task's retained provider session, and requires its owned tree to be verified stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. The interactive controller then attempts normal clean-worktree cleanup unless a pre-restart process remained unverifiable; dirty or unverifiable work remains untouched |
 | 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It rejects an active turn or any last-turn process not already verified stopped, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
@@ -2562,9 +2801,9 @@ The connection and task sequence is:
 
 1. Send `initialize` once with ByteQuay `clientInfo` and
    `capabilities.experimentalApi: true`, wait for its response, then send the
-   `initialized` notification. This opt-in exists solely for the
-   background-terminal inventory and termination used by quiescence and
-   cancellation; the removed environment family and every other experimental
+   `initialized` notification. This opt-in covers parent-filtered child listing
+   and background-terminal inventory/termination used by completion and
+   cancellation; the removed environment family and other experimental
    method remain outside the product contract. No other request is legal before
    this handshake finishes.
 2. Populate the existing ByteQuay model settings catalog from `model/list`,
@@ -2655,16 +2894,20 @@ The connection and task sequence is:
    that run; it cannot change model, effort, approval, or sandbox settings and
    does not create a ByteQuay turn.
 9. Keep reading notifications for the root and every known child.
-   `turn/completed` is the root terminal fact, but it only begins recursive,
-   paginated `thread/items/list` closure over the reachable V1 or V2 child set.
-   Every observed execution-capable item must be terminal, and paginated
-   `thread/backgroundTerminals/list` is empty for the root and every child.
-   Each newly discovered child is listed in the same fixed point, so V1 and V2
-   grandchildren are included even when their live notification was missed.
-   Item history carries no descendant turn status; after the fixed point, close
-   the per-turn App Server and require its whole owned process tree to be
-   `VERIFIED_STOPPED` before reporting `providerQuiescent` and releasing the
-   claim.
+   `turn/completed` is the root terminal fact, but it only begins recursive
+   metadata-only `thread/read` plus a latest `thread/turns/list` status page
+   (`limit: 1`, descending, `itemsView: "notLoaded"`). Paginated `thread/list` with
+   `parentThreadId`, `sourceKinds: ["subAgent"]`, and `modelProviders: []`
+   supplies direct children even when legacy history omitted the relationship.
+   Each loaded idle agent must have a terminal latest turn and an empty
+   background-terminal list. The root's latest ID must match the accepted turn;
+   not-loaded agents still need terminal latest-turn status and recursive child checks. Already observed children stay
+   in the completion inventory even if a later list omits them.
+   Provider turn/thread status must also establish that every participating
+   agent's current turn is terminal; an empty item list is insufficient. After
+   the fixed point, persist finished provider work before closing the per-turn
+   App Server. Only verified cleanup reports `providerQuiescent` and releases
+   the claim; a cleanup failure preserves the proven provider result.
    Treat `item/completed` as authoritative when a streamed delta differs from
    the final item.
 10. Cancel with `turn/interrupt`, call
@@ -2727,7 +2970,7 @@ configuration, and warning notifications remain process-scoped. A V1
 each receiver thread as a direct child of the sender; a V2 `subAgentActivity`
 uses its canonical absolute logical `agentPath`. App Server may retain both
 known item forms in one transcript. The selected model's advertised version is
-the only graph-discovery source; the other form is supplementary activity whose
+the only item-based display-graph source; the other form is supplementary activity whose
 thread identities still must resolve inside that same graph. A live
 `thread/started` notification may establish lineage only when it carries an
 explicit `parentThreadId`; a missing parent is never inferred to mean the root.
@@ -2742,45 +2985,48 @@ they never create or reparent a child. Once the direct parent and, for V2, the
 canonical path are known, routing begins before the discovery card is published.
 A selected model whose advertised
 `multiAgentVersion` is not implemented is unavailable rather than silently
-dropping child activity. Paginated `thread/items/list` backfills a known child
-after reconnect; backfilled items pass through the same normalizer and
-source-key deduplication before append. They are appended in provider history
-order inside explicit backfill-started/completed lifecycle markers; the task
-sequence still records ByteQuay receipt order. `thread/items/list` is a current
-non-experimental method on the supported App Server line. The unimplemented
-`thread/read(includeTurns: true)` method and experimental parent/ancestor list
-filters are not correctness dependencies.
+dropping child activity. Typed live notifications supply item identity and
+activity; reconnect replays ByteQuay's durable event sequence. Installed
+0.152.1 legacy history synthesizes item IDs and omits tool/collaboration items,
+so ByteQuay cannot reconstruct exact activity lost before ingestion. It does
+not append those history items under invented identities or use them to clear
+live-item keys. Final text comes from typed live activity or the current
+`turn/completed` payload, without a full-history fallback or manufactured
+transcript events. `thread/items/list` requires
+paginated mode and is not a production dependency. Experimental parent-filtered
+`thread/list` supplies completion inventory, not synthetic UI lineage or V2
+paths. Display and routing retain the explicit provider-identity rules above.
 
-There is no assumed App Server `quiesce` method. The Codex driver builds the
-pre-stop fixed point by paging `thread/items/list` for the root, recursively paging
-every V1/V2 child found in live events or item history, and repeating until a
-final pass discovers no new thread IDs and every listed execution-capable item
-is terminal. V1 discovery accepts only `spawnAgent` relationships from
-`collabAgentToolCall`; V2 discovery accepts only `started` relationships from
-`subAgentActivity`, while upward/interacted activity never manufactures an
-edge. In parallel, an item registry keyed by thread/turn/item reconciles every
-execution-capable item to terminal history and the driver pages
-`thread/backgroundTerminals/list` for every root/descendant until all pages are
-empty. This combined fixed point closes missed-live-notification,
-nested-grandchild, root-answer-before-command-exit, and visible
-yielded-terminal gaps, but it does not expose descendant turn status and is not
-the final quiescence proof. The driver then closes the per-turn App Server and
-requires its complete owned process tree to be `VERIFIED_STOPPED`. This final
-fact also covers a process no longer represented by item history; an
-unverifiable tree retains the claim. All Codex lifecycle hooks are disabled for
-first-release tasks; any effective hook makes task start fail. Independently,
-any applicable or uninspectable managed requirements fail readiness. A
-read/list error, active item/background terminal, or unstable closure marks the
-turn failed and triggers process shutdown. The failed turn is still quiescent
-when shutdown proves `VERIFIED_STOPPED`; otherwise the `OPEN` task remains
-blocked with the recovery-required projection and retained claim. No other task
-shares that process.
+There is no assumed App Server `quiesce` method. The Codex driver implements
+section 5.4's recursive rule using its existing registry. One
+metadata-only `thread/read` plus one descending `thread/turns/list` page with
+`limit: 1` and `itemsView: "notLoaded"` supplies native and latest-turn status.
+The root's latest ID must equal the accepted turn ID. Paginated parent-filtered
+`thread/list` supplies authoritative
+direct children, unioned with observed children; a visited set rejects cycles
+and every observed thread must be accounted for. This inventory traverses
+missing live/history edges without publishing synthetic UI relationships.
+Loaded idle agents require terminal latest turns and empty background-terminal
+lists; not-loaded agents still require terminal latest turns and recursive child checks.
+Two stable passes protect against newly discovered children and missed
+completion notifications.
 
-Ephemeral text-only title and Better Words helpers have no persisted history.
-They use their current terminal notification as the turn result and skip
-history reconciliation while retaining live-activity, background-terminal,
-and verified process-shutdown checks. Their verified profile disables tools
-and subagents.
+Ephemeral text-only title and Better Words helpers do not support
+`thread/turns/list`. They use the current terminal notification as their turn
+result while retaining native idle-status, background-terminal, child-inventory,
+and verified process-shutdown checks; they never query persisted turn history.
+
+The driver durably records the resulting provider-completion fact before
+closing the per-turn App Server. The supervisor verifies known-process cleanup
+and may use that launch-scoped fact to resolve historical observation gaps.
+A known live member still blocks cleanup. A completed provider result is
+preserved if cleanup fails, with `providerQuiescent: false` and a retained
+claim; it is not rewritten as a failed answer. A failed status/history/inventory
+check records no completion proof and triggers conservative shutdown. This is
+a contract for provider-managed agents and tools, not arbitrary native-process
+containment. No other task shares that runtime. All Codex lifecycle hooks remain
+disabled for first-release tasks, and applicable or uninspectable managed
+requirements fail readiness.
 
 The task uses the running App Server's selected sandbox and approval policy.
 Readiness verifies that ordinary built-in tool execution works within the
@@ -2927,7 +3173,9 @@ bundled-system-skill origin before creating a thread. Synthetic poison cases
 exercise the rejection branches. The separate CP1 child-capable proof passed,
 and production now resolves the accepted turn's model from the catalog,
 launches exactly its advertised V1 or V2 profile, and recursively discovers the
-corresponding relationship items with `thread/items/list`. The fixture's opt-in
+corresponding display relationships from typed live events; parent-filtered
+`thread/list` supplies completion inventory. The
+fixture's opt-in
 `--live-children` path selected the model-advertised profile and passed its
 subscription-backed local smoke run with the explicitly selected ChatGPT
 profile. That paragraph records a historical CP0-through-CP3 milestone: the
@@ -3244,9 +3492,12 @@ Required payload families are:
 - subagent discovered, completed, and failed events with direct parent and
   stable child thread identity; a child is running from the moment it is
   discovered, so discovery is its start rather than a separate event;
-- backfill started and completed events bracketing activity recovered from a
-  thread's history rather than seen live;
 - usage, queue, turn/task lifecycle, and error events.
+
+Historical backfill lifecycle events remain readable, but the current legacy
+provider history does not support exact tool-activity reconstruction. New
+provider activity comes from typed live notifications; ByteQuay event replay
+continues to restore everything already ingested durably.
 
 The renderer keys identified streamed activity by
 `(source.providerThreadId, source.providerTurnId, source.providerItemId)`.
@@ -3526,8 +3777,11 @@ requires a separate explicit user action and design decision.
   orphan is preserved and reported rather than adopted or deleted.
 - Provider launches carry an owner marker with PID, executable, OS process-start
   token, and driver owner. Startup signals only a process whose identity still
-  matches, then observes the entire directly owned process tree exit. If
-  identity or exit cannot be proven, a known task owner retains its claim and
+  matches, then evaluates shutdown with the durable launch evidence in section
+  5.6. A recorded provider-completion fact can resolve an observation gap only
+  after known-process cleanup; legacy receipts never imply that fact. If
+  identity or exit cannot be verified, or incomplete tracking lacks that proof,
+  a known task owner retains its claim and
   projects recovery required; an unknown or conflicting owner closes the global
   agent gate. Recognized control-only evidence is retained but does not close
   that gate because the launch could not access a task worktree.
@@ -3536,11 +3790,12 @@ requires a separate explicit user action and design decision.
   `PreparedProcess.start()` prove no payload ran; a missing/corrupt marker after
   `PREPARED`, `ATTEMPTING`, or `RUNNING` is `UNVERIFIABLE`, never guessed safe.
 - Accepted/running roots without a usable transport become `INTERRUPTED`, but
-  their turn claim is released only after the root, every known descendant,
-  every observed execution-capable item, and every listed background terminal
-  are terminal/stopped. If that cannot be reconciled, ByteQuay may stop that
-  task's supervised provider process; root completion alone is not the
-  quiescence barrier. Queue auto-start and all worktree-mutating actions remain
+  their turn claim is released only after verified cleanup. While transport
+  remains available, reconcile each current-run agent's status, tools, children,
+  and background terminals. A crash before durable provider completion cannot
+  reconstruct that proof from an empty process snapshot. ByteQuay may stop that
+  task's supervised runtime using section 5.6's conservative recovery path.
+  Queue auto-start and all worktree-mutating actions remain
   disabled until it passes. Startup therefore never releases a `TURN` claim
   merely because the matching durable turn row is terminal.
 - A startup `OPEN` task with a stale `COMPLETION` claim has no unrecorded Git
@@ -3711,6 +3966,13 @@ CP11 closed the release blocker after automated tests demonstrated:
 
 ## 13. Rich-task service acceptance
 
+The historical CP11 results below cover their recorded fixtures. The
+completion audit exposed false recovery and the limits of process polling.
+Section 5.6 replaces the broad containment proposal with recursive provider
+completion and separate cleanup. Its verification records the new
+completion, protocol-output, and cancellation regressions separately from the
+historical results below.
+
 The task UI in [Agent Task UI Design](agent-task-ui.md) shipped only after the
 CP11 automated contract, integration, security, and packaged-journey evidence
 proved:
@@ -3747,18 +4009,17 @@ proved:
 9. root completion with an active descendant, a missed live child notification,
    a child-created grandchild, and a root answer followed by a still-running
    command/tool/background item cannot report a successful result until
-   recursive, model-version-aware `thread/items/list` closure reaches a stable
-   item/background fixed point; V2 keeps `/` as the root logical path and
-   requires every stable descendant path to be strictly nested under its direct
-   parent. The per-turn App Server's owned process tree must then be
-   `VERIFIED_STOPPED`; failed reconciliation records a failed turn, and only a
-   verified stop permits its claim to release;
+   recursive native status, latest-turn status, and background checks
+   establish each agent's work is finished; V2 keeps `/` as the root logical path
+   and every stable descendant path strictly nested under its direct parent.
+   The driver records completion before process cleanup. Cleanup failure
+   preserves that result while retaining the claim; failed provider
+   reconciliation records no finished-work proof;
 10. unknown delivery and transport loss disable queue start, Send, and Complete
-   until thread/item/background-terminal reconciliation succeeds or
-   that task's owned provider process tree is `VERIFIED_STOPPED`; compatibility
-   fixtures must show that yielded and background commands are listed and
-   cleanable, and a detached writer that escapes those registries makes the
-   Codex lane ineligible for release rather than creating a fictional receipt;
+   until that task's runtime cleanup is verified with valid launch evidence;
+   compatibility fixtures show that active agent status is observable and
+   yielded/background commands are listed and cleanable. No fixture claims
+   containment of arbitrary native programs outside the provider inventories;
 11. restart safely releases a pre-final stale `COMPLETION` claim from an
    `OPEN` task after quiescence, leaving it idle
    without automatically inspecting or removing its worktree; every explicit

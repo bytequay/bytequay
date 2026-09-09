@@ -207,23 +207,6 @@ final class CodexEventMapper
                 Optional.empty());
     }
 
-    /** An item read back from a thread's history, mapped as the completed item it now is. */
-    List<ProviderAgentEvent> mapHistoryItem(
-            CodexProtocol.ThreadItem item,
-            String threadId,
-            String turnId,
-            boolean rootThread,
-            ThreadLineage lineage)
-    {
-        ProviderAgentEventSource source = new ProviderAgentEventSource(
-                Optional.of(threadId),
-                lineage.parentOf(threadId),
-                lineage.labelOf(threadId),
-                Optional.of(turnId),
-                Optional.of(item.id()));
-        return mapItem(item, Optional.empty(), false, rootThread, source);
-    }
-
     private List<ProviderAgentEvent> mapItem(
             CodexProtocol.ThreadItem item,
             Optional<Instant> timestamp,

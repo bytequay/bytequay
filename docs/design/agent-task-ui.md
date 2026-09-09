@@ -189,8 +189,8 @@ isolation requirements retained after release.
 - No execution environment is registered. App Server's default environment is
   rooted at its own working directory. Attended Codex `AUTO` adds ordinary
   `/tmp` and `$TMPDIR` allowances to the task worktree; other writes outside
-  those roots need provider approval. Task sessions declare `experimentalApi: true` solely for
-  background-terminal inventory and termination; no loopback listener is
+  those roots need provider approval. Task sessions declare `experimentalApi: true` for direct
+  child listing and background-terminal inventory/termination; no loopback listener is
   opened, so the first release carries no same-host trust boundary of
   ByteQuay's own making.
 - This is separate from App Server's experimental `--code-mode-host`, which
@@ -419,17 +419,25 @@ resurrect a resolved approval as pending.
 
 A root `turn/completed` event may render its answer while descendants are still
 active, but it does not release the task's worktree-mutation claim. The driver
-recursively pages `thread/items/list`, restricting root history to the current
-provider turn, until no V1/V2 descendants appear and every observed
-execution-capable item is terminal; terminal history also repairs a missed live
-completion. It pages each thread's background-terminal list to empty. That item
-history carries no descendant turn status, so this fixed point alone is not
-quiescence. After it passes—or
-after a history/item check fails—the per-turn App Server closes and its complete
-owned process tree must be `VERIFIED_STOPPED`. Only a successful fixed point
-plus verified stop yields a successful turn. A failed check yields a failed
-turn whose claim may release only after verified stop; an unverifiable stop
-keeps Send, queue start, and Complete disabled and projects recovery required.
+recursively reads metadata-only `thread/read` and a latest-turn status page
+from `thread/turns/list` (`limit: 1`, descending, `itemsView: "notLoaded"`).
+Each agent must be idle with a terminal latest turn, its tools stopped, and
+its children finished. The latest root ID must equal the accepted provider turn.
+These status reads do not download old transcript content;
+legacy items are not matched against live item IDs. Parent-filtered `thread/list`
+inventories children even when history omits a relationship; this local
+completion traversal adds no synthetic UI lineage or V2 path. Already observed
+children remain included. Idle agents need empty background-terminal lists;
+not-loaded agents need terminal latest-turn status and recursive child checks. Missing,
+unknown, or active status keeps the task blocked.
+
+After this check passes, the driver records finished provider work before
+closing the per-turn App Server. Verified cleanup releases the claim. A cleanup
+failure preserves the completed answer and provider result, retains the claim,
+and keeps Send, queued starts, and Complete disabled. A failed provider check
+supplies no finished-work proof and uses conservative shutdown. The contract is
+[Agent Service §5.6](agent-service.md#56-process-ownership-correction); it
+separates provider completion from cleanup without adding a new task state.
 
 A V1 subagent may use the nickname App Server supplies through
 `thread/started` as its display label. V2 instead uses the canonical
@@ -456,13 +464,14 @@ arrives. The selected V1 spawn or V2 started item provides the child
 relationship as the child is created, but not the child's final result.
 ByteQuay records that relationship once its required identity is complete,
 begins routing the known child's live activity, and derives its result summary
-from the child's terminal history. On recovery, paginated
-`thread/items/list` backfills each known child in provider order and recursively
-discovers children and grandchildren; the driver normalizes and deduplicates by
-provider thread/turn/item identity before append. A visible backfill lifecycle
-marker distinguishes recovered history from new live activity. The unsupported
-`thread/read(includeTurns: true)` call and experimental parent/ancestor list
-filters are not correctness dependencies.
+from the child's typed terminal activity. Reconnect replays ByteQuay's durable
+events. Current legacy provider history synthesizes item IDs and omits tool and
+collaboration activity, so exact events lost before ingestion cannot be
+recreated. ByteQuay does not append synthetic history items or show a backfill
+that did not happen. The separate parent-filtered `thread/list` completion
+inventory still traverses children and grandchildren without display metadata.
+Such an inventory-only child does not manufacture cards or a V2 path, including
+saved children of resumed turns.
 
 The panel opens on the task's pull request, and **Subagents** is a sibling tab
 beside it. One top row holds the three tabs — **PR #&lt;number&gt;**, **Changes**
@@ -599,9 +608,9 @@ effort, has no attachments or resumable history, and treats the prompt as
 untrusted quoted data. Claude runs with tools disabled. Codex uses an ephemeral
 thread with shell, code-mode, and subagents disabled in an empty read-only
 scratch directory; approvals and network access are denied. The turn times out
-after 30 seconds. Codex uses the ephemeral thread's terminal notification as its
-result and skips unavailable persisted history; live activity, background-terminal
-checks, and verified shutdown still gate acceptance.
+after 30 seconds. Codex completion uses the ephemeral thread's terminal event
+and native idle status, because ephemeral threads have no persisted turn-history
+API; background/child inventories and verified shutdown still gate acceptance.
 Its unique scratch directory lives inside the durable task's
 runtime resources: that subtree is deleted only after provider shutdown is
 verified and otherwise stays task-owned for recovery and normal task cleanup.
@@ -739,7 +748,8 @@ React/plain-CSS system rather than copying Codex Desktop source or assets.
 
 After backend/provider loss, a **Recovering agent execution** card replaces
 mutation controls while ByteQuay terminates or reconciles the owned execution
-tree. It names any still-active child and offers **Stop and recover**; Retry is
+tree. It names any confirmed still-active child and offers the task-scoped Stop
+action; Retry is
 enabled only after the barrier passes. The card also names active execution
 items/background terminals or an unverifiable process receipt. The UI never
 releases the task's worktree-mutation claim
@@ -1007,6 +1017,13 @@ complete.
 - Two concurrent Codex turns for different tasks run in separate App Server
   processes rooted at their own worktrees, without event, approval, process, or
   filesystem cross-talk; each process is verified stopped with its turn.
+- Fresh and resumed successful turns, including provider startup with
+  short-lived children, return to idle once complete shutdown is proven. No
+  manual Stop or Mark task failed is needed for normal startup churn.
+- A detached native child still able to write keeps the task claim and mutation
+  controls blocked, even if its root exited and its old process group is empty.
+  Missing historical evidence is shown as a verification failure, not as proof
+  of a running child or a promise that another Stop will fix it.
 - New/open/complete task routes survive deep-link, reload, back, and forward;
   completion removes the verified clean worktree while preserving its generated
   result branch, and task creation never trusts a renderer-supplied path.
@@ -1031,13 +1048,17 @@ complete.
   summaries remain and removed transcripts display **Activity expired**.
 - Root completion while a descendant, command, tool, hook, terminal, or
   background/yielded execution is active keeps the task claim and mutation
-  controls disabled; missed-live-child and nested-grandchild history is
-  recovered recursively to a stable item/background fixed point. Because item
-  history has no descendant turn status, the per-turn App Server then closes and
-  its complete owned process tree must be `VERIFIED_STOPPED` before the claim
-  releases or the next turn and Complete are enabled. A failed history check
-  records a failed turn; an unverifiable stop retains the claim. Compatibility
-  fixtures verify that yielded/background commands are listed and cleanable.
+  controls disabled. Parent-filtered inventory includes missed-live children
+  and grandchildren; native thread status, latest-turn status, and background
+  inventory determine completion without requiring lost item notifications.
+  After each current-run agent and its tools finish, the driver records that
+  provider fact before cleanup. Only verified cleanup releases the claim and
+  enables the next turn or Complete. Cleanup failure preserves a completed
+  provider result with recovery required; a failed provider check supplies no
+  finished-work proof. Fixtures verify active descendants, missed completion
+  notifications, background commands, startup churn, and cleanup failure.
+  Missing legacy tool activity is not recreated under synthetic item IDs;
+  everything already ingested remains replayable from ByteQuay's event log.
 - Steering targets only the expected active turn. Queued inputs run once in
   FIFO order after success and pause after non-success terminal states.
   Unknown steer/queue delivery is visible and never resent automatically;

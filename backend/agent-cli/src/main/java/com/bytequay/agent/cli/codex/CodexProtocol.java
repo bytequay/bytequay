@@ -428,20 +428,6 @@ final class CodexProtocol
             ModelOutputItem, UnknownThreadItem
     {
         String id();
-
-        /**
-         * Whether this item has finished.
-         *
-         * <p>An item that carries no status is a record of something already done. One that does
-         * is finished only when its status says so: an unreadable status counts as still running,
-         * because quiescence must not be claimed on a status nothing could parse.
-         *
-         * @return true when nothing about this item is still in flight
-         */
-        default boolean terminal()
-        {
-            return true;
-        }
     }
 
     record AgentMessageItem(
@@ -481,12 +467,6 @@ final class CodexProtocol
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
             commandActions = ImmutableList.copyOf(commandActions);
         }
-
-        @Override
-        public boolean terminal()
-        {
-            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
-        }
     }
 
     record FileChangeItem(
@@ -500,12 +480,6 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             changes = ImmutableList.copyOf(requireNonNull(changes, "changes is null"));
             requireNonNull(status, "status is null");
-        }
-
-        @Override
-        public boolean terminal()
-        {
-            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -545,12 +519,6 @@ final class CodexProtocol
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
         }
-
-        @Override
-        public boolean terminal()
-        {
-            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
-        }
     }
 
     record DynamicToolCallItem(String id, String tool, ActivityStatus status)
@@ -561,12 +529,6 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(tool, "tool");
             requireNonNull(status, "status is null");
-        }
-
-        @Override
-        public boolean terminal()
-        {
-            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -591,12 +553,6 @@ final class CodexProtocol
             receiverThreadIds.forEach(threadId -> checkIdentifier(threadId, "receiverThreadId"));
             agentsStates = ImmutableMap.copyOf(agentsStates);
             agentsStates.keySet().forEach(threadId -> checkIdentifier(threadId, "agentThreadId"));
-        }
-
-        @Override
-        public boolean terminal()
-        {
-            return status != ActivityStatus.IN_PROGRESS && status != ActivityStatus.UNKNOWN;
         }
     }
 
@@ -701,11 +657,7 @@ final class CodexProtocol
         }
     }
 
-    /**
-     * An item that is model output or a record of it: a tool's returned output or a review-mode
-     * marker. Nothing of this kind runs a process or changes a file, so one left open holds
-     * nothing.
-     */
+    /** Model output such as a tool result or review-mode marker. */
     record ModelOutputItem(String id)
             implements ThreadItem
     {
@@ -721,14 +673,6 @@ final class CodexProtocol
         UnknownThreadItem
         {
             checkIdentifier(id, "id");
-        }
-
-        @Override
-        public boolean terminal()
-        {
-            // An unrecognized item may still own a process or a write. History cannot prove it
-            // settled, so quiescence must fail closed rather than treating it as inert output.
-            return false;
         }
     }
 
@@ -747,6 +691,11 @@ final class CodexProtocol
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
             items = ImmutableList.copyOf(items);
+        }
+
+        boolean terminal()
+        {
+            return status == TurnStatus.COMPLETED || status == TurnStatus.FAILED || status == TurnStatus.INTERRUPTED;
         }
     }
 
@@ -1341,6 +1290,25 @@ final class CodexProtocol
         }
     }
 
+    record ThreadTurnsListParams(String threadId, int limit, String sortDirection, String itemsView)
+    {
+        ThreadTurnsListParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkArgument(limit > 0, "limit must be positive");
+            checkIdentifier(sortDirection, "sortDirection");
+            checkIdentifier(itemsView, "itemsView");
+        }
+    }
+
+    record ThreadTurnsListResponse(List<Turn> data)
+    {
+        ThreadTurnsListResponse
+        {
+            data = ImmutableList.copyOf(data);
+        }
+    }
+
     /**
      * Lists one thread's background terminals, a page at a time.
      *
@@ -1370,39 +1338,28 @@ final class CodexProtocol
         }
     }
 
-    /**
-     * Lists a thread's items, a page at a time.
-     *
-     * <p>The live notification stream can miss an item; history cannot, which is what makes this
-     * the closure a quiescence check needs rather than a second opinion.
-     */
-    record ThreadItemsListParams(
-            String threadId,
+    record ThreadListParams(
+            String parentThreadId,
+            List<String> sourceKinds,
+            List<String> modelProviders,
             @JsonInclude(JsonInclude.Include.NON_ABSENT)
             Optional<String> cursor)
     {
-        ThreadItemsListParams
+        ThreadListParams
         {
-            checkIdentifier(threadId, "threadId");
+            checkIdentifier(parentThreadId, "parentThreadId");
+            sourceKinds = ImmutableList.copyOf(sourceKinds);
+            modelProviders = ImmutableList.copyOf(modelProviders);
             requireNonNull(cursor, "cursor is null");
         }
     }
 
-    record ThreadItemsListResponse(List<ThreadItemEntry> data, Optional<String> nextCursor)
+    record ThreadListResponse(List<HistoryThread> data, Optional<String> nextCursor)
     {
-        ThreadItemsListResponse
+        ThreadListResponse
         {
-            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+            data = ImmutableList.copyOf(data);
             requireNonNull(nextCursor, "nextCursor is null");
-        }
-    }
-
-    record ThreadItemEntry(ThreadItem item, String turnId)
-    {
-        ThreadItemEntry
-        {
-            requireNonNull(item, "item is null");
-            checkIdentifier(turnId, "turnId");
         }
     }
 
@@ -1440,6 +1397,7 @@ final class CodexProtocol
             String sessionId,
             Optional<String> parentThreadId,
             List<Turn> turns,
+            ThreadStatus status,
             Optional<String> agentNickname,
             Optional<String> agentRole)
     {
@@ -1450,8 +1408,17 @@ final class CodexProtocol
             requireNonNull(parentThreadId, "parentThreadId is null");
             parentThreadId.ifPresent(parent -> checkIdentifier(parent, "parentThreadId"));
             turns = ImmutableList.copyOf(turns);
+            requireNonNull(status, "status is null");
             requireNonNull(agentNickname, "agentNickname is null");
             requireNonNull(agentRole, "agentRole is null");
+        }
+    }
+
+    record ThreadStatus(String type)
+    {
+        ThreadStatus
+        {
+            checkIdentifier(type, "type");
         }
     }
 

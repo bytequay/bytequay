@@ -2222,6 +2222,59 @@
       ]
     },
     {
+      "javaType": "ThreadTurnsListParams",
+      "mode": "encode",
+      "sources": [
+        "v2#ThreadTurnsListParams"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "limit",
+          "wireName": "limit",
+          "required": false,
+          "nullable": true,
+          "sample": 1
+        },
+        {
+          "javaName": "sortDirection",
+          "wireName": "sortDirection",
+          "required": false,
+          "nullable": true,
+          "sample": "asc"
+        },
+        {
+          "javaName": "itemsView",
+          "wireName": "itemsView",
+          "required": false,
+          "nullable": true,
+          "sample": "notLoaded"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadTurnsListResponse",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadTurnsListResponse"
+      ],
+      "components": [
+        {
+          "javaName": "data",
+          "wireName": "data",
+          "required": true,
+          "nullable": false,
+          "sample": []
+        }
+      ]
+    },
+    {
       "javaType": "ThreadBackgroundTerminalsListParams",
       "mode": "encode",
       "sources": [
@@ -2268,18 +2321,32 @@
       ]
     },
     {
-      "javaType": "ThreadItemsListParams",
+      "javaType": "ThreadListParams",
       "mode": "encode",
       "sources": [
-        "v2#ThreadItemsListParams"
+        "v2#ThreadListParams"
       ],
       "components": [
         {
-          "javaName": "threadId",
-          "wireName": "threadId",
-          "required": true,
-          "nullable": false,
+          "javaName": "parentThreadId",
+          "wireName": "parentThreadId",
+          "required": false,
+          "nullable": true,
           "sample": "value"
+        },
+        {
+          "javaName": "sourceKinds",
+          "wireName": "sourceKinds",
+          "required": false,
+          "nullable": true,
+          "sample": []
+        },
+        {
+          "javaName": "modelProviders",
+          "wireName": "modelProviders",
+          "required": false,
+          "nullable": true,
+          "sample": []
         },
         {
           "javaName": "cursor",
@@ -2291,10 +2358,10 @@
       ]
     },
     {
-      "javaType": "ThreadItemsListResponse",
+      "javaType": "ThreadListResponse",
       "mode": "decode",
       "sources": [
-        "v2#ThreadItemsListResponse"
+        "v2#ThreadListResponse"
       ],
       "components": [
         {
@@ -2309,36 +2376,6 @@
           "wireName": "nextCursor",
           "required": false,
           "nullable": true,
-          "sample": "value"
-        }
-      ]
-    },
-    {
-      "javaType": "ThreadItemEntry",
-      "mode": "decode",
-      "sources": [
-        "v2#ThreadItemEntry"
-      ],
-      "components": [
-        {
-          "javaName": "item",
-          "wireName": "item",
-          "required": true,
-          "nullable": false,
-          "sample": {
-            "command": "value",
-            "commandActions": [],
-            "cwd": "value",
-            "id": "value",
-            "status": "inProgress",
-            "type": "commandExecution"
-          }
-        },
-        {
-          "javaName": "turnId",
-          "wireName": "turnId",
-          "required": true,
-          "nullable": false,
           "sample": "value"
         }
       ]
@@ -2439,6 +2476,16 @@
           "sample": []
         },
         {
+          "javaName": "status",
+          "wireName": "status",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "activeFlags": [],
+            "type": "active"
+          }
+        },
+        {
           "javaName": "agentNickname",
           "wireName": "agentNickname",
           "required": false,
@@ -2451,6 +2498,28 @@
           "required": false,
           "nullable": true,
           "sample": "value"
+        }
+      ]
+    },
+    {
+      "javaType": "ThreadStatus",
+      "mode": "decode",
+      "sources": [
+        "v2#ThreadStatus[all variants]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "active",
+          "samples": [
+            "active",
+            "idle",
+            "notLoaded",
+            "systemError"
+          ]
         }
       ]
     },

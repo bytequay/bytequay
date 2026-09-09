@@ -136,11 +136,12 @@ source kinds, thread parent/session/status metadata,
 state fields, and V2 `subAgentActivity` thread, logical path, and lifecycle
 fields. The `thread/list` method and source filtering are stable, but its
 direct-parent and ancestor filters must appear only in the experimental
-schema. Those filters may accelerate reconciliation; the canonical recursive
-history closure does not rely on them. These checks are schema evidence only:
+schema. The historical gate did not rely on these filters; current production
+completion requires direct-parent listing to inventory children independently
+of incomplete legacy item history. These checks are schema evidence only:
 they neither enable multi-agent features nor add production child routing.
 Thread status is load/activity state, and list responses contain no turn
-history, so neither can prove that a child is terminal.
+history, so neither alone proves that a child's turn is terminal.
 
 The compact Java projection retains the optional model multi-agent version,
 the required V1 sender/receiver/state identity and optional state message, the
@@ -239,10 +240,33 @@ restarts App Server with only that matching multi-agent feature enabled,
 repeats the isolation checks, registers one disposable Git environment, and
 sends one bounded root turn. The V1 launch also retains the verified
 `agents.max_depth=2` override required for the grandchild. The historical gate
-used recursive `thread/read(includeTurns: true)` as its discovery source. That
-call is not a production dependency: current App Server refuses turn history,
-so the shipped driver recursively pages `thread/items/list` instead, then closes
-the per-turn process and requires its owned tree to be `VERIFIED_STOPPED`. The
+used recursive `thread/read(includeTurns: true)` as its discovery source.
+The installed 0.152.1 probe verified that this call works after the
+first message in both legacy and paginated transcript modes, returning thread
+status, turn status, and items. `thread/items/list` works only in paginated mode
+and fails for legacy threads. The corrected production
+adapter uses metadata-only `thread/read` for native status and
+`thread/turns/list` with `limit: 1`, `sortDirection: "desc"`, and
+`itemsView: "notLoaded"` for latest-turn status. The root's latest ID must match
+the accepted turn. Completion does not hydrate full history or replay items. Legacy full history from `thread/read`
+and `thread/turns/list` synthesizes item IDs and omits command/collaboration
+items, including a completed `/usr/bin/true` command. Exact lost activity cannot
+be reconstructed from it. Typed live notifications supply provider events and
+ByteQuay's durable log supplies replay.
+Parent-filtered `thread/list` pages direct children with `sourceKinds: ["subAgent"]`
+and `modelProviders: []`, because legacy history can omit collaboration edges.
+An idle agent needs a terminal latest turn and no background terminals; a
+not-loaded agent needs terminal latest-turn status and still recurses into its children.
+The inventory creates no synthetic UI metadata. Finished provider work is
+recorded before separate process cleanup; see [Agent Service §5.6](agent-service.md#56-process-ownership-correction).
+This probe used the real CLI with a local fake provider; it validates the API
+contract, not real-model child behavior. The local-provider probe also observed
+an idle root and child while their grandchild was active. Closing the child
+unloaded its runtime and its grandchild, retained their parent-filtered
+inventory/history, and stopped an owned background command. The adapter still
+recurses beneath every not-loaded agent; it does not infer all descendants are
+finished from the parent's unload alone. Final implementation regression checks
+are recorded separately. The
 gate reads every V1 `spawnAgent` or V2
 `started` edge to a fixed point and requires exactly root, child, and
 grandchild in one session with direct-parent identity, one completed turn
@@ -352,6 +376,18 @@ the selected profile is dedicated to this fixture and must be clean before
 each run.
 
 ## Evidence and conditional decision
+
+The completion correction passed: full backend `mvn verify`, the
+exact 0.151.0 keyless compatibility gate, installed 0.152.1 API probes, and a
+keyless smoke using the actual Java driver and process supervisor. Fresh and
+resumed turns completed despite real startup observation gaps; repeated close
+and recovery from durable finished-work receipts succeeded. See
+[Agent Service §5.6](agent-service.md#56-process-ownership-correction) for the
+current contract, reproducible local-provider probes, and evidence limits.
+
+The subscription-backed runs below are historical reference evidence. They do
+not override the newer observed legacy-history limitations or restore the
+removed production executor architecture.
 
 The current offline gate passed with `codex-cli 0.151.0`:
 

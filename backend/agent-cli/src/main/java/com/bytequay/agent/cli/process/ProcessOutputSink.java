@@ -15,12 +15,13 @@ package com.bytequay.agent.cli.process;
 
 import java.nio.ByteBuffer;
 
-/** Receives bounded child-process output in the order observed by the supervisor. */
+/** Receives child-process output in observed order; protocol stdout applies bounded backpressure. */
 @FunctionalInterface
 public interface ProcessOutputSink
 {
     /**
-     * Accepts one immutable output chunk.
+     * Accepts one immutable output chunk. Protocol consumers must process it without waiting for
+     * another output chunk; a slow consumer backpressures the child instead of losing bytes.
      *
      * @param stream source stream
      * @param bytes read-only bytes whose position starts at the first output byte
@@ -28,7 +29,8 @@ public interface ProcessOutputSink
     void onOutput(ProcessStream stream, ByteBuffer bytes);
 
     /**
-     * Reports that further output from a stream was discarded after its bound.
+     * Reports that further capture output was discarded after its byte or backlog bound.
+     * Lossless stdout never reports truncation merely because a consumer is temporarily slow.
      *
      * @param stream truncated stream
      */

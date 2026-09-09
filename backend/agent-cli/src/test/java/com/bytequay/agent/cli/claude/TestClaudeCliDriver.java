@@ -442,6 +442,7 @@ class TestClaudeCliDriver
         AgentSession autoSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO), events::add);
         assertThat(await(autoSession.start(command("auto"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec autoSpec = supervisor.turns().getLast().spec();
+        assertThat(autoSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(autoSpec.argv()).containsSequence("--permission-mode", "manual");
         assertThat(autoSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
         assertThat(autoSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
@@ -454,6 +455,7 @@ class TestClaudeCliDriver
                 events::add);
         assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec textSpec = supervisor.turns().getLast().spec();
+        assertThat(textSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         assertThat(textSpec.workingDirectory().normalize().startsWith(runtimeDirectory().normalize())).isTrue();
         assertThat(textSpec.argv()).contains("--tools=");
@@ -1215,6 +1217,7 @@ class TestClaudeCliDriver
         private ManagedProcess start(ProcessSpec spec, ProcessOutputSink output)
         {
             if (spec.argv().contains("--version")) {
+                assertThat(spec.stdoutCaptureLimit()).isPresent();
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return probeTreeUnverifiable ? ImmediateProcess.unverifiable() : ImmediateProcess.success();
             }

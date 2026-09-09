@@ -144,13 +144,25 @@ authenticated Electron SSE bridge, reconnect replay, image boundary,
 root/child/item quiescence, and revalidated worktree-ownership criteria in
 [Agent Task UI](agent-task-ui.md#8-acceptance-criteria).
 
+**Completion correction:** recursively check provider
+agent status, latest-turn status, background commands, and child
+inventory, then record finished work before separate process cleanup. The supervisor preserves known process
+identities and observation gaps; cleanup failure preserves a proven provider
+result while retaining the worktree claim. This replaces the previous broad
+macOS containment proposal. Implemented and verified; the contract
+and regression evidence are in
+[Agent Service §5.6](agent-service.md#56-process-ownership-correction). The later
+protocol-truncation follow-up uses bounded status reads and lossless protocol
+stdout with bounded backpressure; its additional regression gate is pending.
+
 Codex App Server is also a conscious release-risk decision: its official
 documentation currently marks the command experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the first
 agent-task release and reconfirmed it at CP11. ByteQuay maintains
 a fixed reference fixture for the launch profiles and background-terminal
 methods used by isolation and quiescence; task sessions opt into
-`experimentalApi` solely for background-terminal inventory and termination.
+`experimentalApi` for direct-child listing and background-terminal inventory
+and termination.
 Transport success alone is not sufficient. Production configures the minimum
 Codex CLI version through `bytequay.agent.codex-minimum-version`, currently
 `0.153.4`. At startup, an older installed CLI is automatically upgraded to that
@@ -192,8 +204,15 @@ empty hook and MCP configuration, and permits only bundled system skills rooted
 in the isolated `CODEX_HOME`. CP1 separately proved child-capable V1 and V2
 profiles with the same readiness checks. Production queries the catalog under
 the no-child profile, launches exactly the selected model's advertised V1-only
-or V2-only profile, and recursively closes the corresponding relationship
-history through paginated `thread/items/list`. The compatibility fixture's
+or V2-only profile, and checks recursive completion through metadata-only
+`thread/read` and a one-turn `thread/turns/list` page without items, verified on
+installed 0.152.1. Parent-filtered
+`thread/list` provides the child inventory that legacy history can omit. Legacy
+history also synthesizes item IDs and omits tool activity, so exact lost provider
+events cannot be reconstructed; ByteQuay's durable replay remains unchanged.
+The former
+`thread/items/list` dependency fails for legacy threads. The compatibility
+fixture's
 default path remains offline, authentication-free, and safe for CI. Its `--live` and
 `--live-children` paths are opt-in local real-model smoke gates. Each requires
 `BYTEQUAY_CODEX_COMPAT_HOME` to name a separate persistent Codex profile outside
@@ -210,11 +229,12 @@ tool processes remain credential-free: model-requested commands must prove that 
 API-key fixture support is deferred. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture
 passed locally with that subscription-backed profile. CP0
-through CP11 are complete: the workspace-scoped task/turn contract, typed
+through CP11 recorded completion of the workspace-scoped task/turn contract, typed
 readiness, schema-v2 event/source and approval contracts, crash-safe replay,
 task isolation, recursive item reconciliation plus verified per-turn process
-stop, rich UI, queue/steer behavior, and Claude parity are implemented and the
-development gate is removed. The seven-day
+stop, rich UI, queue/steer behavior, and Claude parity; the development gate was
+removed. The later completion/cleanup correction above qualifies that
+historical evidence and has its own regression gate. The seven-day
 detailed-runtime retention policy was accepted for this release.
 Process-environment stripping still does not create a same-user
 filesystem-read boundary around the persistent login profile.

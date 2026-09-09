@@ -20,17 +20,23 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Complete owner, argv, environment, directory, and runtime bounds for one child process. */
+/**
+ * Complete owner, argv, environment, directory, and runtime bounds for one child process.
+ *
+ * <p>A present stdout capture limit bounds retained command output. An absent limit selects
+ * lossless protocol streaming through a bounded queue; adapters bound individual records.
+ */
 public record ProcessSpec(
         ProcessOwner owner,
         List<String> argv,
         Path workingDirectory,
         Map<String, String> environment,
-        int maximumStdoutBytes,
+        OptionalInt stdoutCaptureLimit,
         int maximumStderrBytes,
         Duration maximumRuntime,
         Duration cancellationGrace)
@@ -47,7 +53,8 @@ public record ProcessSpec(
         requireNonNull(environment, "environment is null");
         environment = ImmutableMap.copyOf(environment);
         checkArgument(environment.keySet().stream().noneMatch(String::isBlank), "environment contains a blank name");
-        checkArgument(maximumStdoutBytes > 0, "maximumStdoutBytes is not positive");
+        requireNonNull(stdoutCaptureLimit, "stdoutCaptureLimit is null");
+        stdoutCaptureLimit.ifPresent(limit -> checkArgument(limit > 0, "stdoutCaptureLimit is not positive"));
         checkArgument(maximumStderrBytes > 0, "maximumStderrBytes is not positive");
         requireNonNull(maximumRuntime, "maximumRuntime is null");
         checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime is not positive");

@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -90,7 +91,6 @@ public final class ClaudeCliDriver
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final Duration SESSION_CLOSE_TIMEOUT = Duration.ofSeconds(30);
-    private static final int MAX_STDOUT_BYTES = 64 * 1024 * 1024;
     private static final int MAX_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
@@ -526,7 +526,7 @@ public final class ClaudeCliDriver
                         ImmutableList.copyOf(command),
                         Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                         maximumRuntime,
-                        MAX_PROBE_OUTPUT_BYTES,
+                        OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
                         MAX_PROBE_OUTPUT_BYTES))
                 .start((stream, bytes) -> append(
                         stream == ProcessStream.STDOUT ? stdout : stderr,
@@ -588,7 +588,7 @@ public final class ClaudeCliDriver
             List<String> argv,
             Path workingDirectory,
             Duration maximumRuntime,
-            int maximumStdoutBytes,
+            OptionalInt stdoutCaptureLimit,
             int maximumStderrBytes)
     {
         return new ProcessSpec(
@@ -596,7 +596,7 @@ public final class ClaudeCliDriver
                 argv,
                 workingDirectory,
                 environment,
-                maximumStdoutBytes,
+                stdoutCaptureLimit,
                 maximumStderrBytes,
                 maximumRuntime,
                 PROCESS_CANCELLATION_GRACE);
@@ -873,7 +873,7 @@ public final class ClaudeCliDriver
                             attachments),
                     session.context.worktree(),
                     command.maximumRuntime(),
-                    MAX_STDOUT_BYTES,
+                    OptionalInt.empty(),
                     MAX_STDERR_BYTES);
             completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);

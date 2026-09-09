@@ -417,14 +417,24 @@ React projection implement this end-to-end flow:
    outbox before JSONL/SSE publication. A task-local worktree-mutation claim serializes
    turns, queued starts, and completion; an explicitly queued input starts only
    after a successful terminal turn. The turn claim is released only after
-   model-version-aware, recursive `thread/items/list` reconciliation reaches a
-   stable graph, all observed execution-capable items are terminal, App Server
-   reports no background terminal for the root or children, and the task-owned
-   provider process tree is `VERIFIED_STOPPED`. Durable task lifecycle is only
+   metadata-only `thread/read` and a one-turn `thread/turns/list` status page
+   confirm native/latest-turn status, parent-filtered `thread/list` closes the
+   child inventory, loaded
+   agents are idle with empty background-terminal inventories, and
+   the task-owned runtime cleanup is verified. The adapter records finished
+   provider work durably before stopping the process. Cleanup failure preserves
+   that provider result and holds the claim. Durable task lifecycle is only
    `OPEN -> COMPLETED | FAILED`;
    running, idle, closing, and recovery required are derived from turn state,
    mutation-claim ownership, and provider quiescence. A provider terminal,
    failed, cancelled, or interrupted status alone never proves tools stopped.
+   Typed live notifications supply provider activity; replay restores ByteQuay's
+   durable event sequence. Legacy provider history cannot reconstruct exact lost
+   tool events because it omits items and synthesizes IDs.
+   The completion correction separates provider completion from process
+   cleanup and preserves process identities when an observation fails. Its
+   implementation contract and regression gate are in
+   [Agent Service §5.6](agent-service.md#56-process-ownership-correction).
 7. `persistence-sqlite` stores task, turn, input-delivery, queue, approval,
    owned-process, and metric facts, including the task's immutable worktree
    ownership values; detailed history and bounded attachment/output blobs
@@ -473,9 +483,15 @@ The detailed backend contract is in
   ByteQuay product-action tools are deferred. The optional one-tool CodeGraph
   boundary is specified separately and remains fail-open. Directly owned App
   Server and Claude processes use durable launch intents/markers. Codex first
-  closes the recursive item-history and background-terminal inventories, then
-  stops the per-turn App Server; only a `VERIFIED_STOPPED` process-tree receipt
-  permits the worktree claim to be released.
+  verifies current-run agent status, tools, children, and background terminals,
+  records finished work on that launch, and stops the per-turn App Server.
+  Only verified root/group/known-descendant cleanup permits claim release;
+  durable provider completion may resolve a historical observation gap, never
+  a live known process. This does not claim arbitrary native-process
+  containment. Agent Service §5.6 specifies recovery and regression coverage.
+  Codex JSON-RPC and Claude stream-json stdout are lossless protocol streams:
+  bounded queues apply backpressure instead of a lifetime byte cap or dropped
+  bytes. Frame, stderr-capture, and UI output limits remain independent.
 - Every active Codex turn starts its task-owned App Server with an explicit
   isolation baseline. Before creating or resuming a thread, ByteQuay must
   verify through
@@ -535,8 +551,8 @@ The detailed backend contract is in
   Cache directories such as `~/.m2` are not unrestricted writable roots;
   native review handles those escalations. No separate execution environment
   is registered and no loopback listener is opened. Initialization declares
-  `experimentalApi: true` solely for the
-  background-terminal list and terminate methods; ByteQuay calls no
+  `experimentalApi: true` for parent-filtered
+  child listing and background-terminal list/terminate methods; ByteQuay calls no
   experimental environment method.
 - A session owns the App Server process serving one active turn. Settlement
   closes that process and waits for the supervisor's `VERIFIED_STOPPED`

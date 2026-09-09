@@ -27,14 +27,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -46,8 +48,9 @@ class TestCodexAppServerClient
     @TempDir
     private Path worktree;
 
-    @Test
-    void closeRetriesProcessTreeVerificationAfterAnUnverifiableExit()
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void closeRetainsVerifiedRetryWhenTheOriginalExitArrivesBeforeOrAfterStop(boolean exitBeforeStop)
     {
         ObjectMapper objectMapper = new ObjectMapper();
         RetryingProcess process = new RetryingProcess(objectMapper);
@@ -90,7 +93,7 @@ class TestCodexAppServerClient
                 ImmutableList.of("/fake/codex", "app-server"),
                 worktree,
                 ImmutableMap.of(),
-                1024,
+                OptionalInt.of(1024),
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
@@ -100,6 +103,10 @@ class TestCodexAppServerClient
                 objectMapper,
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         client.start();
+        if (exitBeforeStop) {
+            process.cancel();
+            assertThat(client.processTreeVerifiedStopped()).contains(false);
+        }
 
         client.close();
 

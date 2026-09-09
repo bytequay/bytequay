@@ -29,6 +29,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -39,9 +41,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -102,7 +108,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("/bin/sh", "-c", "i=0; while [ $i -lt 1000 ]; do printf 1234567890; i=$((i+1)); done"),
                 worktree,
                 ImmutableMap.of(),
-                64,
+                OptionalInt.of(64),
                 64,
                 Duration.ofSeconds(5),
                 Duration.ofMillis(100));
@@ -140,7 +146,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("/bin/sh", "-c", "dd if=/dev/zero bs=4096 count=1024 2>/dev/null"),
                 worktree,
                 ImmutableMap.of(),
-                4 * 1024 * 1024,
+                OptionalInt.of(4 * 1024 * 1024),
                 64,
                 Duration.ofSeconds(10),
                 Duration.ofMillis(100));
@@ -160,6 +166,147 @@ class TestDefaultProcessSupervisor
         ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
 
         assertThat(exit.exitCode()).isZero();
+    }
+
+    @Test
+    void streamsBeyondTheCaptureQuotaWithoutDroppingABurstOrItsFinalRecord()
+            throws Exception
+    {
+        CountDownLatch enteredSink = new CountDownLatch(1);
+        CountDownLatch releaseSink = new CountDownLatch(1);
+        AtomicLong received = new AtomicLong();
+        StringBuilder finalRecord = new StringBuilder();
+        ProcessSpec spec = new ProcessSpec(
+                PROBE,
+                ImmutableList.of("/bin/sh", "-c", "dd if=/dev/zero bs=8192 count=8448 2>/dev/null; printf 'FINAL\\n'"),
+                worktree,
+                ImmutableMap.of(),
+                OptionalInt.empty(),
+                64,
+                Duration.ofSeconds(20),
+                Duration.ofMillis(100));
+        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {
+            enteredSink.countDown();
+            try {
+                releaseSink.await();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+            received.addAndGet(bytes.remaining());
+            while (bytes.hasRemaining()) {
+                byte value = bytes.get();
+                if (value != 0) {
+                    finalRecord.append((char) value);
+                }
+            }
+        });
+        try {
+            assertThat(enteredSink.await(5, TimeUnit.SECONDS)).isTrue();
+            // Hold the consumer while the child produces more than the fixed output queue can hold.
+            Thread.sleep(200);
+        }
+        finally {
+            releaseSink.countDown();
+        }
+        ProcessExit result = process.exit().toCompletableFuture().get(25, TimeUnit.SECONDS);
+
+        assertThat(received).hasValue(8192L * 8448 + 6);
+        assertThat(finalRecord).hasToString("FINAL\n");
+        assertThat(result.stdoutTruncated()).isFalse();
+        assertThat(result.exitCode()).isZero();
+    }
+
+    @Test
+    void stopsAProtocolProducerWhenItsBackpressuredConsumerFails()
+            throws Exception
+    {
+        CountDownLatch enteredSink = new CountDownLatch(1);
+        CountDownLatch failSink = new CountDownLatch(1);
+        ProcessSpec spec = new ProcessSpec(
+                PROBE,
+                ImmutableList.of("/usr/bin/yes"),
+                worktree,
+                ImmutableMap.of(),
+                OptionalInt.empty(),
+                64,
+                Duration.ofSeconds(10),
+                Duration.ofMillis(100));
+        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {
+            enteredSink.countDown();
+            try {
+                failSink.await();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("consumer failed");
+        });
+        try {
+            assertThat(enteredSink.await(5, TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(200);
+        }
+        finally {
+            failSink.countDown();
+        }
+        ProcessExit result = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+
+        assertThat(result.stdoutTruncated()).isTrue();
+        assertThat(result.reason()).isEqualTo(ProcessExit.Reason.CANCELLED);
+        assertThat(awaitDead(process.pid(), Duration.ofSeconds(2))).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cancelsAProtocolProducerWhileStdinAndStdoutAreBlocked(boolean verifyStop)
+            throws Exception
+    {
+        CountDownLatch enteredSink = new CountDownLatch(1);
+        CountDownLatch releaseSink = new CountDownLatch(1);
+        ProcessSpec spec = new ProcessSpec(
+                PROBE,
+                ImmutableList.of("/usr/bin/yes"),
+                worktree,
+                ImmutableMap.of(),
+                OptionalInt.empty(),
+                64,
+                Duration.ofSeconds(10),
+                Duration.ofMillis(100));
+        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {
+            enteredSink.countDown();
+            try {
+                releaseSink.await();
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        });
+        try {
+            assertThat(enteredSink.await(5, TimeUnit.SECONDS)).isTrue();
+            CompletableFuture<Void> blockedInput = process.write(ByteBuffer.wrap(new byte[1024 * 1024])).toCompletableFuture();
+            CompletableFuture<Void> queuedInput = process.write(ByteBuffer.wrap(new byte[] {1})).toCompletableFuture();
+            assertThatThrownBy(() -> blockedInput.get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            if (verifyStop) {
+                assertThat(process.stopAndVerify().toCompletableFuture().get(5, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            }
+            else {
+                CompletableFuture.runAsync(process::cancel).get(2, TimeUnit.SECONDS);
+                assertThat(awaitDead(process.pid(), Duration.ofSeconds(5))).isTrue();
+            }
+            assertThatThrownBy(() -> blockedInput.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);
+            assertThatThrownBy(() -> queuedInput.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);
+        }
+        finally {
+            // Keep the regression bounded even if cancellation waits on the blocked stdin writer.
+            ProcessHandle.of(process.pid()).ifPresent(handle -> {
+                handle.descendants().forEach(ProcessHandle::destroyForcibly);
+                handle.destroyForcibly();
+            });
+            releaseSink.countDown();
+        }
+        assertThat(process.exit().toCompletableFuture().get(10, TimeUnit.SECONDS).reason()).isEqualTo(ProcessExit.Reason.CANCELLED);
     }
 
     @Test
@@ -192,7 +339,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("/bin/sh", "-c", "sleep 30"),
                 worktree,
                 ImmutableMap.of(),
-                64,
+                OptionalInt.of(64),
                 64,
                 Duration.ofMillis(100),
                 Duration.ofMillis(100));
@@ -350,7 +497,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("/bin/sh", "-c", "sleep 30 & printf '%s\\n' \"$!\"; read value"),
                 worktree,
                 ImmutableMap.of("PATH", worktree + ":/usr/bin:/bin"),
-                1024,
+                OptionalInt.of(1024),
                 1024,
                 Duration.ofSeconds(20),
                 Duration.ofMillis(100));
@@ -616,7 +763,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("bytequay-missing-binary"),
                 worktree,
                 ImmutableMap.of("PATH", "/usr/bin:/bin"),
-                64,
+                OptionalInt.of(64),
                 64,
                 Duration.ofSeconds(5),
                 Duration.ofMillis(100));
@@ -651,7 +798,7 @@ class TestDefaultProcessSupervisor
                 ImmutableList.of("/bin/sh", "-c", script),
                 worktree,
                 ImmutableMap.of("PATH", "/usr/bin:/bin"),
-                1024,
+                OptionalInt.of(1024),
                 1024,
                 Duration.ofSeconds(20),
                 Duration.ofMillis(100));

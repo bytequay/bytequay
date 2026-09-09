@@ -183,6 +183,9 @@ export function createPreviewBridge(
       record('listAgentTaskPullRequests', taskId, id);
       return [];
     },
+    syncPrs: async (id) => {
+      record('syncPrs', id);
+    },
     renameAgentTask: async (taskId, id, expectedVersion, title) => {
       record('renameAgentTask', taskId, id, expectedVersion, title);
       if (expectedVersion !== previewVersion) {

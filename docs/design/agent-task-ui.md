@@ -141,7 +141,6 @@ for reviewing or changing how the implemented screens look and respond:
   repository avatar, composer, starting points, the repository's own Needs
   attention rows, and the open tasks as a grid of windows with rename and hide.
 
-
 - [Agent Task UI.html](Agent%20Task%20UI.html) is the user-facing
   prototype: the accepted visual reference (commit
   `84af81c73cea7ae2cf7a53681827f550c598b706`) whose 13 static fixture states
@@ -503,15 +502,6 @@ monitored repository, the **Create draft PR** action, and one line saying the
 action sends a request into the task's conversation and that ByteQuay never
 writes to GitHub on its own.
 
-Its **Create draft PR** action, offered while the task is idle and the branch
-has no open pull request, sends one fixed request into the task's conversation
-as an ordinary turn: the agent commits pending work, reads the repository's
-pull request template, pushes the branch to `origin`, and opens the draft with
-the GitHub CLI against the workspace's monitored repository and default branch,
-under the lane's normal approval policy. ByteQuay itself writes nothing to
-GitHub here and never publishes on its own. The refresh above then shows the
-new draft when that turn ends.
-
 Opening an idle task, ending any ordinary turn, or selecting the PR panel
 refreshes those branches through GitHub's head-filtered pull-request endpoint.
 The target is the workspace's monitored repository; the head owner comes from
@@ -528,6 +518,15 @@ so it does not show the no-PR creation state. This lookup does not rely on
 repository search indexing or search results, which omit head branches. No transcript prose or PR URL is
 treated as authoritative association, and no separate durable task-to-PR link
 is introduced. Matching stored rows remains repository plus branch.
+
+Its **Create draft PR** action, offered while the task is idle and the branch
+has no open pull request, sends one fixed request into the task's conversation
+as an ordinary turn: the agent commits pending work, reads the repository's
+pull request template, pushes the branch to `origin`, and opens the draft with
+the GitHub CLI against the workspace's monitored repository and default branch,
+under the lane's normal approval policy. ByteQuay itself writes nothing to
+GitHub here and never publishes on its own. Once that turn ends, the same
+branch refresh discovers the new draft without waiting for scheduled sync.
 
 ### 2.6 Queue and steering
 
@@ -749,10 +748,24 @@ or exit cannot be proven, the task remains blocked and its worktree stays
 untouched, with an actionable diagnostic. A last-resort **Stop this task's
 provider runtime** action requires confirmation and affects no other task.
 
+Stopping the runtime and **Mark task failed** use an app-styled modal with a
+short explanation, **Cancel**, and a named action. Cancel receives initial
+focus; Escape dismisses the dialog before submission. Both buttons remain
+disabled while the request runs. Failures return to the task with a diagnostic;
+retrying Stop fetches a fresh runtime impact and requires another confirmation.
+Mark failed explains that the transcript and uncommitted changes are retained,
+while a clean checkout may be removed and its branch kept.
+
 An unverifiable close retains the runtime's session/process identity, so a
 later confirmed **Stop this task's provider runtime** action actively retries
 termination and verification. Only `VERIFIED_STOPPED` releases the stale claim
 and enables a new turn or paused queue retry; the old turn is never resent.
+The card distinguishes completed provider work with blocked runtime cleanup
+from an interrupted or failed provider turn. Missing evidence says **Could not
+verify shutdown**, with the specific reason in details; it does not claim a
+process is still running. Stop reuses durable finished-work evidence for the
+same launch and retries termination and inspection. It cannot invent evidence
+for an old run, and neither restart nor Mark task failed bypasses cleanup.
 
 A quiescent failed turn with `failureKind: AUTHENTICATION_REQUIRED` instead
 shows an authentication recovery card while leaving the task and worktree

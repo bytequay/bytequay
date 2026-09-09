@@ -12,111 +12,110 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
-  Archive,
-  ArchiveRestore,
-  Bot,
-  CircleCheck,
-  CircleX,
-  FileDiff,
-  GitPullRequest,
-  ListChecks,
-  Maximize2,
-  PanelRight,
-  TriangleAlert,
+Archive,
+ArchiveRestore,
+Bot,
+CircleCheck,
+CircleX,
+FileDiff,
+GitPullRequest,
+ListChecks,
+Maximize2,
+PanelRight,
+TriangleAlert
 } from 'lucide-react';
+import React,{ useCallback,useEffect,useReducer,useRef,useState } from 'react';
+import { Chevron } from '../Chevron';
+import { ConfirmDialog } from '../ConfirmDialog';
+import '../css/agents.css';
+import { relativeTime } from '../relativeTime';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import {
-  laneLabel,
-  providerAvailable,
-  providerRemedy,
-  remedyCommand,
+laneLabel,
+providerAvailable,
+providerRemedy,
+remedyCommand
 } from '../settings/model';
+import type {
+AgentApprovalDecision,
+AgentCapabilitiesDto,
+AgentChildSummaryDto,
+AgentPendingApprovalDto,
+AgentProviderStatus,
+AgentProviderUnavailableDto,
+AgentQueuedInputDto,
+AgentRuntimeStopImpactDto,
+AgentTaskDto,
+AgentTurnDto,
+InlineReviewCommentDto,
+ModelOptionDto,
+PullRequestDto,
+WorkspaceDto
+} from '../types';
 import { useResizablePane } from '../useResizablePane';
+import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import type { CommitRange } from '../pulls/PullChanges';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
-import { renderMarkdown } from './markdown';
-import { agentProviderUnavailableFrom } from './contracts';
-import { pasteImage } from './clipboard';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
-import { Chevron } from '../Chevron';
-import { relativeTime } from '../relativeTime';
-import { remoteErrorMessage } from '../pulls/PullOverview';
-import '../css/agents.css';
-import { AgentConversation, BlockView, clock, codeGraphText, ConversationComposer, ConversationQueue, Glyph, modelName, PlanSteps, serviceTierName, shortDate, Spinner, stateClass, useConversationHistory, useOutputWheel, type AttachmentPreview } from './AgentConversation';
+import { pasteImage } from './clipboard';
+import { agentProviderUnavailableFrom } from './contracts';
+import { renderMarkdown } from './markdown';
 import {
-  acceptsImages,
-  agentTaskReducer,
-  canComplete,
-  canQueue,
-  canSend,
-  canSteer,
-  confirmCompletion,
-  createDraftSubmissionTracker,
-  initialAgentTaskState,
-  readRecentAgentHistory,
-  historyBefore,
-  historyAfter,
-  runtimeStatus,
-  retryableInput,
-  startAgentTaskSession,
-  unloadedTurnIds,
-  type AgentBridgePort,
-  type DraftSubmissionTracker,
-  type AgentRuntimeStatus,
-  type AgentTaskState,
-  type RetryableInput,
+acceptsImages,
+agentTaskReducer,
+canComplete,
+canQueue,
+canSend,
+canSteer,
+confirmCompletion,
+createDraftSubmissionTracker,
+historyAfter,
+historyBefore,
+initialAgentTaskState,
+readRecentAgentHistory,
+retryableInput,
+runtimeStatus,
+startAgentTaskSession,
+unloadedTurnIds,
+type AgentBridgePort,
+type AgentRuntimeStatus,
+type AgentTaskState,
+type DraftSubmissionTracker,
+type RetryableInput
 } from './model';
 import {
-  activeAgents,
-  currentPlan,
-  formatDuration,
-  planSummary,
-  projectAgents,
-  projectTranscript,
-  settleFinalTurn,
-  turnElapsedMs,
-  withApprovalAuthority,
-  type AgentNode,
-  type PlanStep,
-  type TranscriptTurn,
+activeAgents,
+currentPlan,
+formatDuration,
+planSummary,
+projectAgents,
+projectTranscript,
+settleFinalTurn,
+turnElapsedMs,
+withApprovalAuthority,
+type AgentNode,
+type PlanStep,
+type TranscriptTurn
 } from './transcript';
-import type {
-  AgentApprovalDecision,
-  AgentPendingApprovalDto,
-  AgentCapabilitiesDto,
-  AgentChildSummaryDto,
-  AgentProviderStatus,
-  AgentProviderUnavailableDto,
-  AgentQueuedInputDto,
-  AgentTaskDto,
-  AgentTurnDto,
-  InlineReviewCommentDto,
-  ModelOptionDto,
-  PullRequestDto,
-  WorkspaceDto,
-} from '../types';
-
 import {
-  NO_PULL_REQUEST_CHANGES,
-  NO_PULL_REQUEST_DETAIL,
-  NoPullRequestView,
-  samePullRequest,
-  TaskChangesView,
-  TaskPullRequestView,
-  taskPullRequest,
-  useTaskPullRequestChanges,
-  useTaskPullRequestDetail,
-  type TaskPullRequestChanges,
-  type TaskPullRequestDetail,
+NO_PULL_REQUEST_CHANGES,
+NO_PULL_REQUEST_DETAIL,
+NoPullRequestView,
+samePullRequest,
+TaskChangesView,
+TaskPullRequestView,
+taskPullRequest,
+useTaskPullRequestChanges,
+useTaskPullRequestDetail,
+type TaskPullRequestChanges,
+type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
-
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
 type PanelTab = 'pr' | 'changes' | 'agents';
 
-/** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 interface AgentTaskScreenProps {
   workspaceId: string;
   taskId: string;
@@ -130,6 +129,8 @@ interface AgentTaskScreenProps {
   /** Opens the provider settings used by authentication recovery. */
   onOpenSettings?: () => void;
 }
+
+type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto } | { kind: 'fail' };
 
 const CONNECTION_TEXT: Record<string, string> = {
   connecting: 'Connecting — loading task history…',
@@ -1318,6 +1319,10 @@ export default function AgentTaskScreen({
   const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [providerChecking, setProviderChecking] = useState(false);
+  const [confirmation, setConfirmation] = useState<TaskConfirmation | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const confirmationPendingRef = useRef(false);
+  const confirmationRequestRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [attaching, setAttaching] = useState(false);
   const attachmentPendingRef = useRef(false);
@@ -1925,25 +1930,41 @@ export default function AgentTaskScreen({
     applyTask(await live().cleanupAgentTaskWorktree(taskId, workspaceId));
   }), [applyTask, live, run, taskId, workspaceId]);
 
-  const stopServer = useCallback(() => run(async () => {
-    const impact = await live().getAgentRuntimeStopImpact(taskId, workspaceId);
-    const consequence = impact.activeTurnId === null
-      ? 'No turn is running; the checkout is released once the process is verified stopped.'
-      : 'The running turn is interrupted and its pending approvals denied.';
-    if (!window.confirm(`Stop this task's agent runtime? Only this task is affected.\n\n${consequence}`)) return;
-    applyTask(await live().stopAgentRuntime(taskId, workspaceId, impact.generation));
-    if (latestTurnId !== null) {
-      applyTurn(await live().getAgentTurn(latestTurnId));
-    }
-    await refreshProjection(latestTurnId);
-  }), [applyTask, applyTurn, live, latestTurnId, refreshProjection, run, taskId, workspaceId]);
+  const stopServer = useCallback(() => {
+    const request = ++confirmationRequestRef.current;
+    return run(async () => {
+      const impact = await live().getAgentRuntimeStopImpact(taskId, workspaceId);
+      if (mountedRef.current && request === confirmationRequestRef.current) setConfirmation({ kind: 'stop', impact });
+    });
+  }, [live, run, taskId, workspaceId]);
 
-  const markFailed = useCallback(() => run(async () => {
-    if (!window.confirm('Mark this task failed? Its checkout is kept for inspection unless it is clean; '
-      + 'the transcript is retained.')) return;
-    applyTask(await live().markAgentTaskFailed(taskId, workspaceId, 'Marked failed by the user during recovery'));
-    await refreshProjection(stateRef.current.latestTurnId);
-  }), [applyTask, live, refreshProjection, run, taskId, workspaceId]);
+  const markFailed = useCallback(() => {
+    confirmationRequestRef.current++;
+    dispatch({ type: 'notice/changed', notice: null });
+    setConfirmation({ kind: 'fail' });
+  }, []);
+
+  const confirmTaskAction = useCallback(async () => {
+    if (confirmation === null || confirmationPendingRef.current) return;
+    confirmationPendingRef.current = true;
+    setConfirming(true);
+    try {
+      await run(async () => {
+        const task = confirmation.kind === 'stop'
+          ? await live().stopAgentRuntime(taskId, workspaceId, confirmation.impact.generation)
+          : await live().markAgentTaskFailed(taskId, workspaceId, 'Marked failed by the user during recovery');
+        applyTask(task);
+        await refreshProjection(stateRef.current.latestTurnId);
+      });
+    }
+    finally {
+      confirmationPendingRef.current = false;
+      if (mountedRef.current) {
+        setConfirmation(null);
+        setConfirming(false);
+      }
+    }
+  }, [applyTask, confirmation, live, refreshProjection, run, taskId, workspaceId]);
 
   const refreshProvider = useCallback(() => run(async () => {
     setProviderChecking(true);
@@ -1979,7 +2000,7 @@ export default function AgentTaskScreen({
     composerRef.current?.focus();
   }), [live, run]);
 
-  return (
+  return (<>
     <AgentTaskBody
       state={state}
       historyLoading={historyLoading}
@@ -2054,5 +2075,28 @@ export default function AgentTaskScreen({
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}
       onResumeQueue={() => { void resumeQueue(); }}
     />
-  );
+    {confirmation !== null && (
+      <ConfirmDialog
+        title={confirmation.kind === 'stop' ? 'Stop this task’s agent?' : 'Mark task as failed?'}
+        confirmLabel={confirmation.kind === 'stop'
+          ? confirming ? 'Stopping…' : 'Stop agent'
+          : confirming ? 'Marking failed…' : 'Mark as failed'}
+        busy={confirming}
+        destructive={confirmation.kind === 'fail'}
+        onConfirm={() => { void confirmTaskAction(); }}
+        onCancel={() => setConfirmation(null)}
+      >
+        {confirmation.kind === 'stop' ? <>
+          <p>Only this task is affected. Your conversation and files will be kept.</p>
+          <p>{confirmation.impact.activeTurnId === null
+            ? 'The last response is finished. This stops any remaining agent activity.'
+            : 'The current response will be interrupted and pending approvals declined.'}</p>
+          <p>You can continue once ByteQuay confirms the agent has stopped.</p>
+        </> : <>
+          <p>This ends the task. You won’t be able to send more messages here.</p>
+          <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>
+        </>}
+      </ConfirmDialog>
+    )}
+  </>);
 }

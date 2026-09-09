@@ -44,7 +44,7 @@ public class CredentialService
     private final WorkspaceCredentialStore workspaceCredentials;
     private final GhCliService ghCli;
     private final GitHubAccountClient gitHubAccount;
-    private GitHubCredential cachedGitHubCredential;
+    private volatile GitHubCredential cachedGitHubCredential;
 
     public CredentialService(
             CredentialStore credentialStore,
@@ -92,9 +92,10 @@ public class CredentialService
      * The signed-in login when one is already cached, without contacting
      * GitHub. Read paths that must answer offline use this instead of
      * {@link #resolveGitHubCredential()}, which fetches the profile on a cold
-     * cache.
+     * cache. Reading this snapshot must not wait for CLI or network work in a
+     * synchronized credential update.
      */
-    public synchronized Optional<String> cachedLogin()
+    public Optional<String> cachedLogin()
     {
         return Optional.ofNullable(cachedGitHubCredential).map(credential -> credential.profile().login());
     }

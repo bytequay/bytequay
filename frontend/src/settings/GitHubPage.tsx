@@ -14,7 +14,8 @@
 import { useState } from 'react';
 import type { AppPreferencesDto, GitHubAccountDto, QuietHoursDto } from '../types';
 import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
-import { InitialAvatar, SelectPill, SettingsCard, SettingsRow, StatusDot, Toggle } from './primitives';
+import UserAvatar from '../UserAvatar';
+import { SelectPill, SettingsCard, SettingsRow, StatusDot, Toggle } from './primitives';
 
 const REFRESH_MINUTES = [1, 3, 5, 6, 10, 15, 30, 60];
 
@@ -54,7 +55,7 @@ export default function GitHubPage({
         <SettingsRow
           title={
             <>
-              <InitialAvatar name={login ?? 'GitHub'} size="round" />
+              {login === null ? null : <UserAvatar login={login} size={30} />}
               <span>{configured ? (login ?? 'Connected') : 'Not connected'}</span>
               <StatusDot tone={configured ? 'ok' : 'idle'} />
             </>

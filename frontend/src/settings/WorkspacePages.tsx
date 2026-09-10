@@ -20,6 +20,7 @@ import type {
   WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
+import RepoAvatar from '../RepoAvatar';
 import { providerStatusLabel } from './model';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
 import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
@@ -28,7 +29,7 @@ import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from 
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   return (
     <div className="setw-eyebrow">
-      <span className="setw-avatar is-small" aria-hidden="true">{workspace.name.slice(0, 1)}</span>
+      <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
       <span>{workspace.selectedOwner}/{workspace.selectedRepo}</span>
     </div>
   );
@@ -80,9 +81,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
         <div className="setw-row">
           <div className="setw-row-label">Local checkout</div>
           {/* A managed path is long and unwrappable, so it gets the read-only field the tokens use. */}
-          <div className="setw-token setw-mono" title={workspace.localRepositoryPath}>
-            {workspace.localRepositoryPath}
-          </div>
+          <div className="setw-token setw-mono is-wrap">{workspace.localRepositoryPath}</div>
         </div>
       </SettingsCard>
 

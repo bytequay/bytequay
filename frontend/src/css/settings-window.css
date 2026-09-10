@@ -643,15 +643,6 @@
   text-transform: uppercase;
 }
 
-.setw-avatar.is-small { width: 17px; height: 17px; border-radius: 4px; font-size: 9.5px; }
-
-.setw-avatar.is-round {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  font-size: 12.5px;
-}
-
 /* ── Comparison table ─────────────────────────────────────────────────────── */
 
 .setw-compare {
@@ -818,6 +809,14 @@
 
 .setw-remote-form input:first-of-type { width: 110px; flex: none; }
 .setw-remote-form input:last-of-type { flex: 1; min-width: 0; }
+
+/* Wraps rather than truncates: a checkout path is read, not scanned, and there is
+   nowhere else to see it in full. */
+.setw-token.is-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
 
 .setw-token {
   flex: 1;

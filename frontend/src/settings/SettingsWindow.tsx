@@ -42,6 +42,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import { WindowControls } from '../AppSidebar';
+import RepoAvatar from '../RepoAvatar';
 import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
@@ -299,7 +300,9 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                       disabled={workspaces.length === 0}
                       onClick={() => setWsMenuOpen(open => !open)}
                     >
-                      <span className="setw-avatar" aria-hidden="true">{(workspace?.name ?? '?').slice(0, 1)}</span>
+                      {workspace === null
+                        ? <span className="setw-avatar" aria-hidden="true">?</span>
+                        : <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={19} />}
                       <span className="setw-ws-name">
                         {workspace === null ? 'No workspace' : `${workspace.selectedOwner}/${workspace.selectedRepo}`}
                       </span>
@@ -321,7 +324,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                               if (isWorkspaceSection(current)) go(current, candidate.id);
                             }}
                           >
-                            <span className="setw-avatar" aria-hidden="true">{candidate.name.slice(0, 1)}</span>
+                            <RepoAvatar owner={candidate.selectedOwner} repo={candidate.selectedRepo} size={19} />
                             <span className="setw-menu-label">{candidate.selectedOwner}/{candidate.selectedRepo}</span>
                           </button>
                         ))}

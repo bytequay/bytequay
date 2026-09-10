@@ -61,12 +61,6 @@ export function dotTone(badgeTone: string): 'ok' | 'warn' | 'bad' | 'idle' {
   return 'idle';
 }
 
-/** Initials block for a repository or account, matching the prototype's square avatar. */
-export function InitialAvatar({ name, size }: { name: string; size?: 'small' | 'round' }) {
-  const variant = size === undefined ? '' : ` is-${size}`;
-  return <span className={`setw-avatar${variant}`} aria-hidden="true">{name.slice(0, 1)}</span>;
-}
-
 export function Toggle({ on, label, disabled, onChange }: {
   on: boolean;
   label: string;

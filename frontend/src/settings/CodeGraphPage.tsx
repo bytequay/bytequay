@@ -19,7 +19,8 @@ import type {
   CodeGraphRepositoryComparisonDto,
 } from '../types';
 import { relativeTime } from '../relativeTime';
-import { Badge, InitialAvatar, Segmented, SelectPill, SettingsCard, SettingsRow } from './primitives';
+import RepoAvatar from '../RepoAvatar';
+import { Badge, Segmented, SelectPill, SettingsCard, SettingsRow } from './primitives';
 
 const MODE_HINTS: Record<CodeGraphMode, string> = {
   OFF: 'Tool hidden and indexing stopped',
@@ -62,6 +63,15 @@ export function formatDelta(graph: number | null, plain: number | null): { text:
   const percent = Math.round(((graph - plain) / plain) * 100);
   if (percent === 0) return { text: '0%', tone: 'is-none' };
   return { text: `${percent > 0 ? '+' : ''}${percent}%`, tone: percent < 0 ? 'is-better' : 'is-worse' };
+}
+
+/** Comparison rows are keyed by "owner/name"; the avatar needs the halves. */
+function ownerOf(repository: string): string {
+  return repository.split('/')[0] ?? repository;
+}
+
+function nameOf(repository: string): string {
+  return repository.split('/')[1] ?? '';
 }
 
 function armOf(entry: CodeGraphRepositoryComparisonDto, arm: 'ON' | 'OFF'): CodeGraphArmComparisonDto | null {
@@ -132,7 +142,7 @@ export default function CodeGraphPage({ mode, baseline, comparison, error, onMod
         <div className="setw-compare">
           <div className="setw-compare-head">
             <span>
-              <InitialAvatar name={selected.repository} size="small" />
+              <RepoAvatar owner={ownerOf(selected.repository)} repo={nameOf(selected.repository)} size={17} radius={4} />
               {' '}graph {graphTasks} tasks · no graph {plainTasks} tasks
             </span>
             {(graphTasks < LOW_SAMPLE || plainTasks < LOW_SAMPLE) && <Badge tone="warn">low sample</Badge>}

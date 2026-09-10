@@ -602,6 +602,11 @@ status poll nor normal tab navigation starts provider work.
 - committed-day grouping; and
 - current selection/viewed-row behavior.
 
+Day groups use the viewer's local calendar date. Relative ages round down, so
+shortly after midnight a commit from the previous evening can read `1 hour
+ago` under yesterday's date. Hovering the age shows the full local commit date,
+time, and timezone; this is the Git committer timestamp, not the PR merge time.
+
 The refresh ref list contains the currently selected workspace branch and,
 only when `upstreamRepositoryId` is present, the currently selected upstream
 branch. “No upstream linked” continues to open Settings and does not send an

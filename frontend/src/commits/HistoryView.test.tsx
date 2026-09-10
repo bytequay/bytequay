@@ -180,8 +180,9 @@ describe('workspace commit history', () => {
     expect(html).toContain('0123456');
   });
 
-  it('groups by committed day and reports the committer-relative age', () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-25T10:00:00Z'));
+  it('keeps yesterday’s committed day after midnight and shows the exact local time on hover', () => {
+    const committedAt = new Date('2026-09-10T22:20:15');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-11T00:04:00'));
     const html = renderToStaticMarkup(<HistoryView
       workspaceId="workspace-id"
       branch="main"
@@ -197,7 +198,7 @@ describe('workspace commit history', () => {
         committer: 'example-committer',
         committerAvatarUrl: null,
         authoredAt: '2026-08-13T10:00:00Z',
-        committedAt: '2026-08-25T09:00:00Z',
+        committedAt: committedAt.toISOString(),
       }]}
       loading={false}
       checked={new Set()}
@@ -207,7 +208,7 @@ describe('workspace commit history', () => {
     />);
     now.mockRestore();
 
-    expect(html).toContain('Commits on Aug 25, 2026');
+    expect(html).toContain('Commits on Sep 10, 2026');
     expect(html).toContain('lucide-git-commit-horizontal');
     expect(html).not.toContain('⑂');
     expect(html).not.toContain('Commits on Aug 13, 2026');
@@ -215,7 +216,9 @@ describe('workspace commit history', () => {
       '<strong>example-author</strong> authored and <strong>example-committer</strong> committed <time',
     );
     expect(html).toContain('>1 hour ago</time>');
-    expect(html).not.toContain('committed 12 days ago');
+    expect(html).toContain(`title="${committedAt.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'long' })}"`);
+    expect(html).not.toContain('Commits on Sep 11, 2026');
+    expect(html).not.toContain('committed 28 days ago');
   });
 
   it('keeps the initial fallback in the avatar slot', () => {

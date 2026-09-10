@@ -63,7 +63,10 @@ function CommitByline({ commit }: { commit: GitCommitDto }) {
       <span className="cmt-commit-byline">
         <strong>{commit.author}</strong>
         {sameActor ? ' committed ' : <>{' authored and '}<strong>{commit.committer}</strong>{' committed '}</>}
-        <time dateTime={commit.committedAt}>
+        <time
+          dateTime={commit.committedAt}
+          title={new Date(commit.committedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'long' })}
+        >
           {relativeTime(commit.committedAt, { style: 'long' })}
         </time>
       </span>

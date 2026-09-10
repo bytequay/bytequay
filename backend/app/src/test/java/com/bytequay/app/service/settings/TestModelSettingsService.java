@@ -167,18 +167,18 @@ class TestModelSettingsService
     }
 
     @Test
-    void selectionIsValidatedAgainstTheCatalog()
+    void anAgentModelIsValidatedAgainstTheCatalog()
     {
-        service.select("claude", "sonnet", Optional.of("Max"));
-        var claude = service.get().providers().getFirst();
-        assertThat(claude.selectedModel()).isEqualTo("sonnet");
-        assertThat(claude.selectedEffort()).isEqualTo("Max");
+        service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "sonnet", Optional.of("Max"));
+        AgentModelSetting development = service.agentModel(AgentModelType.DEVELOPMENT);
+        assertThat(development.model()).isEqualTo("sonnet");
+        assertThat(development.effort()).contains("Max");
 
-        assertThatThrownBy(() -> service.select("claude", "gpt-5.2", Optional.empty()))
+        assertThatThrownBy(() -> service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "gpt-5.2", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.select("claude", "opus", Optional.of("Turbo")))
+        assertThatThrownBy(() -> service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "opus", Optional.of("Turbo")))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.select("codex", "gpt-5.6-luna", Optional.of("ultra")))
+        assertThatThrownBy(() -> service.setAgentModel(AgentModelType.REVIEW, "codex", "gpt-5.6-luna", Optional.of("ultra")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -226,7 +226,7 @@ class TestModelSettingsService
     @Test
     void aLegacyMainModelBecomesDevelopmentAndLeavesReviewInheriting()
     {
-        service.select("codex", "gpt-5.6-sol", Optional.of("high"));
+        settingsStore.put("model.selection.codex", "{\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}");
         settingsStore.put("model.main", "codex");
 
         service.migrateLegacyMainModel();

@@ -35,12 +35,13 @@ export function filterSkills(skills: AgentSkillDto[], scope: ScopeFilter): Agent
   return scope === 'ALL' ? skills : skills.filter(skill => skill.scope === scope);
 }
 
-export default function SkillsPage({ skills, busy, error, onSave, onToggle }: {
+export default function SkillsPage({ skills, busy, error, onSave, onToggle, onRemove }: {
   skills: AgentSkillDto[];
   busy: boolean;
   error: string | null;
   onSave: (input: AgentSkillInput, id: string | null) => void;
   onToggle: (skill: AgentSkillDto) => void;
+  onRemove: (skill: AgentSkillDto) => void;
 }) {
   const [scope, setScope] = useState<ScopeFilter>('ALL');
   const [editing, setEditing] = useState<AgentSkillDto | 'new' | null>(null);
@@ -96,16 +97,18 @@ export default function SkillsPage({ skills, busy, error, onSave, onToggle }: {
           skill={editing === 'new' ? null : editing}
           onCancel={() => setEditing(null)}
           onSave={input => { setEditing(null); onSave(input, editing === 'new' ? null : editing.id); }}
+          onRemove={editing === 'new' ? undefined : () => { setEditing(null); onRemove(editing); }}
         />
       )}
     </div>
   );
 }
 
-function SkillDialog({ skill, onSave, onCancel }: {
+function SkillDialog({ skill, onSave, onCancel, onRemove }: {
   skill: AgentSkillDto | null;
   onSave: (input: AgentSkillInput) => void;
   onCancel: () => void;
+  onRemove?: () => void;
 }) {
   const [name, setName] = useState(skill?.name ?? '');
   const [scope, setScope] = useState<AgentSkillScope>(skill?.scope ?? 'GLOBAL');
@@ -117,6 +120,9 @@ function SkillDialog({ skill, onSave, onCancel }: {
       title={skill === null ? 'Add skill' : 'Edit skill'}
       confirmLabel={skill === null ? 'Add skill' : 'Save skill'}
       confirmDisabled={!ready}
+      destructive={onRemove === undefined ? undefined : (
+        <button type="button" className="setw-btn is-danger" onClick={onRemove}>Remove skill</button>
+      )}
       onConfirm={() => {
         if (ready) onSave({ name: name.trim(), instructions, enabled: skill?.enabled ?? true, scope });
       }}

@@ -1421,7 +1421,6 @@ export type Bridge = {
   ) => Promise<{ sha: string }>;
 
   getModelSettings: (workspaceId?: string) => Promise<ModelSettingsDto>;
-  updateModelSelection: (configId: string, model: string, effort: string | null) => Promise<ModelSettingsDto>;
   setAgentModel: (
     type: AgentModelType,
     configId: string,

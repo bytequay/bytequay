@@ -71,13 +71,6 @@ public class SettingsController
         return models.get(Optional.ofNullable(workspaceId));
     }
 
-    @PutMapping("/models/{configId}/selection")
-    public ModelSettings select(@PathVariable String configId, @RequestBody SelectionRequest request)
-    {
-        models.select(configId, request.model(), Optional.ofNullable(request.effort()));
-        return models.get();
-    }
-
     @PutMapping("/models/agents/{type}")
     public ModelSettings setAgentModel(@PathVariable AgentModelType type, @RequestBody SelectionRequest request)
     {

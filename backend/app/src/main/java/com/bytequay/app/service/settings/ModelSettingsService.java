@@ -70,6 +70,7 @@ public class ModelSettingsService
     private static final String AGENT_MODEL_PREFIX = "model.agent.";
     /** Read once by {@link #migrateLegacyMainModel()} and then deleted; nothing else consults it. */
     private static final String LEGACY_MAIN_KEY = "model.main";
+    /** Read by the migration and by a lane's displayed default; nothing writes it since agent types replaced it. */
     private static final String SELECTION_PREFIX = "model.selection.";
     private static final String CATALOG_PREFIX = "model.catalog.";
     private static final String API_KEY_ID_PREFIX = "key:";
@@ -218,12 +219,6 @@ public class ModelSettingsService
                 .map(type -> agentModel(type, workspaceId))
                 .collect(toImmutableList());
         return new ModelSettings(agents, providers, keys, keyProviders);
-    }
-
-    public void select(String configId, String model, Optional<String> effort)
-    {
-        requireSelection(configId, model, effort);
-        writeJson(SELECTION_PREFIX + configId, new Selection(model, effort.orElse(null)));
     }
 
     /** Validates a provider model selection without changing saved settings. */

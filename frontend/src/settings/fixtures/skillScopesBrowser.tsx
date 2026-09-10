@@ -47,6 +47,7 @@ function Harness({ initial, writes }: { initial: AgentSkillDto[]; writes: AgentS
       error={null}
       onSave={save}
       onToggle={skill => save({ ...skill, enabled: !skill.enabled }, skill.id)}
+      onRemove={skill => setSkills(current => current.filter(existing => existing.id !== skill.id))}
     />
   );
 }
@@ -162,6 +163,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await view.click('Enable Review preference');
     assert(view.writes.at(-1)?.scope === 'DEVELOPMENT' && view.writes.at(-1)?.enabled === true,
       'Enabling must preserve the changed scope');
+
+    // Removal lives in the dialog rather than on the row, but it must still be reachable.
+    await view.click('Edit Review preference');
+    await view.click('Remove skill');
+    assert(view.rows().length === 0, 'Removing must drop the skill from the list');
   }, [{ id: 'review', name: 'Review preference', instructions: 'Original instructions.', enabled: true, scope: 'REVIEW' }]);
 
   return results;

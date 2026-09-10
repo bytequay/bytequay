@@ -203,8 +203,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('git:squash', workspaceId, branch, baseSha, tipSha, message),
 
   getModelSettings: workspaceId => ipcRenderer.invoke('settings:models', workspaceId),
-  updateModelSelection: (configId, model, effort) =>
-    ipcRenderer.invoke('settings:models:select', configId, model, effort),
   setAgentModel: (type, configId, model, effort) =>
     ipcRenderer.invoke('settings:models:agent:set', type, configId, model, effort),
   clearAgentModel: type => ipcRenderer.invoke('settings:models:agent:clear', type),

@@ -219,11 +219,13 @@ export function AddAction({ label, onClick }: { label: string; onClick: () => vo
  * Modal over the settings window. Escape cancels; the primary action is
  * disabled until the form is answerable, which is what the prototype shows.
  */
-export function Dialog({ title, children, confirmLabel, confirmDisabled, onConfirm, onCancel }: {
+export function Dialog({ title, children, confirmLabel, confirmDisabled, destructive, onConfirm, onCancel }: {
   title: string;
   children: ReactNode;
   confirmLabel: string;
   confirmDisabled?: boolean;
+  /** A destructive action for the thing being edited, kept left of Cancel and away from the primary. */
+  destructive?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -246,6 +248,7 @@ export function Dialog({ title, children, confirmLabel, confirmDisabled, onConfi
         </div>
         <div className="setw-dialog-body">{children}</div>
         <div className="setw-dialog-foot">
+          {destructive !== undefined && <div className="setw-dialog-foot-start">{destructive}</div>}
           <button type="button" className="setw-btn" onClick={onCancel}>Cancel</button>
           <button type="button" className="setw-btn-primary" disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}

@@ -749,6 +749,8 @@
   background: #fafafb;
 }
 
+.setw-dialog-foot-start { margin-right: auto; }
+
 .setw-dialog-foot .setw-btn,
 .setw-dialog-foot .setw-btn-primary {
   padding: 7px 14px;

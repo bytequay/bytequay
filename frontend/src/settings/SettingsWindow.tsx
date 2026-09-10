@@ -388,6 +388,11 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                 window.bridge.updateAgentSkill(skill.id, { ...skill, enabled: !skill.enabled })
                   .then(setSkills).catch(report).finally(() => setSkillsBusy(false));
               }}
+              onRemove={skill => {
+                setSkillsBusy(true);
+                window.bridge.removeAgentSkill(skill.id)
+                  .then(setSkills).catch(report).finally(() => setSkillsBusy(false));
+              }}
             />
           )}
           {current === 'code-graph' && graphMode !== null && (

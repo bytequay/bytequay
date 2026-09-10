@@ -138,17 +138,21 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
         <SettingsRow
           title="Default target branch"
           badge={target?.overridden === false ? <Badge>automatic</Badge> : undefined}
-          subtitle={target === null ? undefined : (
-            <span className="setw-mono">{target.remote}/{target.branch} · remote picked for you</span>
-          )}
+          subtitle={target === null ? undefined : (target.overridden
+            ? 'Cherry-picks and commits land here'
+            : `Following this repository's default branch on ${target.remote}`)}
         >
-          <input
-            className="setw-input setw-mono"
-            aria-label="Default target branch"
-            style={{ width: 150 }}
-            value={branchValue}
-            onChange={event => setBranch(event.target.value)}
-          />
+          {/* The remote is not editable — it is upstream when one is linked and origin
+              otherwise — so it reads as the fixed half of one field rather than a second value. */}
+          <span className="setw-branch">
+            <span className="setw-mono">{target === null ? '' : `${target.remote}/`}</span>
+            <input
+              className="setw-mono"
+              aria-label="Default target branch"
+              value={branchValue}
+              onChange={event => setBranch(event.target.value)}
+            />
+          </span>
           <button
             type="button"
             className="setw-btn-primary"

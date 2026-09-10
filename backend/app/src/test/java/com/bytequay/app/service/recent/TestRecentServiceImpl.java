@@ -13,6 +13,13 @@
  */
 package com.bytequay.app.service.recent;
 
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -37,6 +44,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -65,6 +73,7 @@ class TestRecentServiceImpl
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PrViewStateStore viewStates = mock(PrViewStateStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final RecentTouchRecorder recorder = mock(RecentTouchRecorder.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
@@ -75,7 +84,7 @@ class TestRecentServiceImpl
     void setUp()
     {
         when(appSettings.recentRetentionDays()).thenReturn(14);
-        service = new RecentServiceImpl(store, recorder, details, viewStates, workspaces, credentials, appSettings, CLOCK);
+        service = new RecentServiceImpl(store, recorder, details, viewStates, workspaces, tasks, credentials, appSettings, CLOCK);
         when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
         when(viewStates.findByPrIds(anySet())).thenReturn(ImmutableMap.of());
     }
@@ -175,6 +184,48 @@ class TestRecentServiceImpl
                 .isEqualTo("race");
         assertThat(hit.kindLabel()).isEqualTo("comment");
         assertThat(hit.neverPosted()).isFalse();
+    }
+
+    @Test
+    void resolvesTheCurrentTaskWorkspaceForExistingRowsAndPromptHits()
+    {
+        TaskId taskId = TaskId.random();
+        String itemKey = "task:" + taskId;
+        store.put(taskTouch(itemKey));
+        store.putText(taskText(itemKey));
+        when(tasks.get(taskId)).thenReturn(task(taskId, true));
+        when(workspaces.findById("ws-1")).thenReturn(Optional.of(workspace("ws-1", "upstream", "repo")));
+        when(workspaces.findById("ws-2")).thenReturn(Optional.of(workspace("ws-2", "personal", "repo")));
+
+        assertThat(service.stream(everything(), null).rows().getFirst().workspaceId()).isEqualTo("ws-1");
+        assertThat(service.search("task", 10).getFirst().workspaceId()).isEqualTo("ws-1");
+        RecentWordHit hit = service.words("prompt", 10).getFirst();
+        assertThat(hit.itemKey()).isEqualTo(itemKey);
+        assertThat(hit.workspaceId()).isEqualTo("ws-1");
+        assertThat(service.stream(
+                new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null).rows())
+                .extracting(RecentRow::itemKey).containsExactly(itemKey);
+        assertThat(service.stream(
+                new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-2", false, null), null).rows()).isEmpty();
+    }
+
+    @Test
+    void preservesWordsWithoutRoutingDeletedMalformedOrWorkflowTasks()
+    {
+        TaskId deletedId = TaskId.random();
+        TaskId workflowId = TaskId.random();
+        when(tasks.get(deletedId)).thenThrow(new AgentTaskNotFoundException(deletedId));
+        when(tasks.get(workflowId)).thenReturn(task(workflowId, false));
+        for (String itemKey : ImmutableList.of("task:" + deletedId, "task:" + workflowId, "task:invalid", "invalid-prefix")) {
+            store.put(taskTouch(itemKey));
+            store.putText(taskText(itemKey));
+        }
+
+        assertThat(service.stream(everything(), null).rows()).hasSize(4).allSatisfy(row -> assertThat(row.workspaceId()).isNull());
+        assertThat(service.words("prompt", 10)).hasSize(4).allSatisfy(hit -> {
+            assertThat(hit.workspaceId()).isNull();
+            assertThat(hit.body()).isEqualTo("task prompt");
+        });
     }
 
     @Test
@@ -299,14 +350,14 @@ class TestRecentServiceImpl
     void stillMatchesARowStampedWithTheWorkspaceWhenItCarriesNoRepository()
     {
         store.put(new RecentTouch(
-                "task:t1@" + TODAY, RecentItemType.TASK, "task:t1", TODAY, NOW, RecentReason.PROMPTED, 0,
+                "commit:abc@" + TODAY, RecentItemType.COMMIT, "commit:abc", TODAY, NOW, RecentReason.PUSHED, 0,
                 null, "rebase release-1.4", null, "ws-1", null, true, null, null));
         when(workspaces.findById("ws-1")).thenReturn(Optional.of(workspace("ws-1", "o", "r")));
 
         assertThat(service.stream(
                 new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null)
                 .rows())
-                .extracting(RecentRow::itemKey).containsExactly("task:t1");
+                .extracting(RecentRow::itemKey).containsExactly("commit:abc");
     }
 
     @Test
@@ -393,6 +444,27 @@ class TestRecentServiceImpl
         return new RecentText(
                 id, RecentItemType.PULL_REQUEST, "pr:o/r#1", RecentTextKind.COMMENT, body, writtenAt,
                 1, "o/r", "Support sorted by nested fields", null);
+    }
+
+    private static RecentTouch taskTouch(String itemKey)
+    {
+        return new RecentTouch(
+                itemKey + "@" + TODAY, RecentItemType.TASK, itemKey, TODAY, NOW, RecentReason.PROMPTED, 0,
+                null, "task prompt", "personal/repo", null, null, true, null, "codex");
+    }
+
+    private static AgentTask task(TaskId taskId, boolean interactive)
+    {
+        return AgentTask.created(
+                taskId, Optional.of("ws-1"), interactive, "task prompt", new AgentLaneId("codex"),
+                new RepositoryIdentity("personal", "repo"), Path.of("/tmp/recent-test-worktree"), AgentPermissionPolicy.AUTO, NOW);
+    }
+
+    private static RecentText taskText(String itemKey)
+    {
+        return new RecentText(
+                itemKey + ":prompt:turn", RecentItemType.TASK, itemKey, RecentTextKind.TASK_PROMPT, "task prompt", NOW,
+                null, "personal/repo", "task prompt", null);
     }
 
     private static Workspace workspace(String id, String owner, String repo)

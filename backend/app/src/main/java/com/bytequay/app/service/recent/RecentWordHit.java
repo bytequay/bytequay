@@ -44,6 +44,7 @@ public record RecentWordHit(
         String body,
         Integer number,
         String repo,
+        String workspaceId,
         String title,
         String htmlUrl,
         Instant writtenAt)

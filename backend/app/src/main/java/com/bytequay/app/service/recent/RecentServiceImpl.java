@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.service.recent;
 
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -74,6 +78,7 @@ public class RecentServiceImpl
     private final PrDetailStore details;
     private final PrViewStateStore viewStates;
     private final WorkspaceStore workspaces;
+    private final AgentTaskService tasks;
     private final CredentialService credentials;
     private final AppSettingsService appSettings;
     private final Clock clock;
@@ -84,6 +89,7 @@ public class RecentServiceImpl
             PrDetailStore details,
             PrViewStateStore viewStates,
             WorkspaceStore workspaces,
+            AgentTaskService tasks,
             CredentialService credentials,
             AppSettingsService appSettings,
             Clock clock)
@@ -93,6 +99,7 @@ public class RecentServiceImpl
         this.details = requireNonNull(details, "details is null");
         this.viewStates = requireNonNull(viewStates, "viewStates is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -270,10 +277,13 @@ public class RecentServiceImpl
                 .orElse(null);
     }
 
-    private static boolean inWorkspace(RecentTouch touch, Optional<String> workspaceId, Optional<String> repository)
+    private boolean inWorkspace(RecentTouch touch, Optional<String> workspaceId, Optional<String> repository)
     {
         if (workspaceId.isEmpty()) {
             return true;
+        }
+        if (touch.type() == RecentItemType.TASK) {
+            return taskWorkspace(touch.itemKey()).equals(workspaceId);
         }
         if (workspaceId.get().equals(touch.workspaceId())) {
             return true;
@@ -308,7 +318,7 @@ public class RecentServiceImpl
                 touch.number(),
                 touch.title(),
                 touch.repo(),
-                touch.workspaceId(),
+                touch.type() == RecentItemType.TASK ? taskWorkspace(touch.itemKey()).orElse(null) : touch.workspaceId(),
                 touch.mine(),
                 touch.touchedAt(),
                 touch.reason(),
@@ -317,6 +327,22 @@ public class RecentServiceImpl
                 touch.subtitle(),
                 text.map(RecentText::body).orElse(null),
                 text.map(RecentText::id).orElse(null));
+    }
+
+    private Optional<String> taskWorkspace(String itemKey)
+    {
+        String prefix = RecentItemType.TASK.prefix() + ":";
+        if (!itemKey.startsWith(prefix)) {
+            return Optional.empty();
+        }
+        try {
+            AgentTask task = tasks.get(TaskId.valueOf(itemKey.substring(prefix.length())));
+            return task.interactive() ? task.workspaceId() : Optional.empty();
+        }
+        catch (IllegalArgumentException | AgentTaskNotFoundException ignored) {
+            // Recent keeps the user's words after the task itself is deleted.
+            return Optional.empty();
+        }
     }
 
     static String reasonLabel(RecentTouch touch)
@@ -391,7 +417,7 @@ public class RecentServiceImpl
 
     // ── Words-mode hits ───────────────────────────────────────────────────────
 
-    private static RecentWordHit toHit(RecentText text, List<String> tokens)
+    private RecentWordHit toHit(RecentText text, List<String> tokens)
     {
         RecentWordMatch match = matchIn(text, tokens);
         return new RecentWordHit(
@@ -406,6 +432,7 @@ public class RecentServiceImpl
                 text.body(),
                 text.number(),
                 text.repo(),
+                text.type() == RecentItemType.TASK ? taskWorkspace(text.itemKey()).orElse(null) : null,
                 text.title(),
                 text.htmlUrl(),
                 text.writtenAt());

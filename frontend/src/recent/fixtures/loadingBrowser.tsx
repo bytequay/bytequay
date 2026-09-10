@@ -17,6 +17,7 @@ import { createRoot } from 'react-dom/client';
 import type { RecentFilterQuery, RecentRowDto } from '../../types';
 import RecentPage from '../RecentPage';
 import { isoDay, parseDay, shiftDay } from '../model';
+import { recentItemRoute } from '../routes';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
 type Pending = { query: RecentFilterQuery; resolve: (page: DayPage) => void; reject: (error: Error) => void };
@@ -41,6 +42,7 @@ function dayPage(day: string, count = 20, nextCursor: string | null = null): Day
 function fixture(active = true) {
   const requests: Pending[] = [];
   const metadataReads: string[] = [];
+  const openedRoutes: (string | null)[] = [];
   const bridge = {
     listWorkspaces: async () => { metadataReads.push('workspaces'); return []; },
     fetchRecentChanges: async () => { metadataReads.push('changes'); return []; },
@@ -51,12 +53,12 @@ function fixture(active = true) {
   host.style.cssText = 'height: 500px; width: 1000px; font: 14px sans-serif';
   document.body.append(host);
   const root = createRoot(host);
-  const render = () => flushSync(() => root.render(<RecentPage active={active} onOpenRow={() => {}} />));
+  const render = () => flushSync(() => root.render(<RecentPage active={active} onOpenRow={row => openedRoutes.push(recentItemRoute(row))} />));
   render();
   const stream = host.querySelector<HTMLElement>('.rc-stream');
   assert(stream !== null, 'Recent stream is missing');
   return {
-    host, stream, requests, metadataReads,
+    host, stream, requests, metadataReads, openedRoutes,
     requestCount: () => requests.length,
     async activate(next: boolean) { active = next; render(); await settle(); },
     async click(text: string) {
@@ -80,6 +82,21 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     finally { view.dispose(); }
   };
+  await check('opens the prompted task from the expanded thread action', async view => {
+    const page = dayPage(today, 1);
+    const taskId = '622f3ef2-b16a-4b86-9ac7-92e3f80bbc81';
+    page.rows[0] = {
+      ...page.rows[0], type: 'TASK', itemKey: `task:${taskId}`, id: `task:${taskId}@${today}`,
+      workspaceId: 'workspace-1', number: null, reason: 'PROMPTED', reasonLabel: 'You prompted',
+      snippet: 'Find another nit and refactor it', textId: `task:${taskId}:prompt:request-1`,
+    };
+    await view.resolve(0, page);
+    view.host.querySelector<HTMLElement>('.rc-row')?.click();
+    await settle();
+    assert(view.openedRoutes.length === 0, 'Expanding the prompt must keep Recent open');
+    await view.click('Open the thread');
+    assert(view.openedRoutes.join() === `#/workspaces/workspace-1/tasks/agent/${taskId}`, 'Open the thread must select the original task conversation');
+  });
   await check('shows real pending loads and retries a failed page once without dropping existing rows', async view => {
     assert(view.requestCount() === 1, 'Mount should request the first page once');
     assert(view.host.querySelector('[role="status"]')?.textContent?.includes('Loading recent') === true, 'The initial request needs an initial-loading status');

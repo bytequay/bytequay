@@ -12,9 +12,10 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
 import { relativeTime } from '../relativeTime';
-import { highlightParts, roleTone, rowMarkdown, TYPE_GLYPH } from './model';
+import { highlightParts, roleTone, rowMarkdown, TYPE_ICON } from './model';
 import '../css/recent.css';
 
 type Mode = 'items' | 'words';
@@ -167,7 +168,7 @@ export default function RecentPalette({
     }}>
       <div className="rc-palette" role="dialog" aria-label="Recent" aria-modal="true" onKeyDown={handleKey}>
         <div className="rc-palette__head">
-          <span aria-hidden="true">⌕</span>
+          <Search size={16} aria-hidden="true" />
           <input
             ref={inputRef}
             className="rc-palette__input"
@@ -228,11 +229,12 @@ function ItemRow({ row, change, active, onHover, onOpen }: {
   onOpen: () => void;
 }) {
   const dot = change?.moved ? 'is-moved' : change?.wantsYou ? 'is-wants' : null;
+  const Icon = TYPE_ICON[row.type];
   return (
     <button type="button" className={`rc-item${active ? ' is-active' : ''}`}
       onMouseMove={onHover} onClick={onOpen}>
       <span className="rc-item__line">
-        <span className={`rc-glyph is-${roleTone(row)}`} aria-hidden="true">{TYPE_GLYPH[row.type]}</span>
+        <Icon className={`rc-glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />
         <span className="rc-item__title">{row.title}</span>
         {dot && <span className={`rc-dot ${dot}`} aria-hidden="true" />}
       </span>

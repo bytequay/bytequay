@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, CircleDot, GitPullRequest, Sparkles } from 'lucide-react';
+import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Copy, GitPullRequest, Sparkles } from 'lucide-react';
 import Avatar from '../Avatar';
 import RepoAvatar from '../RepoAvatar';
 import type {
@@ -38,7 +38,7 @@ import {
   shiftDay,
   splitRepo,
   streamErrorMessage,
-  TYPE_GLYPH,
+  TYPE_ICON,
   type RangeKey,
 } from './model';
 import '../css/recent.css';
@@ -281,7 +281,7 @@ export default function RecentPage({ active = true, onOpenRow }: {
                   <button key={option.key} type="button" role="menuitem"
                     className={range === option.key ? 'is-selected' : ''}
                     onClick={() => { setRange(option.key); setMenu(null); }}>
-                    <span className="rc-menu__check">{range === option.key ? '✓' : ''}</span>
+                    <span className="rc-menu__check">{range === option.key && <Check size={12} aria-hidden="true" />}</span>
                     {option.label}
                   </button>
                 ))}
@@ -312,13 +312,13 @@ export default function RecentPage({ active = true, onOpenRow }: {
               <div className="rc-menu" role="menu">
                 <button type="button" role="menuitem" className={workspace === '' ? 'is-selected' : ''}
                   onClick={() => { setWorkspace(''); setMenu(null); }}>
-                  <span className="rc-menu__check">{workspace === '' ? '✓' : ''}</span>All workspaces
+                  <span className="rc-menu__check">{workspace === '' && <Check size={12} aria-hidden="true" />}</span>All workspaces
                 </button>
                 {workspaces.map(item => (
                   <button key={item.id} type="button" role="menuitem"
                     className={workspace === item.id ? 'is-selected' : ''}
                     onClick={() => { setWorkspace(item.id); setMenu(null); }}>
-                    <span className="rc-menu__check">{workspace === item.id ? '✓' : ''}</span>{item.name}
+                    <span className="rc-menu__check">{workspace === item.id && <Check size={12} aria-hidden="true" />}</span>{item.name}
                   </button>
                 ))}
               </div>
@@ -348,7 +348,7 @@ export default function RecentPage({ active = true, onOpenRow }: {
                   <button key={option.value || 'any'} type="button" role="menuitem"
                     className={action === option.value ? 'is-selected' : ''}
                     onClick={() => { setAction(option.value); setMenu(null); }}>
-                    <span className="rc-menu__check">{action === option.value ? '✓' : ''}</span>
+                    <span className="rc-menu__check">{action === option.value && <Check size={12} aria-hidden="true" />}</span>
                     {option.label}
                   </button>
                 ))}
@@ -416,6 +416,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
     window.setTimeout(() => setCopied(null), 1200);
   };
   const repo = splitRepo(row.repo);
+  const Icon = TYPE_ICON[row.type];
   // subtitle carries the author only for the two types that have one; on a
   // task it is the lane and on a commit it is the sha.
   const author = row.type === 'PULL_REQUEST' || row.type === 'ISSUE' ? row.subtitle : null;
@@ -440,7 +441,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
         onClick={activate}
         onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
         <span className="rc-row__time">{clockTime(row.touchedAt)}</span>
-        <span className={`rc-glyph rc-row__glyph is-${roleTone(row)}`} aria-hidden="true">{TYPE_GLYPH[row.type]}</span>
+        <Icon className={`rc-glyph rc-row__glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />
         <span className="rc-row__main">
           <span className="rc-row__title">
             <span className="rc-row__text">{row.title}</span>
@@ -454,16 +455,16 @@ export function Row({ row, change, open, onToggle, onOpen }: {
             <button type="button" className="rc-mini" onClick={event => {
               event.stopPropagation();
               copy('link', row.htmlUrl ?? '');
-            }}>⧉ {copied === 'link' ? 'Copied' : 'Link'}</button>
+            }}><Copy size={12} aria-hidden="true" />{copied === 'link' ? 'Copied' : 'Link'}</button>
             <button type="button" className="rc-mini" onClick={event => {
               event.stopPropagation();
               copy('markdown', rowMarkdown(row));
-            }}>⧉ {copied === 'markdown' ? 'Copied' : 'Markdown'}</button>
+            }}><Copy size={12} aria-hidden="true" />{copied === 'markdown' ? 'Copied' : 'Markdown'}</button>
             {row.htmlUrl && (
               <button type="button" className="rc-mini" aria-label="Open on GitHub" onClick={event => {
                 event.stopPropagation();
                 void window.bridge.openInAppBrowser(row.htmlUrl ?? '');
-              }}>↗</button>
+              }}><ArrowUpRight size={12} aria-hidden="true" /></button>
             )}
           </span>
           <span className={`rc-badge is-${reasonTone(row.reason)}`}>{row.reasonLabel}</span>
@@ -476,7 +477,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
           <div className="rc-wrote__actions">
             <button type="button" className="rc-mini"
               onClick={() => copy('text', row.snippet ?? '')}>
-              ⧉ {copied === 'text' ? 'Copied' : 'Copy this text'}
+              <Copy size={12} aria-hidden="true" />{copied === 'text' ? 'Copied' : 'Copy this text'}
             </button>
             <button type="button" className="rc-mini is-plain" onClick={onOpen}>Open the thread</button>
           </div>
@@ -504,10 +505,10 @@ function Calendar({ month, today, windowStart, activeDays, onMonth, onPick }: {
     <div className="rc-menu rc-cal" role="dialog" aria-label="Jump to a date">
       <div className="rc-cal__title">
         <button type="button" aria-label="Previous month"
-          onClick={() => onMonth(isoDay(new Date(date.getFullYear(), date.getMonth() - 1, 1)))}>‹</button>
+          onClick={() => onMonth(isoDay(new Date(date.getFullYear(), date.getMonth() - 1, 1)))}><ChevronLeft size={14} aria-hidden="true" /></button>
         <span>{MONTH_NAMES[date.getMonth()]} {date.getFullYear()}</span>
         <button type="button" aria-label="Next month"
-          onClick={() => onMonth(isoDay(new Date(date.getFullYear(), date.getMonth() + 1, 1)))}>›</button>
+          onClick={() => onMonth(isoDay(new Date(date.getFullYear(), date.getMonth() + 1, 1)))}><ChevronRight size={14} aria-hidden="true" /></button>
       </div>
       <div className="rc-cal__grid is-head">
         {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((label, index) => (

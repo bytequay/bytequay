@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { CircleDot, GitCommitHorizontal, GitPullRequest, SquareCheck, type LucideIcon } from 'lucide-react';
 import type { RecentItemType, RecentReason, RecentRowDto } from '../types';
 
 /** Fixed by the backend's retention sweep; the calendar greys everything older. */
@@ -25,11 +26,11 @@ export const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; days: number; 
   { key: 'last14', label: 'Last 14 days', days: RETENTION_DAYS, offset: 0 },
 ];
 
-export const TYPE_GLYPH: Record<RecentItemType, string> = {
-  PULL_REQUEST: '⑃',
-  ISSUE: '◉',
-  TASK: '☑',
-  COMMIT: '⑂',
+export const TYPE_ICON: Record<RecentItemType, LucideIcon> = {
+  PULL_REQUEST: GitPullRequest,
+  ISSUE: CircleDot,
+  TASK: SquareCheck,
+  COMMIT: GitCommitHorizontal,
 };
 
 export function isoDay(date: Date): string {

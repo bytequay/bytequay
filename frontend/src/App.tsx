@@ -34,7 +34,7 @@ import OnboardingScreen from './OnboardingScreen';
 import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
-import { splitRepo } from './recent/model';
+import { recentItemRoute } from './recent/routes';
 import SettingsWindow from './settings/SettingsWindow';
 import {
   isWorkspaceSection,
@@ -62,12 +62,6 @@ function pageFromRoute(hash: string): AppPage {
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
   const match = /^#\/(home|recent|pulls|workspaces)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
-}
-
-/** Splits a Recent item key back into the repository and number it points at. */
-function parseItemKey(itemKey: string): { repo: string; number: number } | null {
-  const match = /^[a-z]+:(.+)#(\d+)$/.exec(itemKey);
-  return match ? { repo: match[1], number: Number(match[2]) } : null;
 }
 
 export default function App() {
@@ -280,32 +274,18 @@ export default function App() {
 
   const openRecentRow = (row: RecentRowDto) => {
     setPaletteOpen(false);
-    const reference = parseItemKey(row.itemKey);
-    const repo = splitRepo(reference?.repo);
-    if (row.type === 'PULL_REQUEST' && reference && repo) {
-      window.location.hash = row.workspaceId
-        ? workspacePullRequestRoute(row.workspaceId, reference.number)
-        : pullRequestRoute({ owner: repo.owner, repo: repo.name, number: reference.number });
-      // Land on the thread the user wrote in, not the top of the item.
-      scrollToWrittenText(row.textId);
-      return;
-    }
-    if (row.type === 'ISSUE' && reference && row.workspaceId) {
-      window.location.hash = workspaceIssueRoute(row.workspaceId, reference.number);
-      return;
-    }
-    if (row.workspaceId) {
-      window.location.hash = workspaceRoute(row.workspaceId, row.type === 'COMMIT' ? 'commits' : 'tasks');
-    }
+    const route = recentItemRoute(row);
+    if (route === null) return;
+    window.location.hash = route;
+    if (row.type === 'PULL_REQUEST') scrollToWrittenText(row.textId);
   };
 
   const openRecentWordHit = (hit: RecentWordHitDto) => {
     setPaletteOpen(false);
-    const reference = parseItemKey(hit.itemKey);
-    const repo = splitRepo(reference?.repo);
-    if (!reference || !repo || hit.type !== 'PULL_REQUEST') return;
-    window.location.hash = pullRequestRoute({ owner: repo.owner, repo: repo.name, number: reference.number });
-    scrollToWrittenText(hit.id);
+    const route = recentItemRoute(hit);
+    if (route === null) return;
+    window.location.hash = route;
+    if (hit.type === 'PULL_REQUEST') scrollToWrittenText(hit.id);
   };
 
   // A bare `#/settings` reopens whichever page was last open.
@@ -376,6 +356,14 @@ export default function App() {
           onBack={() => window.history.back()}
           onForward={() => window.history.forward()}
           onNavigate={next => {
+            // Settings from inside a workspace opens that workspace's own pages, which is
+            // what the tab it replaced used to do.
+            if (next === 'settings' && workspace !== null) {
+              setSettingsWorkspaceId(workspace.id);
+              updateWorkspace(null);
+              window.location.hash = settingsRoute('ws-repository', workspace.id);
+              return;
+            }
             if (next === page && workspace === null) return;
             setPage(next);
             updateWorkspace(null);

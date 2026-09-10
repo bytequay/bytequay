@@ -121,19 +121,33 @@ export default function AppSidebar({
     </div>
   );
 
-  const navItem = ({ page: destination, label, icon }: NavItem) => (
+  /** Every sidebar row, whichever shape renders it. */
+  const row = ({ key, label, icon, active, disabled, title, onClick }: {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    active: boolean;
+    disabled?: boolean;
+    title?: string;
+    onClick: () => void;
+  }) => (
     <button
-      key={destination}
+      key={key}
       type="button"
-      className={`app-sidebar__item${page === destination ? ' is-active' : ''}`}
+      className={`app-sidebar__item${active ? ' is-active' : ''}`}
       aria-label={label}
-      title={label}
-      onClick={() => onNavigate(destination)}
+      aria-current={active ? 'page' : undefined}
+      title={title ?? label}
+      disabled={disabled}
+      onClick={onClick}
     >
       <span aria-hidden="true">{icon}</span>
       <span className="app-sidebar__label">{label}</span>
     </button>
   );
+
+  const navItem = ({ page: destination, label, icon }: NavItem) =>
+    row({ key: destination, label, icon, active: page === destination, onClick: () => onNavigate(destination) });
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;
@@ -145,20 +159,15 @@ export default function AppSidebar({
 
   const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
     const reason = disabledReason(tab);
-    return (
-      <button
-        key={tab}
-        type="button"
-        className={`app-sidebar__item${workspaceTab === tab ? ' is-active' : ''}`}
-        aria-label={label}
-        title={reason ?? label}
-        disabled={reason !== null}
-        onClick={() => onWorkspaceTab(tab)}
-      >
-        <span aria-hidden="true">{icon}</span>
-        <span className="app-sidebar__label">{label}</span>
-      </button>
-    );
+    return row({
+      key: tab,
+      label,
+      icon,
+      active: workspaceTab === tab,
+      disabled: reason !== null,
+      title: reason ?? label,
+      onClick: () => onWorkspaceTab(tab),
+    });
   };
 
   const settingsBody = settings === undefined ? null : (() => {
@@ -168,10 +177,13 @@ export default function AppSidebar({
       ?? null;
     return (
       <>
-        <button type="button" className="app-sidebar__item" aria-label="Back to app" title="Back to app" onClick={settings.onExit}>
-          <span aria-hidden="true"><ChevronLeft size={16} strokeWidth={1.7} /></span>
-          <span className="app-sidebar__label">Back to app</span>
-        </button>
+        {row({
+          key: 'back',
+          label: 'Back to app',
+          icon: <ChevronLeft size={16} strokeWidth={1.7} aria-hidden="true" />,
+          active: false,
+          onClick: settings.onExit,
+        })}
         {!collapsed && (
           <div className="app-sidebar__search">
             <Search size={13} strokeWidth={2.2} aria-hidden="true" />
@@ -227,20 +239,13 @@ export default function AppSidebar({
                     )}
                   </div>
                 )}
-                {entries.map(entry => (
-                  <button
-                    key={entry.section}
-                    type="button"
-                    className={`app-sidebar__item${entry.section === settings.section ? ' is-active' : ''}`}
-                    aria-label={entry.label}
-                    aria-current={entry.section === settings.section ? 'page' : undefined}
-                    title={entry.label}
-                    onClick={() => settings.onSection(entry.section)}
-                  >
-                    <span aria-hidden="true">{SETTINGS_ICONS[entry.section]}</span>
-                    <span className="app-sidebar__label">{entry.label}</span>
-                  </button>
-                ))}
+                {entries.map(entry => row({
+                  key: entry.section,
+                  label: entry.label,
+                  icon: SETTINGS_ICONS[entry.section],
+                  active: entry.section === settings.section,
+                  onClick: () => settings.onSection(entry.section),
+                }))}
               </div>
             );
           })}
@@ -300,15 +305,9 @@ export default function AppSidebar({
         <div className="app-sidebar__rule" />
       </nav>
       {workspace === null ? (
-        <>
-          <nav className="app-sidebar__nav" aria-label="Application navigation">
-            {APP_NAV_ITEMS.map(navItem)}
-          </nav>
-          <div className="app-sidebar__spacer" />
-          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
-            {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
-          </nav>
-        </>
+        <nav className="app-sidebar__nav" aria-label="Application navigation">
+          {APP_NAV_ITEMS.map(navItem)}
+        </nav>
       ) : (
         <>
           <button
@@ -324,9 +323,12 @@ export default function AppSidebar({
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}
           </nav>
-          <div className="app-sidebar__spacer" />
         </>
       )}
+      <div className="app-sidebar__spacer" />
+      <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
+        {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
+      </nav>
       </>}
       {!collapsed && (
         <div

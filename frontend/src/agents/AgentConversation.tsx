@@ -791,7 +791,7 @@ export function AgentConversation({
           ? <div className="agt-empty">No activity yet.</div>
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
-            const open = turnChoice[id] ?? true;
+            const open = turnChoice[id] ?? (turn.endedAt === null || turn.answer === null);
             return <TurnView key={id} turn={turn} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}

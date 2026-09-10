@@ -80,8 +80,9 @@ the conversation directly; inspecting the output's own scroll range requires
 explicit scrollbar or keyboard interaction.
 Retained image previews are limited to sixteen thumbnails of at most 512 pixels
 per side. Opening the image viewer fetches its original separately and releases
-that object URL when closed. Turn logs stay open on completion so commentary and
-activity summaries remain readable even without a final answer. Explicit fold
+that object URL when closed. Finished turns fold their logs by default on opening
+and completion, leaving each turn's final answer and footer visible. Live turns
+and turns without a loaded final answer keep their logs open. Explicit fold
 choices always win. Reaching the bottom resumes latest-history loading, including
 when completion leaves the displayed content short enough to fit the viewport.
 
@@ -346,7 +347,8 @@ keeps the full command and result. While following a running task, a live line
 below its transcript names the current command or tool, or shows **Thinking**
 between actions. A moving text highlight indicates ongoing work and respects
 reduced-motion preferences. Startup, approval, cancellation, and reconnect states
-use their own labels; completion removes the live line without folding the turn.
+use their own labels; completion removes the live line and folds the turn's log
+when a final answer is available, unless the user explicitly chose its fold state.
 
 ### 2.4 Approvals
 

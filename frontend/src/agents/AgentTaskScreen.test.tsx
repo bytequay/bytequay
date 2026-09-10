@@ -1238,17 +1238,36 @@ describe('agent task detail', () => {
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
   });
 
-  it('keeps a finished turn readable and the totals under the composer', () => {
+  it('folds a finished turn to its final answer and keeps the totals under the composer', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
 
     expect(markup).not.toContain('agt-turn__sum');
-    expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
-    expect(markup).toMatch(/class="agt-turn__head" aria-expanded="true"/);
+    expect(markup).not.toContain('Ran 1 command, edited 1 file, and used 1 tool');
+    expect(markup).toMatch(/class="agt-turn__head" aria-expanded="false"/);
     expect(markup).toContain('Turn 1 · Worked for 11s');
     expect(markup).toContain('class="agt-answer"');
+    expect(markup).toContain('I found one authentication regression.');
     expect(markup).not.toContain('agt-usage__tokens');
     expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ steps?<\/span><span class="agt-compose__sep"/);
     expect(markup).toMatch(/Input \d[\d.]*[kM]? tok · Cached \d[\d.]*[kM]? tok · Output \d[\d.]*[kM]? tok/);
+  });
+
+  it('folds each completed turn independently while keeping the current turn open', () => {
+    const secondTurn = events.map((event): AgentEventEnvelope => ({
+      ...event, eventId: `second-${event.eventId}`, turnId: 'second', sequence: event.sequence + events.length,
+    }));
+    const state = { task: task('t-1', 'OPEN', 'x'), events: [...events, ...secondTurn], connection: 'open' as const };
+    const finished = body(state, {}, {});
+    expect(finished.match(/class="agt-turn__head" aria-expanded="false"/g)).toHaveLength(2);
+    expect(finished.match(/I found one authentication regression\./g)).toHaveLength(2);
+
+    const running = body({ ...state, events: [...events, ...secondTurn.slice(0, -1)] }, {}, {});
+    expect(running.match(/class="agt-turn__head" aria-expanded="false"/g)).toHaveLength(1);
+    expect(running.match(/class="agt-turn__head" aria-expanded="true"/g)).toHaveLength(1);
+
+    const reopened = body(state, {}, { second: true });
+    expect(reopened.match(/class="agt-turn__head" aria-expanded="true"/g)).toHaveLength(1);
+    expect(reopened).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
 
   it('keeps commentary visible when a finished turn has no final answer and respects explicit folding', () => {

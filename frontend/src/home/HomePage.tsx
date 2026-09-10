@@ -29,7 +29,7 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
-import { getCachedFresh, setCached } from '../dataCache';
+import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { pullRequestIsMine, pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
@@ -45,6 +45,18 @@ type Props = {
 };
 
 const ACTIVITY_TTL_MS = 5 * 60 * 1000;
+
+// Home unmounts on every tab switch, so returning to it re-runs the same local
+// reads from an empty screen. These hold the last rows purely to paint the
+// first frame; every mount still fetches and overwrites them, so they carry no
+// expiry.
+const SEED = {
+  profile: 'home:profile',
+  workspaces: 'home:workspaces',
+  prs: 'home:prs',
+  attention: 'home:attention',
+  issues: 'home:issues',
+};
 
 function openUrl(url: string) {
   void window.bridge.openInAppBrowser(url);
@@ -117,18 +129,19 @@ function HomePage({
     openUrl(url);
   };
 
-  const [profile, setProfile] = useState<UserProfileDto | null>(null);
-  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
+  const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);
+  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.workspaces) ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
-  const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(null);
+  const [prs, setPrs] = useState<PullRequestDto[] | null>(() => getCached<PullRequestDto[]>(SEED.prs) ?? null);
+  const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(
+    () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [handled, setHandled] = useState<Handled>(loadHandled);
-  const [issueItems, setIssueItems] = useState<AttentionItem[]>([]);
+  const [issueItems, setIssueItems] = useState<AttentionItem[]>(() => getCached<AttentionItem[]>(SEED.issues) ?? []);
 
   useEffect(() => {
     void load();
@@ -138,13 +151,16 @@ function HomePage({
     let active = true;
     const reload = () => {
       void window.bridge.fetchAttentionPrs().then(rows => {
+        setCached(SEED.attention, rows);
         if (active) { setAttentionPrs(rows); setAttentionError(null); }
       }).catch(error => {
         if (active) setAttentionError(error instanceof Error ? error.message : String(error));
       });
     };
     const updated = (event: Event) => {
-      setAttentionPrs((event as CustomEvent<PullRequestDto[]>).detail);
+      const rows = (event as CustomEvent<PullRequestDto[]>).detail;
+      setCached(SEED.attention, rows);
+      setAttentionPrs(rows);
       setAttentionError(null);
     };
     const handledChanged = () => setHandled(loadHandled());
@@ -166,7 +182,7 @@ function HomePage({
     if (!workspaces.some(workspaceIsUpdating)) return;
     const timer = window.setTimeout(() => {
       void window.bridge.listWorkspaces()
-        .then(setWorkspaces)
+        .then(rows => { setCached(SEED.workspaces, rows); setWorkspaces(rows); })
         .catch(() => {});
     }, 1500);
     return () => window.clearTimeout(timer);
@@ -180,9 +196,11 @@ function HomePage({
     ]);
     const loadedProfile = profileResult.status === 'fulfilled' ? profileResult.value : null;
     if (loadedProfile) {
+      setCached(SEED.profile, loadedProfile);
       setProfile(loadedProfile);
     }
     if (reposResult.status === 'fulfilled') {
+      setCached(SEED.workspaces, reposResult.value);
       setWorkspaces(reposResult.value);
     }
     else {
@@ -193,7 +211,7 @@ function HomePage({
     setLoading(false);
 
     window.bridge.fetchPrs(undefined, 0, 50)
-      .then(page => { setPrs(page.pullRequests); })
+      .then(page => { setCached(SEED.prs, page.pullRequests); setPrs(page.pullRequests); })
       .catch(() => {});
   }
 
@@ -248,7 +266,11 @@ function HomePage({
       window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
         .then(snapshot => assignedIssues(snapshot, workspaceId, login))
         .catch(() => [] as AttentionItem[])))
-      .then(groups => { if (!cancelled) setIssueItems(groups.flat()); });
+      .then(groups => {
+        const items = groups.flat();
+        setCached(SEED.issues, items);
+        if (!cancelled) setIssueItems(items);
+      });
     return () => { cancelled = true; };
   }, [login, workspaceKey]);
 
@@ -284,8 +306,12 @@ function HomePage({
   }
 
   function handleAdded(dto: WorkspaceDto) {
-    setWorkspaces(previous => [dto, ...previous.filter(row => row.id !== dto.id)]
-      .sort((left, right) => left.displayOrder - right.displayOrder));
+    setWorkspaces(previous => {
+      const next = [dto, ...previous.filter(row => row.id !== dto.id)]
+        .sort((left, right) => left.displayOrder - right.displayOrder);
+      setCached(SEED.workspaces, next);
+      return next;
+    });
   }
 
   return (

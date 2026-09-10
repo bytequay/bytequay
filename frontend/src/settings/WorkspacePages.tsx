@@ -77,9 +77,13 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
             onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
           />
         </SettingsRow>
-        <SettingsRow title="Local checkout">
-          <span className="setw-row-sub setw-mono">{workspace.localRepositoryPath}</span>
-        </SettingsRow>
+        <div className="setw-row">
+          <div className="setw-row-label">Local checkout</div>
+          {/* A managed path is long and unwrappable, so it gets the read-only field the tokens use. */}
+          <div className="setw-token setw-mono" title={workspace.localRepositoryPath}>
+            {workspace.localRepositoryPath}
+          </div>
+        </div>
       </SettingsCard>
 
       <div className="setw-section"><span className="setw-section-title">Remotes</span></div>

@@ -266,6 +266,14 @@
   margin-top: 2px;
 }
 
+/* A row whose value fills the rest of the line: the label keeps its width, the value shrinks. */
+.setw-row-label {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .setw-row-controls {
   margin-left: auto;
   display: flex;

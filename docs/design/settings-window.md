@@ -21,6 +21,12 @@ A single scroll container on the right, a category sidebar on the left.
 | Integrations | GitHub |
 | Workspace | workspace picker, then Repository, Agents, Token, Advanced |
 
+The separate [Development Task Delivery](development-delivery.md#2-settings-and-scope)
+proposal adds **Agents → Workflow** with default-on Auto commit, Auto draft PR,
+and Auto CI fix settings plus the supported CI provider selection. It also
+defines per-task overrides and accepted-turn snapshots. That page is pending
+the delivery implementation and is not part of the existing visual prototype.
+
 Rules taken from the prototype:
 
 - The workspace picker lists every watched workspace, not just the active one,

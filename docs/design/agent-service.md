@@ -1,5 +1,18 @@
 # Agent Service Design
 
+## Proposed development delivery
+
+[Development Task Delivery](development-delivery.md) specifies the pending
+extension for default-on commit, draft publication, and CI Autofix after
+interactive development turns. One in-process backend coordinator checks a
+root-agent readiness report before inspecting work and starting ordinary
+commit/publication follow-ups. A user question blocks delivery even when Git
+contains changes or commits. Live per-task ownership prevents competing turns;
+there is no new durable delivery claim, workflow state machine, or restart
+recovery. Lost continuations fail and stop their CI children. Successful work
+keeps the task `OPEN`; task completion is not a publication trigger. These
+changes are proposed; the contracts below remain the implemented baseline.
+
 ## Managed skills
 
 [Managed Agent Skills](agent-skills.md) adds hidden, always-applied ByteQuay

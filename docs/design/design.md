@@ -48,9 +48,14 @@ historical checkpoint evidence and explicitly deferred future work.
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
   separately.
-- [Development Task Delivery](development-delivery.md) proposes finishing a
-  development task as a draft PR and handing it to the existing bounded CI
-  Autofix loop. It is pending approval and does not add review-comment fixing.
+- [Development Task Delivery](development-delivery.md) defines approved default-on
+  commit, draft-PR, and CI-fix settings after development turns. The agent
+  commits and publishes; ByteQuay verifies the result, coordinates the existing
+  CI loop, and marks the draft ready after verified green. The task stays open
+  for later turns. The MVP uses an in-process after-turn coordinator, waits on
+  explicit user-input gates, and fails rather than resumes after restart.
+  Its [implementation checklist](development-delivery-impl-tmp.md) tracks the
+  pending work and verification; review-comment fixing is excluded.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,
   intended for explicit branch rebases and to replace CI Autofix's unverified

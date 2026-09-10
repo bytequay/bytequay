@@ -1,5 +1,19 @@
 # Agent Task UI Design
 
+## Proposed delivery presentation
+
+[Development Task Delivery](development-delivery.md#7-task-presentation)
+specifies the pending Automation control and verified commit/push/PR/CI
+readout. It replaces the ambiguous runtime-only Ready label with Idle and
+actual delivery activity, labels generated follow-up turns as ByteQuay
+automation, and links the existing CI task. Delivery settings are separate
+from the composer's Auto permission mode. A pending user question takes
+precedence over delivery activity and displays existing local/remote facts.
+The MVP fails lost continuations and offers Delete/start over, not Resume
+delivery. Shared conversation components
+remain the implementation boundary; this proposal does not claim those UI
+changes have shipped.
+
 ## Shared conversation presentation
 
 Tasks and PR review Activity use `AgentConversation` for the transcript,

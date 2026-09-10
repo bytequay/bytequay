@@ -10,6 +10,19 @@
 This document designs CI Autofix only. Review-comment triage is a different,
 read-only service and is not covered here.
 
+## Proposed development handoff
+
+[Development Task Delivery](development-delivery.md) adds a proposed caller
+after agent-owned draft publication and a general existing-PR UI entry point.
+Its required extensions include expected PR/head/deadline guards, source-task
+exclusion, and correction of the green predicate's empty-job pending workflow
+gap. Delivery-owned CI/rebase work may advance only under its live parent
+coordinator; losing that coordinator stops its children instead of recovering
+the delivery chain. Standalone CI retains its existing behavior. Ready
+promotion belongs to the delivery caller with fresh check evidence and explicit
+scope; generic CI `GREEN` does not change draft state. These additions are
+pending implementation, independently of the CI loop documented below.
+
 ## 1. Decision
 
 CI Autofix is available only for an open, same-repository pull request authored

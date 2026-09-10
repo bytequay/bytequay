@@ -246,7 +246,7 @@ export function DiffViewer({
       if (!container || !card) return;
       const top = card.getBoundingClientRect().top - container.getBoundingClientRect().top
         + container.scrollTop - 12;
-      container.scrollTo({ top: Math.max(0, top), behavior: singleFileMode ? 'auto' : 'smooth' });
+      container.scrollTo({ top: Math.max(0, top), behavior: 'instant' });
     };
     if (singleFileMode) requestAnimationFrame(scrollToFile);
     else scrollToFile();

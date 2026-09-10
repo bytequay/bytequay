@@ -32,6 +32,7 @@ import {
   parseAgentTasks,
   parseAgentTurn,
   parseAgentTurnSettings,
+  parseDevelopmentAutomation,
   parseModelSettings,
 } from './agents/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
@@ -623,6 +624,7 @@ function registerIpc(): void {
       body: JSON.stringify({
         message: request.message,
         expectedVersion: request.expectedTaskVersion,
+        developmentAutomation: request.developmentAutomation,
         attachments: request.attachments ?? [],
       }),
     }).then((turn) => parseAgentTurn(turn)));
@@ -641,6 +643,7 @@ function registerIpc(): void {
         message: request.message,
         attachments: request.attachments ?? [],
         expectedVersion: request.expectedVersion,
+        developmentAutomation: request.developmentAutomation,
       }),
     }).then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:list', (_event, taskId: string, workspaceId: string) =>
@@ -1082,6 +1085,11 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/settings/quiet-hours`));
   ipcMain.handle('settings:quiet-hours:save', (_event, quietHours: unknown) =>
     backendJson(`${backendBase()}/api/settings/quiet-hours`, jsonInit('PUT', quietHours)));
+  ipcMain.handle('settings:development-automation', () =>
+    backendJson(`${backendBase()}/api/settings/development-automation`).then(value => parseDevelopmentAutomation(value)));
+  ipcMain.handle('settings:development-automation:save', (_event, setting: unknown) =>
+    backendJson(`${backendBase()}/api/settings/development-automation`, jsonInit('PUT', parseDevelopmentAutomation(setting)))
+      .then(value => parseDevelopmentAutomation(value)));
   ipcMain.handle('settings:codegraph', () =>
     backendJson(`${backendBase()}/api/settings/codegraph`));
   ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>

@@ -1,6 +1,8 @@
 # Development task delivery
 
-Status: Approved MVP design; implementation pending. This replaces the larger
+Status: Approved MVP design; implementation in progress. Settings, accepted-turn
+snapshots, and root readiness reporting are implemented. The live coordinator,
+automatic publication, and CI handoff remain pending. This replaces the larger
 recovery-oriented proposal. Use the current [agent service](agent-service.md)
 and [CI Autofix](ci-autofix-service.md), with a small in-process coordinator.
 There is no overall workflow state machine, delivery table, phase engine,
@@ -108,6 +110,15 @@ a destination, or perform a remote write. This single report replaces the
 previous proposal's separate `restrict_delivery` tool. The provider binding
 must accept only the current root turn's report, not a child agent's claim.
 The report conveys the agent's understanding; Git/GitHub still prove results.
+
+Reporting now uses the existing task-local tool transport. The broker validates
+and acknowledges a candidate; only the provider's successful current-root
+native tool completion produces the authoritative `development_result` event.
+Subagents remain available and cannot authorize delivery. Core binds that event
+to the accepted ByteQuay turn, checks the native turn/item identity, and stores
+the report on the turn atomically with its event through the existing outbox.
+Duplicate item events cannot overwrite a newer report. The turn projection
+keeps a question visible even when its transcript event is outside loaded history.
 
 Managed instructions require a false report before ending with a blocking
 question, and prohibit default commit/publication while such a decision is

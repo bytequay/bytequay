@@ -13,7 +13,9 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -39,6 +41,7 @@ final class ClaudeEventMapper
     private static final int MAX_OUTPUT_CHARACTERS = 64 * 1024;
 
     private final SecretRedactor redactor;
+    private final Optional<DevelopmentResultBridge> development;
     private final Map<String, ToolCall> tools = new HashMap<>();
     private final Set<String> activeTools = new HashSet<>();
     private final Set<String> activeHooks = new HashSet<>();
@@ -56,7 +59,13 @@ final class ClaudeEventMapper
 
     ClaudeEventMapper(SecretRedactor redactor)
     {
+        this(redactor, Optional.empty());
+    }
+
+    ClaudeEventMapper(SecretRedactor redactor, Optional<DevelopmentResultBridge> development)
+    {
         this.redactor = requireNonNull(redactor, "redactor is null");
+        this.development = requireNonNull(development, "development is null");
     }
 
     List<ProviderAgentEvent> map(ClaudeProtocol.Message message)
@@ -272,6 +281,16 @@ final class ClaudeEventMapper
                         result,
                         call));
                 completeInvocation(message, result, call, events);
+                if (call.name().equals("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME)) {
+                    tools.remove(result.toolUseId());
+                    if (!result.error() && call.parentToolUseId().isEmpty() && message.parentToolUseId().isEmpty()) {
+                        development.flatMap(bridge -> DevelopmentResultTool.readReceipt(result.content(), bridge, redactor))
+                                .ifPresent(report -> events.add(new ProviderAgentEvent.DevelopmentResult(
+                                        Optional.of(result.toolUseId() + ":development-result"), timestamp, report,
+                                        new ProviderAgentEventSource(sessionId, Optional.empty(), Optional.empty(),
+                                                development.map(DevelopmentResultBridge::turnId), Optional.of(result.toolUseId())))));
+                    }
+                }
             }
             index++;
         }

@@ -13,6 +13,8 @@
  */
 
 import type {
+  DevelopmentAutomationDto,
+  DevelopmentResultDto,
   AgentModelSettingDto,
   AgentApprovalDto,
   AgentAttachmentDto,
@@ -170,6 +172,21 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
   };
 }
 
+export function parseDevelopmentAutomation(value: unknown, path = 'developmentAutomation'): DevelopmentAutomationDto {
+  const source = object(value, path);
+  return {
+    autoCommit: flag(source.autoCommit, `${path}.autoCommit`),
+    autoDraftPr: flag(source.autoDraftPr, `${path}.autoDraftPr`),
+    autoCiFix: flag(source.autoCiFix, `${path}.autoCiFix`),
+    ciLaneId: optionalText(source.ciLaneId, `${path}.ciLaneId`),
+  };
+}
+
+function automationField(source: Record<string, unknown>, path: string): { developmentAutomation?: DevelopmentAutomationDto | null } {
+  if (source.developmentAutomation === undefined) return {};
+  return { developmentAutomation: source.developmentAutomation === null ? null : parseDevelopmentAutomation(source.developmentAutomation, `${path}.developmentAutomation`) };
+}
+
 function defaults(value: unknown, path: string): AgentTaskDefaultsDto {
   const source = object(value, path);
   return {
@@ -177,6 +194,7 @@ function defaults(value: unknown, path: string): AgentTaskDefaultsDto {
     effort: optionalText(source.effort, `${path}.effort`),
     serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
     permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
+    ...automationField(source, path),
   };
 }
 
@@ -219,6 +237,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
   return {
     id: text(source.id, `${path}.id`),
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
+    ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
     title: text(source.title, `${path}.title`),
     titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
@@ -260,6 +279,7 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
     effort: optionalText(source.effort, `${path}.effort`),
     serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
     permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
+    ...automationField(source, path),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
     // Attachment contents and their paths stay in the backend; only their ids may cross.
     attachments: list(source.attachments ?? [], `${path}.attachments`).map((entry, index) => {
@@ -273,11 +293,22 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
   };
 }
 
+export function parseDevelopmentResult(value: unknown, path = 'developmentResult'): DevelopmentResultDto {
+  const source = object(value, path);
+  return {
+    readyForDelivery: flag(source.readyForDelivery, `${path}.readyForDelivery`),
+    message: optionalText(source.message, `${path}.message`),
+    stopAfter: source.stopAfter === null || source.stopAfter === undefined ? null
+      : enumText(source.stopAfter, ['LOCAL_CHANGES', 'COMMITS', 'DRAFT', 'CI'] as const, `${path}.stopAfter`),
+  };
+}
+
 export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
   const source = object(value, path);
   return {
     id: text(source.id, `${path}.id`),
     taskId: text(source.taskId, `${path}.taskId`),
+    ...(source.developmentResult === undefined ? {} : { developmentResult: source.developmentResult === null ? null : parseDevelopmentResult(source.developmentResult, `${path}.developmentResult`) }),
     state: text(source.state, `${path}.state`),
     version: count(source.version, `${path}.version`),
     createdAt: text(source.createdAt, `${path}.createdAt`),

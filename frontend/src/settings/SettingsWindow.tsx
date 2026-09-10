@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  DevelopmentAutomationDto,
   AgentModelType,
   AgentSkillDto,
   AppPreferencesDto,
@@ -29,6 +30,7 @@ import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
 import SkillsPage from './SkillsPage';
+import WorkflowPage from './WorkflowPage';
 import CodeGraphPage from './CodeGraphPage';
 import GitHubPage from './GitHubPage';
 import { AppearancePage, GeneralPage } from './PersonalPages';
@@ -52,6 +54,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   /** Renaming, unwatching or deleting changes the list the picker shows. */
   onWorkspacesChanged: () => void;
 }) {
+  const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
+  const [automationBusy, setAutomationBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
@@ -95,7 +99,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   }, [report]);
 
   useEffect(() => {
-    if (section !== 'models' && section !== 'ws-agents') return;
+    if (section !== 'models' && section !== 'ws-agents' && section !== 'workflow') return;
     loadModels();
   }, [section, loadModels]);
 
@@ -108,6 +112,11 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     if (section !== 'code-graph') return;
     void window.bridge.getCodeGraphSetting().then(value => setGraphMode(value.mode)).catch(report);
     void window.bridge.getCodeGraphBaseline().then(setBaseline).catch(() => {});
+  }, [section, report]);
+
+  useEffect(() => {
+    if (section !== 'workflow') return;
+    void window.bridge.getDevelopmentAutomation().then(setAutomation).catch(report);
   }, [section, report]);
 
   const loadAccount = useCallback(() => {
@@ -228,6 +237,12 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
+          {section === 'workflow' && <WorkflowPage value={automation} providers={models?.providers ?? []} busy={automationBusy} error={error}
+            onChange={next => {
+              setAutomationBusy(true);
+              setError(null);
+              window.bridge.saveDevelopmentAutomation(next).then(setAutomation).catch(report).finally(() => setAutomationBusy(false));
+            }} />}
           {section === 'skills' && (
             <SkillsPage
               skills={skills ?? []}

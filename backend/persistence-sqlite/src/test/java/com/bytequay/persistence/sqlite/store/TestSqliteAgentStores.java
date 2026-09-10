@@ -28,6 +28,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.LaunchOwnerKind;
@@ -66,6 +67,8 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -494,6 +497,38 @@ class TestSqliteAgentStores
 
         assertThat(turnStore.find(turn.id())).contains(turn);
         assertThat(taskStore.find(task.id()).orElseThrow().defaults().serviceTier()).contains("priority");
+    }
+
+    @Test
+    void retainsAutomationSnapshotsAndReadinessIndependentlyOfFutureDefaults()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        AgentTask original = newTask(now);
+        AgentTask task = original.withDefaults(original.defaults().withDevelopmentAutomation(selected), now);
+        taskStore.insert(task);
+        AgentTurnSettings settings = new AgentTurnSettings(
+                Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(selected));
+        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS));
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "automation-1", settings, now)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-automation"), Optional.of("model"))
+                .withDevelopmentResult(question)
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(2));
+        turnStore.insert(turn);
+        QueuedAgentInput queued = QueuedAgentInput.queued(
+                QueuedInputId.random(), task.id(), 1, "automation-queue", new BlobRef("queue/input", "text/plain", 5), "later", settings, now);
+        queueStore.insert(queued);
+        taskStore.update(task.withDefaults(task.defaults().withDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY), now.plusSeconds(3)));
+        entityManager.clear();
+
+        assertThat(taskStore.find(task.id()).orElseThrow().defaults().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(turnStore.find(turn.id()).orElseThrow()).satisfies(restored -> {
+            assertThat(restored.settings()).contains(settings);
+            assertThat(restored.developmentResult()).contains(question);
+            assertThat(restored.withVersion(restored.version() + 1).developmentResult()).contains(question);
+        });
+        assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings);
     }
 
     @Test

@@ -13,7 +13,9 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -79,6 +81,28 @@ final class CodexEventMapper
         Optional<String> parentOf(String threadId);
 
         Optional<String> labelOf(String threadId);
+    }
+
+    /** Called only for live notifications, never for transcript replay or child backfill. */
+    Optional<ProviderAgentEvent.DevelopmentResult> developmentResult(
+            CodexProtocol.Notification notification,
+            boolean rootThread,
+            String nativeTurnId,
+            Optional<DevelopmentResultBridge> development)
+    {
+        if (!rootThread || !notification.turnId().filter(nativeTurnId::equals).isPresent()
+                || !(notification instanceof CodexProtocol.ItemCompletedNotification completed)
+                || !(completed.params().item() instanceof CodexProtocol.McpToolCallItem tool)
+                || !tool.server().equals("bytequay") || !tool.tool().equals(DevelopmentResultBridge.TOOL_NAME)
+                || tool.status() != CodexProtocol.ActivityStatus.COMPLETED || tool.error().isPresent()) {
+            return Optional.empty();
+        }
+        return development.flatMap(bridge -> tool.result().flatMap(result -> DevelopmentResultTool.readReceipt(result, bridge, redactor)))
+                .map(report -> new ProviderAgentEvent.DevelopmentResult(
+                        Optional.of(tool.id() + ":development-result"),
+                        notification.emittedAtMs().map(Instant::ofEpochMilli),
+                        report,
+                        source(notification, Optional.of(tool.id()), ThreadLineage.NONE)));
     }
 
     List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread)

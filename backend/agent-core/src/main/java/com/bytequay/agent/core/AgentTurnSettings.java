@@ -31,7 +31,8 @@ public record AgentTurnSettings(
         AgentPermissionPolicy permissionPolicy,
         Duration maximumRuntime,
         List<AgentAttachmentReference> attachments,
-        Optional<String> serviceTier)
+        Optional<String> serviceTier,
+        Optional<DevelopmentAutomation> developmentAutomation)
 {
     public AgentTurnSettings(
             Optional<String> model,
@@ -40,11 +41,23 @@ public record AgentTurnSettings(
             Duration maximumRuntime,
             List<AgentAttachmentReference> attachments)
     {
-        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty());
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty(), Optional.empty());
+    }
+
+    public AgentTurnSettings(
+            Optional<String> model,
+            Optional<String> effort,
+            AgentPermissionPolicy permissionPolicy,
+            Duration maximumRuntime,
+            List<AgentAttachmentReference> attachments,
+            Optional<String> serviceTier)
+    {
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, Optional.empty());
     }
 
     public AgentTurnSettings
     {
+        requireNonNull(developmentAutomation, "developmentAutomation is null");
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");

@@ -1047,6 +1047,24 @@
           "required": false,
           "nullable": true,
           "sample": 1
+        },
+        {
+          "javaName": "result",
+          "wireName": "result",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "content": []
+          }
+        },
+        {
+          "javaName": "error",
+          "wireName": "error",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "message": "value"
+          }
         }
       ]
     },

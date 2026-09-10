@@ -17,6 +17,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
@@ -29,11 +30,13 @@ public record StartAgentTurnCommand(
         String message,
         List<AgentAttachment> attachments,
         String idempotencyKey,
-        boolean useTrustedTaskCreationReadiness)
+        boolean useTrustedTaskCreationReadiness,
+        Optional<DevelopmentAutomation> developmentAutomation)
 {
     public StartAgentTurnCommand
     {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(developmentAutomation, "developmentAutomation is null");
         requireNonNull(expectedTaskVersion, "expectedTaskVersion is null");
         expectedTaskVersion.ifPresent(version -> checkArgument(version >= 0, "expectedTaskVersion is negative"));
         checkNotBlank(message, "message");
@@ -58,7 +61,13 @@ public record StartAgentTurnCommand(
                 message,
                 attachments,
                 idempotencyKey,
-                true);
+                true,
+                Optional.empty());
+    }
+
+    public StartAgentTurnCommand withDevelopmentAutomation(Optional<DevelopmentAutomation> automation)
+    {
+        return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, automation);
     }
 
     /** Starts against an exact task snapshot, for callers that validated its mutable defaults. */
@@ -69,7 +78,7 @@ public record StartAgentTurnCommand(
             List<AgentAttachment> attachments,
             String idempotencyKey)
     {
-        this(taskId, OptionalLong.of(expectedTaskVersion), message, attachments, idempotencyKey, false);
+        this(taskId, OptionalLong.of(expectedTaskVersion), message, attachments, idempotencyKey, false, Optional.empty());
     }
 
     /** Starts with the latest defaults; suitable when the caller made no decision from them. */
@@ -79,6 +88,6 @@ public record StartAgentTurnCommand(
             List<AgentAttachment> attachments,
             String idempotencyKey)
     {
-        this(taskId, OptionalLong.empty(), message, attachments, idempotencyKey, false);
+        this(taskId, OptionalLong.empty(), message, attachments, idempotencyKey, false, Optional.empty());
     }
 }

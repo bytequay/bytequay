@@ -40,6 +40,7 @@ public final class ProviderAgentEventAdapter
                 event.providerEventId(),
                 event.providerTimestamp());
         AgentEventPayload payload = switch (event) {
+            case ProviderAgentEvent.DevelopmentResult result -> new AgentEventPayload.DevelopmentResult(result.report());
             case ProviderAgentEvent.Message message -> new AgentEventPayload.AssistantMessage(
                     message.messageKind(),
                     message.phase(),

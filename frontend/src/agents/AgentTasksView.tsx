@@ -18,10 +18,12 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import Toast from '../Toast';
+import { AutomationControl } from './AutomationControl';
+import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
+import type { AgentTaskDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
@@ -181,6 +183,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [laneId, setLaneId] = useState(initialLaneId);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState('');
+  const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
+  const [localOnly, setLocalOnly] = useState(false);
+  const [automationError, setAutomationError] = useState<string | null>(null);
   const [images, setImages] = useState<DraftImage[]>([]);
   const [operation, setOperation] = useState<'attachment' | 'sending' | null>(null);
   const busy = operation !== null;
@@ -264,10 +269,19 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     return () => { active = false; };
   }, [applyCatalog, bridge, workspaceId]);
 
+  useEffect(() => {
+    let active = true;
+    void bridge().getDevelopmentAutomation().then(value => { if (active) setAutomation(value); })
+      .catch(() => { if (active) setAutomationError('Unable to load automation settings. Reopen this page to try again.'); });
+    return () => { active = false; };
+  }, [bridge, workspaceId]);
+
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
   const imagesAccepted = acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = creationBlocker(catalog, laneId, selection)
+    ?? automationError
+    ?? (automation === null ? 'Loading automation settings…' : null)
     ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
 
   const selectProvider = useCallback((nextLaneId: string) => {
@@ -318,7 +332,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   const create = useCallback(async () => {
     const message = draft.trim();
-    if (busyRef.current || selection === null || blocker !== null || message === '') return;
+    if (busyRef.current || selection === null || automation === null || blocker !== null || message === '') return;
     busyRef.current = true;
     setOperation('sending');
     setError(null);
@@ -327,11 +341,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       effort: selection.effort,
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
-    }, images.map((image) => image.id));
+      developmentAutomation: automation,
+    }, images.map((image) => image.id), automationForSubmission(automation, localOnly));
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       setDraft('');
+      setLocalOnly(false);
       clearImages();
       setImages([]);
       setError(null);
@@ -371,9 +387,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, blocker, bridge, clearImages, draft, images, laneId, onOpenTask, selection, submissions, workspaceId]);
+  }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, laneId, localOnly, onOpenTask, selection, submissions, workspaceId]);
 
   return {
+    automationControl: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
+      localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
     tasks,
     setTasks,
     loading,
@@ -483,6 +501,7 @@ export default function AgentTasksView({
   }, [live, setTasks, workspaceId]);
   return (
     <AgentTaskList
+      automation={creation.automationControl}
       tasks={creation.tasks}
       loading={creation.loading}
       error={creation.error}
@@ -516,7 +535,7 @@ export default function AgentTasksView({
 /** The card that creates a task: the first message above its provider, permission and model facts. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
 }: {
   draft: string;
   blocker: string | null;
@@ -529,6 +548,7 @@ export function TaskComposer({
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenSettings?: () => void;
+  automation?: React.ReactNode;
   images?: DraftImage[];
   busy?: boolean;
   attaching?: boolean;
@@ -590,6 +610,7 @@ export function TaskComposer({
             onOpenSettings={onOpenSettings}
           />
           <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
+          {automation}
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the new task"
@@ -701,7 +722,7 @@ type ToastState = { id: number; text: string; undo?: () => void };
 export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
   now = Date.now(), initialTab = 'active',
 }: {
   tasks: AgentTaskDto[];
@@ -727,6 +748,7 @@ export function AgentTaskList({
   onArchive?: (ids: string[], archived: boolean) => Promise<void>;
   /** Removes the tasks for good; the caller drops each from its list as it goes. */
   onDelete?: (ids: string[]) => Promise<void>;
+  automation?: React.ReactNode;
   images?: DraftImage[];
   busy?: boolean;
   attaching?: boolean;
@@ -906,6 +928,7 @@ export function AgentTaskList({
       {/* Anchored under the list: sending this first message is what creates a task. */}
       {active && (
         <TaskComposer
+          automation={automation}
           draft={draft}
           blocker={blocker}
           busy={busy}

@@ -13,14 +13,18 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -30,6 +34,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -52,10 +57,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +78,7 @@ class TestInteractiveAgentTaskCreator
     private AgentTurnService turns;
     private AgentDriver driver;
     private ModelSettingsService models;
+    private AppSettingsService settings;
     private WorkspaceRepositoryService workspaces;
     private WorkspaceProvisioningService provisioning;
     private GitCommandRunner git;
@@ -84,6 +92,8 @@ class TestInteractiveAgentTaskCreator
         driver = mock(AgentDriver.class);
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         models = mock(ModelSettingsService.class);
+        settings = mock(AppSettingsService.class);
+        when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
         workspaces = mock(WorkspaceRepositoryService.class);
         provisioning = mock(WorkspaceProvisioningService.class);
         when(provisioning.synchronizeCode("workspace-1"))
@@ -95,7 +105,7 @@ class TestInteractiveAgentTaskCreator
             throw new AgentTaskNotFoundException(invocation.getArgument(1));
         });
         ready();
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git);
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings);
     }
 
     @Test
@@ -119,6 +129,7 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().physicalRepository())
                 .isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         InOrder order = inOrder(provisioning, workspaces, git, tasks);
         order.verify(provisioning).synchronizeCode("workspace-1");
         order.verify(workspaces).requireReadyRepository("workspace-1");
@@ -154,6 +165,7 @@ class TestInteractiveAgentTaskCreator
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         InOrder order = inOrder(provisioning, workspaces, git, tasks);
         order.verify(provisioning).synchronizeCode("workspace-1");
         order.verify(workspaces).requireReadyRepository("workspace-1");
@@ -174,6 +186,46 @@ class TestInteractiveAgentTaskCreator
 
         verifyNoInteractions(workspaces, git);
         verify(tasks, never()).createInteractive(any());
+    }
+
+    @Test
+    void firstTurnOverrideDoesNotReplaceSavedDefaultsAndReplayKeepsTheOriginalPolicy()
+    {
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+        when(tasks.createInteractive(any())).thenAnswer(invocation -> {
+            CreateInteractiveAgentTaskCommand command = invocation.getArgument(0);
+            return AgentTask.created(
+                    command.taskId(),
+                    true,
+                    Optional.of(command.creationFingerprint()),
+                    "Task",
+                    TitleSource.USER,
+                    command.laneId(),
+                    new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(),
+                            temporaryDirectory.resolve(command.taskId().toString()), "bytequay/task/" + command.taskId(), START_COMMIT),
+                    command.defaults(),
+                    Instant.parse("2026-09-01T00:00:00Z"));
+        });
+        TaskId taskId = TaskId.random();
+        AgentTask created = creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
+
+        assertThat(created.defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+        when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.LOCAL_ONLY);
+        doReturn(created).when(tasks).getInteractive("workspace-1", taskId);
+
+        assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)))
+                .isSameAs(created);
+        verify(settings, times(1)).developmentAutomation();
+        verify(tasks, times(1)).createInteractive(any());
+        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("creation request changed");
     }
 
     @Test

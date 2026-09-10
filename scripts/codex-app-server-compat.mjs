@@ -191,6 +191,8 @@ const referenceRecordBindings = [
     component("tool"),
     component("status"),
     component("durationMs"),
+    component("result"),
+    component("error"),
   ]),
   recordBinding("DynamicToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "dynamicToolCall"),

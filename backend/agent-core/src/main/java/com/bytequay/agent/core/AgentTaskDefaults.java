@@ -26,15 +26,27 @@ public record AgentTaskDefaults(
         Optional<String> model,
         Optional<String> effort,
         AgentPermissionPolicy permissionPolicy,
-        Optional<String> serviceTier)
+        Optional<String> serviceTier,
+        Optional<DevelopmentAutomation> developmentAutomation)
 {
     public AgentTaskDefaults(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy)
     {
-        this(model, effort, permissionPolicy, Optional.empty());
+        this(model, effort, permissionPolicy, Optional.empty(), Optional.empty());
+    }
+
+    public AgentTaskDefaults(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy, Optional<String> serviceTier)
+    {
+        this(model, effort, permissionPolicy, serviceTier, Optional.empty());
+    }
+
+    public AgentTaskDefaults withDevelopmentAutomation(DevelopmentAutomation automation)
+    {
+        return new AgentTaskDefaults(model, effort, permissionPolicy, serviceTier, Optional.of(automation));
     }
 
     public AgentTaskDefaults
     {
+        requireNonNull(developmentAutomation, "developmentAutomation is null");
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");

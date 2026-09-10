@@ -38,7 +38,7 @@ import static java.util.Objects.requireNonNull;
 public sealed interface ProviderAgentEvent
         permits ProviderAgentEvent.Message, ProviderAgentEvent.Plan, ProviderAgentEvent.Tool,
         ProviderAgentEvent.Command, ProviderAgentEvent.FileChange,
-        ProviderAgentEvent.Usage, ProviderAgentEvent.Lifecycle, ProviderAgentEvent.Error
+        ProviderAgentEvent.Usage, ProviderAgentEvent.Lifecycle, ProviderAgentEvent.Error, ProviderAgentEvent.DevelopmentResult
 {
     /**
      * Returns a provider identity suitable for duplicate suppression when one was
@@ -63,6 +63,22 @@ public sealed interface ProviderAgentEvent
      * @return provider event source, with absent fields left absent
      */
     ProviderAgentEventSource source();
+
+    record DevelopmentResult(
+            Optional<String> providerEventId,
+            Optional<Instant> providerTimestamp,
+            DevelopmentResultReport report,
+            ProviderAgentEventSource source)
+            implements ProviderAgentEvent
+    {
+        public DevelopmentResult
+        {
+            checkOptionalText(providerEventId, "providerEventId");
+            requireNonNull(providerTimestamp, "providerTimestamp is null");
+            requireNonNull(report, "report is null");
+            requireNonNull(source, "source is null");
+        }
+    }
 
     record Message(
             Optional<String> providerEventId,

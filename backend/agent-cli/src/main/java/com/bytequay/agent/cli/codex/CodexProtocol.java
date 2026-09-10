@@ -504,7 +504,9 @@ final class CodexProtocol
             String server,
             String tool,
             ActivityStatus status,
-            Optional<Long> durationMs)
+            Optional<Long> durationMs,
+            Optional<JsonNode> result,
+            Optional<JsonNode> error)
             implements ThreadItem
     {
         McpToolCallItem
@@ -512,6 +514,8 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(server, "server");
             checkIdentifier(tool, "tool");
+            result = requireNonNull(result, "result is null").filter(value -> !value.isNull());
+            error = requireNonNull(error, "error is null").filter(value -> !value.isNull());
             requireNonNull(status, "status is null");
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));

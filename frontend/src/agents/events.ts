@@ -27,6 +27,7 @@ const EVENT_TYPES = [
   'approval_resolved',
   'usage',
   'lifecycle',
+  'development_result',
   'error',
 ] as const;
 const DELIVERY_KINDS = ['TURN', 'STEER', 'QUEUED'] as const;
@@ -143,6 +144,11 @@ export type AgentEventEnvelope =
     outputTokens: number;
     cost: number | null;
   }>
+  | AgentEvent<'development_result', {
+    readyForDelivery: boolean;
+    message: string | null;
+    stopAfter: 'LOCAL_CHANGES' | 'COMMITS' | 'DRAFT' | 'CI' | null;
+  }>
   | AgentEvent<'lifecycle', {
     phase: typeof LIFECYCLE_PHASES[number];
     message: string;
@@ -187,6 +193,13 @@ export function parseAgentEventSequence(value: unknown, afterSequence = 0): Agen
     stringValue(event.occurredAt, `event[${index}].occurredAt`);
     const type = enumValue(event.type, EVENT_TYPES, `event[${index}].type`);
     validatePayload(type, event.payload, index);
+    if (type === 'development_result') {
+      const source = objectValue(event.source, 'developmentResult.source');
+      if (event.turnId === null || source.parentProviderThreadId !== null
+        || (source.logicalAgentPath !== null && source.logicalAgentPath !== '/')) {
+        throw new Error('Development result must belong to a root turn');
+      }
+    }
     expectedSequence++;
     return candidate as AgentEventEnvelope;
   });
@@ -330,6 +343,11 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       integerValue(payload.cachedInputTokens, 'usage.cachedInputTokens');
       integerValue(payload.outputTokens, 'usage.outputTokens');
       nullableNumber(payload.cost, 'usage.cost');
+      break;
+    case 'development_result':
+      booleanValue(payload.readyForDelivery, 'developmentResult.readyForDelivery');
+      nullableString(payload.message, 'developmentResult.message');
+      if (payload.stopAfter !== null) enumValue(payload.stopAfter, ['LOCAL_CHANGES', 'COMMITS', 'DRAFT', 'CI'] as const, 'developmentResult.stopAfter');
       break;
     case 'lifecycle':
       enumValue(payload.phase, LIFECYCLE_PHASES, 'lifecycle.phase');

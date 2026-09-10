@@ -17,6 +17,8 @@ import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -24,15 +26,19 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -64,7 +70,7 @@ class TestInteractiveAgentHttpContract
                 "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey");
+                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
@@ -98,7 +104,8 @@ class TestInteractiveAgentHttpContract
                         "cleanupFailure",
                         "checkoutRemovedAt",
                         "codegraph",
-                        "archivedAt");
+                        "archivedAt",
+                        "interactive");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");
@@ -118,7 +125,8 @@ class TestInteractiveAgentHttpContract
                         "settings",
                         "terminalReason",
                         "failureKind",
-                        "metrics");
+                        "metrics",
+                        "developmentResult");
         assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(
@@ -136,7 +144,8 @@ class TestInteractiveAgentHttpContract
                         "permissionPolicy",
                         "maximumRuntimeMillis",
                         "attachments",
-                        "serviceTier");
+                        "serviceTier",
+                        "developmentAutomation");
         assertThat(InteractiveAgentHttpContract.AttachmentReference.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("id", "name", "mediaType");
@@ -283,5 +292,34 @@ class TestInteractiveAgentHttpContract
 
         assertThat(json.required("failureKind").asText()).isEqualTo("AUTHENTICATION_REQUIRED");
         assertThat(json.toString()).doesNotContain("private-key", "private-provider-turn");
+    }
+
+    @Test
+    void distinguishesSavedDefaultsFromOneSubmissionAndKeepsTheDurableResultWireShape()
+            throws Exception
+    {
+        InteractiveAgentHttpContract.CreateTaskRequest request = objectMapper.readValue("""
+                {"taskId":"11111111-1111-1111-1111-111111111111","workspaceId":"workspace-1",
+                "message":"Task","laneId":"codex","idempotencyKey":"create-key",
+                "defaults":{"model":"model-a","permissionPolicy":"AUTO","developmentAutomation":
+                {"autoCommit":true,"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude"}},
+                "developmentAutomation":{"autoCommit":false,"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null}}
+                """, InteractiveAgentHttpContract.CreateTaskRequest.class);
+
+        assertThat(request.defaults().developmentAutomation().orElseThrow().toDomain())
+                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude"))));
+        assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY);
+
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "private-key",
+                        new AgentTurnSettings(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO,
+                                Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)),
+                        Instant.parse("2026-09-01T00:00:00Z"))
+                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Choose the expected behavior."), Optional.of(DevelopmentStopAfter.COMMITS)));
+        JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
+
+        assertThat(json.path("settings").path("developmentAutomation").path("autoCommit").asBoolean()).isFalse();
+        assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
+        assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
+        assertThat(json.path("developmentResult").path("stopAfter").asText()).isEqualTo("COMMITS");
     }
 }

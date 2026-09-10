@@ -16,8 +16,10 @@ package com.bytequay.agent.cli.claude;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -42,6 +44,61 @@ class TestClaudePermissionBroker
 
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void developmentReportsAreAvailableWithoutCodeGraphAndRejectExpiredOrInvalidClaims()
+            throws Exception
+    {
+        AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(
+                new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)));
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                taskId -> taskId.equals("task-1") ? active.get() : Optional.empty());
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+                "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                ClaudePermissionBroker.Registration claude = broker.register(
+                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                        false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(DevelopmentResultBridge.TOOL_NAME);
+                JsonNode accepted = developmentCall(broker, token, """
+                        {"readyForDelivery":true,"message":"done known-secret","stopAfter":"ci"}
+                        """);
+                assertThat(accepted.at("/result/isError").booleanValue()).isFalse();
+                assertThat(accepted.at("/result/content/0/text").textValue()).contains("turn-1", "[REDACTED]", "ci").doesNotContain("known-secret");
+                for (String input : ImmutableList.of(
+                        "{}", "{\"readyForDelivery\":\"true\"}", "{\"readyForDelivery\":true,\"threadId\":\"root\"}",
+                        "{\"readyForDelivery\":true,\"stopAfter\":\"merge\"}", "{\"readyForDelivery\":true,\"message\":null}",
+                        "{\"readyForDelivery\":true,\"message\":\"" + "a".repeat(4001) + "\"}")) {
+                    assertThat(developmentCall(broker, token, input).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+            }
+            assertThat(codex.instruction()).contains("readyForDelivery=false", "stopAfter", "keeps the PR");
+            active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION)));
+            assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+        try (ClaudePermissionBroker.Registration helper = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                true, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            assertThat(helper.development()).isEmpty();
+        }
+        assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
+    }
+
+    private JsonNode developmentCall(ClaudePermissionBroker broker, String token, String arguments)
+            throws Exception
+    {
+        return broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"report_development_result","arguments":%s}}
+                """.formatted(arguments))).body().orElseThrow();
+    }
 
     @Test
     void servesTheCodeGraphToolOnlyWhenBridged()

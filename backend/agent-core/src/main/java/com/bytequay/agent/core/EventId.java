@@ -46,6 +46,17 @@ public record EventId(UUID value)
         return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
     }
 
+    /** One readiness report for a completed native tool item in its bound turn. */
+    public static EventId developmentResult(TaskId taskId, TurnId turnId, String providerItemId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(providerItemId, "providerItemId is null");
+        checkArgument(!providerItemId.isBlank(), "providerItemId is blank");
+        String key = "bytequay-development-result:" + taskId + ":" + turnId + ":" + providerItemId;
+        return new EventId(UUID.nameUUIDFromBytes(key.getBytes(StandardCharsets.UTF_8)));
+    }
+
     /** Stable identity for the user-message event coupled to one steer delivery. */
     public static EventId steerMessage(InputDeliveryId deliveryId)
     {

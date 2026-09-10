@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
@@ -28,6 +29,7 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -96,6 +98,10 @@ public class AgentTaskEntity
     private String defaultEffort;
 
     private String defaultServiceTier;
+
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = DevelopmentAutomationConverter.class)
+    private DevelopmentAutomation developmentAutomation;
 
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
@@ -215,6 +221,7 @@ public class AgentTaskEntity
         defaultModel = task.defaults().model().orElse(null);
         defaultEffort = task.defaults().effort().orElse(null);
         defaultServiceTier = task.defaults().serviceTier().orElse(null);
+        developmentAutomation = task.defaults().developmentAutomation().orElse(null);
         permissionPolicy = task.permissionPolicy();
         state = task.state();
         mutationClaimKind = task.worktreeMutationClaim().map(WorktreeMutationClaim::kind).orElse(null);
@@ -268,7 +275,8 @@ public class AgentTaskEntity
                         Optional.ofNullable(defaultModel),
                         Optional.ofNullable(defaultEffort),
                         permissionPolicy,
-                        Optional.ofNullable(defaultServiceTier)),
+                        Optional.ofNullable(defaultServiceTier),
+                        Optional.ofNullable(developmentAutomation)),
                 state,
                 worktreeMutationClaim(),
                 version,

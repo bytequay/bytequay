@@ -21,12 +21,14 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -54,6 +56,7 @@ public final class InteractiveAgentTaskCreator
     private final AgentTurnService turns;
     private final AgentDriverRegistry drivers;
     private final ModelSettingsService models;
+    private final AppSettingsService settings;
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
@@ -66,7 +69,8 @@ public final class InteractiveAgentTaskCreator
             ModelSettingsService models,
             WorkspaceRepositoryService workspaces,
             WorkspaceProvisioningService provisioning,
-            GitCommandRunner git)
+            GitCommandRunner git,
+            AppSettingsService settings)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -75,6 +79,7 @@ public final class InteractiveAgentTaskCreator
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
+        this.settings = requireNonNull(settings, "settings is null");
     }
 
     public AgentTask create(
@@ -97,12 +102,26 @@ public final class InteractiveAgentTaskCreator
             String idempotencyKey,
             Optional<String> attachmentDigest)
     {
+        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, Optional.empty());
+    }
+
+    public AgentTask create(
+            TaskId taskId,
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey,
+            Optional<String> attachmentDigest,
+            Optional<DevelopmentAutomation> initialAutomation)
+    {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation);
         }
         finally {
             lock.unlock();
@@ -116,14 +135,15 @@ public final class InteractiveAgentTaskCreator
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
             String idempotencyKey,
-            Optional<String> attachmentDigest)
+            Optional<String> attachmentDigest,
+            Optional<DevelopmentAutomation> initialAutomation)
     {
         checkNotBlank(workspaceId, "workspaceId");
         checkNotBlank(message, "message");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest);
+        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation);
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -132,6 +152,9 @@ public final class InteractiveAgentTaskCreator
             }
             return task;
         }
+        DevelopmentAutomation automation = defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
+        settings.validateDevelopmentAutomation(automation);
+        initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
         requireReady(drivers, laneId, defaults.permissionPolicy());
         models.validateSelection(
                 laneId.value(),
@@ -156,7 +179,7 @@ public final class InteractiveAgentTaskCreator
                     repositoryIdentity(workspace.selectedRepository()),
                     head.output().strip(),
                     message,
-                    defaults,
+                    defaults.withDevelopmentAutomation(automation),
                     fingerprint));
         }
         catch (AgentConflictException conflict) {
@@ -190,7 +213,8 @@ public final class InteractiveAgentTaskCreator
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
             String idempotencyKey,
-            Optional<String> attachmentDigest)
+            Optional<String> attachmentDigest,
+            Optional<DevelopmentAutomation> initialAutomation)
     {
         MessageDigest digest;
         try {
@@ -206,6 +230,8 @@ public final class InteractiveAgentTaskCreator
         add(digest, defaults.effort().orElse(""));
         defaults.serviceTier().ifPresent(value -> add(digest, "serviceTier=" + value));
         add(digest, defaults.permissionPolicy().name());
+        defaults.developmentAutomation().ifPresent(value -> add(digest, "defaults.automation=" + value));
+        initialAutomation.ifPresent(value -> add(digest, "initial.automation=" + value));
         add(digest, idempotencyKey);
         attachmentDigest.ifPresent(value -> add(digest, value));
         return HexFormat.of().formatHex(digest.digest());

@@ -16,13 +16,17 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
+import com.bytequay.persistence.sqlite.converter.DevelopmentResultReportConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -110,6 +114,10 @@ public class AgentTurnEntity
 
     private String serviceTier;
 
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = DevelopmentAutomationConverter.class)
+    private DevelopmentAutomation developmentAutomation;
+
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
 
@@ -119,6 +127,10 @@ public class AgentTurnEntity
     private String attachmentsJson;
 
     private String terminalReason;
+
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = DevelopmentResultReportConverter.class)
+    private DevelopmentResultReport developmentResult;
 
     @Enumerated(EnumType.STRING)
     private AgentTurnFailureKind failureKind;
@@ -184,6 +196,7 @@ public class AgentTurnEntity
         requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
         serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
+        developmentAutomation = turn.settings().flatMap(AgentTurnSettings::developmentAutomation).orElse(null);
         permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
         maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
         attachmentsJson = turn.settings()
@@ -191,6 +204,7 @@ public class AgentTurnEntity
                 .map(AgentAttachmentReferenceJson::encode)
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
+        developmentResult = turn.developmentResult().orElse(null);
         failureKind = turn.failureKind().orElse(null);
         inputTokens = turn.metrics().inputTokens();
         cachedInputTokens = turn.metrics().cachedInputTokens();
@@ -213,7 +227,8 @@ public class AgentTurnEntity
                         permissionPolicy,
                         Duration.ofMillis(runtime),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
-                        Optional.ofNullable(serviceTier)));
+                        Optional.ofNullable(serviceTier),
+                        Optional.ofNullable(developmentAutomation)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),
@@ -236,7 +251,8 @@ public class AgentTurnEntity
                         outputTokens,
                         Optional.ofNullable(cost),
                         Duration.ofMillis(elapsedMillis),
-                        counters()));
+                        counters()),
+                Optional.ofNullable(developmentResult));
     }
 
     @Override

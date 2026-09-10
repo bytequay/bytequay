@@ -35,6 +35,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -481,7 +482,7 @@ public final class CodexCliDriver
         ModelProfile modelProfile = modelCatalog().select(context.model());
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = permissions.registerTools(
+        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.textOnly() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
         boolean review = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent();
         CodexLaunchProfile.ChildProfile childProfile = childProfile(modelProfile.childProfile(), context.textOnly(), review);
@@ -742,6 +743,7 @@ public final class CodexCliDriver
         private final Map<String, List<CodexProtocol.Notification>> pendingNotifications = new HashMap<>();
         private int pendingNotificationCount;
         private CodexRunningTurn running;
+        private Optional<DevelopmentResultBridge> development = Optional.empty();
         private boolean closed;
 
         private CodexSession(
@@ -900,6 +902,8 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
+            development = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::development)
+                    .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime(), this::userInput);
             return running;
         }
@@ -995,6 +999,7 @@ public final class CodexCliDriver
                     running.observeMessage(message.phase(), redactor.redact(message.text()));
                 }
                 eventMapper.map(notification, rootThread, lineage).forEach(events::emit);
+                eventMapper.developmentResult(notification, rootThread, running.reference().value(), development).ifPresent(events::emit);
                 if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
                     // The root saying it is done is necessary but not sufficient: an item or a
                     // yielded command can still be running. The turn stays live until the process

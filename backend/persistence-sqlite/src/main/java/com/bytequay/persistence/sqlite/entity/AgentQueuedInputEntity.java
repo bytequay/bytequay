@@ -15,12 +15,14 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -80,6 +82,10 @@ public class AgentQueuedInputEntity
 
     private String serviceTier;
 
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = DevelopmentAutomationConverter.class)
+    private DevelopmentAutomation developmentAutomation;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
@@ -135,6 +141,7 @@ public class AgentQueuedInputEntity
         requestedModel = input.settings().model().orElse(null);
         effort = input.settings().effort().orElse(null);
         serviceTier = input.settings().serviceTier().orElse(null);
+        developmentAutomation = input.settings().developmentAutomation().orElse(null);
         permissionPolicy = input.settings().permissionPolicy();
         maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
         attachmentsJson = AgentAttachmentReferenceJson.encode(input.settings().attachments());
@@ -161,7 +168,8 @@ public class AgentQueuedInputEntity
                         permissionPolicy,
                         Duration.ofMillis(maximumRuntimeMillis),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
-                        Optional.ofNullable(serviceTier)),
+                        Optional.ofNullable(serviceTier),
+                        Optional.ofNullable(developmentAutomation)),
                 Optional.ofNullable(messageEventId).map(EventId::valueOf),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 Optional.ofNullable(pauseReason),

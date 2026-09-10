@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 
 import java.time.Instant;
@@ -41,7 +42,8 @@ public record AgentTurn(
         Optional<AgentTurnSettings> settings,
         Optional<String> terminalReason,
         Optional<AgentTurnFailureKind> failureKind,
-        AgentMetrics metrics)
+        AgentMetrics metrics,
+        Optional<DevelopmentResultReport> developmentResult)
 {
     public AgentTurn(
             TurnId id,
@@ -79,8 +81,31 @@ public record AgentTurn(
                 metrics);
     }
 
+    public AgentTurn(
+            TurnId id,
+            TaskId taskId,
+            String idempotencyKey,
+            TurnState state,
+            long version,
+            Instant createdAt,
+            Optional<Instant> startedAt,
+            Optional<Instant> endedAt,
+            Optional<Instant> cancellationRequestedAt,
+            Optional<ProviderTurnRef> providerTurnReference,
+            boolean knownUnsent,
+            Optional<String> model,
+            Optional<AgentTurnSettings> settings,
+            Optional<String> terminalReason,
+            Optional<AgentTurnFailureKind> failureKind,
+            AgentMetrics metrics)
+    {
+        this(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.empty());
+    }
+
     public AgentTurn
     {
+        requireNonNull(developmentResult, "developmentResult is null");
         requireNonNull(id, "id is null");
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
@@ -237,6 +262,14 @@ public record AgentTurn(
                 providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
     }
 
+    public AgentTurn withDevelopmentResult(DevelopmentResultReport report)
+    {
+        requireNonNull(report, "report is null");
+        checkState(state.active(), "cannot report development readiness after the turn ended");
+        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report));
+    }
+
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
@@ -279,7 +312,8 @@ public record AgentTurn(
                 settings,
                 updatedTerminalReason,
                 updatedFailureKind,
-                updatedMetrics);
+                updatedMetrics,
+                developmentResult);
     }
 
     private void requireState(TurnState expected)

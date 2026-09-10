@@ -1,0 +1,41 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.agent.spi;
+
+import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+
+/** Binds the fixed reporting capability to an accepted ByteQuay turn. */
+public record DevelopmentResultBridge(String turnId, String instruction)
+{
+    public static final String TOOL_NAME = "report_development_result";
+    public static final String INSTRUCTION = """
+            Development result reporting is managed by ByteQuay for this turn. Before your final response,
+            the root agent must call report_development_result with readyForDelivery=true only when the
+            requested development work and appropriate verification are finished and no user decision is open.
+            Report readyForDelivery=false before asking for an unresolved decision; do not commit or publish
+            while that decision is open. Missing or invalid reports never authorize delivery. Subagents may
+            contribute work but cannot report the root result. Do not supply task, turn, or agent identities.
+            An optional message explains the outcome in at most 4000 characters. Optional stopAfter can only
+            narrow the user's accepted automation: local_changes stops before committing; commits stops
+            before publishing; draft stops after creating the draft PR; ci allows CI work but keeps the PR
+            draft. A request to leave the PR as a draft uses ci unless the user also asks to skip CI.
+            Reporting readiness does not itself commit, push, create a PR, or authorize additional work.
+            """;
+
+    public DevelopmentResultBridge
+    {
+        checkNotBlank(turnId, "turnId");
+        checkNotBlank(instruction, "instruction");
+    }
+}

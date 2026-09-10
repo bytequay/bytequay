@@ -17,6 +17,7 @@ import com.bytequay.agent.spi.AgentAttachment;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -28,10 +29,17 @@ public record QueueAgentInputCommand(
         long expectedVersion,
         String message,
         List<AgentAttachment> attachments,
-        String idempotencyKey)
+        String idempotencyKey,
+        Optional<DevelopmentAutomation> developmentAutomation)
 {
+    public QueueAgentInputCommand(TaskId taskId, long expectedVersion, String message, List<AgentAttachment> attachments, String idempotencyKey)
+    {
+        this(taskId, expectedVersion, message, attachments, idempotencyKey, Optional.empty());
+    }
+
     public QueueAgentInputCommand
     {
+        requireNonNull(developmentAutomation, "developmentAutomation is null");
         requireNonNull(taskId, "taskId is null");
         checkArgument(expectedVersion >= 0, "expectedVersion is negative");
         checkNotBlank(message, "message");

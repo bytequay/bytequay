@@ -24,6 +24,7 @@ import type {
   AgentQueuedInputDto,
   AgentStreamConnectionState,
   AgentTaskDefaultsDto,
+  DevelopmentAutomationDto,
   AgentTaskDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
@@ -63,6 +64,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'removeAgentAttachment'
   | 'subscribeAgentTask'
   | 'getModelSettings'
+  | 'getDevelopmentAutomation'
   | 'updateAgentTaskDefaults'
   | 'renameAgentTask'
   | 'archiveAgentTask'
@@ -544,6 +546,7 @@ export type TaskCreationTracker = {
     laneId: string,
     defaults: AgentTaskDefaultsDto,
     draftAttachmentIds?: string[],
+    developmentAutomation?: DevelopmentAutomationDto,
   ) => CreateAgentTaskRequest;
   settled: (taskId: string) => void;
 };
@@ -552,7 +555,7 @@ export type TaskCreationTracker = {
 export function createTaskCreationTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): TaskCreationTracker {
   let retained: { signature: string; request: CreateAgentTaskRequest } | null = null;
   return {
-    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = []) {
+    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation) {
       const signature = JSON.stringify([
         workspaceId,
         message.trim(),
@@ -561,6 +564,8 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         defaults.effort,
         defaults.permissionPolicy,
         defaults.serviceTier ?? null,
+        defaults.developmentAutomation ?? null,
+        developmentAutomation ?? null,
         draftAttachmentIds,
       ]);
       if (retained?.signature !== signature) {
@@ -572,6 +577,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
             message: message.trim(),
             laneId,
             defaults,
+            ...(developmentAutomation === undefined ? {} : { developmentAutomation }),
             ...(draftAttachmentIds.length === 0 ? {} : { draftAttachmentIds: [...draftAttachmentIds] }),
             idempotencyKey: createKey(),
           },
@@ -598,7 +604,7 @@ export function createDraftSubmissionTracker(createKey: () => string = () => glo
     taskId,
     message.trim(),
     attachmentIds,
-    ...(kind === 'steer' ? [] : [defaults?.model ?? null, defaults?.effort ?? null, defaults?.permissionPolicy ?? null, defaults?.serviceTier ?? null]),
+    ...(kind === 'steer' ? [] : [defaults?.model ?? null, defaults?.effort ?? null, defaults?.permissionPolicy ?? null, defaults?.serviceTier ?? null, defaults?.developmentAutomation ?? null]),
   ]);
   return {
     keyFor(kind, targetId, taskId, message, attachmentIds, defaults) {

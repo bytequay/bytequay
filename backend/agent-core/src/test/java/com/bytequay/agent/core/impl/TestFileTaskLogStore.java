@@ -24,6 +24,7 @@ import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
@@ -134,6 +135,7 @@ class TestFileTaskLogStore
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "complete"),
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS)),
                 new AgentEventPayload.Error(
                         "failed",
                         "failure",
@@ -148,11 +150,11 @@ class TestFileTaskLogStore
         List<AgentEventEnvelope> expectedEvents = expected.build();
 
         assertThat(store.readAfter(taskId, 0, 20)).containsExactlyElementsOf(expectedEvents);
-        assertThat(store.readAfter(taskId, 10, 1)).containsExactly(expectedEvents.getLast());
-        assertThat(new FileTaskLogStore(resources).lastSequence(taskId)).isEqualTo(11);
-        assertThatThrownBy(() -> store.append(envelope(13, source, payloads.getFirst())))
+        assertThat(store.readAfter(taskId, expectedEvents.size() - 1, 1)).containsExactly(expectedEvents.getLast());
+        assertThat(new FileTaskLogStore(resources).lastSequence(taskId)).isEqualTo(expectedEvents.size());
+        assertThatThrownBy(() -> store.append(envelope(expectedEvents.size() + 2, source, payloads.getFirst())))
                 .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("Expected event sequence 12");
+                .hasMessageContaining("Expected event sequence " + (expectedEvents.size() + 1));
     }
 
     @Test

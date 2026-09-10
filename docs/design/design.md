@@ -54,8 +54,9 @@ historical checkpoint evidence and explicitly deferred future work.
   CI loop, and marks the draft ready after verified green. The task stays open
   for later turns. The MVP uses an in-process after-turn coordinator, waits on
   explicit user-input gates, and fails rather than resumes after restart.
+  Settings, accepted-turn choices, and root readiness reporting are implemented.
   Its [implementation checklist](development-delivery-impl-tmp.md) tracks the
-  pending work and verification; review-comment fixing is excluded.
+  remaining coordinator/CI work and verification; review-comment fixing is excluded.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,
   intended for explicit branch rebases and to replace CI Autofix's unverified

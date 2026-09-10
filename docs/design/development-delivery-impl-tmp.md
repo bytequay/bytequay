@@ -3,7 +3,7 @@
 Approved behavior is defined in [Development task delivery](development-delivery.md).
 This is a temporary implementation tracker, not a second design. Checkpoints
 organize engineering work; they are not runtime phases or persisted states.
-Implementation has not started. An unchecked box means its behavior and
+Implementation is in progress. An unchecked box means its behavior and
 verification are still pending, even where reusable infrastructure exists.
 
 ## Scope and working rules
@@ -13,29 +13,29 @@ verification are still pending, even where reusable infrastructure exists.
   follow-ups, verifies results, and coordinates existing CI Autofix.
 - [x] Confirm question-first gating, one in-process coordinator, and failure
   instead of whole-flow recovery after backend restart.
-- [ ] Before implementation, reread the repository instructions, canonical
+- [x] Before implementation, reread the repository instructions, canonical
   delivery design, and relevant agent, UI, settings, CI, and rebase contracts.
   Recheck the working tree and preserve unrelated changes.
-- [ ] Reuse existing turn execution, managed instructions, fixed local-tool
+- [x] Reuse existing turn execution, managed instructions, fixed local-tool
   transport, task locks, settings storage, Git/GitHub clients, and CI service.
   Keep the coordinator in `app`; keep GitHub dependencies out of agent core.
-- [ ] Add no workflow framework, delivery table, phase enum, durable delivery
+- [x] Add no workflow framework, delivery table, phase enum, durable delivery
   claim, step journal, recovery loop, migration system, or new dependency.
-- [ ] Treat visible settings on explicit user submission as scoped authority.
+- [x] Treat visible settings on explicit user submission as scoped authority.
   Keep provider approvals and authentication checks; do not add another routine
   publication confirmation or let generated text expand authority.
-- [ ] Mark an implementation item complete only after its behavior exists and
+- [x] Mark an implementation item complete only after its behavior exists and
   its relevant check passes. Record commands, outcomes, and evidence below;
   do not add dated logs or claim skipped tests passed.
-- [ ] Keep each change focused and buildable. Checkpoint names do not belong
+- [x] Keep each change focused and buildable. Checkpoint names do not belong
   in commit messages. Do not release the default-on chain partially implemented.
-- [ ] Use disposable Git repositories and fixture providers/GitHub responses
+- [x] Use disposable Git repositories and fixture providers/GitHub responses
   for automated tests. Any live GitHub smoke write needs a separately selected,
   user-authorized test target; this planning request authorizes no publication.
 
 ## Checkpoint overview
 
-- [ ] CP1 — Settings, root readiness reporting, and question presentation.
+- [x] CP1 — Settings, root readiness reporting, and question presentation.
 - [ ] CP2 — Live coordinator, admission, and failure foundation.
 - [ ] CP3 — Verified commit and draft-PR follow-ups.
 - [ ] CP4 — Existing CI integration, child ownership, and deletion.
@@ -44,50 +44,69 @@ verification are still pending, even where reusable infrastructure exists.
 Complete these in order. Focused tests and UI accompany each checkpoint.
 CP5 is the release gate for the complete default-on behavior.
 
-## CP1 — Settings and user-input gates
+## CP1 — Settings and root readiness
 
 Starting points: `AppSettingsStore`, `AppSettingsService`, task/turn settings,
 `AgentSkillService`, both CLI drivers, `SettingsWindow`, and `AgentTaskScreen`.
 
-- [ ] Add the three default-on settings through existing application settings
+- [x] Add the three default-on settings through existing application settings
   storage and HTTP/IPC contracts. Copy defaults to new tasks, support task
   overrides, and snapshot the selection when each user turn is accepted.
-- [ ] Carry the accepted branch/repository/base scope and selected supported
-  CI provider into follow-ups. CI capability/readiness must be explicit;
-  Codex development may use Claude for CI, with no silent unsupported fallback.
-- [ ] Add Settings → Agents → Workflow and the task Automation control.
+- [x] Add Settings → Agents → Workflow and the task Automation control.
   Distinguish Automation from permission mode Auto. Support Local only for
   one submission; label active-run setting edits For future turns.
-- [ ] Add the fixed `report_development_result` local tool for the current
+- [x] Add the fixed `report_development_result` local tool for the current
   root turn in both Codex and Claude. Store typed readiness, question text,
   and optional `stopAfter` on existing turn/event data.
-- [ ] Reject child, wrong-task, stale-turn, and invalid reports. A report
+- [x] Reject child, wrong-task, stale-turn, and invalid reports. A report
   cannot enable a setting, choose a destination, or perform a remote write.
   Reuse existing provider tool transports without building a general framework.
-- [ ] Add managed instructions to report readiness before ending, report false
+- [x] Add managed instructions to report readiness before ending, report false
   when a user decision remains, honor narrower user limits, and leave unfinished
   work alone. Completed work may be committed according to accepted settings.
-- [ ] Show the blocking question in the existing transcript/composer flow.
+- [x] Show the blocking question in the existing transcript/composer flow.
   Do not infer readiness from final-message wording or add native questionnaire
   cards for this MVP. Existing approvals/native input remain execution gates.
-- [ ] When all three settings are off, retain ordinary task behavior: no
+- [x] When all three settings are off, retain ordinary task behavior: no
   mandatory report, automatic continuation, or delivery fail-and-delete policy.
 
 Acceptance checks:
 
-- [ ] Verify defaults, task overrides, accepted snapshots, generated-turn
-  inheritance, future-only edits, and the independent toggle combinations.
-- [ ] Verify both provider bindings and root identity validation. Missing,
+- [x] Verify defaults, task overrides, accepted snapshots, future-only edits,
+  and the independent toggle combinations. Generated-turn inheritance is
+  checked in CP2, where the dispatcher is introduced.
+- [x] Verify both provider bindings and root identity validation. Missing,
   malformed, or unsupported reporting never becomes implicit readiness.
-- [ ] Verify false readiness displays correctly with dirty files, local commits,
-  and an existing PR; no publication instruction bypasses the question.
-- [ ] Verify `stopAfter` only narrows behavior, including leave-draft requests.
-  Preserve existing tool-approval and authentication behavior.
+- [x] Verify the durable question displays before the composer even with
+  unloaded history, and clears for an active answer or fresh ready result.
+  Blocking publication with dirty files, commits, or an existing PR is checked
+  in CP2/CP3, where follow-ups begin.
+- [x] Verify typed `stopAfter` validation, persistence, and managed narrowing
+  instructions. Preserve existing tool-approval and authentication behavior,
+  including Local only on authentication retry. Runtime narrowing and
+  leave-draft enforcement remain acceptance checks in CP2/CP3/CP5.
 
 Exit: both providers can distinguish finished work from a question, and the
 accepted automation selection is visible and immutable for that submission.
 
-Evidence: Pending.
+Evidence:
+
+- `mvn verify` passed across all backend modules, including Checkstyle,
+  policy/readiness persistence, atomic report storage, HTTP contracts, and
+  provider/broker tests. Existing opt-in tests remained skipped.
+- `npm run lint`, `npx tsc --noEmit`, and `npm test` passed; 751 frontend tests
+  passed in 64 files. The Chromium bridge test covers first-turn Local only
+  and retaining the accepted choice through authentication retry.
+- `npm run package` produced the macOS arm64 package successfully.
+- The pinned Codex `0.151.0` compatibility script and generated binding fixture
+  passed. Provider behavior is covered with fixtures; no live-model or GitHub
+  write smoke was performed.
+- Relevant tests: `TestDefaultAgentTurnService`, `TestSqliteAgentStores`,
+  `TestDevelopmentResultBridgeResolverImpl`, `TestInteractiveAgentTaskCreator`,
+  `TestClaudeDevelopmentResult`, `TestCodexDevelopmentResult`,
+  `developmentAutomation.test.tsx`, and `developmentAutomationBrowser.test.ts`.
+- Canonical design implementation claims match the foundation. `git diff
+  --check` and relative documentation-link checks passed before commit.
 
 ## CP2 — Live coordinator and failure foundation
 
@@ -104,6 +123,10 @@ Starting points: `DefaultAgentTurnService`, existing queue/task admission,
 - [ ] Run the canonical algorithm as one asynchronous continuation. Internal
   generated turns carry trusted origin/ownership metadata and resolve its wait;
   they cannot recursively launch another coordinator.
+- [ ] Carry the original accepted settings and branch/repository/base scope
+  into follow-ups, including the selected supported CI provider. Verify that
+  later task-default edits cannot change a generated turn's model, permission,
+  or automation selection. Check CI readiness at attachment, without fallback.
 - [ ] Exclude CI, cherry-pick, review-owned tasks, helpers, and child agents.
   Replay, page load, terminal retry, and duplicate callbacks must not dispatch
   follow-ups; reuse existing request identifiers where applicable.
@@ -128,6 +151,8 @@ Acceptance checks:
   files or commits, and an explicit answered turn can deliver unchanged pending work.
 - [ ] Verify pending approvals, missing reports, provider failure, and cleanup
   failure cannot start follow-ups. Waiting for an answer is not task failure.
+- [ ] Verify `stopAfter` only narrows the accepted next action; no report can
+  enable a disabled setting or expand the original authorization.
 - [ ] Verify simultaneous Send, queue, and Complete; atomic FIFO handoff;
   duplicate terminal notifications; and generated-turn non-recursion.
 - [ ] Verify a renderer reload leaves the backend continuation running, while
@@ -175,6 +200,9 @@ Acceptance checks:
   already-committed, no-change, open-operation, and wrong-ownership cases.
 - [ ] Verify one commit/publication request maximum, question/answer inside
   either follow-up, disabled-setting behavior, and actual post-turn inspection.
+- [ ] Verify false readiness prevents publication with dirty files, local
+  commits, and an existing PR. Check `stopAfter` at both commit and publication
+  boundaries, including when a follow-up itself asks a question.
 - [ ] Verify existing-PR reuse, fork publication routing, wrong base/head,
   remote changes between inspection and push, and uncertain PR-create outcomes.
 - [ ] Verify no second PR on later task revisions, no publication from replay,
@@ -290,7 +318,11 @@ Evidence: Pending.
 
 ## Evidence and remaining work
 
-Implementation has not started. Replace each Pending evidence entry with the
-focused commands/results and relevant test or artifact paths when that
-checkpoint is verified. Record an unresolved blocker beside its unchecked
-item; do not create a runtime recovery design in this implementation tracker.
+The settings/readiness foundation is implemented and its required build and
+verification gates pass. The automatic coordinator, publication, and CI chain
+are not enabled. Follow-up-specific scope, inheritance, question gating, and
+`stopAfter` enforcement remain in CP2–CP5 beside their callers. These checks
+are not satisfied by reporting-tool or presentation tests. CP2 is next.
+Replace each Pending evidence entry with focused commands/results and relevant
+test or artifact paths when verified. Record an unresolved blocker beside its
+unchecked item; do not add a runtime recovery design to this tracker.

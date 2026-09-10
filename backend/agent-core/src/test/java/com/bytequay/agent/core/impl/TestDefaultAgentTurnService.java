@@ -38,6 +38,7 @@ import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -66,6 +67,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
@@ -76,8 +78,13 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
+import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
@@ -351,6 +358,42 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void snapshotsSubmissionAutomationWithoutChangingTaskDefaultsOrQueuedWork()
+    {
+        AgentTask interactive = interactiveTask("Implement the change");
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        AgentTask configured = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                interactive.id(), interactive.version(), interactive.defaults().withDevelopmentAutomation(automation)));
+        AgentTurn first = service.start(new StartAgentTurnCommand(configured.id(), configured.version(), "first", ImmutableList.of(), "automation-1")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                configured.id(), taskService.get(configured.id()).version(), "second", ImmutableList.of(), "automation-queue"));
+        AgentTask current = taskService.get(configured.id());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                current.id(), current.version(), current.defaults().withDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY)));
+
+        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(queued.settings().developmentAutomation()).contains(automation);
+        AgentTurn replay = service.start(new StartAgentTurnCommand(configured.id(), "different text", ImmutableList.of(), "automation-1")
+                .withDevelopmentAutomation(Optional.of(automation)));
+        assertThat(replay.settings()).isEqualTo(first.settings());
+        driver.complete("first done");
+
+        assertThat(stores.findActive(configured.id()).orElseThrow().settings().orElseThrow().developmentAutomation()).contains(automation);
+        assertThat(taskService.get(configured.id()).defaults().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        driver.complete("second done");
+    }
+
+    @Test
+    void workflowTurnsCannotAcquireAnInteractiveAutomationOverride()
+    {
+        assertThatThrownBy(() -> service.start(command("first", "workflow-automation")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT))))
+                .isInstanceOf(InvalidAgentRequestException.class).hasMessageContaining("interactive task");
+        assertThat(stores.findActive(task.id())).isEmpty();
+    }
+
+    @Test
     void doesNotUseTheFirstAnswerAsTheTaskTitle()
     {
         AgentTask interactive = interactiveTask("Investigate the flaky cherry-pick preview test and fix the root cause.");
@@ -449,6 +492,83 @@ class TestDefaultAgentTurnService
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.USAGE)
                 .hasSize(1);
         driver.complete("done");
+    }
+
+    @Test
+    void commitsDevelopmentReadinessWithItsEventAndIgnoresAnOlderDuplicate()
+    {
+        AgentTask development = interactiveTask("Development");
+        AgentTurn running = service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
+        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation?"), Optional.of(DevelopmentStopAfter.COMMITS));
+        ProviderAgentEvent.DevelopmentResult first = developmentReport(running, "report-1", question, Optional.empty());
+        stores.failOutboxInsert(AgentEventPayload.Kind.DEVELOPMENT_RESULT, new AgentStorageException("blocked report outbox"));
+
+        assertThatThrownBy(() -> driver.emit(first)).isInstanceOf(AgentStorageException.class).hasMessage("blocked report outbox");
+        assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
+        assertThat(events.readAfter(development.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.DEVELOPMENT_RESULT).isEmpty();
+
+        driver.emit(first);
+        driver.emit(first);
+        assertThat(stores.find(running.id()).orElseThrow().developmentResult()).contains(question);
+        assertThat(events.readAfter(development.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.DEVELOPMENT_RESULT).hasSize(1);
+
+        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty(), Optional.of(DevelopmentStopAfter.COMMITS));
+        driver.emit(developmentReport(running, "report-2", ready, Optional.empty()));
+        driver.emit(first);
+        driver.complete("Finished");
+
+        assertThat(stores.find(running.id()).orElseThrow().developmentResult()).contains(ready);
+        assertThat(events.readAfter(development.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.DEVELOPMENT_RESULT).hasSize(2);
+    }
+
+    @Test
+    void rejectsDevelopmentReportsFromChildrenAndOtherProviderTurns()
+    {
+        AgentTask development = interactiveTask("Development");
+        AgentTurn running = service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
+        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty(), Optional.empty());
+        ProviderAgentEvent.DevelopmentResult child = developmentReport(running, "child-report", ready, Optional.of("root-thread"));
+        assertThatThrownBy(() -> driver.emit(child)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("root agent");
+
+        ProviderAgentEvent.DevelopmentResult stale = new ProviderAgentEvent.DevelopmentResult(
+                Optional.empty(), Optional.empty(), ready, new ProviderAgentEventSource(
+                        Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.of("report-1")));
+        assertThatThrownBy(() -> driver.emit(stale)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
+        assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
+        driver.complete("Finished");
+    }
+
+    @Test
+    void ordinaryTurnsCannotAcquireReadinessFromProviderEvents()
+    {
+        AgentTurn running = service.start(command("Discuss the code", "ordinary"));
+        ProviderAgentEvent.DevelopmentResult report = developmentReport(
+                running, "report-1", new DevelopmentResultReport(true, Optional.empty(), Optional.empty()), Optional.empty());
+        assertThatThrownBy(() -> driver.emit(report)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not enabled");
+        assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
+        driver.complete("Finished");
+    }
+
+    @Test
+    void localOnlyInstructionsUseTheAcceptedSelectionWithoutRequiringAReportingTool()
+    {
+        AgentTask development = interactiveTask("Development");
+        service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+
+        assertThat(driver.openedContexts().getFirst().managedInstructions())
+                .contains("Auto commit: false", "Auto draft PR: false", "Auto CI fix: false", "leave changes uncommitted")
+                .doesNotContain("report_development_result");
+        driver.complete("Finished");
+    }
+
+    private static ProviderAgentEvent.DevelopmentResult developmentReport(
+            AgentTurn turn, String itemId, DevelopmentResultReport report, Optional<String> parentThreadId)
+    {
+        return new ProviderAgentEvent.DevelopmentResult(Optional.empty(), Optional.empty(), report, new ProviderAgentEventSource(
+                Optional.of("root-thread"), parentThreadId, Optional.of("/"), turn.providerTurnReference().map(ProviderTurnRef::value), Optional.of(itemId)));
     }
 
     @Test

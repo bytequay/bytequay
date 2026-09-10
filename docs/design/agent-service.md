@@ -1,17 +1,25 @@
 # Agent Service Design
 
-## Proposed development delivery
+## Development delivery
 
-[Development Task Delivery](development-delivery.md) specifies the pending
+[Development Task Delivery](development-delivery.md) defines the approved
 extension for default-on commit, draft publication, and CI Autofix after
-interactive development turns. One in-process backend coordinator checks a
-root-agent readiness report before inspecting work and starting ordinary
-commit/publication follow-ups. A user question blocks delivery even when Git
-contains changes or commits. Live per-task ownership prevents competing turns;
-there is no new durable delivery claim, workflow state machine, or restart
-recovery. Lost continuations fail and stop their CI children. Successful work
-keeps the task `OPEN`; task completion is not a publication trigger. These
-changes are proposed; the contracts below remain the implemented baseline.
+interactive development turns. Application/task choices and accepted user/queued
+turn snapshots now carry optional `developmentAutomation`; ordinary workflow
+tasks carry none. Local only changes one submission. Managed instructions use
+the accepted snapshot, including when it disables all automation.
+
+Codex and Claude expose the fixed root readiness tool independently of CodeGraph.
+Only a successful current-root native tool result is persisted as the turn's
+optional `developmentResult`, atomically with its `development_result` event.
+This is an assessment, separate from provider execution completion. A duplicate
+or child result cannot release a user gate. The durable turn projection retains
+questions outside the loaded transcript window.
+
+The in-process after-turn coordinator, automatic Git/PR verification and
+publication, CI handoff, and stop/fail handling are still pending. The approved
+continuation adds no workflow state machine or whole-flow restart recovery;
+successful delivery will retain the open task. Task completion is not its trigger.
 
 ## Managed skills
 
@@ -323,7 +331,7 @@ amount.
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
 | `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
 | `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
-| `AgentTurnSettings` | Immutable requested model, effort, service tier, permission, runtime, and attachment snapshot; CP4 makes it effective at provider start |
+| `AgentTurnSettings` | Immutable requested model, effort, service tier, permission, runtime, attachment, and optional development-automation snapshot |
 | `AgentInputDelivery` | Durable steer send attempt and known or uncertain outcome; direct start uses `AgentTurn` |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |

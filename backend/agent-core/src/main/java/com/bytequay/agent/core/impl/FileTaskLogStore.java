@@ -613,6 +613,7 @@ public final class FileTaskLogStore
         AgentEventPayload payload = switch (kind) {
             case USER_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.UserMessage.class);
             case ASSISTANT_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.AssistantMessage.class);
+            case DEVELOPMENT_RESULT -> objectMapper.treeToValue(payloadNode, AgentEventPayload.DevelopmentResult.class);
             case PLAN_UPDATED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.PlanUpdated.class);
             case COMMAND -> objectMapper.treeToValue(payloadNode, AgentEventPayload.CommandActivity.class);
             case FILE_CHANGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.FileActivity.class);

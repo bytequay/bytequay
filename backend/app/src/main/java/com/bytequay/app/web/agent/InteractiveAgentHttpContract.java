@@ -26,6 +26,8 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -77,7 +79,8 @@ final class InteractiveAgentHttpContract
                 task.cleanupFailure(),
                 task.worktreeRemovedAt(),
                 task.codegraph(),
-                task.archivedAt());
+                task.archivedAt(),
+                task.interactive());
     }
 
     /**
@@ -113,7 +116,8 @@ final class InteractiveAgentHttpContract
                 turn.settings().map(InteractiveAgentHttpContract::settings),
                 turn.terminalReason(),
                 turn.failureKind(),
-                turn.metrics());
+                turn.metrics(),
+                turn.developmentResult());
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -173,7 +177,8 @@ final class InteractiveAgentHttpContract
                 defaults.model(),
                 defaults.effort(),
                 defaults.permissionPolicy().name(),
-                defaults.serviceTier());
+                defaults.serviceTier(),
+                defaults.developmentAutomation().map(DevelopmentAutomationDto::from));
     }
 
     static TurnSettings settings(AgentTurnSettings settings)
@@ -186,7 +191,8 @@ final class InteractiveAgentHttpContract
                 settings.attachments().stream()
                         .map(InteractiveAgentHttpContract::attachment)
                         .collect(toImmutableList()),
-                settings.serviceTier());
+                settings.serviceTier(),
+                settings.developmentAutomation().map(DevelopmentAutomationDto::from));
     }
 
     private static AttachmentReference attachment(AgentAttachmentReference attachment)
@@ -204,10 +210,17 @@ final class InteractiveAgentHttpContract
             String message,
             String laneId,
             TaskDefaults defaults,
-            String idempotencyKey)
+            String idempotencyKey,
+            Optional<DevelopmentAutomationDto> developmentAutomation)
     {
+        CreateTaskRequest(String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey)
+        {
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty());
+        }
+
         CreateTaskRequest
         {
+            requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkNotBlank(taskId, "taskId");
             checkNotBlank(workspaceId, "workspaceId");
             checkNotBlank(message, "message");
@@ -257,15 +270,22 @@ final class InteractiveAgentHttpContract
             Optional<String> model,
             Optional<String> effort,
             String permissionPolicy,
-            Optional<String> serviceTier)
+            Optional<String> serviceTier,
+            Optional<DevelopmentAutomationDto> developmentAutomation)
     {
         TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy)
         {
-            this(model, effort, permissionPolicy, Optional.empty());
+            this(model, effort, permissionPolicy, Optional.empty(), Optional.empty());
+        }
+
+        TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy, Optional<String> serviceTier)
+        {
+            this(model, effort, permissionPolicy, serviceTier, Optional.empty());
         }
 
         TaskDefaults
         {
+            requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkOptionalText(model, "model");
             checkOptionalText(effort, "effort");
             checkOptionalText(serviceTier, "serviceTier");
@@ -294,7 +314,8 @@ final class InteractiveAgentHttpContract
             Optional<String> cleanupFailure,
             Optional<Instant> checkoutRemovedAt,
             boolean codegraph,
-            Optional<Instant> archivedAt) {}
+            Optional<Instant> archivedAt,
+            boolean interactive) {}
 
     record MutationClaim(
             String kind,
@@ -334,13 +355,20 @@ final class InteractiveAgentHttpContract
             Optional<TurnSettings> settings,
             Optional<String> terminalReason,
             Optional<AgentTurnFailureKind> failureKind,
-            AgentMetrics metrics) {}
+            AgentMetrics metrics,
+            Optional<DevelopmentResultReport> developmentResult) {}
 
     /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */
-    record InputRequest(String message, List<String> attachments, Long expectedVersion)
+    record InputRequest(String message, List<String> attachments, Long expectedVersion, Optional<DevelopmentAutomationDto> developmentAutomation)
     {
+        InputRequest(String message, List<String> attachments, Long expectedVersion)
+        {
+            this(message, attachments, expectedVersion, Optional.empty());
+        }
+
         InputRequest
         {
+            requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkNotBlank(message, "message");
             attachments = attachments == null ? ImmutableList.of() : ImmutableList.copyOf(attachments);
         }
@@ -375,7 +403,8 @@ final class InteractiveAgentHttpContract
             String permissionPolicy,
             long maximumRuntimeMillis,
             List<AttachmentReference> attachments,
-            Optional<String> serviceTier) {}
+            Optional<String> serviceTier,
+            Optional<DevelopmentAutomationDto> developmentAutomation) {}
 
     record AttachmentReference(
             String id,

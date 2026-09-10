@@ -47,6 +47,8 @@ AgentProviderUnavailableDto,
 AgentQueuedInputDto,
 AgentRuntimeStopImpactDto,
 AgentTaskDto,
+DevelopmentAutomationDto,
+ModelProviderDto,
 AgentTurnDto,
 InlineReviewCommentDto,
 ModelOptionDto,
@@ -56,6 +58,8 @@ WorkspaceDto
 import { useResizablePane } from '../useResizablePane';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import type { CommitRange } from '../pulls/PullChanges';
+import { AutomationControl } from './AutomationControl';
+import { automationForSubmission, developmentQuestion } from './developmentAutomation';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -882,8 +886,12 @@ export function AgentTaskBody({
   onLoadHistory = () => {},
   onFollowHistory = () => {},
   pendingApprovals = null,
+  automation,
+  submissionBlocked = false,
 }: {
   state: AgentTaskState;
+  automation?: React.ReactNode;
+  submissionBlocked?: boolean;
   models: ModelOptionDto[];
   historyLoading?: boolean;
   onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
@@ -1012,7 +1020,8 @@ export function AgentTaskBody({
   const terminal = status === 'completed' || status === 'failed';
   const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
-  const statusLabel = status === 'running' && waiting ? 'Needs approval' : STATUS_LABELS[status];
+  const question = developmentQuestion(state);
+  const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval' : STATUS_LABELS[status];
   const statusText = state.turn === null
     ? STATUS_LABELS[status]
     : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
@@ -1126,6 +1135,8 @@ export function AgentTaskBody({
 
       {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
 
+      {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
+
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
       {!terminal && (
@@ -1165,10 +1176,11 @@ export function AgentTaskBody({
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
+          automation={automation}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running'} sending={state.sending}
           disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
-          sendEnabled={canSend(state)} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked}
+          sendEnabled={canSend(state) && !submissionBlocked} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked && !submissionBlocked}
           connection={state.connection} closing={status === 'closing'}
           composerRef={composerRef}
           onPaste={event => pasteImage(event, imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
@@ -1317,6 +1329,10 @@ export default function AgentTaskScreen({
   const [provider, setProvider] = useState('');
   const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
+  const [automationDefaults, setAutomationDefaults] = useState<DevelopmentAutomationDto | null>(null);
+  const [automationProviders, setAutomationProviders] = useState<ModelProviderDto[]>([]);
+  const [localOnly, setLocalOnly] = useState(false);
+  const [automationSaving, setAutomationSaving] = useState(false);
   const [providerChecking, setProviderChecking] = useState(false);
   const [confirmation, setConfirmation] = useState<TaskConfirmation | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -1412,6 +1428,19 @@ export default function AgentTaskScreen({
     dispatch({ type: 'turn/changed', turn });
   }, []);
 
+  const automationEligible = state.task?.interactive === true;
+  useEffect(() => {
+    if (!automationEligible) return;
+    let active = true;
+    void live().getDevelopmentAutomation().then(value => { if (active) setAutomationDefaults(value); })
+      .catch(failure => { if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) }); });
+    return () => { active = false; };
+  }, [automationEligible, live]);
+  const automationSelection = state.task?.defaults.developmentAutomation ?? automationDefaults;
+  const automationBlocked = automationEligible && (automationSelection === null || automationSaving);
+  const submissionAutomation = automationEligible && automationSelection !== null
+    ? automationForSubmission(automationSelection, localOnly) : undefined;
+
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
     let active = true;
@@ -1465,6 +1494,7 @@ export default function AgentTaskScreen({
       ]);
       if (!active) return;
       const lane = catalog.providers.find((candidate) => candidate.id === taskLaneId);
+      setAutomationProviders(catalog.providers);
       setModels(lane?.models ?? []);
       setProvider(lane?.label ?? '');
       if (lane !== undefined) {
@@ -1634,6 +1664,7 @@ export default function AgentTaskScreen({
       effort,
       serviceTier,
       permissionPolicy: task.defaults.permissionPolicy,
+      developmentAutomation: task.defaults.developmentAutomation,
     });
     const draft = stateRef.current;
     submissions.draftChanged(taskId, draft.composer, draft.attachments.map((attachment) => attachment.id), updated.defaults);
@@ -1643,6 +1674,14 @@ export default function AgentTaskScreen({
       settings: await live().getEffectiveTurnSettings(taskId, workspaceId),
     });
   }), [applyTask, live, run, state.task, submissions, taskId, workspaceId]);
+
+  const selectAutomation = useCallback((developmentAutomation: DevelopmentAutomationDto) => run(async () => {
+    const task = stateRef.current.task;
+    if (task === null) return;
+    setAutomationSaving(true);
+    try { applyTask(await live().updateAgentTaskDefaults(taskId, workspaceId, task.version, { ...task.defaults, developmentAutomation })); }
+    finally { setAutomationSaving(false); }
+  }), [applyTask, live, run, taskId, workspaceId]);
 
   const rename = useCallback((title: string) => run(async () => {
     const task = state.task;
@@ -1656,13 +1695,14 @@ export default function AgentTaskScreen({
     applyTask(await live().archiveAgentTask(taskId, workspaceId, task.version, archived));
   }), [applyTask, live, run, state.task, taskId, workspaceId]);
 
-  const startTurn = useCallback(async (message: string, attachments: string[], idempotencyKey: string, expectedTaskVersion: number) => {
+  const startTurn = useCallback(async (message: string, attachments: string[], idempotencyKey: string, expectedTaskVersion: number, developmentAutomation?: DevelopmentAutomationDto) => {
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const turn = await live().startAgentTurn({
         taskId,
         message,
         expectedTaskVersion,
+        developmentAutomation,
         idempotencyKey,
         attachments,
       });
@@ -1687,17 +1727,18 @@ export default function AgentTaskScreen({
   }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current) return;
+    if (attachmentPendingRef.current || automationBlocked) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds, task.defaults);
-    await startTurn(message, attachmentIds, idempotencyKey, task.version);
+    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
+    await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
+    setLocalOnly(false);
     // The transcript still waits for the durable user-message event rather than inventing it.
     dispatch({ type: 'composer/changed', text: '' });
     dispatch({ type: 'attachments/cleared' });
-  }), [run, startTurn, state.attachments, state.composer, state.task, submissions, taskId]);
+  }), [automationBlocked, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId]);
 
   /** One click, one ordinary turn: the agent does the committing, pushing and opening itself. */
   const createPullRequest = useCallback(() => run(async () => {
@@ -1742,12 +1783,12 @@ export default function AgentTaskScreen({
   }), [live, run, state.attachments, state.composer, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current) return;
+    if (attachmentPendingRef.current || automationBlocked) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
-    const idempotencyKey = submissions.keyFor('queue', taskId, taskId, message, attachmentIds, task.defaults);
+    const idempotencyKey = submissions.keyFor('queue', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
     dispatch({ type: 'composer/sending', sending: true });
     try {
       const queued = await live().queueAgentInput({
@@ -1755,11 +1796,13 @@ export default function AgentTaskScreen({
         workspaceId,
         message,
         expectedVersion: task.version,
+        developmentAutomation: submissionAutomation,
         idempotencyKey,
         attachments: attachmentIds,
       });
       submissions.settled(idempotencyKey);
       applyQueuedInput(queued);
+      setLocalOnly(false);
       dispatch({ type: 'composer/changed', text: '' });
       dispatch({ type: 'attachments/cleared' });
       // The write moved the task version; one ordered refresh adopts it and reconciles auto-start.
@@ -1768,7 +1811,7 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [applyQueuedInput, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissions, taskId, workspaceId]);
+  }), [applyQueuedInput, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const removeQueued = useCallback((queuedInputId: string) => run(async () => {
     await live().removeAgentQueuedInput(taskId, workspaceId, queuedInputId);
@@ -1987,10 +2030,14 @@ export default function AgentTaskScreen({
       || !providerAvailable(providerStatus.readiness)) return;
     if (!window.confirm(`Retry the last message? This creates a new turn and may run commands again.\n\n${input.text}`)) return;
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
+    // Retrying the accepted input must retain Local only, even if task defaults changed later.
+    const developmentAutomation = task.interactive
+      ? current.turn.settings?.developmentAutomation ?? { autoCommit: false, autoDraftPr: false, autoCiFix: false, ciLaneId: null }
+      : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.
-    const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds, task.defaults);
-    await startTurn(input.text, attachmentIds, idempotencyKey, task.version);
+    const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds, { ...task.defaults, developmentAutomation });
+    await startTurn(input.text, attachmentIds, idempotencyKey, task.version, developmentAutomation);
   }), [providerStatus, providerStatusTurnId, run, startTurn, submissions, taskId]);
 
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision) => run(async () => {
@@ -2002,6 +2049,10 @@ export default function AgentTaskScreen({
   return (<>
     <AgentTaskBody
       state={state}
+      submissionBlocked={automationBlocked}
+      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
+        disabled={state.sending || automationSaving} futureTurns={running} localOnly={localOnly}
+        onChange={value => { void selectAutomation(value); }} onLocalOnlyChange={setLocalOnly} /> : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
       onFollowHistory={(following) => {

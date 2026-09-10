@@ -13,8 +13,15 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -24,10 +31,15 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class TestAppSettingsService
 {
     private final Map<String, String> rows = new HashMap<>();
+    private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AppSettingsService settings = new AppSettingsService(new AppSettingsStore()
     {
         @Override
@@ -47,7 +59,48 @@ class TestAppSettingsService
         {
             rows.remove(key);
         }
-    }, new ObjectMapper(), Clock.systemUTC());
+    }, new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), drivers);
+
+    @Test
+    void automationDefaultsRemainUnselectedAndReadOnly()
+    {
+        assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.DEFAULT);
+        assertThat(settings.developmentAutomation().ciLaneId()).isEmpty();
+        assertThat(rows).isEmpty();
+        verifyNoInteractions(drivers);
+    }
+
+    @Test
+    void automationRoundTripsIndependentChoicesAndExplicitCiProvider()
+    {
+        AgentDriver claude = mock(AgentDriver.class);
+        when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(claude);
+        when(claude.capabilities()).thenReturn(new AgentCapabilities(
+                false, false, false, false, false, false, false, false, false, false,
+                ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
+        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+
+        settings.saveDevelopmentAutomation(chosen);
+
+        assertThat(settings.developmentAutomation()).isEqualTo(chosen);
+        assertThat(rows).containsKey("agent.developmentAutomation");
+        settings.saveDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY);
+    }
+
+    @Test
+    void automationRejectsUnsupportedCiAndCorruptStorageWithoutEnablingDefaults()
+    {
+        AgentDriver codex = mock(AgentDriver.class);
+        when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(codex);
+        when(codex.capabilities()).thenReturn(AgentCapabilities.none());
+        assertThatThrownBy(() -> settings.saveDevelopmentAutomation(
+                new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CODEX_CLI))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support CI Autofix");
+        assertThat(rows).isEmpty();
+        rows.put("agent.developmentAutomation", "{\"autoCommit\":true}");
+        assertThatThrownBy(settings::developmentAutomation).isInstanceOf(IllegalStateException.class);
+    }
 
     @Test
     void codeGraphModeDefaultsToOnAndRoundTrips()

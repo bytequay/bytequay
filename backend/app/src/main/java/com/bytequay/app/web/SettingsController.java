@@ -124,6 +124,18 @@ public class SettingsController
         return settings.savePreferences(request);
     }
 
+    @GetMapping("/development-automation")
+    public DevelopmentAutomationDto developmentAutomation()
+    {
+        return DevelopmentAutomationDto.from(settings.developmentAutomation());
+    }
+
+    @PutMapping("/development-automation")
+    public DevelopmentAutomationDto saveDevelopmentAutomation(@RequestBody DevelopmentAutomationDto request)
+    {
+        return DevelopmentAutomationDto.from(settings.saveDevelopmentAutomation(request.toDomain()));
+    }
+
     @GetMapping("/quiet-hours")
     public QuietHours quietHours()
     {

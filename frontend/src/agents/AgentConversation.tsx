@@ -811,7 +811,7 @@ export function ConversationComposer({
   value, onChange, onSend, onStop, onSteer, onQueue, running, sending, disabled,
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
   permissionPolicy = 'AUTO', onSelectModel, onAttach, attachEnabled = false,
-  attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer,
+  attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
   composerRef, onPaste, connection, closing = false,
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
 }: {
@@ -841,6 +841,7 @@ export function ConversationComposer({
   previews?: Record<string, AttachmentPreview>;
   onRemoveAttachment?: (attachmentId: string) => void;
   footer?: React.ReactNode;
+  automation?: React.ReactNode;
   composerRef?: React.Ref<HTMLTextAreaElement>;
   onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>;
   connection: AgentStreamConnectionState;
@@ -880,6 +881,7 @@ export function ConversationComposer({
           <span className="agt-compose__chip is-fact" title="Routine work proceeds automatically; other actions may need your authorization">
             {permissionLabel(permissionPolicy)}
           </span>
+          {automation}
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the next message"

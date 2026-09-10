@@ -62,6 +62,7 @@ final class AgentEventOutboxJson
             AgentEventPayload decoded = switch (kind) {
                 case USER_MESSAGE -> MAPPER.treeToValue(payload, AgentEventPayload.UserMessage.class);
                 case ASSISTANT_MESSAGE -> MAPPER.treeToValue(payload, AgentEventPayload.AssistantMessage.class);
+                case DEVELOPMENT_RESULT -> MAPPER.treeToValue(payload, AgentEventPayload.DevelopmentResult.class);
                 case PLAN_UPDATED -> MAPPER.treeToValue(payload, AgentEventPayload.PlanUpdated.class);
                 case COMMAND -> MAPPER.treeToValue(payload, AgentEventPayload.CommandActivity.class);
                 case FILE_CHANGE -> MAPPER.treeToValue(payload, AgentEventPayload.FileActivity.class);

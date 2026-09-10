@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
@@ -51,6 +52,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workspace.ManagedWorktreeService;
@@ -106,6 +108,8 @@ class TestAgentHttpErrors
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitCommandRunner.class);
         completionService = mock(AgentCompletionService.class);
+        AppSettingsService appSettings = mock(AppSettingsService.class);
+        when(appSettings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
         AgentController controller = new AgentController(
                 taskService,
                 mock(com.bytequay.agent.core.AgentTaskTitleService.class),
@@ -116,7 +120,8 @@ class TestAgentHttpErrors
                         mock(ModelSettingsService.class),
                         workspaces,
                         mock(WorkspaceProvisioningService.class),
-                        git),
+                        git,
+                        appSettings),
                 startupRecovery,
                 turnService,
                 mock(AgentEventService.class),
@@ -130,7 +135,8 @@ class TestAgentHttpErrors
                 mock(PullRequestStore.class),
                 new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git),
                 mock(PullRequestService.class),
-                mock(WorkspaceStore.class));
+                mock(WorkspaceStore.class),
+                appSettings);
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -227,6 +233,16 @@ class TestAgentHttpErrors
                 .andExpect(status().isBadRequest());
 
         when(turnService.start(any())).thenThrow(new AgentConflictException("active turn"));
+        when(taskService.get(TaskId.valueOf(taskId))).thenReturn(AgentTask.created(
+                TaskId.valueOf(taskId),
+                java.util.Optional.of("workspace-1"),
+                true,
+                "Active task",
+                AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-worktrees").resolve(taskId),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                Instant.parse("2026-08-16T00:00:00Z")));
         mvc.perform(post("/agent/tasks/{taskId}/turns", taskId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hello\"}"))

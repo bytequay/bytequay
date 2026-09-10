@@ -31,6 +31,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -55,7 +56,9 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -121,6 +124,7 @@ public class AgentController
     private final AgentMetricsService metricsService;
     private final AgentDriverRegistry driverRegistry;
     private final ModelSettingsService modelSettings;
+    private final AppSettingsService appSettings;
     private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
     private final PullRequestStore pullRequests;
@@ -145,7 +149,8 @@ public class AgentController
             PullRequestStore pullRequests,
             ManagedWorktreeService worktrees,
             PullRequestService pullRequestCatalog,
-            WorkspaceStore workspaces)
+            WorkspaceStore workspaces,
+            AppSettingsService appSettings)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -164,6 +169,7 @@ public class AgentController
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
     /**
@@ -210,7 +216,8 @@ public class AgentController
                 request.defaults().model(),
                 request.defaults().effort(),
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
-                request.defaults().serviceTier());
+                request.defaults().serviceTier(),
+                request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain));
         TaskId taskId = TaskId.valueOf(request.taskId());
         boolean replay = initialTurnExists(taskId, request.idempotencyKey());
         if (!replay && !uploads.isEmpty()) {
@@ -224,7 +231,8 @@ public class AgentController
                 new AgentLaneId(request.laneId()),
                 defaults,
                 request.idempotencyKey(),
-                uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)));
+                uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
+                request.developmentAutomation().map(DevelopmentAutomationDto::toDomain));
         List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
                 .map(resourceService::storeAttachment)
                 .map(StoredAgentAttachment::input)
@@ -233,7 +241,7 @@ public class AgentController
                 taskId,
                 request.message(),
                 attachments,
-                request.idempotencyKey()));
+                request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
         InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
         if (!replay) {
             taskTitles.generate(task, initialTurn.id(), request.message());
@@ -287,6 +295,9 @@ public class AgentController
                 request.defaults().model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                 request.defaults().effort(),
                 request.defaults().serviceTier());
+        Optional<DevelopmentAutomation> automation = request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain)
+                .or(task.defaults()::developmentAutomation);
+        automation.ifPresent(appSettings::validateDevelopmentAutomation);
         return taskResponse(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 id,
                 request.expectedVersion(),
@@ -294,7 +305,8 @@ public class AgentController
                         request.defaults().model(),
                         request.defaults().effort(),
                         AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
-                        request.defaults().serviceTier()))));
+                        request.defaults().serviceTier(),
+                        automation))));
     }
 
     @PatchMapping("/tasks/{taskId}")
@@ -511,11 +523,24 @@ public class AgentController
                 request.expectedVersion(),
                 request.message(),
                 attachments,
-                idempotencyKey));
+                idempotencyKey).withDevelopmentAutomation(replay ? Optional.empty() : submissionAutomation(taskService.get(id), request.developmentAutomation())));
         if (!replay) {
             recordPrompt(taskId, idempotencyKey, request.message());
         }
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turn));
+    }
+
+    private Optional<DevelopmentAutomation> submissionAutomation(AgentTask task, Optional<DevelopmentAutomationDto> requested)
+    {
+        if (!task.interactive()) {
+            checkArgument(requested.isEmpty(), "Development automation requires an interactive task");
+            return Optional.empty();
+        }
+        DevelopmentAutomation automation = requested.map(DevelopmentAutomationDto::toDomain)
+                .or(task.defaults()::developmentAutomation)
+                .orElseGet(appSettings::developmentAutomation);
+        appSettings.validateDevelopmentAutomation(automation);
+        return Optional.of(automation);
     }
 
     /** The stored images a message names, resolved to the provider inputs only the backend may build. */
@@ -556,6 +581,7 @@ public class AgentController
             @RequestBody InteractiveAgentHttpContract.InputRequest request)
     {
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkArgument(request.developmentAutomation().isEmpty(), "Steering cannot change accepted automation settings");
         TurnId id = TurnId.valueOf(turnId);
         var repeated = turnService.findSteerByIdempotencyKey(id, idempotencyKey);
         List<AgentAttachment> attachments = repeated.isPresent()
@@ -594,7 +620,8 @@ public class AgentController
                 request.expectedVersion(),
                 request.message(),
                 attachments,
-                idempotencyKey));
+                idempotencyKey,
+                replay ? Optional.empty() : submissionAutomation(task, request.developmentAutomation())));
         return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.queuedInput(queued));
     }
 

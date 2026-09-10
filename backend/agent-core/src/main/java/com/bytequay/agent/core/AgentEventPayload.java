@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
@@ -37,7 +39,8 @@ public sealed interface AgentEventPayload
         AgentEventPayload.PlanUpdated, AgentEventPayload.CommandActivity,
         AgentEventPayload.FileActivity, AgentEventPayload.ToolActivity,
         AgentEventPayload.ApprovalRequested, AgentEventPayload.ApprovalResolved,
-        AgentEventPayload.UsageUpdated, AgentEventPayload.Lifecycle, AgentEventPayload.Error
+        AgentEventPayload.UsageUpdated, AgentEventPayload.Lifecycle, AgentEventPayload.Error,
+        AgentEventPayload.DevelopmentResult
 {
     Kind kind();
 
@@ -87,6 +90,27 @@ public sealed interface AgentEventPayload
         public Kind kind()
         {
             return Kind.PLAN_UPDATED;
+        }
+    }
+
+    /** The root agent's readiness report; execution completion and Git facts remain separate. */
+    record DevelopmentResult(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentStopAfter> stopAfter)
+            implements AgentEventPayload
+    {
+        public DevelopmentResult(DevelopmentResultReport report)
+        {
+            this(report.readyForDelivery(), report.message(), report.stopAfter());
+        }
+
+        public DevelopmentResult
+        {
+            new DevelopmentResultReport(readyForDelivery, message, stopAfter);
+        }
+
+        @Override
+        public Kind kind()
+        {
+            return Kind.DEVELOPMENT_RESULT;
         }
     }
 
@@ -289,6 +313,7 @@ public sealed interface AgentEventPayload
     {
         USER_MESSAGE,
         ASSISTANT_MESSAGE,
+        DEVELOPMENT_RESULT,
         PLAN_UPDATED,
         COMMAND,
         FILE_CHANGE,

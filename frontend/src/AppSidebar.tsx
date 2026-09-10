@@ -43,6 +43,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   general: <Settings size={16} strokeWidth={1.7} aria-hidden="true" />,
   appearance: <Sun size={16} strokeWidth={1.7} aria-hidden="true" />,
   models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
+  workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   'code-graph': <Network size={16} strokeWidth={1.7} aria-hidden="true" />,
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,

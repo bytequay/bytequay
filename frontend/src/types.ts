@@ -540,7 +540,15 @@ export type AgentMetricsDto = {
   counters?: ToolCountersDto;
 };
 
+export type DevelopmentAutomationDto = {
+  autoCommit: boolean;
+  autoDraftPr: boolean;
+  autoCiFix: boolean;
+  ciLaneId: string | null;
+};
+
 export type AgentTaskDefaultsDto = {
+  developmentAutomation?: DevelopmentAutomationDto | null;
   model: string | null;
   effort: string | null;
   /** Null or absent uses standard speed; Fast uses the model catalog's opaque tier id. */
@@ -582,6 +590,7 @@ export type AgentMutationClaimDto = {
 };
 
 export type AgentTaskDto = {
+  interactive?: boolean;
   id: string;
   workspaceId: string;
   title: string;
@@ -616,6 +625,7 @@ export type AgentAttachmentReferenceDto = {
 };
 
 export type AgentTurnSettingsDto = {
+  developmentAutomation?: DevelopmentAutomationDto | null;
   model: string | null;
   effort: string | null;
   serviceTier?: string | null;
@@ -624,7 +634,14 @@ export type AgentTurnSettingsDto = {
   attachments: AgentAttachmentReferenceDto[];
 };
 
+export type DevelopmentResultDto = {
+  readyForDelivery: boolean;
+  message: string | null;
+  stopAfter: 'LOCAL_CHANGES' | 'COMMITS' | 'DRAFT' | 'CI' | null;
+};
+
 export type AgentTurnDto = {
+  developmentResult?: DevelopmentResultDto | null;
   id: string;
   taskId: string;
   state: string;
@@ -645,6 +662,7 @@ export type AgentTurnDto = {
 };
 
 export type CreateAgentTaskRequest = {
+  developmentAutomation?: DevelopmentAutomationDto;
   /** Client-generated identity makes task provisioning safe to replay after a lost response. */
   taskId: string;
   workspaceId: string;
@@ -659,6 +677,7 @@ export type CreateAgentTaskRequest = {
 };
 
 export type StartAgentTurnRequest = {
+  developmentAutomation?: DevelopmentAutomationDto;
   taskId: string;
   message: string;
   /** Defaults must be the version the composer displayed, not a later cross-window update. */
@@ -690,6 +709,7 @@ export type AgentInputDeliveryDto = {
 
 /** A request to run after the current turn; the version is the one this screen saw. */
 export type QueueAgentInputRequest = {
+  developmentAutomation?: DevelopmentAutomationDto;
   taskId: string;
   workspaceId: string;
   message: string;
@@ -1412,6 +1432,8 @@ export type Bridge = {
   removeAgentSkill: (id: string) => Promise<AgentSkillDto[]>;
   getQuietHours: () => Promise<QuietHoursDto>;
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
+  getDevelopmentAutomation: () => Promise<DevelopmentAutomationDto>;
+  saveDevelopmentAutomation: (settings: DevelopmentAutomationDto) => Promise<DevelopmentAutomationDto>;
   getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
   saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
   getCodeGraphBaseline: () => Promise<CodeGraphBaselineDto>;

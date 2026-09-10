@@ -151,6 +151,7 @@ export default function AgentHome({
   }, [onOpenIssue, onOpenPullRequest]);
   return (
     <AgentHomeView
+      automation={creation.automationControl}
       repository={repository}
       laneId={creation.laneId}
       providers={creation.catalog?.providers ?? []}
@@ -191,7 +192,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   hiddenTaskIds, onHideTask, onRevealTask,
   attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
   laneId: string;
@@ -219,6 +220,7 @@ export function AgentHomeView({
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
   onShowAll: () => void;
+  automation?: React.ReactNode;
   error?: string | null;
   images?: DraftImage[];
   busy?: boolean;
@@ -241,6 +243,7 @@ export function AgentHomeView({
         <div className="agt-home__composer">
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <TaskComposer
+            automation={automation}
             draft={draft}
             blocker={blocker}
             busy={busy}

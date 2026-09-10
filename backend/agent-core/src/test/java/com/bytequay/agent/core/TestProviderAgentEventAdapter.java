@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.google.common.collect.ImmutableList;
@@ -25,6 +27,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestProviderAgentEventAdapter
 {
+    @Test
+    void preservesTheRootDevelopmentReportAndItsSource()
+    {
+        ProviderAgentEventSource source = new ProviderAgentEventSource(
+                Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-1"), Optional.of("report-1"));
+        ProviderAgentEvent.DevelopmentResult result = new ProviderAgentEvent.DevelopmentResult(
+                Optional.of("event-1"), Optional.empty(),
+                new DevelopmentResultReport(false, Optional.of("Which approach?"), Optional.of(DevelopmentStopAfter.DRAFT)), source);
+
+        ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adapt(result);
+
+        assertThat(canonical.payload()).isEqualTo(new AgentEventPayload.DevelopmentResult(result.report()));
+        assertThat(canonical.source().providerTurnId()).contains("turn-1");
+        assertThat(canonical.source().providerItemId()).contains("report-1");
+        assertThat(canonical.source().logicalAgentPath()).contains("/");
+    }
+
     @Test
     void preservesProviderRoutingAndReplacementIdentity()
     {

@@ -13,8 +13,12 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +26,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Typed facade over the durable key-value settings for app-wide preferences. */
@@ -32,16 +37,55 @@ public class AppSettingsService
     private static final String CODEGRAPH_KEY = "codegraph.mode";
     private static final String LEGACY_CODEGRAPH_KEY = "codegraph.enabled";
     private static final String PREFERENCES_KEY = "app.preferences";
+    private static final String DEVELOPMENT_AUTOMATION_KEY = "agent.developmentAutomation";
 
     private final AppSettingsStore store;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final AgentDriverRegistry drivers;
 
-    public AppSettingsService(AppSettingsStore store, ObjectMapper mapper, Clock clock)
+    public AppSettingsService(AppSettingsStore store, ObjectMapper mapper, Clock clock, AgentDriverRegistry drivers)
     {
         this.store = requireNonNull(store, "store is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.drivers = requireNonNull(drivers, "drivers is null");
+    }
+
+    public DevelopmentAutomation developmentAutomation()
+    {
+        return store.get(DEVELOPMENT_AUTOMATION_KEY).map(value -> {
+            try {
+                return requireNonNull(mapper.readerFor(DevelopmentAutomation.class)
+                        .with(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
+                        .with(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                        .<DevelopmentAutomation>readValue(value), "Saved development automation is null");
+            }
+            catch (JsonProcessingException failure) {
+                throw new IllegalStateException("Saved development automation could not be read", failure);
+            }
+        }).orElse(DevelopmentAutomation.DEFAULT);
+    }
+
+    public DevelopmentAutomation saveDevelopmentAutomation(DevelopmentAutomation automation)
+    {
+        validateDevelopmentAutomation(automation);
+        try {
+            store.put(DEVELOPMENT_AUTOMATION_KEY, mapper.writeValueAsString(automation));
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Development automation could not be encoded", failure);
+        }
+        return automation;
+    }
+
+    /** A missing lane remains unselected. Authentication is checked when CI is actually launched. */
+    public void validateDevelopmentAutomation(DevelopmentAutomation automation)
+    {
+        requireNonNull(automation, "automation is null");
+        automation.ciLaneId().ifPresent(lane -> checkArgument(
+                drivers.require(lane).capabilities().permissionPolicies().contains(AgentPermissionPolicy.CI_AUTOFIX),
+                "Agent lane %s does not support CI Autofix", lane));
     }
 
     public QuietHours quietHours()

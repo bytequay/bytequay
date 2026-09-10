@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -63,6 +65,30 @@ class TestSettingsController
         return standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
                 .build();
+    }
+
+    @Test
+    void automationUsesExplicitBooleanSettingsAndStringLaneIds()
+            throws Exception
+    {
+        when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
+        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        when(settings.saveDevelopmentAutomation(selected)).thenReturn(selected);
+        mvc().perform(get("/api/settings/development-automation"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.autoCommit").value(true))
+                .andExpect(jsonPath("$.autoDraftPr").value(true))
+                .andExpect(jsonPath("$.autoCiFix").value(true))
+                .andExpect(jsonPath("$.ciLaneId").isEmpty());
+        mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"autoCommit\":false,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.autoCommit").value(false))
+                .andExpect(jsonPath("$.ciLaneId").value("claude"));
+        mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"autoCommit\":true}"))
+                .andExpect(status().isBadRequest());
+        verify(settings).saveDevelopmentAutomation(selected);
     }
 
     @Test

@@ -37,6 +37,7 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
@@ -416,6 +417,7 @@ public final class ClaudeCliDriver
                     .iterator());
         }
         codeGraph.ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME));
+        registration.development().ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME));
         registration.review().ifPresent(bridge -> bridge.tools()
                 .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
         String instruction = Stream.of(managedInstructions, registration.instruction().orElse(""))
@@ -851,7 +853,8 @@ public final class ClaudeCliDriver
         private ClaudeRunningTurn(ClaudeSession session, AgentTurnCommand command, boolean resume)
         {
             this.session = requireNonNull(session, "session is null");
-            this.mapper = new ClaudeEventMapper(session.redactor);
+            this.mapper = new ClaudeEventMapper(session.redactor, session.registration.development()
+                    .filter(bridge -> bridge.turnId().equals(command.turnId())));
             this.reference = new ProviderTurnRef(command.turnId());
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(

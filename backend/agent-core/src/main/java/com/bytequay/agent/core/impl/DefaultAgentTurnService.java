@@ -39,6 +39,7 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CodeGraphException;
 import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -509,7 +510,7 @@ public final class DefaultAgentTurnService
                     command.idempotencyKey(),
                     textBlob,
                     command.message(),
-                    turnSettings(task, references(command.attachments())),
+                    turnSettings(task, references(command.attachments()), command.developmentAutomation()),
                     queuedAt);
             return eventCommitter.commit(
                     pendingLifecycle(
@@ -821,7 +822,7 @@ public final class DefaultAgentTurnService
     {
         TurnId turnId = TurnId.random();
         Instant acceptedAt = Instant.now(clock);
-        AgentTurnSettings settings = turnSettings(task, references(command.attachments()));
+        AgentTurnSettings settings = turnSettings(task, references(command.attachments()), command.developmentAutomation());
         AgentTurn turn = AgentTurn.accepted(
                 turnId,
                 task.id(),
@@ -1121,8 +1122,8 @@ public final class DefaultAgentTurnService
                         settings.effort(),
                         false,
                         codeGraphBridge(task, resources),
-                        managedInstructions.apply(task)),
-                event -> routeEvent(task.id(), event)), "opened session is null");
+                        managedInstructions.apply(task) + developmentInstructions(settings)),
+                event -> routeEvent(task.id(), turnId, event)), "opened session is null");
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {
             AgentSessionRef reference = requireNonNull(registered.reference(), "session reference is null");
@@ -1153,7 +1154,7 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private void routeEvent(TaskId taskId, ProviderAgentEvent event)
+    private void routeEvent(TaskId taskId, TurnId boundTurnId, ProviderAgentEvent event)
     {
         requireNonNull(event, "event is null");
         if (event instanceof ProviderAgentEvent.Lifecycle lifecycle && stateCoupled(lifecycle.phase())) {
@@ -1165,8 +1166,58 @@ public final class DefaultAgentTurnService
             }
             return;
         }
+        if (event instanceof ProviderAgentEvent.DevelopmentResult result) {
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTurn turn = requireActiveTurn(taskId);
+                if (!turn.id().equals(boundTurnId) || turn.cancellationRequestedAt().isPresent()) {
+                    throw new AgentConflictException("Development report belongs to a stopped or replaced turn");
+                }
+                recordDevelopmentResult(taskId, turn, result);
+            }
+            return;
+        }
         AgentTurn turn = requireActiveTurn(taskId);
         eventService.append(new UnsequencedAgentEvent(taskId, Optional.of(turn.id()), event));
+    }
+
+    private static String developmentInstructions(AgentTurnSettings settings)
+    {
+        return settings.developmentAutomation().map(automation -> """
+
+                Accepted development automation for this turn:
+                Auto commit: %s. Auto draft PR: %s. Auto CI fix: %s.
+                When Auto commit is enabled, commit completed task work in focused commits using the repository's
+                commit conventions, after resolving user decisions. When it is disabled, leave changes uncommitted
+                unless the user's request explicitly asks you to commit.
+                ByteQuay requests push and draft creation in a separate scoped follow-up. Do not publish during
+                this development turn unless the user's request explicitly asks you to. Auto CI fix selects the
+                later bounded CI service; it does not authorize an agent to start its own unattended loop.
+                These defaults never override narrower instructions in the user's request.
+                """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix())).orElse("");
+    }
+
+    private void recordDevelopmentResult(TaskId taskId, AgentTurn turn, ProviderAgentEvent.DevelopmentResult result)
+    {
+        checkArgument(turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent(),
+                "Development reporting is not enabled for this turn");
+        checkArgument(result.source().parentProviderThreadId().isEmpty()
+                        && result.source().logicalAgentPath().map(path -> path.equals("/") || path.equals("root")).orElse(true),
+                "Development report is not from the root agent");
+        checkArgument(turn.providerTurnReference().isEmpty()
+                        || result.source().providerTurnId().equals(turn.providerTurnReference().map(ProviderTurnRef::value)),
+                "Development report belongs to another provider turn");
+        String itemId = result.source().providerItemId().orElseThrow(() -> new IllegalArgumentException("Development report has no native tool identity"));
+        EventId eventId = EventId.developmentResult(taskId, turn.id(), itemId);
+        ProviderAgentEventAdapter.CanonicalEvent event = ProviderAgentEventAdapter.adapt(result);
+        unitOfWork.execute(() -> {
+            if (outboxStore.find(eventId).isPresent()) {
+                return null;
+            }
+            turnStore.update(turn.withDevelopmentResult(result.report()));
+            outboxStore.insert(pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), Instant.now(clock)));
+            return null;
+        });
+        eventService.drain(eventId);
     }
 
     private void recordUsage(TaskId taskId, AgentTurn turn, ProviderAgentEvent.Usage usage)
@@ -1472,13 +1523,22 @@ public final class DefaultAgentTurnService
      */
     private AgentTurnSettings turnSettings(AgentTask task, List<AgentAttachmentReference> attachments)
     {
+        return turnSettings(task, attachments, Optional.empty());
+    }
+
+    private AgentTurnSettings turnSettings(AgentTask task, List<AgentAttachmentReference> attachments, Optional<DevelopmentAutomation> automation)
+    {
+        if (automation.isPresent() && !task.interactive()) {
+            throw new InvalidAgentRequestException("Development automation requires an interactive task");
+        }
         return new AgentTurnSettings(
                 task.defaults().model(),
                 task.defaults().effort(),
                 task.permissionPolicy(),
                 maximumTurnRuntime,
                 attachments,
-                task.defaults().serviceTier());
+                task.defaults().serviceTier(),
+                automation.or(task.defaults()::developmentAutomation));
     }
 
     private AgentTask requireTask(TaskId taskId)

@@ -41,6 +41,7 @@ import type {
   WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
+import { WindowControls } from '../AppSidebar';
 import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
@@ -243,6 +244,8 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   return (
     <div className="setw">
       <aside className="setw-side">
+        {/* Settings takes the whole left edge, so it owns the window buttons while it is open. */}
+        <div className="app-sidebar__traffic"><WindowControls /></div>
         <button type="button" className="setw-back" onClick={onBack}>
           <ChevronLeft size={15} strokeWidth={2} color="#8e8e93" />
           <span>Back to app</span>

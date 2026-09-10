@@ -334,72 +334,77 @@ export default function App() {
   return (
     <>
     <div className="app-shell" inert={previewPr !== null}>
-      <AppSidebar
-        page={page}
-        canGoBack={canGoBack(navigation)}
-        canGoForward={canGoForward(navigation)}
-        onBack={() => window.history.back()}
-        onForward={() => window.history.forward()}
-        onNavigate={next => {
-          if (next === page && workspace === null) return;
-          setPage(next);
-          updateWorkspace(null);
-          window.location.hash = `#/${next}`;
-        }}
-        workspace={inWorkspace ? workspace : null}
-        workspaceTab={workspaceTab}
-        onWorkspaceTab={selectWorkspaceTab}
-      />
-      <main className="app-content">
-        {page === 'home' && (
-          <HomePage
-            onSelectRepo={openPr}
-            onGoToMyPrs={() => {
-              setInitialPr(undefined);
-              setPage('pulls');
-              window.location.hash = '#/pulls';
-            }}
-            onOpenWorkspace={openWorkspace}
-          />
-        )}
-        <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
-        {page === 'pulls' && (
-          <PullsScreen
-            initialPr={initialPr}
-            browserOpen={browserUrl !== null}
-            onSelectPullRequest={selectGlobalPullRequest}
-          />
-        )}
-        {page === 'workspaces' && workspace === null && (
-          <WorkspacesPage
-            onOpen={openWorkspace}
-          />
-        )}
-        {inWorkspace && workspace !== null && (
-          <WorkspaceShell
-            key={workspace.id}
-            workspace={workspace}
-            tab={workspaceTab}
-            onSelectTab={selectWorkspaceTab}
-            onWorkspaceChanged={updateWorkspace}
-            initialPullRequestNumber={initialWorkspacePrNumber}
-            initialIssueNumber={initialIssueNumber}
-            initialAgentTaskId={initialAgentTaskId}
-            browserOpen={browserUrl !== null}
-            onSelectPullRequest={selectWorkspacePullRequest}
-            onPreviewPullRequest={previewWorkspacePullRequest}
-            onSelectAgentTask={selectAgentTask}
-            onSelectIssue={selectWorkspaceIssue}
-          />
-        )}
-        {page === 'settings' && (
-          <SettingsWindow
-            section={settingsSection}
-            workspaceId={settingsWorkspaceId}
-            onBack={() => window.history.back()}
-          />
-        )}
-      </main>
+      {page === 'settings' ? (
+        <SettingsWindow
+          section={settingsSection}
+          workspaceId={settingsWorkspaceId}
+          onBack={() => {
+            // Landing straight on a settings link leaves nothing to go back to.
+            if (canGoBack(navigation)) window.history.back();
+            else window.location.hash = '#/home';
+          }}
+        />
+      ) : <>
+        <AppSidebar
+          page={page}
+          canGoBack={canGoBack(navigation)}
+          canGoForward={canGoForward(navigation)}
+          onBack={() => window.history.back()}
+          onForward={() => window.history.forward()}
+          onNavigate={next => {
+            if (next === page && workspace === null) return;
+            setPage(next);
+            updateWorkspace(null);
+            window.location.hash = `#/${next}`;
+          }}
+          workspace={inWorkspace ? workspace : null}
+          workspaceTab={workspaceTab}
+          onWorkspaceTab={selectWorkspaceTab}
+        />
+        <main className="app-content">
+          {page === 'home' && (
+            <HomePage
+              onSelectRepo={openPr}
+              onGoToMyPrs={() => {
+                setInitialPr(undefined);
+                setPage('pulls');
+                window.location.hash = '#/pulls';
+              }}
+              onOpenWorkspace={openWorkspace}
+            />
+          )}
+          <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
+          {page === 'pulls' && (
+            <PullsScreen
+              initialPr={initialPr}
+              browserOpen={browserUrl !== null}
+              onSelectPullRequest={selectGlobalPullRequest}
+            />
+          )}
+          {page === 'workspaces' && workspace === null && (
+            <WorkspacesPage
+              onOpen={openWorkspace}
+            />
+          )}
+          {inWorkspace && workspace !== null && (
+            <WorkspaceShell
+              key={workspace.id}
+              workspace={workspace}
+              tab={workspaceTab}
+              onSelectTab={selectWorkspaceTab}
+              onWorkspaceChanged={updateWorkspace}
+              initialPullRequestNumber={initialWorkspacePrNumber}
+              initialIssueNumber={initialIssueNumber}
+              initialAgentTaskId={initialAgentTaskId}
+              browserOpen={browserUrl !== null}
+              onSelectPullRequest={selectWorkspacePullRequest}
+              onPreviewPullRequest={previewWorkspacePullRequest}
+              onSelectAgentTask={selectAgentTask}
+              onSelectIssue={selectWorkspaceIssue}
+            />
+          )}
+        </main>
+      </>}
     </div>
       {previewPr !== null && (
         <PullsScreen

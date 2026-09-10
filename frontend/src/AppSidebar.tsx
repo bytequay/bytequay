@@ -18,6 +18,17 @@ import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 
+/** The window buttons, in whichever sidebar is currently flush with the window's left edge. */
+export function WindowControls() {
+  return (
+    <div className="app-sidebar__lights" aria-label="Window controls">
+      <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }} />
+      <button type="button" aria-label="Minimize" onClick={() => { void window.bridge.controlWindow('minimize'); }} />
+      <button type="button" aria-label="Toggle fullscreen" onClick={() => { void window.bridge.controlWindow('zoom'); }} />
+    </div>
+  );
+}
+
 export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'settings';
 
 type NavItem = { page: AppPage; label: string; icon: ReactNode };
@@ -117,11 +128,7 @@ export default function AppSidebar({
       style={collapsed ? undefined : { width: sidebar.width, flexBasis: sidebar.width }}
     >
       <div className="app-sidebar__traffic">
-        <div className="app-sidebar__lights" aria-label="Window controls">
-          <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }} />
-          <button type="button" aria-label="Minimize" onClick={() => { void window.bridge.controlWindow('minimize'); }} />
-          <button type="button" aria-label="Toggle fullscreen" onClick={() => { void window.bridge.controlWindow('zoom'); }} />
-        </div>
+        <WindowControls />
         <button
           type="button"
           className="app-sidebar__toggle"

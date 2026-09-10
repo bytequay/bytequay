@@ -683,7 +683,7 @@ samp {
   .ws-head,
   .pulls-list__toolbar,
   .cmt-tab-bar,
-  .sets-page > h1
+  .setw-page > h1
 ) {
   -webkit-app-region: drag;
 }

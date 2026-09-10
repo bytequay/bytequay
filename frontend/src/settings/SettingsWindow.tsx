@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
   ChevronDown,
@@ -130,6 +130,8 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   const [unwatching, setUnwatching] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const workspaceRef = useRef<string | null>(null);
+
   const report = useCallback((failure: unknown) => {
     setError(failure instanceof Error ? failure.message : String(failure));
   }, []);
@@ -199,15 +201,34 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
 
   const workspace = workspaces.find(candidate => candidate.id === pickedWorkspace) ?? workspaces[0] ?? null;
 
-  const loadWorkspaceSettings = useCallback(() => {
-    if (workspace === null) return;
-    window.bridge.getWorkspaceSettings(workspace.id).then(setWsSettings).catch(report);
-  }, [report, workspace]);
+  const workspaceId_ = workspace?.id ?? null;
 
+  /**
+   * Re-reads the workspace after something on the page changed it. It leaves the
+   * current values on screen while the answer is in flight, because the page is
+   * already showing this workspace.
+   */
+  const refreshWorkspaceSettings = useCallback(() => {
+    const id = workspaceRef.current;
+    if (id === null) return;
+    window.bridge.getWorkspaceSettings(id)
+      .then(value => { if (workspaceRef.current === id) setWsSettings(value); })
+      .catch(report);
+  }, [report]);
+
+  useEffect(() => { workspaceRef.current = workspaceId_; }, [workspaceId_]);
+
+  // Clearing and loading live in one effect keyed on the workspace: separating them is how
+  // re-picking the workspace already open blanked the page with nothing left to refill it.
   useEffect(() => {
-    if (!isWorkspaceSection(current) || workspace === null) return;
-    loadWorkspaceSettings();
-  }, [current, loadWorkspaceSettings, workspace]);
+    if (!isWorkspaceSection(current) || workspaceId_ === null) return;
+    let active = true;
+    setWsSettings(null);
+    window.bridge.getWorkspaceSettings(workspaceId_)
+      .then(value => { if (active) setWsSettings(value); })
+      .catch(failure => { if (active) report(failure); });
+    return () => { active = false; };
+  }, [current, report, workspaceId_]);
 
   const visible = useMemo(
     () => SETTINGS_ENTRIES.filter(entry => matchesSearch(entry, query)),
@@ -225,7 +246,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
     if (workspace === null) return;
     setError(null);
     window.bridge.setWorkspaceAgentModel(workspace.id, type, choice.configId, choice.model, choice.effort)
-      .then(loadWorkspaceSettings)
+      .then(refreshWorkspaceSettings)
       .catch(report);
   };
 
@@ -285,7 +306,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                       <ChevronDown size={12} strokeWidth={2.4} color="#8e8e93" />
                     </button>
                     {wsMenuOpen && (
-                      <div className="setw-menu is-left" role="listbox" style={{ top: 34, width: 252 }}>
+                      <div className="setw-menu is-left is-full" role="listbox">
                         {workspaces.map(candidate => (
                           <button
                             type="button"
@@ -295,9 +316,8 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                             className="setw-menu-item"
                             onClick={() => {
                               // Switching the workspace must not leave the page the user is on.
-                              setPickedWorkspace(candidate.id);
-                              setWsSettings(null);
                               setWsMenuOpen(false);
+                              setPickedWorkspace(candidate.id);
                               if (isWorkspaceSection(current)) go(current, candidate.id);
                             }}
                           >
@@ -441,7 +461,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               settings={wsSettings}
               error={error}
               onAddRemote={(name, url) => {
-                window.bridge.addWorkspaceRemote(workspace.id, name, url).then(loadWorkspaceSettings).catch(report);
+                window.bridge.addWorkspaceRemote(workspace.id, name, url).then(refreshWorkspaceSettings).catch(report);
               }}
               onRemoveRemote={(remote: WorkspaceRemoteDto) => {
                 // Unlinking an upstream is a different operation from deleting a remote, even
@@ -449,13 +469,13 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                 const removed: Promise<unknown> = remote.role === 'UPSTREAM'
                   ? window.bridge.setWorkspaceUpstream(workspace.id, null)
                   : window.bridge.removeWorkspaceRemote(workspace.id, remote.name);
-                removed.then(loadWorkspaceSettings).catch(report);
+                removed.then(refreshWorkspaceSettings).catch(report);
               }}
               onSaveTarget={branch => {
-                window.bridge.setWorkspaceCommitsTarget(workspace.id, branch).then(loadWorkspaceSettings).catch(report);
+                window.bridge.setWorkspaceCommitsTarget(workspace.id, branch).then(refreshWorkspaceSettings).catch(report);
               }}
               onResetTarget={() => {
-                window.bridge.clearWorkspaceCommitsTarget(workspace.id).then(loadWorkspaceSettings).catch(report);
+                window.bridge.clearWorkspaceCommitsTarget(workspace.id).then(refreshWorkspaceSettings).catch(report);
               }}
               onRename={name => {
                 window.bridge.renameWorkspace(workspace.id, name)
@@ -474,7 +494,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               error={error}
               onChoose={chooseWorkspaceModel}
               onUseGlobal={type => {
-                window.bridge.clearWorkspaceAgentModel(workspace.id, type).then(loadWorkspaceSettings).catch(report);
+                window.bridge.clearWorkspaceAgentModel(workspace.id, type).then(refreshWorkspaceSettings).catch(report);
               }}
               onCheck={loadModels}
             />
@@ -487,10 +507,10 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               copied={copied}
               error={error}
               onSave={token => {
-                window.bridge.saveWorkspaceGitHubToken(workspace.id, token).then(loadWorkspaceSettings).catch(report);
+                window.bridge.saveWorkspaceGitHubToken(workspace.id, token).then(refreshWorkspaceSettings).catch(report);
               }}
               onDelete={() => {
-                window.bridge.deleteWorkspaceGitHubToken(workspace.id).then(loadWorkspaceSettings).catch(report);
+                window.bridge.deleteWorkspaceGitHubToken(workspace.id).then(refreshWorkspaceSettings).catch(report);
               }}
               onCopy={() => copyToken(window.bridge.copyWorkspaceGitHubToken(workspace.id))}
             />

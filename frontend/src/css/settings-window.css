@@ -539,6 +539,8 @@
 
 .setw-menu.is-wide { width: 290px; }
 .setw-menu.is-left { right: auto; left: 0; }
+/* Matches its trigger. A wider menu is clipped by the sidebar's own scroll box. */
+.setw-menu.is-full { width: 100%; min-width: 0; }
 
 .setw-menu-item {
   display: flex;

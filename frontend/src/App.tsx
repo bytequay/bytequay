@@ -338,11 +338,9 @@ export default function App() {
         <SettingsWindow
           section={settingsSection}
           workspaceId={settingsWorkspaceId}
-          onBack={() => {
-            // Landing straight on a settings link leaves nothing to go back to.
-            if (canGoBack(navigation)) window.history.back();
-            else window.location.hash = '#/home';
-          }}
+          // Leaves settings outright. Going back through history would only walk the
+          // settings pages, because each one pushes its own entry.
+          onBack={() => { window.location.hash = '#/home'; }}
         />
       ) : <>
         <AppSidebar

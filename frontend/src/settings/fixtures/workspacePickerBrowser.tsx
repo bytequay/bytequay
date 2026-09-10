@@ -58,14 +58,14 @@ function stubBridge(reads: string[]) {
   Object.defineProperty(window, 'bridge', { value: bridge, configurable: true });
 }
 
-function fixture(reads: string[]) {
+function fixture(reads: string[], onBack: () => void = () => {}) {
   stubBridge(reads);
   const host = document.createElement('div');
   host.className = 'app-shell';
   host.style.cssText = 'display:flex;height:600px;width:1200px;overflow:hidden';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<SettingsWindow section="ws-repository" workspaceId="ws-1" onBack={() => {}} />));
+  flushSync(() => root.render(<SettingsWindow section="ws-repository" workspaceId="ws-1" onBack={onBack} />));
 
   return {
     host,
@@ -128,6 +128,20 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(view.text().includes('ws-2'), 'The chosen workspace remotes must be shown');
     assert(!view.text().includes('Loading remotes'), 'The page must not stay in its loading state');
   });
+
+  await (async () => {
+    const name = 'Back to app leaves settings through its own handler';
+    let left = 0;
+    const view = fixture([], () => { left += 1; });
+    try {
+      await settle();
+      await view.click('Back to app');
+      assert(left === 1, `Back to app must leave settings, called ${left} times`);
+      results.push({ name });
+    }
+    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    finally { view.dispose(); }
+  })();
 
   await check('the workspace menu is not clipped by the sidebar it opens in', async view => {
     await view.click('Workspace being edited');

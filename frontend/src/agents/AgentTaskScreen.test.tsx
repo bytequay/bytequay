@@ -125,7 +125,7 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
     knownUnsent: false,
     settings: null,
     terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT0S' },
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT0S' },
     ...extra,
   };
 }
@@ -766,9 +766,7 @@ describe('agent task side panel', () => {
           finalResponse: null,
           resultBranch: 'reuse-resolved-field-index',
           resultHead: null,
-          tests: [],
-          metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
-          learnings: [],
+          metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT1S' },
           notes: null,
           children: [],
         },
@@ -1177,14 +1175,12 @@ describe('agent task detail', () => {
       ...task('t-1', 'COMPLETED', 'Shipped'),
       terminalAt: '2026-08-20T10:05:00Z',
       checkoutRemovedAt: '2026-08-20T10:05:01Z',
-      codegraphArm: 'ON',
+      codegraph: true,
       summary: {
         finalResponse: 'All done.',
         resultBranch: 'bytequay/task/t-1',
         resultHead: 'abc123',
-        tests: [],
-        metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
-        learnings: [],
+        metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT1S' },
         notes: null,
         children: [],
       },
@@ -1231,7 +1227,6 @@ describe('agent task detail', () => {
         model: 'gpt-5.6-codex',
         effort: 'medium',
         permissionPolicy: 'AUTO',
-        sandboxPolicy: 'WORKSPACE_WRITE',
         maximumRuntimeMillis: 3600000,
         attachments: [],
       },
@@ -1444,7 +1439,7 @@ describe('agent task detail', () => {
 
     const currentVision = body({
       task: textOnly,
-      turn: turn('RUNNING', { settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 3600000, attachments: [] } }),
+      turn: turn('RUNNING', { settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', maximumRuntimeMillis: 3600000, attachments: [] } }),
       connection: 'open',
       composer: 'look here',
       attachments: [attachment],
@@ -1456,7 +1451,7 @@ describe('agent task detail', () => {
 
     const nextVision = body({
       task: vision,
-      turn: turn('RUNNING', { settings: { model: 'text-only', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 3600000, attachments: [] } }),
+      turn: turn('RUNNING', { settings: { model: 'text-only', effort: 'high', permissionPolicy: 'AUTO', maximumRuntimeMillis: 3600000, attachments: [] } }),
       connection: 'open',
       composer: 'look later',
       attachments: [attachment],
@@ -1594,9 +1589,7 @@ describe('agent task detail', () => {
         finalResponse: 'All done.',
         resultBranch: 'bytequay/task/t-1',
         resultHead: 'abc123',
-        tests: [],
-        metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT1S' },
-        learnings: [],
+        metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT1S' },
         notes: null,
         children: [{
           threadId: 'child-gone',

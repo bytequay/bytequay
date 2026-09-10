@@ -13,17 +13,15 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
@@ -115,9 +113,6 @@ public class AgentTurnEntity
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
 
-    @Enumerated(EnumType.STRING)
-    private AgentSandboxPolicy sandboxPolicy;
-
     private Long maximumRuntimeMillis;
 
     @Column(columnDefinition = "TEXT")
@@ -138,10 +133,6 @@ public class AgentTurnEntity
     private long outputTokens;
 
     private BigDecimal cost;
-
-    @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private CostProvenance costProvenance;
 
     @Column(nullable = false)
     private long elapsedMillis;
@@ -194,7 +185,6 @@ public class AgentTurnEntity
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
         serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
         permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
-        sandboxPolicy = turn.settings().map(AgentTurnSettings::sandboxPolicy).orElse(null);
         maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
         attachmentsJson = turn.settings()
                 .map(AgentTurnSettings::attachments)
@@ -206,7 +196,6 @@ public class AgentTurnEntity
         cachedInputTokens = turn.metrics().cachedInputTokens();
         outputTokens = turn.metrics().outputTokens();
         cost = turn.metrics().cost().orElse(null);
-        costProvenance = turn.metrics().costProvenance();
         elapsedMillis = turn.metrics().elapsed().toMillis();
         toolCalls = turn.metrics().counters().toolCalls();
         exploreActions = turn.metrics().counters().exploreActions();
@@ -222,7 +211,6 @@ public class AgentTurnEntity
                         Optional.ofNullable(requestedModel),
                         Optional.ofNullable(effort),
                         permissionPolicy,
-                        sandboxPolicy,
                         Duration.ofMillis(runtime),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
                         Optional.ofNullable(serviceTier)));
@@ -242,12 +230,11 @@ public class AgentTurnEntity
                 settings,
                 Optional.ofNullable(terminalReason),
                 Optional.ofNullable(failureKind),
-                new TurnMetrics(
+                new AgentMetrics(
                         inputTokens,
                         cachedInputTokens,
                         outputTokens,
                         Optional.ofNullable(cost),
-                        costProvenance,
                         Duration.ofMillis(elapsedMillis),
                         counters()));
     }

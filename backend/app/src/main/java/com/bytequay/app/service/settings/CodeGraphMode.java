@@ -13,23 +13,9 @@
  */
 package com.bytequay.app.service.settings;
 
-import com.bytequay.agent.core.CodeGraphArm;
-
-import java.util.concurrent.ThreadLocalRandom;
-
-/** How new agent tasks get the CodeGraph tool: always, never, or by coin flip so the two arms can be compared. */
+/** Whether new agent tasks get the CodeGraph tool. */
 public enum CodeGraphMode
 {
     ON,
-    OFF,
-    COMPARE;
-
-    public CodeGraphArm arm()
-    {
-        return switch (this) {
-            case ON -> CodeGraphArm.ON;
-            case OFF -> CodeGraphArm.OFF;
-            case COMPARE -> ThreadLocalRandom.current().nextBoolean() ? CodeGraphArm.ON : CodeGraphArm.OFF;
-        };
-    }
+    OFF
 }

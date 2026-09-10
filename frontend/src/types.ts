@@ -505,8 +505,6 @@ export type AgentProviderReadiness =
   | 'DEGRADED'
   | 'TEMPORARILY_UNAVAILABLE';
 
-type AgentCostProvenance = 'PROVIDER_REPORTED' | 'CLI_ESTIMATE' | 'UNAVAILABLE';
-
 /** Provider facts that control what the shared task UI may truthfully offer or render. */
 export type AgentCapabilitiesDto = {
   sessionResume: boolean;
@@ -519,7 +517,6 @@ export type AgentCapabilitiesDto = {
   interactiveApprovals: boolean;
   tokenUsage: boolean;
   steering: boolean;
-  costProvenance: AgentCostProvenance;
   permissionPolicies: string[];
   attachmentMediaTypes: string[];
 };
@@ -539,7 +536,6 @@ export type AgentMetricsDto = {
   cachedInputTokens: number;
   outputTokens: number;
   cost: number | null;
-  costProvenance: AgentCostProvenance;
   elapsed: string;
   counters?: ToolCountersDto;
 };
@@ -556,9 +552,7 @@ export type AgentTaskSummaryDto = {
   finalResponse: string | null;
   resultBranch: string | null;
   resultHead: string | null;
-  tests: string[];
   metrics: AgentMetricsDto;
-  learnings: string[];
   notes: string | null;
   /** What is kept about each subagent once the transcript that held its steps is gone. */
   children: AgentChildSummaryDto[];
@@ -608,8 +602,8 @@ export type AgentTaskDto = {
   deleteAfter: string | null;
   cleanupFailure: string | null;
   checkoutRemovedAt: string | null;
-  /** ON when the task was given the CodeGraph tool, OFF when not, null for a task older than the arm. */
-  codegraphArm: CodeGraphArm | null;
+  /** Whether the task was created with the CodeGraph tool; a later settings change does not move it. */
+  codegraph: boolean;
   /** When the task was shelved. An archived task keeps everything but stays off Home and the overview. */
   archivedAt: string | null;
 };
@@ -626,7 +620,6 @@ export type AgentTurnSettingsDto = {
   effort: string | null;
   serviceTier?: string | null;
   permissionPolicy: string;
-  sandboxPolicy: string;
   maximumRuntimeMillis: number;
   attachments: AgentAttachmentReferenceDto[];
 };
@@ -1064,27 +1057,9 @@ export type AgentSkillDto = AgentSkillInput & {
   id: string;
 };
 
-/** How new agent tasks get the CodeGraph tool; COMPARE gives each new task an arm at random. */
-export type CodeGraphMode = 'ON' | 'OFF' | 'COMPARE';
+/** Whether new agent tasks get the CodeGraph tool. */
+export type CodeGraphMode = 'ON' | 'OFF';
 export type CodeGraphSettingDto = { mode: CodeGraphMode };
-export type CodeGraphArm = 'ON' | 'OFF';
-/** One arm's tasks in a workspace: counts, and medians per finished turn that are null until the arm has one. */
-export type CodeGraphArmComparisonDto = {
-  arm: CodeGraphArm;
-  taskCount: number;
-  turnCount: number;
-  turnsPerTask: number;
-  smallSample: boolean;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  toolCalls: number | null;
-  exploreActions: number | null;
-  minutes: number | null;
-  graphCalls: number | null;
-  graphSeconds: number | null;
-};
-export type CodeGraphRepositoryComparisonDto = { repository: string; arms: CodeGraphArmComparisonDto[] };
-export type CodeGraphComparisonDto = { repositories: CodeGraphRepositoryComparisonDto[] };
 /** How many repositories have a baseline index, and when the newest was last brought current. */
 export type CodeGraphBaselineDto = { repositories: number; updatedAt?: string | null };
 
@@ -1178,6 +1153,7 @@ export type RecentWordHitDto = {
   id: string;
   type: RecentItemType;
   itemKey: string;
+  workspaceId: string | null;
   kind: RecentTextKind;
   kindLabel: string;
   neverPosted: boolean;
@@ -1438,7 +1414,6 @@ export type Bridge = {
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
   getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
   saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
-  getCodeGraphComparison: () => Promise<CodeGraphComparisonDto>;
   getCodeGraphBaseline: () => Promise<CodeGraphBaselineDto>;
   getAppPreferences: () => Promise<AppPreferencesDto>;
   saveAppPreferences: (preferences: AppPreferencesDto) => Promise<AppPreferencesDto>;

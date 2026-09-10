@@ -16,6 +16,7 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
@@ -23,15 +24,14 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandActionKind;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableSet;
 
@@ -52,8 +52,8 @@ public final class DefaultAgentMetricsService
     private static final int EVENT_PAGE_SIZE = 8;
     private static final String CODEGRAPH_TOOL = "codegraph_explore";
     private static final Set<String> CLAUDE_EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS");
-    private static final Set<AgentEventPayload.CommandActionKind> EXPLORE_ACTIONS =
-            ImmutableSet.of(AgentEventPayload.CommandActionKind.READ, AgentEventPayload.CommandActionKind.LIST_FILES, AgentEventPayload.CommandActionKind.SEARCH);
+    private static final Set<CommandActionKind> EXPLORE_ACTIONS =
+            ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
@@ -69,7 +69,7 @@ public final class DefaultAgentMetricsService
     }
 
     @Override
-    public TurnMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
+    public AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
@@ -79,7 +79,7 @@ public final class DefaultAgentMetricsService
         if (!turn.state().active()) {
             throw new AgentConflictException("Cannot record usage for terminal turn " + turnId);
         }
-        TurnMetrics updated = switch (sample.semantics()) {
+        AgentMetrics updated = switch (sample.semantics()) {
             case CUMULATIVE -> cumulativeMetrics(baselineTotals(taskId, turnId), turn.metrics(), sample);
             case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample);
         };
@@ -92,7 +92,7 @@ public final class DefaultAgentMetricsService
     }
 
     @Override
-    public TurnMetrics finishTurn(TurnId turnId, TurnState terminalState)
+    public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState)
     {
         requireNonNull(turnId, "turnId is null");
         requireNonNull(terminalState, "terminalState is null");
@@ -105,14 +105,13 @@ public final class DefaultAgentMetricsService
         if (elapsed.isNegative()) {
             throw new AgentStorageException("Turn elapsed time is negative");
         }
-        TurnMetrics current = turn.metrics();
+        AgentMetrics current = turn.metrics();
         // Folded from the persisted log rather than counted live, so replay and recovery agree with it.
-        TurnMetrics finished = new TurnMetrics(
+        AgentMetrics finished = new AgentMetrics(
                 current.inputTokens(),
                 current.cachedInputTokens(),
                 current.outputTokens(),
                 current.cost(),
-                current.costProvenance(),
                 elapsed,
                 readCounters(turn.taskId(), turnId));
         AgentTurn stored = turnStore.update(turn.withMetrics(finished));
@@ -121,7 +120,7 @@ public final class DefaultAgentMetricsService
     }
 
     @Override
-    public TaskMetrics taskTotals(TaskId taskId)
+    public AgentMetrics taskTotals(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         requireTask(taskId);
@@ -131,20 +130,20 @@ public final class DefaultAgentMetricsService
     private void persistTaskTotals(TaskId taskId)
     {
         AgentTask task = requireTask(taskId);
-        TaskMetrics totals = calculateTaskTotals(turnStore.list(taskId));
+        AgentMetrics totals = calculateTaskTotals(turnStore.list(taskId));
         taskStore.update(task.withMetrics(totals, Instant.now(clock)));
     }
 
-    private TaskMetrics baselineTotals(TaskId taskId, TurnId turnId)
+    private AgentMetrics baselineTotals(TaskId taskId, TurnId turnId)
     {
         return calculateTaskTotals(turnStore.list(taskId).stream()
                 .filter(turn -> !turn.id().equals(turnId))
                 .collect(toImmutableList()));
     }
 
-    private static TurnMetrics cumulativeMetrics(
-            TaskMetrics baseline,
-            TurnMetrics current,
+    private static AgentMetrics cumulativeMetrics(
+            AgentMetrics baseline,
+            AgentMetrics current,
             ProviderUsageSample sample)
     {
         long inputTokens = subtractFloor(sample.inputTokens(), baseline.inputTokens());
@@ -156,25 +155,20 @@ public final class DefaultAgentMetricsService
             return current;
         }
 
-        Optional<BigDecimal> cost = cumulativeCost(baseline, sample);
-        CostProvenance provenance = cost.isPresent()
-                ? sample.costProvenance()
-                : CostProvenance.UNAVAILABLE;
-        return new TurnMetrics(
+        return new AgentMetrics(
                 inputTokens,
                 cachedInputTokens,
                 outputTokens,
-                cost,
-                provenance,
+                cumulativeCost(baseline, sample),
                 current.elapsed());
     }
 
-    private static Optional<BigDecimal> cumulativeCost(TaskMetrics baseline, ProviderUsageSample sample)
+    private static Optional<BigDecimal> cumulativeCost(AgentMetrics baseline, ProviderUsageSample sample)
     {
         if (sample.cost().isEmpty()) {
             return Optional.empty();
         }
-        if (baseline.cost().isPresent() && baseline.costProvenance() == sample.costProvenance()) {
+        if (baseline.cost().isPresent()) {
             BigDecimal difference = sample.cost().orElseThrow().subtract(baseline.cost().orElseThrow());
             return difference.signum() < 0 ? Optional.empty() : Optional.of(difference);
         }
@@ -184,19 +178,15 @@ public final class DefaultAgentMetricsService
         return Optional.empty();
     }
 
-    private static TurnMetrics addMetrics(TurnMetrics current, ProviderUsageSample sample)
+    private static AgentMetrics addMetrics(AgentMetrics current, ProviderUsageSample sample)
     {
         Optional<BigDecimal> cost = addCost(current, sample);
-        CostProvenance provenance = cost.isPresent()
-                ? sample.costProvenance()
-                : CostProvenance.UNAVAILABLE;
         try {
-            return new TurnMetrics(
+            return new AgentMetrics(
                     Math.addExact(current.inputTokens(), sample.inputTokens()),
                     Math.addExact(current.cachedInputTokens(), sample.cachedInputTokens()),
                     Math.addExact(current.outputTokens(), sample.outputTokens()),
                     cost,
-                    provenance,
                     current.elapsed());
         }
         catch (ArithmeticException e) {
@@ -204,7 +194,7 @@ public final class DefaultAgentMetricsService
         }
     }
 
-    private static Optional<BigDecimal> addCost(TurnMetrics current, ProviderUsageSample sample)
+    private static Optional<BigDecimal> addCost(AgentMetrics current, ProviderUsageSample sample)
     {
         if (sample.cost().isEmpty()) {
             return Optional.empty();
@@ -213,9 +203,6 @@ public final class DefaultAgentMetricsService
             if (current.inputTokens() == 0 && current.cachedInputTokens() == 0 && current.outputTokens() == 0) {
                 return sample.cost();
             }
-            return Optional.empty();
-        }
-        if (current.costProvenance() != sample.costProvenance()) {
             return Optional.empty();
         }
         return Optional.of(current.cost().orElseThrow().add(sample.cost().orElseThrow()));
@@ -241,7 +228,7 @@ public final class DefaultAgentMetricsService
                 if (tool.name().endsWith(CODEGRAPH_TOOL)) {
                     codegraphCalls++;
                     codegraphMillis += tool.durationMs().orElse(0L);
-                    if (tool.state() == AgentEventPayload.ActivityState.FAILED) {
+                    if (tool.state() == ActivityState.FAILED) {
                         codegraphFailures++;
                     }
                 }
@@ -254,9 +241,9 @@ public final class DefaultAgentMetricsService
         return new ToolCounters(toolCalls, exploreActions, codegraphCalls, codegraphMillis, codegraphFailures);
     }
 
-    private static boolean terminal(AgentEventPayload.ActivityState state)
+    private static boolean terminal(ActivityState state)
     {
-        return state == AgentEventPayload.ActivityState.COMPLETED || state == AgentEventPayload.ActivityState.FAILED;
+        return state == ActivityState.COMPLETED || state == ActivityState.FAILED;
     }
 
     private ToolCounters readCounters(TaskId taskId, TurnId turnId)
@@ -273,7 +260,7 @@ public final class DefaultAgentMetricsService
         }
     }
 
-    private static TaskMetrics calculateTaskTotals(List<AgentTurn> turns)
+    private static AgentMetrics calculateTaskTotals(List<AgentTurn> turns)
     {
         long inputTokens = 0;
         long cachedInputTokens = 0;
@@ -281,10 +268,9 @@ public final class DefaultAgentMetricsService
         Duration elapsed = Duration.ZERO;
         ToolCounters counters = ToolCounters.ZERO;
         Optional<BigDecimal> cost = Optional.of(BigDecimal.ZERO);
-        CostProvenance provenance = null;
         try {
             for (AgentTurn turn : turns) {
-                TurnMetrics metrics = turn.metrics();
+                AgentMetrics metrics = turn.metrics();
                 inputTokens = Math.addExact(inputTokens, metrics.inputTokens());
                 cachedInputTokens = Math.addExact(cachedInputTokens, metrics.cachedInputTokens());
                 outputTokens = Math.addExact(outputTokens, metrics.outputTokens());
@@ -294,13 +280,7 @@ public final class DefaultAgentMetricsService
                     cost = Optional.empty();
                 }
                 else if (cost.isPresent()) {
-                    if (provenance != null && provenance != metrics.costProvenance()) {
-                        cost = Optional.empty();
-                    }
-                    else {
-                        provenance = metrics.costProvenance();
-                        cost = Optional.of(cost.orElseThrow().add(metrics.cost().orElseThrow()));
-                    }
+                    cost = Optional.of(cost.orElseThrow().add(metrics.cost().orElseThrow()));
                 }
             }
         }
@@ -308,16 +288,15 @@ public final class DefaultAgentMetricsService
             throw new AgentStorageException("Task usage totals overflowed", e);
         }
         if (turns.isEmpty() || cost.isEmpty()) {
-            return new TaskMetrics(
+            return new AgentMetrics(
                     inputTokens,
                     cachedInputTokens,
                     outputTokens,
                     Optional.empty(),
-                    CostProvenance.UNAVAILABLE,
                     elapsed,
                     counters);
         }
-        return new TaskMetrics(inputTokens, cachedInputTokens, outputTokens, cost, provenance, elapsed, counters);
+        return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, cost, elapsed, counters);
     }
 
     private AgentTask requireTask(TaskId taskId)

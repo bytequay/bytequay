@@ -32,7 +32,6 @@ class TestAgentTurnLifecycle
             Optional.of("model-1"),
             Optional.empty(),
             AgentPermissionPolicy.AUTO,
-            AgentSandboxPolicy.WORKSPACE_WRITE,
             Duration.ofMinutes(5),
             ImmutableList.of());
 
@@ -45,7 +44,7 @@ class TestAgentTurnLifecycle
                 Optional.of("model-1"));
         AgentTurn completed = running.finish(
                 TurnState.COMPLETED,
-                TurnMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 ACCEPTED_AT.plusSeconds(2));
 
@@ -57,7 +56,7 @@ class TestAgentTurnLifecycle
         assertThat(completed.terminalReason()).isEmpty();
         assertThat(completed.finish(
                 TurnState.COMPLETED,
-                TurnMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 ACCEPTED_AT.plusSeconds(3)))
                 .isSameAs(completed);
@@ -99,7 +98,7 @@ class TestAgentTurnLifecycle
     {
         assertThatThrownBy(() -> newTurn().finish(
                 TurnState.COMPLETED,
-                TurnMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 ACCEPTED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalStateException.class)
@@ -119,7 +118,7 @@ class TestAgentTurnLifecycle
 
         AgentTurn cancelled = requested.finish(
                 TurnState.CANCELLED,
-                TurnMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.of("cancelled by user"),
                 ACCEPTED_AT.plusSeconds(4));
         assertThat(cancelled.state()).isEqualTo(TurnState.CANCELLED);
@@ -134,7 +133,7 @@ class TestAgentTurnLifecycle
 
         assertThatThrownBy(() -> running.finish(
                 TurnState.FAILED,
-                TurnMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 ACCEPTED_AT.plusSeconds(2)))
                 .isInstanceOf(IllegalArgumentException.class)

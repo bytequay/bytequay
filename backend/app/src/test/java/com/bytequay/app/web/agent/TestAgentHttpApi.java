@@ -38,6 +38,8 @@ import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
@@ -746,7 +748,7 @@ class TestAgentHttpApi
             latestSequence = events.append(new UnsequencedAgentEvent(
                     EventId.random(), TaskId.valueOf(taskId), Optional.empty(), AgentEventSource.root(),
                     new AgentEventPayload.AssistantMessage(
-                            AgentEventPayload.MessageKind.ANSWER, AgentEventPayload.MessagePhase.FINAL, "history " + index))).sequence();
+                            MessageKind.ANSWER, MessagePhase.FINAL, "history " + index))).sequence();
         }
         String historyPath = "/agent/tasks/" + taskId + "/history";
 

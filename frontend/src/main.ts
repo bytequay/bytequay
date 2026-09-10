@@ -1086,8 +1086,6 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/settings/codegraph`));
   ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>
     backendJson(`${backendBase()}/api/settings/codegraph`, jsonInit('PUT', setting)));
-  ipcMain.handle('settings:codegraph:comparison', () =>
-    backendJson(`${backendBase()}/api/settings/codegraph/comparison`));
   ipcMain.handle('settings:codegraph:baseline', () =>
     backendJson(`${backendBase()}/api/settings/codegraph/baseline`));
   ipcMain.handle('settings:app', () =>

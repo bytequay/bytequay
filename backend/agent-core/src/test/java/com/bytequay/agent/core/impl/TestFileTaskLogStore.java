@@ -24,7 +24,14 @@ import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandActionKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
+import com.bytequay.agent.spi.ProviderAgentEvent.PlanItemState;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,26 +92,26 @@ class TestFileTaskLogStore
                         ImmutableList.of(new AgentAttachmentReference("attachment-1", "diagram.png", "image/png")),
                         AgentEventPayload.DeliveryKind.TURN),
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.FINAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.FINAL,
                         "done"),
-                new AgentEventPayload.PlanUpdated(ImmutableList.of(new AgentEventPayload.PlanItem(
+                new AgentEventPayload.PlanUpdated(ImmutableList.of(new PlanItem(
                         "verify",
-                        AgentEventPayload.PlanItemState.IN_PROGRESS))),
+                        PlanItemState.IN_PROGRESS))),
                 new AgentEventPayload.ToolActivity(
                         "Read",
-                        AgentEventPayload.ActivityState.COMPLETED,
+                        ActivityState.COMPLETED,
                         "read a file"),
                 new AgentEventPayload.CommandActivity(
-                        AgentEventPayload.ActivityState.COMPLETED,
+                        ActivityState.COMPLETED,
                         ImmutableList.of("git", "status"),
                         Optional.of("clean"),
                         Optional.of(0),
                         false),
                 new AgentEventPayload.FileActivity(
-                        AgentEventPayload.ActivityState.COMPLETED,
+                        ActivityState.COMPLETED,
                         "README.md",
-                        AgentEventPayload.ChangeKind.MODIFIED,
+                        ChangeKind.MODIFIED,
                         Optional.of("diff")),
                 new AgentEventPayload.ApprovalRequested(
                         "request-1",
@@ -123,8 +130,7 @@ class TestFileTaskLogStore
                         10,
                         2,
                         4,
-                        Optional.empty(),
-                        CostProvenance.UNAVAILABLE),
+                        Optional.empty()),
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "complete"),
@@ -154,15 +160,15 @@ class TestFileTaskLogStore
             throws IOException
     {
         AgentEventEnvelope named = envelope(1, new AgentEventPayload.CommandActivity(
-                AgentEventPayload.ActivityState.COMPLETED,
+                ActivityState.COMPLETED,
                 ImmutableList.of("cat SKILL.md"),
                 Optional.empty(),
                 Optional.of(0),
                 false,
                 Optional.empty(),
                 Optional.empty(),
-                ImmutableList.of(new AgentEventPayload.CommandAction(
-                        AgentEventPayload.CommandActionKind.READ,
+                ImmutableList.of(new CommandAction(
+                        CommandActionKind.READ,
                         Optional.of("OpenAI Docs skill"),
                         Optional.empty(),
                         Optional.empty()))));
@@ -201,20 +207,19 @@ class TestFileTaskLogStore
     {
         List<AgentEventPayload> payloads = ImmutableList.of(
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.PARTIAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.PARTIAL,
                         "hello from"),
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.FINAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.FINAL,
                         "hello from ByteQuay Codex"),
                 new AgentEventPayload.UsageUpdated(
                         AgentEventPayload.UsageSemantics.CUMULATIVE,
                         16_286,
                         9_984,
                         11,
-                        Optional.empty(),
-                        CostProvenance.UNAVAILABLE),
+                        Optional.empty()),
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "completed"));
@@ -535,8 +540,8 @@ class TestFileTaskLogStore
     private static AgentEventPayload message(String text)
     {
         return new AgentEventPayload.AssistantMessage(
-                AgentEventPayload.MessageKind.ANSWER,
-                AgentEventPayload.MessagePhase.FINAL,
+                MessageKind.ANSWER,
+                MessagePhase.FINAL,
                 text);
     }
 }

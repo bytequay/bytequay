@@ -22,7 +22,6 @@
       "cachedInputTokens": 0,
       "outputTokens": 0,
       "cost": null,
-      "costProvenance": "UNAVAILABLE",
       "elapsed": "<duration>"
     },
     "summary": null,
@@ -30,6 +29,7 @@
     "deleteAfter": null,
     "cleanupFailure": null,
     "checkoutRemovedAt": null,
+    "codegraph": false,
     "archivedAt": null
   },
   "turn": {
@@ -46,7 +46,6 @@
       "model": "test-model",
       "effort": "high",
       "permissionPolicy": "AUTO",
-      "sandboxPolicy": "WORKSPACE_WRITE",
       "maximumRuntimeMillis": 1800000,
       "attachments": []
     },
@@ -56,7 +55,6 @@
       "cachedInputTokens": 0,
       "outputTokens": 0,
       "cost": null,
-      "costProvenance": "UNAVAILABLE",
       "elapsed": "<duration>"
     }
   },
@@ -66,16 +64,13 @@
       "finalResponse": "deterministic: second",
       "resultBranch": "bytequay/task/<task-id>",
       "resultHead": "<head>",
-      "tests": [],
       "metrics": {
         "inputTokens": 0,
         "cachedInputTokens": 0,
         "outputTokens": 0,
         "cost": null,
-        "costProvenance": "UNAVAILABLE",
         "elapsed": "<duration>"
       },
-      "learnings": [],
       "notes": "ready for review"
     },
     "completedAt": "<timestamp>",
@@ -104,29 +99,26 @@
       "cachedInputTokens": 0,
       "outputTokens": 0,
       "cost": null,
-      "costProvenance": "UNAVAILABLE",
       "elapsed": "<duration>"
     },
     "summary": {
       "finalResponse": "deterministic: second",
       "resultBranch": "bytequay/task/<task-id>",
       "resultHead": "<head>",
-      "tests": [],
       "metrics": {
         "inputTokens": 0,
         "cachedInputTokens": 0,
         "outputTokens": 0,
         "cost": null,
-        "costProvenance": "UNAVAILABLE",
         "elapsed": "<duration>"
       },
-      "learnings": [],
       "notes": "ready for review"
     },
     "cleanupState": "RETAINED",
     "deleteAfter": "<timestamp>",
     "cleanupFailure": null,
     "checkoutRemovedAt": "<timestamp>",
+    "codegraph": false,
     "archivedAt": null
   }
 }

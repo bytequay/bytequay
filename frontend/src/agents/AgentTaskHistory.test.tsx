@@ -41,7 +41,7 @@ function markup(completed: boolean, afterCursor: string | null): string {
     id: 'turn', taskId: 'task', state: completed ? 'COMPLETED' : 'RUNNING', version: 1,
     createdAt: '2026-09-07T08:57:00Z', startedAt: '2026-09-07T08:57:00Z', endedAt: completed ? '2026-09-07T09:05:00Z' : null,
     cancellationRequestedAt: null, delivered: true, knownUnsent: false, settings: null, terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT8M' },
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT8M' },
   };
   return renderToStaticMarkup(<AgentTaskBody
     state={{

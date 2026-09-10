@@ -32,13 +32,11 @@ public record AgentCapabilities(
         boolean tokenUsage,
         /** Whether input can be added to a turn already running, through the provider's own steer call. */
         boolean steering,
-        CostProvenance costProvenance,
         Set<AgentPermissionPolicy> permissionPolicies,
         Set<String> attachmentMediaTypes)
 {
     public AgentCapabilities
     {
-        requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(permissionPolicies, "permissionPolicies is null");
         requireNonNull(attachmentMediaTypes, "attachmentMediaTypes is null");
         permissionPolicies = ImmutableSet.copyOf(permissionPolicies);
@@ -59,7 +57,6 @@ public record AgentCapabilities(
                 false,
                 false,
                 false,
-                CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO),
                 ImmutableSet.of());
     }

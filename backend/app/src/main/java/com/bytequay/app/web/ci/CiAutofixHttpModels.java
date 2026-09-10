@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.web.ci;
 
-import com.bytequay.agent.core.TaskMetrics;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixRun;
 
@@ -31,7 +31,7 @@ final class CiAutofixHttpModels
 
     static RunResponse run(
             CiAutofixRun run,
-            Optional<TaskMetrics> metrics,
+            Optional<AgentMetrics> metrics,
             Optional<String> generatedLocalBranch)
     {
         return new RunResponse(
@@ -87,7 +87,7 @@ final class CiAutofixHttpModels
                 run.attempts().stream().map(CiAutofixHttpModels::attempt).collect(toImmutableList()));
     }
 
-    static RunResponse run(CiAutofixRun run, Optional<TaskMetrics> metrics)
+    static RunResponse run(CiAutofixRun run, Optional<AgentMetrics> metrics)
     {
         return run(run, metrics, Optional.empty());
     }
@@ -187,7 +187,7 @@ final class CiAutofixHttpModels
             Optional<String> pauseReason,
             Optional<String> finishReason,
             Optional<String> summary,
-            Optional<TaskMetrics> metrics,
+            Optional<AgentMetrics> metrics,
             List<WarningResponse> warnings,
             Optional<PushJournalResponse> pushJournal,
             Optional<RerunJournalResponse> rerunJournal,

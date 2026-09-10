@@ -55,8 +55,7 @@ re-presentation plus one real model change.
 | --- | --- |
 | API-key rows, add and remove | `ModelApiKeyStore`, `model_api_keys`, `POST/DELETE /api/settings/api-keys` |
 | Skill list, scopes, add/edit dialog | `AgentSkillScope {GLOBAL, DEVELOPMENT, REVIEW}`, `/api/settings/agent-skills` |
-| Code-graph mode Off/On/Compare | `CodeGraphMode`, `GET/PUT /api/settings/codegraph` |
-| Arm comparison table | `CodeGraphComparisonService`, `GET /api/settings/codegraph/comparison` |
+| Code-graph mode Off/On | `CodeGraphMode`, `GET/PUT /api/settings/codegraph` |
 | Provider readiness rows, `Check` | `AgentProviderStatus`, `refreshAgentProviderReadiness` |
 | GitHub account, masked token, Copy | `CredentialController` |
 | Quiet hours | `QuietHours`, `GET/PUT /api/settings/quiet-hours` |
@@ -177,13 +176,7 @@ fixes today's crash when such an id is main and a review starts.
 dialog is a UI change only; the `agent.skills` contract is unchanged. Internal
 ByteQuay guidance stays invisible.
 
-**Agents → Code graph** — mode segmented, baseline index row, per-repository
-comparison. `GET /api/settings/codegraph/comparison` already exists and must not
-be duplicated. The gap is the grouping key: `compare()` groups by `workspaceId`
-and derives the label from the first task's repository, so two workspaces on one
-repository produce two identically-labelled tables. Regroup on
-`AgentTask.repository()`, which changes `WorkspaceComparison`,
-`CodeGraphWorkspaceComparisonDto` and the React key.
+**Agents → Code graph** — mode segmented, baseline index row.
 
 The baseline row needs a small read for repository count and last-updated time;
 `CodeGraphBaselineRefresher` exposes nothing today. Per `codegraph-service.md`
@@ -283,9 +276,8 @@ immediately before each commit.
 Two commits, each of which builds and passes on its own.
 
 1. **Backend settings foundation.** The new store keys and their job wiring, the
-   `masked_hint` column, the code-graph regroup by repository, the baseline
-   readout, and the GitHub account source. Adds only; the current pages keep
-   working untouched.
+   `masked_hint` column, the baseline readout, and the GitHub account source.
+   Adds only; the current pages keep working untouched.
 2. **The settings window.** Per-agent-type agent models replacing `model.main`
    end to end, the shell, primitives, routes and all ten pages, the old pages
    deleted and every `onOpenSettings` call site rewired. The model change and
@@ -309,7 +301,6 @@ Two commits, each of which builds and passes on its own.
    turn's instruction snapshot for that scope only.
 7. Readiness renders from typed status, never parsed diagnostic text, and a
    blocked task start deep-links to the relevant row.
-8. Code-graph mode changes affect new tasks only; the table's repository list
-   and counts derive from indexed repositories.
+8. Code-graph mode changes affect new tasks only.
 9. The workspace picker can edit any watched workspace, and switching it keeps
    the current sub-page.

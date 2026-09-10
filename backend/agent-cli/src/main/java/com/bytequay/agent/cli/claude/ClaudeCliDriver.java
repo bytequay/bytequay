@@ -37,7 +37,6 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
@@ -220,7 +219,6 @@ public final class ClaudeCliDriver
                 true,
                 true,
                 false,
-                CostProvenance.CLI_ESTIMATE,
                 ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
     }

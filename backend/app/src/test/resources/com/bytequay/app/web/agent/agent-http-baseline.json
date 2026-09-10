@@ -35,7 +35,6 @@
       "cachedInputTokens": 0,
       "outputTokens": 0,
       "cost": null,
-      "costProvenance": "UNAVAILABLE",
       "elapsed": "<duration>",
       "counters": {
         "toolCalls": 0,
@@ -50,7 +49,7 @@
     "deleteAfter": null,
     "cleanupFailure": null,
     "checkoutRemovedAt": null,
-    "codegraphArm": "OFF",
+    "codegraph": false,
     "archivedAt": null
   },
   "turns": [
@@ -74,7 +73,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -86,7 +84,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -112,7 +109,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -124,7 +120,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -156,7 +151,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -168,7 +162,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -194,7 +187,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -206,7 +198,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -238,7 +229,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -250,7 +240,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -276,7 +265,6 @@
           "model": "test-model",
           "effort": "high",
           "permissionPolicy": "AUTO",
-          "sandboxPolicy": "WORKSPACE_WRITE",
           "maximumRuntimeMillis": 1800000,
           "attachments": [],
           "serviceTier": null
@@ -288,7 +276,6 @@
           "cachedInputTokens": 0,
           "outputTokens": 0,
           "cost": null,
-          "costProvenance": "UNAVAILABLE",
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
@@ -651,13 +638,11 @@
       "finalResponse": "deterministic: second",
       "resultBranch": "bytequay/task/<task-id>",
       "resultHead": "<head>",
-      "tests": [],
       "metrics": {
         "inputTokens": 0,
         "cachedInputTokens": 0,
         "outputTokens": 0,
         "cost": null,
-        "costProvenance": "UNAVAILABLE",
         "elapsed": "<duration>",
         "counters": {
           "toolCalls": 0,
@@ -667,7 +652,6 @@
           "codegraphFailures": 0
         }
       },
-      "learnings": [],
       "notes": "ready for review",
       "children": []
     },
@@ -698,7 +682,6 @@
       "cachedInputTokens": 0,
       "outputTokens": 0,
       "cost": null,
-      "costProvenance": "UNAVAILABLE",
       "elapsed": "<duration>",
       "counters": {
         "toolCalls": 0,
@@ -712,13 +695,11 @@
       "finalResponse": "deterministic: second",
       "resultBranch": "bytequay/task/<task-id>",
       "resultHead": "<head>",
-      "tests": [],
       "metrics": {
         "inputTokens": 0,
         "cachedInputTokens": 0,
         "outputTokens": 0,
         "cost": null,
-        "costProvenance": "UNAVAILABLE",
         "elapsed": "<duration>",
         "counters": {
           "toolCalls": 0,
@@ -728,7 +709,6 @@
           "codegraphFailures": 0
         }
       },
-      "learnings": [],
       "notes": "ready for review",
       "children": []
     },
@@ -736,7 +716,7 @@
     "deleteAfter": "<timestamp>",
     "cleanupFailure": null,
     "checkoutRemovedAt": "<timestamp>",
-    "codegraphArm": "OFF",
+    "codegraph": false,
     "archivedAt": null
   }
 }

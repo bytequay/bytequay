@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
@@ -86,10 +85,6 @@ public class AgentQueuedInputEntity
     private AgentPermissionPolicy permissionPolicy;
 
     @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private AgentSandboxPolicy sandboxPolicy;
-
-    @Column(nullable = false)
     private long maximumRuntimeMillis;
 
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -141,7 +136,6 @@ public class AgentQueuedInputEntity
         effort = input.settings().effort().orElse(null);
         serviceTier = input.settings().serviceTier().orElse(null);
         permissionPolicy = input.settings().permissionPolicy();
-        sandboxPolicy = input.settings().sandboxPolicy();
         maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
         attachmentsJson = AgentAttachmentReferenceJson.encode(input.settings().attachments());
         messageEventId = input.messageEventId().map(EventId::toString).orElse(null);
@@ -165,7 +159,6 @@ public class AgentQueuedInputEntity
                         Optional.ofNullable(requestedModel),
                         Optional.ofNullable(effort),
                         permissionPolicy,
-                        sandboxPolicy,
                         Duration.ofMillis(maximumRuntimeMillis),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
                         Optional.ofNullable(serviceTier)),

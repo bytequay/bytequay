@@ -42,8 +42,7 @@ class TestAgentTaskLifecycle
 
         assertThat(completed.state()).isEqualTo(TaskState.COMPLETED);
         assertThat(completed.summary()).contains(summary);
-        assertThat(completed.summary().orElseThrow().tests()).isInstanceOf(ImmutableList.class);
-        assertThat(completed.summary().orElseThrow().learnings()).isInstanceOf(ImmutableList.class);
+        assertThat(completed.summary().orElseThrow().children()).isInstanceOf(ImmutableList.class);
         assertThat(completed.terminalAt()).contains(completedAt);
         assertThat(completed.cleanupState()).isEqualTo(CleanupState.RETAINED);
     }
@@ -63,9 +62,9 @@ class TestAgentTaskLifecycle
     @Test
     void taskUpdateTimeCannotMoveBackwards()
     {
-        AgentTask open = newTask().withMetrics(TaskMetrics.empty(), CREATED_AT.plusSeconds(2));
+        AgentTask open = newTask().withMetrics(AgentMetrics.empty(), CREATED_AT.plusSeconds(2));
 
-        assertThatThrownBy(() -> open.withMetrics(TaskMetrics.empty(), CREATED_AT.plusSeconds(1)))
+        assertThatThrownBy(() -> open.withMetrics(AgentMetrics.empty(), CREATED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("before");
     }
@@ -181,9 +180,7 @@ class TestAgentTaskLifecycle
                         "1123456789012345678901234567890123456789",
                         true,
                         false)),
-                ImmutableList.of(new TestFact("mvn verify", TestFact.Status.PASSED, Optional.empty())),
-                TaskMetrics.empty(),
-                ImmutableList.of("Keep provider events normalized."),
+                AgentMetrics.empty(),
                 Optional.empty());
     }
 }

@@ -19,6 +19,8 @@ import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.ChildSummary;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -88,13 +90,13 @@ final class AgentFinalResponseReader
                 }
             }
             case AgentEventPayload.AssistantMessage message -> {
-                if (message.phase() != AgentEventPayload.MessagePhase.FINAL) {
+                if (message.phase() != MessagePhase.FINAL) {
                     return;
                 }
-                if (message.messageKind() == AgentEventPayload.MessageKind.PROMPT) {
+                if (message.messageKind() == MessageKind.PROMPT) {
                     facts.purpose = Optional.of(message.text());
                 }
-                else if (message.messageKind() == AgentEventPayload.MessageKind.ANSWER) {
+                else if (message.messageKind() == MessageKind.ANSWER) {
                     facts.result = Optional.of(message.text());
                 }
             }
@@ -137,8 +139,8 @@ final class AgentFinalResponseReader
                 // A subagent's answer is its own; only the root thread answers for the task.
                 if (envelope.source().parentProviderThreadId().isEmpty()
                         && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                        && message.messageKind() == AgentEventPayload.MessageKind.ANSWER
-                        && message.phase() == AgentEventPayload.MessagePhase.FINAL) {
+                        && message.messageKind() == MessageKind.ANSWER
+                        && message.phase() == MessagePhase.FINAL) {
                     response = message.text();
                 }
             }

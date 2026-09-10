@@ -18,7 +18,6 @@ import type {
   AppPreferencesDto,
   CodeGraphBaselineDto,
   CodeGraphMode,
-  CodeGraphRepositoryComparisonDto,
   GitHubAccountDto,
   ModelSettingsDto,
   QuietHoursDto,
@@ -65,7 +64,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [skillsBusy, setSkillsBusy] = useState(false);
   const [graphMode, setGraphMode] = useState<CodeGraphMode | null>(null);
   const [baseline, setBaseline] = useState<CodeGraphBaselineDto | null>(null);
-  const [comparison, setComparison] = useState<CodeGraphRepositoryComparisonDto[]>([]);
   const [account, setAccount] = useState<GitHubAccountDto | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [quietHours, setQuietHours] = useState<QuietHoursDto | null>(null);
@@ -110,7 +108,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     if (section !== 'code-graph') return;
     void window.bridge.getCodeGraphSetting().then(value => setGraphMode(value.mode)).catch(report);
     void window.bridge.getCodeGraphBaseline().then(setBaseline).catch(() => {});
-    void window.bridge.getCodeGraphComparison().then(value => setComparison(value.repositories)).catch(() => {});
   }, [section, report]);
 
   const loadAccount = useCallback(() => {
@@ -259,7 +256,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             <CodeGraphPage
               mode={graphMode}
               baseline={baseline}
-              comparison={comparison}
               error={error}
               onMode={mode => {
                 setGraphMode(mode);

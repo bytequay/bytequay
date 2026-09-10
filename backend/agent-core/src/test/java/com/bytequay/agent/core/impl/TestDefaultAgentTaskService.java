@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.ArchiveAgentTaskCommand;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -71,7 +70,7 @@ class TestDefaultAgentTaskService
     private RecordingWorktreeService managedWorktrees;
     private RecordingResourceService resources;
     private RecordingCodeGraphService codeGraph;
-    private CodeGraphArm nextArm = CodeGraphArm.ON;
+    private boolean codeGraphEnabled = true;
     private DeterministicAgentDriver driver;
     private DefaultAgentTaskService service;
 
@@ -90,7 +89,7 @@ class TestDefaultAgentTaskService
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 codeGraph,
-                () -> nextArm,
+                () -> codeGraphEnabled,
                 Runnable::run,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -394,30 +393,30 @@ class TestDefaultAgentTaskService
 
         AgentTask task = service.createInteractive(interactiveCommand(taskId));
 
-        assertThat(task.codegraphArm()).contains(CodeGraphArm.ON);
+        assertThat(task.codegraph()).isTrue();
         assertThat(codeGraph.prepared).containsExactly(task.taskWorktree().orElseThrow());
         assertThat(codeGraph.preparedResources).containsExactly(resources.require(taskId));
     }
 
     @Test
-    void stampsTheOffArmAndSkipsIndexPreparation()
+    void skipsTheToolAndIndexPreparationWhenTheSettingIsOff()
     {
-        nextArm = CodeGraphArm.OFF;
+        codeGraphEnabled = false;
 
         AgentTask task = service.createInteractive(interactiveCommand(TaskId.random()));
 
-        assertThat(task.codegraphArm()).contains(CodeGraphArm.OFF);
+        assertThat(task.codegraph()).isFalse();
         assertThat(codeGraph.prepared).isEmpty();
     }
 
     @Test
-    void stampsTheOffArmWhenTheHelperIsMissing()
+    void skipsTheToolWhenTheHelperIsMissing()
     {
         codeGraph.available = false;
 
         AgentTask task = service.createInteractive(interactiveCommand(TaskId.random()));
 
-        assertThat(task.codegraphArm()).contains(CodeGraphArm.OFF);
+        assertThat(task.codegraph()).isFalse();
         assertThat(codeGraph.prepared).isEmpty();
     }
 

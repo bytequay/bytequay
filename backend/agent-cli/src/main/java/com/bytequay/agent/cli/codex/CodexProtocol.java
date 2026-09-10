@@ -417,15 +417,12 @@ final class CodexProtocol
             @JsonSubTypes.Type(name = "imageView", value = ImageViewItem.class),
             @JsonSubTypes.Type(name = "contextCompaction", value = ContextCompactionItem.class),
             @JsonSubTypes.Type(name = "userMessage", value = UserMessageItem.class),
-            @JsonSubTypes.Type(name = "functionCallOutput", value = ModelOutputItem.class),
-            @JsonSubTypes.Type(name = "enteredReviewMode", value = ModelOutputItem.class),
-            @JsonSubTypes.Type(name = "exitedReviewMode", value = ModelOutputItem.class),
     })
     sealed interface ThreadItem
             permits AgentMessageItem, CommandExecutionItem, FileChangeItem, McpToolCallItem,
             DynamicToolCallItem, CollabAgentToolCallItem, SubAgentActivityItem, ReasoningItem,
             PlanTextItem, WebSearchItem, ImageViewItem, ContextCompactionItem, UserMessageItem,
-            ModelOutputItem, UnknownThreadItem
+            UnknownThreadItem
     {
         String id();
     }
@@ -652,16 +649,6 @@ final class CodexProtocol
             implements ThreadItem
     {
         ContextCompactionItem
-        {
-            checkIdentifier(id, "id");
-        }
-    }
-
-    /** Model output such as a tool result or review-mode marker. */
-    record ModelOutputItem(String id)
-            implements ThreadItem
-    {
-        ModelOutputItem
         {
             checkIdentifier(id, "id");
         }

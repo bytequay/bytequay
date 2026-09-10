@@ -14,7 +14,6 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -308,7 +307,6 @@ final class CodexEventMapper
             case CodexProtocol.ContextCompactionItem compaction -> ImmutableList.of(builtIn(
                     compaction.id(), "Context compaction", "", eventId, timestamp, started, source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
-            case CodexProtocol.ModelOutputItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };
     }
@@ -522,7 +520,6 @@ final class CodexEventMapper
                 total.cachedInputTokens(),
                 total.outputTokens(),
                 Optional.empty(),
-                CostProvenance.UNAVAILABLE,
                 timestamp.orElseGet(Instant::now)),
                 source));
     }

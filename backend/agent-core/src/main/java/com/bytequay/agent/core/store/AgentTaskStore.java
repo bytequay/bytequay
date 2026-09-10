@@ -86,9 +86,6 @@ public interface AgentTaskStore
      */
     boolean hasWorktreeReference(String workspaceId);
 
-    /** Every task stamped with a CodeGraph arm, oldest first; the comparison table reads them. */
-    List<AgentTask> listWithCodeGraphArm();
-
     /**
      * Returns every non-terminal task for startup lease reconstruction.
      *

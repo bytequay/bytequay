@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.git.GitCommandRunner;
@@ -214,7 +215,7 @@ class TestReviewTools
                 AgentEventSource.root(),
                 NOW,
                 new AgentEventPayload.CommandActivity(
-                        AgentEventPayload.ActivityState.COMPLETED,
+                        ActivityState.COMPLETED,
                         ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
                         Optional.of(output),
                         Optional.of(1),

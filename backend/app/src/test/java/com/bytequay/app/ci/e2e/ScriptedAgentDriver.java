@@ -26,7 +26,6 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -174,7 +173,6 @@ final class ScriptedAgentDriver
                 false,
                 true,
                 false,
-                CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("text/plain"));
     }
@@ -349,7 +347,6 @@ final class ScriptedAgentDriver
                         0,
                         1,
                         Optional.empty(),
-                        CostProvenance.UNAVAILABLE,
                         Instant.EPOCH)));
             }
             if (action.untrustedFinalResponse().isPresent()) {

@@ -143,7 +143,7 @@ async function longCommandConversation(): Promise<void> {
     id: 'turn', taskId: 'scroll-fixture', state: 'COMPLETED', version: 1, createdAt: '2026-09-08T00:00:00Z',
     startedAt: '2026-09-08T00:00:00Z', endedAt: '2026-09-08T00:10:00Z', cancellationRequestedAt: null,
     delivered: true, knownUnsent: false, settings: null, terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT10M' },
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT10M' },
   };
   const initial = agentTaskReducer({
     ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn, turns: { turn }, connection: 'open',

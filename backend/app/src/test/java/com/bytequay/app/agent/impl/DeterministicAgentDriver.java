@@ -25,7 +25,6 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -86,7 +85,6 @@ public final class DeterministicAgentDriver
                 false,
                 false,
                 true,
-                CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO),
                 imageAttachments.get() ? ImmutableSet.of("image/png") : ImmutableSet.of());
     }

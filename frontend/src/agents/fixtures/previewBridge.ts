@@ -214,7 +214,6 @@ export function createPreviewBridge(
         effort: previewDefaults.effort,
         serviceTier: previewDefaults.serviceTier ?? null,
         permissionPolicy: previewDefaults.permissionPolicy,
-        sandboxPolicy: 'WORKSPACE_WRITE',
         maximumRuntimeMillis: 3600000,
         attachments: [],
       };
@@ -274,7 +273,6 @@ export function createPreviewBridge(
           effort: previewDefaults.effort,
           serviceTier: previewDefaults.serviceTier ?? null,
           permissionPolicy: previewDefaults.permissionPolicy,
-          sandboxPolicy: 'WORKSPACE_WRITE',
           maximumRuntimeMillis: 3600000,
           attachments: [],
         },

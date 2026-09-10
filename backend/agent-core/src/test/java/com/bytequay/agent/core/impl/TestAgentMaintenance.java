@@ -18,7 +18,7 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
-import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -37,13 +37,11 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -202,7 +200,7 @@ class TestAgentMaintenance
         InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
         AgentTurn terminal = runningTurn(taskId)
-                .finish(TurnState.FAILED, TurnMetrics.empty(), Optional.of("not shown stopped"), NOW.plusSeconds(2));
+                .finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("not shown stopped"), NOW.plusSeconds(2));
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(terminal.id(), terminal.createdAt()), NOW));
         stores.insert(terminal);
 
@@ -330,7 +328,7 @@ class TestAgentMaintenance
         QueuedAgentInput waiting = queuedInput(waitingTask);
         AgentTurn unsent = AgentTurn.accepted(TurnId.random(), unsentTask, "queue:unsent", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1))
-                .finishKnownUnsent(TurnMetrics.empty(), "not sent", NOW.plusSeconds(2));
+                .finishKnownUnsent(AgentMetrics.empty(), "not sent", NOW.plusSeconds(2));
         QueuedAgentInput claimedUnsent = queuedInput(unsentTask).starting(unsent.id(), EventId.random(), NOW);
         AgentTurn sent = AgentTurn.accepted(TurnId.random(), uncertainTask, "queue:sent", turnSettings(), NOW).markDeliveryStarted(NOW.plusSeconds(1));
         QueuedAgentInput claimedSent = queuedInput(uncertainTask).starting(sent.id(), EventId.random(), NOW);
@@ -412,7 +410,7 @@ class TestAgentMaintenance
         AgentTurn terminal = AgentTurn.accepted(TurnId.random(), taskId, "terminal", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1))
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty())
-                .finish(TurnState.COMPLETED, TurnMetrics.empty(), Optional.empty(), NOW.plusSeconds(2));
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(2));
         WorktreeMutationClaim claim = WorktreeMutationClaim.turn(terminal.id(), terminal.createdAt());
         stores.insert(managedTask(taskId).claimWorktreeMutation(claim, NOW));
         stores.insert(terminal);
@@ -535,7 +533,6 @@ class TestAgentMaintenance
                 Optional.empty(),
                 Optional.empty(),
                 AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of());
     }
@@ -596,7 +593,7 @@ class TestAgentMaintenance
 
     private static TaskSummary summary()
     {
-        return new TaskSummary("done", Optional.empty(), ImmutableList.of(), TaskMetrics.empty(), ImmutableList.of(), Optional.empty());
+        return new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty());
     }
 
     private static AgentTask managedTask(TaskId taskId, AgentPermissionPolicy permissionPolicy)

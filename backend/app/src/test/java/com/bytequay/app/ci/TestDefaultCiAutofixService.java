@@ -18,8 +18,8 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -33,13 +33,11 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -51,7 +49,8 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
@@ -224,7 +223,6 @@ class TestDefaultCiAutofixService
                 false,
                 false,
                 false,
-                CostProvenance.UNAVAILABLE,
                 Set.of(AgentPermissionPolicy.CI_AUTOFIX),
                 Set.of());
         AgentProviderStatus providerStatus = new AgentProviderStatus(
@@ -1653,9 +1651,7 @@ class TestDefaultCiAutofixService
         TaskSummary summary = new TaskSummary(
                 "completed",
                 summaryWorktree(head),
-                ImmutableList.of(),
-                TaskMetrics.empty(),
-                ImmutableList.of(),
+                AgentMetrics.empty(),
                 Optional.empty());
         return openTask.complete(summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
@@ -1673,7 +1669,6 @@ class TestDefaultCiAutofixService
                 Optional.empty(),
                 Optional.empty(),
                 AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of());
     }
@@ -1689,13 +1684,13 @@ class TestDefaultCiAutofixService
             Optional<AgentTurnFailureKind> failureKind)
     {
         return runningTurn(turnId, "provider-turn", "ignored")
-                .finish(state, TurnMetrics.empty(), reason, failureKind, NOW);
+                .finish(state, AgentMetrics.empty(), reason, failureKind, NOW);
     }
 
     private AgentTurn terminalTurn(TurnId id, TurnState state, Optional<String> reason)
     {
         return runningTurn(id, "provider-turn", "ignored")
-                .finish(state, TurnMetrics.empty(), reason, NOW);
+                .finish(state, AgentMetrics.empty(), reason, NOW);
     }
 
     private AgentEventEnvelope finalMessage(String text)
@@ -1709,8 +1704,8 @@ class TestDefaultCiAutofixService
                 root(),
                 NOW,
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.FINAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.FINAL,
                         text));
     }
 
@@ -1849,9 +1844,7 @@ class TestDefaultCiAutofixService
         TaskSummary summary = new TaskSummary(
                 "untrusted agent response",
                 summaryWorktree(head),
-                ImmutableList.of(),
-                TaskMetrics.empty(),
-                ImmutableList.of(),
+                AgentMetrics.empty(),
                 Optional.of("verified"));
         return new TaskCompletion(taskId, summary, NOW, NOW.plus(Duration.ofDays(7)));
     }

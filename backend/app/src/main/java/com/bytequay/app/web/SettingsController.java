@@ -14,8 +14,6 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparisonService;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -45,18 +43,15 @@ public class SettingsController
 {
     private final ModelSettingsService models;
     private final AppSettingsService settings;
-    private final CodeGraphComparisonService comparison;
     private final Supplier<CodeGraphBaseline> baseline;
 
     public SettingsController(
             ModelSettingsService models,
             AppSettingsService settings,
-            CodeGraphComparisonService comparison,
             Supplier<CodeGraphBaseline> baseline)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
-        this.comparison = requireNonNull(comparison, "comparison is null");
         this.baseline = requireNonNull(baseline, "baseline is null");
     }
 
@@ -109,12 +104,6 @@ public class SettingsController
     public CodeGraphBaseline codeGraphBaseline()
     {
         return baseline.get();
-    }
-
-    @GetMapping("/codegraph/comparison")
-    public CodeGraphComparison codeGraphComparison()
-    {
-        return comparison.compare();
     }
 
     @PutMapping("/codegraph")

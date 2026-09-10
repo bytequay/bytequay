@@ -13,7 +13,12 @@
  */
 package com.bytequay.agent.core;
 
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -230,18 +235,15 @@ public sealed interface AgentEventPayload
             long inputTokens,
             long cachedInputTokens,
             long outputTokens,
-            Optional<BigDecimal> cost,
-            CostProvenance costProvenance)
+            Optional<BigDecimal> cost)
             implements AgentEventPayload
     {
         public UsageUpdated
         {
             requireNonNull(semantics, "semantics is null");
             requireNonNull(cost, "cost is null");
-            requireNonNull(costProvenance, "costProvenance is null");
             checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
             checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
-            checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE), "cost and costProvenance disagree");
         }
 
         @Override
@@ -283,35 +285,6 @@ public sealed interface AgentEventPayload
         }
     }
 
-    /** What a shell command did, with the provider's display name and any worktree-relative path. */
-    record CommandAction(CommandActionKind kind, Optional<String> name, Optional<String> path, Optional<String> query)
-    {
-        public CommandAction
-        {
-            requireNonNull(kind, "kind is null");
-            checkOptionalText(name, "name");
-            checkOptionalText(path, "path");
-            checkOptionalText(query, "query");
-        }
-    }
-
-    enum CommandActionKind
-    {
-        READ,
-        LIST_FILES,
-        SEARCH,
-        OTHER
-    }
-
-    record PlanItem(String text, PlanItemState state)
-    {
-        public PlanItem
-        {
-            checkNotBlank(text, "text");
-            requireNonNull(state, "state is null");
-        }
-    }
-
     enum Kind
     {
         USER_MESSAGE,
@@ -332,44 +305,6 @@ public sealed interface AgentEventPayload
         TURN,
         STEER,
         QUEUED
-    }
-
-    enum MessageKind
-    {
-        ANSWER,
-        COMMENTARY,
-        REASONING_SUMMARY,
-        PLAN_TEXT,
-        PROMPT
-    }
-
-    enum MessagePhase
-    {
-        PARTIAL,
-        FINAL
-    }
-
-    enum ActivityState
-    {
-        STARTED,
-        PROGRESS,
-        COMPLETED,
-        FAILED
-    }
-
-    enum ChangeKind
-    {
-        ADDED,
-        MODIFIED,
-        DELETED,
-        RENAMED
-    }
-
-    enum PlanItemState
-    {
-        PENDING,
-        IN_PROGRESS,
-        COMPLETED
     }
 
     enum ApprovalKind

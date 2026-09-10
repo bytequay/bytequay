@@ -18,9 +18,9 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentHistoryPage;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -38,13 +38,11 @@ import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
@@ -55,7 +53,8 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.RunningTurn;
@@ -84,12 +83,11 @@ class TestDefaultAgentCompletionService
     private static final Instant NOW = Instant.parse("2026-08-16T00:00:00Z");
     private static final Path WORKTREE = Path.of("/tmp/bytequay-completion-worktree");
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
-    private static final TaskMetrics METRICS = new TaskMetrics(
+    private static final AgentMetrics METRICS = new AgentMetrics(
             10,
             2,
             3,
             Optional.empty(),
-            CostProvenance.UNAVAILABLE,
             Duration.ofSeconds(4));
 
     private InMemoryAgentStores stores;
@@ -333,10 +331,10 @@ class TestDefaultAgentCompletionService
                 .uncertain("delivery was not acknowledged", NOW);
         AgentTurn knownUnsentTurn = AgentTurn.accepted(TurnId.random(), taskId, "known-unsent", turnSettings(), NOW)
                 .markDeliveryStarted(NOW)
-                .finishKnownUnsent(TurnMetrics.empty(), "not sent", NOW);
+                .finishKnownUnsent(AgentMetrics.empty(), "not sent", NOW);
         AgentTurn attemptedTurn = AgentTurn.accepted(TurnId.random(), taskId, "attempted", turnSettings(), NOW)
                 .markDeliveryStarted(NOW)
-                .finish(TurnState.INTERRUPTED, TurnMetrics.empty(), Optional.of("response lost"), NOW);
+                .finish(TurnState.INTERRUPTED, AgentMetrics.empty(), Optional.of("response lost"), NOW);
         QueuedAgentInput knownUnsent = queuedInput(taskId, 4, "queue-4")
                 .starting(knownUnsentTurn.id(), EventId.random(), NOW);
         QueuedAgentInput attempted = queuedInput(taskId, 5, "queue-5")
@@ -409,7 +407,6 @@ class TestDefaultAgentCompletionService
                 Optional.empty(),
                 Optional.empty(),
                 AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of());
     }
@@ -540,8 +537,8 @@ class TestDefaultAgentCompletionService
 
         private StaticTaskLog(TaskId taskId)
         {
-            events.add(event(taskId, 1, AgentEventPayload.MessagePhase.PARTIAL, "partial"));
-            events.add(event(taskId, 2, AgentEventPayload.MessagePhase.FINAL, "final response"));
+            events.add(event(taskId, 1, MessagePhase.PARTIAL, "partial"));
+            events.add(event(taskId, 2, MessagePhase.FINAL, "final response"));
         }
 
         @Override
@@ -596,7 +593,7 @@ class TestDefaultAgentCompletionService
         private static AgentEventEnvelope event(
                 TaskId taskId,
                 long sequence,
-                AgentEventPayload.MessagePhase phase,
+                MessagePhase phase,
                 String text)
         {
             return new AgentEventEnvelope(
@@ -608,7 +605,7 @@ class TestDefaultAgentCompletionService
                     root(),
                     NOW,
                     new AgentEventPayload.AssistantMessage(
-                            AgentEventPayload.MessageKind.ANSWER,
+                            MessageKind.ANSWER,
                             phase,
                             text));
         }
@@ -743,19 +740,19 @@ class TestDefaultAgentCompletionService
             implements AgentMetricsService
     {
         @Override
-        public TurnMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
+        public AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample)
         {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public TurnMetrics finishTurn(TurnId turnId, TurnState terminalState)
+        public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState)
         {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public TaskMetrics taskTotals(TaskId taskId)
+        public AgentMetrics taskTotals(TaskId taskId)
         {
             return METRICS;
         }

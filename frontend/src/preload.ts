@@ -217,7 +217,6 @@ const bridge: Bridge = {
   saveQuietHours: quietHours => ipcRenderer.invoke('settings:quiet-hours:save', quietHours),
   getCodeGraphSetting: () => ipcRenderer.invoke('settings:codegraph'),
   saveCodeGraphSetting: setting => ipcRenderer.invoke('settings:codegraph:save', setting),
-  getCodeGraphComparison: () => ipcRenderer.invoke('settings:codegraph:comparison'),
   getCodeGraphBaseline: () => ipcRenderer.invoke('settings:codegraph:baseline'),
   getAppPreferences: () => ipcRenderer.invoke('settings:app'),
   saveAppPreferences: preferences => ipcRenderer.invoke('settings:app:save', preferences),

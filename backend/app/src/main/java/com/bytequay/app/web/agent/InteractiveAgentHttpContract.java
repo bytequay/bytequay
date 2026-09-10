@@ -15,16 +15,13 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.QueuedAgentInput;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
-import com.bytequay.agent.core.TestFact;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -54,7 +51,7 @@ final class InteractiveAgentHttpContract
     private InteractiveAgentHttpContract() {}
 
     /** {@code metrics} are the totals to show: a live task's row lags its turns, so the caller folds them. */
-    static TaskResponse task(AgentTask task, TaskMetrics metrics)
+    static TaskResponse task(AgentTask task, AgentMetrics metrics)
     {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
@@ -79,7 +76,7 @@ final class InteractiveAgentHttpContract
                 task.deleteAfter(),
                 task.cleanupFailure(),
                 task.worktreeRemovedAt(),
-                task.codegraphArm(),
+                task.codegraph(),
                 task.archivedAt());
     }
 
@@ -155,9 +152,7 @@ final class InteractiveAgentHttpContract
                 summary.finalResponse(),
                 summary.worktree().map(worktree -> worktree.worktree().generatedBranch()),
                 summary.worktree().map(worktree -> worktree.head()),
-                summary.tests(),
                 summary.metrics(),
-                summary.learnings(),
                 summary.notes(),
                 summary.children().stream()
                         .map(child -> new ChildSummaryResponse(
@@ -187,7 +182,6 @@ final class InteractiveAgentHttpContract
                 settings.model(),
                 settings.effort(),
                 settings.permissionPolicy().name(),
-                settings.sandboxPolicy().name(),
                 settings.maximumRuntime().toMillis(),
                 settings.attachments().stream()
                         .map(InteractiveAgentHttpContract::attachment)
@@ -293,13 +287,13 @@ final class InteractiveAgentHttpContract
             Instant updatedAt,
             Optional<Instant> terminalAt,
             Optional<String> terminalReason,
-            TaskMetrics metrics,
+            AgentMetrics metrics,
             Optional<TaskSummaryResponse> summary,
             String cleanupState,
             Optional<Instant> deleteAfter,
             Optional<String> cleanupFailure,
             Optional<Instant> checkoutRemovedAt,
-            Optional<CodeGraphArm> codegraphArm,
+            boolean codegraph,
             Optional<Instant> archivedAt) {}
 
     record MutationClaim(
@@ -311,9 +305,7 @@ final class InteractiveAgentHttpContract
             String finalResponse,
             Optional<String> resultBranch,
             Optional<String> resultHead,
-            List<TestFact> tests,
-            TaskMetrics metrics,
-            List<String> learnings,
+            AgentMetrics metrics,
             Optional<String> notes,
             List<ChildSummaryResponse> children) {}
 
@@ -342,7 +334,7 @@ final class InteractiveAgentHttpContract
             Optional<TurnSettings> settings,
             Optional<String> terminalReason,
             Optional<AgentTurnFailureKind> failureKind,
-            TurnMetrics metrics) {}
+            AgentMetrics metrics) {}
 
     /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */
     record InputRequest(String message, List<String> attachments, Long expectedVersion)
@@ -381,7 +373,6 @@ final class InteractiveAgentHttpContract
             Optional<String> model,
             Optional<String> effort,
             String permissionPolicy,
-            String sandboxPolicy,
             long maximumRuntimeMillis,
             List<AttachmentReference> attachments,
             Optional<String> serviceTier) {}

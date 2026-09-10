@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
@@ -30,7 +31,6 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
@@ -43,7 +43,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.google.common.collect.ImmutableList;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -170,7 +169,7 @@ public final class DefaultAgentCompletionService
 
     private TaskSummary summarize(AgentTask task, Optional<String> notes)
     {
-        TaskMetrics metrics = metricsService.taskTotals(task.id());
+        AgentMetrics metrics = metricsService.taskTotals(task.id());
         String finalResponse = finalResponseReader.read(task.id());
         WorktreeSnapshot worktree = worktreeService.inspect(task.taskWorktree()
                 .orElseThrow(() -> new AgentConflictException("Task has no managed worktree: " + task.id())));
@@ -180,9 +179,7 @@ public final class DefaultAgentCompletionService
         return new TaskSummary(
                 finalResponse,
                 Optional.of(worktree),
-                ImmutableList.of(),
                 metrics,
-                ImmutableList.of(),
                 notes,
                 finalResponseReader.children(task.id()));
     }

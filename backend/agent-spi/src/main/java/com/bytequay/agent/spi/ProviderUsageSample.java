@@ -28,7 +28,6 @@ public record ProviderUsageSample(
         long cachedInputTokens,
         long outputTokens,
         Optional<BigDecimal> cost,
-        CostProvenance costProvenance,
         Instant observedAt)
 {
     public ProviderUsageSample
@@ -36,11 +35,9 @@ public record ProviderUsageSample(
         checkOptionalText(providerEventId, "providerEventId");
         requireNonNull(semantics, "semantics is null");
         requireNonNull(cost, "cost is null");
-        requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(observedAt, "observedAt is null");
         checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
-        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE), "cost and costProvenance disagree");
     }
 
     public enum Semantics

@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
@@ -672,7 +671,6 @@ class TestDefaultAgentApprovalService
                             Optional.empty(),
                             Optional.empty(),
                             AgentPermissionPolicy.AUTO,
-                            AgentSandboxPolicy.WORKSPACE_WRITE,
                             Duration.ofMinutes(1),
                             ImmutableList.of()),
                     NOW));

@@ -68,7 +68,7 @@ public class AppSettingsService
     {
         return store.get(CODEGRAPH_KEY)
                 .map(CodeGraphMode::valueOf)
-                // The setting was a boolean before the compare mode existed.
+                // The setting was a boolean before it became a mode.
                 .or(() -> store.get(LEGACY_CODEGRAPH_KEY).map(enabled -> Boolean.parseBoolean(enabled) ? CodeGraphMode.ON : CodeGraphMode.OFF))
                 .orElse(CodeGraphMode.ON);
     }

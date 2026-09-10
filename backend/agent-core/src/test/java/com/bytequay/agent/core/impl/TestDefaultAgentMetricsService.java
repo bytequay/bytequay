@@ -16,21 +16,21 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
-import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.CostProvenance;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
+import com.bytequay.agent.spi.ProviderAgentEvent.CommandActionKind;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.google.common.collect.ImmutableList;
@@ -81,27 +81,27 @@ class TestDefaultAgentMetricsService
     @Test
     void derivesCumulativeUsageFromDurableBaselineAfterServiceRestart()
     {
-        TurnMetrics previousMetrics = metrics(100, 10, 20, "2.00");
+        AgentMetrics previousMetrics = metrics(100, 10, 20, "2.00");
         AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", turnSettings(), NOW)
                 .markDeliveryStarted(NOW)
                 .running(new ProviderTurnRef("previous"), Optional.empty())
                 .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
         stores.insert(previous);
         stores.put(task.withMetrics(
-                new TaskMetrics(100, 10, 20, previousMetrics.cost(), previousMetrics.costProvenance(), Duration.ZERO),
+                new AgentMetrics(100, 10, 20, previousMetrics.cost(), Duration.ZERO),
                 NOW));
         AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", turnSettings(), NOW.plusSeconds(2));
         stores.insert(current);
 
-        TurnMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
+        AgentMetrics first = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
         service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
-        TurnMetrics duplicate = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
-        TurnMetrics latest = service.record(task.id(), current.id(), cumulative("usage-2", 150, 15, 30, "2.75"));
+        AgentMetrics duplicate = service.record(task.id(), current.id(), cumulative("usage-1", 130, 12, 25, "2.50"));
+        AgentMetrics latest = service.record(task.id(), current.id(), cumulative("usage-2", 150, 15, 30, "2.75"));
 
         assertThat(first).isEqualTo(metrics(30, 2, 5, "0.50"));
         assertThat(duplicate).isEqualTo(first);
         assertThat(latest).isEqualTo(metrics(50, 5, 10, "0.75"));
-        assertThat(service.taskTotals(task.id())).isEqualTo(new TaskMetrics(150, 15, 30, Optional.of(new BigDecimal("2.75")), CostProvenance.PROVIDER_REPORTED, Duration.ZERO));
+        assertThat(service.taskTotals(task.id())).isEqualTo(new AgentMetrics(150, 15, 30, Optional.of(new BigDecimal("2.75")), Duration.ZERO));
     }
 
     @Test
@@ -117,7 +117,7 @@ class TestDefaultAgentMetricsService
                 1,
                 2,
                 "0.10"));
-        TurnMetrics result = service.record(task.id(), turn.id(), sample(
+        AgentMetrics result = service.record(task.id(), turn.id(), sample(
                 "final",
                 ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
                 6,
@@ -137,7 +137,7 @@ class TestDefaultAgentMetricsService
         stores.insert(turn);
         clock.advance(Duration.ofSeconds(5));
 
-        TurnMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
+        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
 
         assertThat(result.elapsed()).isEqualTo(Duration.ofSeconds(5));
         assertThat(stores.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
@@ -151,10 +151,10 @@ class TestDefaultAgentMetricsService
         TurnId otherTurn = TurnId.random();
         for (int sequence = 1; sequence <= 24; sequence++) {
             logStore.append(event(sequence, sequence % 2 == 0 ? turn.id() : otherTurn,
-                    new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.COMPLETED, "read")));
+                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read")));
         }
 
-        TurnMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
+        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
 
         assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12, 0, 0, 0));
     }
@@ -165,7 +165,6 @@ class TestDefaultAgentMetricsService
                 Optional.empty(),
                 Optional.empty(),
                 AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of());
     }
@@ -201,18 +200,16 @@ class TestDefaultAgentMetricsService
                 cachedInputTokens,
                 outputTokens,
                 Optional.of(new BigDecimal(cost)),
-                CostProvenance.PROVIDER_REPORTED,
                 NOW);
     }
 
-    private static TurnMetrics metrics(long inputTokens, long cachedInputTokens, long outputTokens, String cost)
+    private static AgentMetrics metrics(long inputTokens, long cachedInputTokens, long outputTokens, String cost)
     {
-        return new TurnMetrics(
+        return new AgentMetrics(
                 inputTokens,
                 cachedInputTokens,
                 outputTokens,
                 Optional.of(new BigDecimal(cost)),
-                CostProvenance.PROVIDER_REPORTED,
                 Duration.ZERO);
     }
 
@@ -222,12 +219,12 @@ class TestDefaultAgentMetricsService
         TurnId turn = TurnId.random();
         TurnId other = TurnId.random();
         List<AgentEventEnvelope> events = ImmutableList.of(
-                event(1, turn, new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.STARTED, "reading")),
-                event(2, turn, new AgentEventPayload.ToolActivity("Read", AgentEventPayload.ActivityState.COMPLETED, "read")),
-                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__codegraph_explore", AgentEventPayload.ActivityState.COMPLETED, "graph", Optional.of(1200L))),
-                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/codegraph_explore", AgentEventPayload.ActivityState.FAILED, "graph", Optional.of(300L))),
+                event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading")),
+                event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read")),
+                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__codegraph_explore", ActivityState.COMPLETED, "graph", Optional.of(1200L))),
+                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/codegraph_explore", ActivityState.FAILED, "graph", Optional.of(300L))),
                 event(5, turn, new AgentEventPayload.CommandActivity(
-                        AgentEventPayload.ActivityState.COMPLETED,
+                        ActivityState.COMPLETED,
                         ImmutableList.of("rg", "cleanup"),
                         Optional.empty(),
                         Optional.of(0),
@@ -235,9 +232,9 @@ class TestDefaultAgentMetricsService
                         Optional.empty(),
                         Optional.of(40L),
                         ImmutableList.of(
-                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.SEARCH, Optional.empty(), Optional.empty(), Optional.of("cleanup")),
-                                new AgentEventPayload.CommandAction(AgentEventPayload.CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())))),
-                event(6, other, new AgentEventPayload.ToolActivity("Grep", AgentEventPayload.ActivityState.COMPLETED, "elsewhere")));
+                                new CommandAction(CommandActionKind.SEARCH, Optional.empty(), Optional.empty(), Optional.of("cleanup")),
+                                new CommandAction(CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())))),
+                event(6, other, new AgentEventPayload.ToolActivity("Grep", ActivityState.COMPLETED, "elsewhere")));
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
 

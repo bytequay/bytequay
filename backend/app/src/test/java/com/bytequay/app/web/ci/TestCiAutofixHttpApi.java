@@ -93,10 +93,8 @@ class TestCiAutofixHttpApi
                 SESSION,
                 "codex",
                 "0.153.4",
-                false,
                 Path.of("/tmp/agent-codex-home"),
-                "claude",
-                false);
+                "claude");
         AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CiAutofixController(service, metrics, tasks))
                 .addFilters(new AgentRequestFilter(properties, objectMapper, servingGate))

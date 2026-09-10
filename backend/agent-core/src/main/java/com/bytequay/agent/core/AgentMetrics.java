@@ -13,8 +13,6 @@
  */
 package com.bytequay.agent.core;
 
-import com.bytequay.agent.spi.CostProvenance;
-
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Optional;
@@ -22,41 +20,37 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record TurnMetrics(
+public record AgentMetrics(
         long inputTokens,
         long cachedInputTokens,
         long outputTokens,
         Optional<BigDecimal> cost,
-        CostProvenance costProvenance,
         Duration elapsed,
         ToolCounters counters)
 {
-    public TurnMetrics(
+    public AgentMetrics(
             long inputTokens,
             long cachedInputTokens,
             long outputTokens,
             Optional<BigDecimal> cost,
-            CostProvenance costProvenance,
             Duration elapsed)
     {
-        this(inputTokens, cachedInputTokens, outputTokens, cost, costProvenance, elapsed, ToolCounters.ZERO);
+        this(inputTokens, cachedInputTokens, outputTokens, cost, elapsed, ToolCounters.ZERO);
     }
 
-    public TurnMetrics
+    public AgentMetrics
     {
         requireNonNull(counters, "counters is null");
         requireNonNull(cost, "cost is null");
-        requireNonNull(costProvenance, "costProvenance is null");
         requireNonNull(elapsed, "elapsed is null");
         checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
-        checkArgument(cost.isEmpty() == (costProvenance == CostProvenance.UNAVAILABLE), "cost and costProvenance disagree");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
         cost = cost.map(BigDecimal::stripTrailingZeros);
     }
 
-    public static TurnMetrics empty()
+    public static AgentMetrics empty()
     {
-        return new TurnMetrics(0, 0, 0, Optional.empty(), CostProvenance.UNAVAILABLE, Duration.ZERO);
+        return new AgentMetrics(0, 0, 0, Optional.empty(), Duration.ZERO);
     }
 }

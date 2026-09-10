@@ -21,6 +21,8 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
 import com.google.common.collect.ImmutableList;
@@ -72,8 +74,8 @@ final class CiAutofixLogReader
                 for (AgentEventEnvelope envelope : page) {
                     if (envelope.turnId().filter(turnId::equals).isPresent()
                             && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                            && message.messageKind() == AgentEventPayload.MessageKind.ANSWER
-                            && message.phase() == AgentEventPayload.MessagePhase.FINAL) {
+                            && message.messageKind() == MessageKind.ANSWER
+                            && message.phase() == MessagePhase.FINAL) {
                         result = message.text();
                     }
                 }

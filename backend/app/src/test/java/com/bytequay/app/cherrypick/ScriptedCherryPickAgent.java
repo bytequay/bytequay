@@ -16,8 +16,8 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
@@ -39,11 +39,9 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeService;
-import com.bytequay.agent.spi.CostProvenance;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
@@ -397,13 +395,12 @@ final class ScriptedCherryPickAgent
                         task.defaults().model(),
                         task.defaults().effort(),
                         task.permissionPolicy(),
-                        AgentSandboxPolicy.WORKSPACE_WRITE,
                         java.time.Duration.ofMinutes(5),
                         ImmutableList.of())),
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),
-                new TurnMetrics(0, 0, 0, Optional.empty(), CostProvenance.UNAVAILABLE, java.time.Duration.ZERO));
+                new AgentMetrics(0, 0, 0, Optional.empty(), java.time.Duration.ZERO));
     }
 
     private record Turn(Runnable action, TurnState state) {}

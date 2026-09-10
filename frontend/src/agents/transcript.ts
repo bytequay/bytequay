@@ -138,7 +138,6 @@ type UsageFacts = {
   cachedInputTokens: number;
   outputTokens: number;
   cost: number | null;
-  costProvenance: string;
 };
 
 export type TranscriptTurn = {
@@ -412,7 +411,6 @@ class TurnBuilder {
           cachedInputTokens: event.payload.cachedInputTokens,
           outputTokens: event.payload.outputTokens,
           cost: event.payload.cost,
-          costProvenance: event.payload.costProvenance,
         };
         break;
       case 'lifecycle':

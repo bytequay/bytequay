@@ -63,6 +63,7 @@ import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -255,7 +256,7 @@ public class AgentConfiguration
                 resourceService,
                 driverRegistry,
                 codeGraph,
-                () -> settings.codeGraphMode().arm(),
+                () -> settings.codeGraphMode() == CodeGraphMode.ON,
                 command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command),
                 agentClock);
     }

@@ -325,8 +325,7 @@
         "inputTokens": 1200,
         "cachedInputTokens": 400,
         "outputTokens": 220,
-        "cost": null,
-        "costProvenance": "UNAVAILABLE"
+        "cost": null
       }
     },
     {

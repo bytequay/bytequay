@@ -41,7 +41,7 @@ public record AgentTurn(
         Optional<AgentTurnSettings> settings,
         Optional<String> terminalReason,
         Optional<AgentTurnFailureKind> failureKind,
-        TurnMetrics metrics)
+        AgentMetrics metrics)
 {
     public AgentTurn(
             TurnId id,
@@ -58,7 +58,7 @@ public record AgentTurn(
             Optional<String> model,
             Optional<AgentTurnSettings> settings,
             Optional<String> terminalReason,
-            TurnMetrics metrics)
+            AgentMetrics metrics)
     {
         this(
                 id,
@@ -134,7 +134,7 @@ public record AgentTurn(
                 Optional.of(requireNonNull(settings, "settings is null")),
                 Optional.empty(),
                 Optional.empty(),
-                TurnMetrics.empty());
+                AgentMetrics.empty());
     }
 
     public AgentTurn running(ProviderTurnRef reference, Optional<String> providerModel)
@@ -187,7 +187,7 @@ public record AgentTurn(
 
     public AgentTurn finish(
             TurnState terminalState,
-            TurnMetrics finalMetrics,
+            AgentMetrics finalMetrics,
             Optional<String> reason,
             Instant now)
     {
@@ -196,7 +196,7 @@ public record AgentTurn(
 
     public AgentTurn finish(
             TurnState terminalState,
-            TurnMetrics finalMetrics,
+            AgentMetrics finalMetrics,
             Optional<String> reason,
             Optional<AgentTurnFailureKind> updatedFailureKind,
             Instant now)
@@ -205,7 +205,7 @@ public record AgentTurn(
     }
 
     /** Finishes an accepted request that provably failed before the provider call. */
-    public AgentTurn finishKnownUnsent(TurnMetrics finalMetrics, String reason, Instant now)
+    public AgentTurn finishKnownUnsent(AgentMetrics finalMetrics, String reason, Instant now)
     {
         checkNotBlank(reason, "reason");
         return finish(TurnState.FAILED, finalMetrics, Optional.of(reason), Optional.empty(), now, true);
@@ -213,7 +213,7 @@ public record AgentTurn(
 
     private AgentTurn finish(
             TurnState terminalState,
-            TurnMetrics finalMetrics,
+            AgentMetrics finalMetrics,
             Optional<String> reason,
             Optional<AgentTurnFailureKind> updatedFailureKind,
             Instant now,
@@ -237,7 +237,7 @@ public record AgentTurn(
                 providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
     }
 
-    public AgentTurn withMetrics(TurnMetrics updatedMetrics)
+    public AgentTurn withMetrics(AgentMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, version, startedAt, endedAt, cancellationRequestedAt,
@@ -261,7 +261,7 @@ public record AgentTurn(
             Optional<String> updatedModel,
             Optional<String> updatedTerminalReason,
             Optional<AgentTurnFailureKind> updatedFailureKind,
-            TurnMetrics updatedMetrics)
+            AgentMetrics updatedMetrics)
     {
         return new AgentTurn(
                 id,

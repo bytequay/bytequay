@@ -14,12 +14,12 @@
 package com.bytequay.app.ci.e2e;
 
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
@@ -105,7 +105,7 @@ class TestCiAutofixRestartEndToEnd
         String agentNote;
         String memoryBeforeRestart;
         List<Long> eventSequences;
-        TaskMetrics metricsBeforeRestart;
+        AgentMetrics metricsBeforeRestart;
         int branchWrites;
 
         try (ConfigurableApplicationContext first = openContext(

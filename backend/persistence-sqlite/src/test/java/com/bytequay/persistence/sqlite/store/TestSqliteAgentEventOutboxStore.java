@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -190,7 +189,6 @@ class TestSqliteAgentEventOutboxStore
                         Optional.empty(),
                         Optional.empty(),
                         AgentPermissionPolicy.AUTO,
-                        AgentSandboxPolicy.WORKSPACE_WRITE,
                         Duration.ofMinutes(5),
                         ImmutableList.of()),
                 NOW);

@@ -33,7 +33,6 @@ import type {
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
-  CodeGraphArm,
   ModelApiKeyDto,
   ModelOptionDto,
   ModelProviderDto,
@@ -167,11 +166,6 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
     cachedInputTokens: count(source.cachedInputTokens, `${path}.cachedInputTokens`),
     outputTokens: count(source.outputTokens, `${path}.outputTokens`),
     cost: optionalCount(source.cost, `${path}.cost`),
-    costProvenance: enumText(
-      source.costProvenance,
-      ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const,
-      `${path}.costProvenance`,
-    ),
     elapsed: text(source.elapsed, `${path}.elapsed`),
   };
 }
@@ -201,9 +195,7 @@ function summary(value: unknown, path: string): AgentTaskSummaryDto {
     finalResponse: optionalText(source.finalResponse, `${path}.finalResponse`),
     resultBranch: optionalText(source.resultBranch, `${path}.resultBranch`),
     resultHead: optionalText(source.resultHead, `${path}.resultHead`),
-    tests: textList(source.tests ?? [], `${path}.tests`),
     metrics: metrics(source.metrics, `${path}.metrics`),
-    learnings: textList(source.learnings ?? [], `${path}.learnings`),
     notes: optionalText(source.notes, `${path}.notes`),
     // Absent on summaries stored before subagents were indexed, which read as none.
     children: list(source.children ?? [], `${path}.children`).map((child, index) => {
@@ -248,16 +240,9 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     deleteAfter: optionalText(source.deleteAfter, `${path}.deleteAfter`),
     cleanupFailure: optionalText(source.cleanupFailure, `${path}.cleanupFailure`),
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
-    codegraphArm: codeGraphArm(source.codegraphArm, `${path}.codegraphArm`),
+    codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
   };
-}
-
-/** Absent on tasks older than the arm; anything but ON or OFF is a contract break, not a third arm. */
-function codeGraphArm(value: unknown, path: string): CodeGraphArm | null {
-  if (value === null || value === undefined) return null;
-  if (value === 'ON' || value === 'OFF') return value;
-  throw new Error(`${path} is not a CodeGraph arm`);
 }
 
 export function parseAgentTasks(value: unknown): AgentTaskDto[] {
@@ -275,7 +260,6 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
     effort: optionalText(source.effort, `${path}.effort`),
     serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
     permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
-    sandboxPolicy: text(source.sandboxPolicy, `${path}.sandboxPolicy`),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
     // Attachment contents and their paths stay in the backend; only their ids may cross.
     attachments: list(source.attachments ?? [], `${path}.attachments`).map((entry, index) => {
@@ -327,11 +311,6 @@ function parseAgentCapabilities(value: unknown, path = 'capabilities'): AgentCap
     interactiveApprovals: flag(source.interactiveApprovals, `${path}.interactiveApprovals`),
     tokenUsage: flag(source.tokenUsage, `${path}.tokenUsage`),
     steering: flag(source.steering, `${path}.steering`),
-    costProvenance: enumText(
-      source.costProvenance,
-      ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const,
-      `${path}.costProvenance`,
-    ),
     permissionPolicies: textList(source.permissionPolicies, `${path}.permissionPolicies`),
     attachmentMediaTypes: textList(source.attachmentMediaTypes, `${path}.attachmentMediaTypes`),
   };

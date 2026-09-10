@@ -26,7 +26,6 @@ export const NO_AGENT_CAPABILITIES: AgentCapabilitiesDto = {
   interactiveApprovals: false,
   tokenUsage: false,
   steering: false,
-  costProvenance: 'UNAVAILABLE',
   permissionPolicies: ['AUTO'],
   attachmentMediaTypes: [],
 };

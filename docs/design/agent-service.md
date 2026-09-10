@@ -310,7 +310,7 @@ amount.
 | `AgentSessionRef` | Opaque provider session/thread reference plus contract version |
 | `ProviderThreadRef` | Opaque lane-scoped root or child thread reference and optional direct parent |
 | `ProviderItemRef` | Opaque provider item reference used to merge deltas with its authoritative completion |
-| `AgentTurnSettings` | Immutable requested model, effort, service tier, permission, sandbox, runtime, and attachment snapshot; CP4 makes it effective at provider start |
+| `AgentTurnSettings` | Immutable requested model, effort, service tier, permission, runtime, and attachment snapshot; CP4 makes it effective at provider start |
 | `AgentInputDelivery` | Durable steer send attempt and known or uncertain outcome; direct start uses `AgentTurn` |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
@@ -1059,11 +1059,11 @@ public interface AgentMetricsService
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample
-     * @param sample normalized token and cost information with provenance
+     * @param sample normalized token and cost information
      * @return the latest persisted per-turn metrics
      * @throws AgentStorageException when metrics cannot be persisted
      */
-    TurnMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample);
+    AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample);
 
     /**
      * Finalizes elapsed time and usage for a terminal turn.
@@ -1073,33 +1073,26 @@ public interface AgentMetricsService
      * @return immutable final metrics for the turn
      * @throws AgentConflictException when the turn is not terminal
      */
-    TurnMetrics finishTurn(TurnId turnId, TurnState terminalState);
+    AgentMetrics finishTurn(TurnId turnId, TurnState terminalState);
 
     /**
      * Returns durable totals across all turns in a task.
      *
      * @param taskId task whose totals are requested
-     * @return token, cost when available, elapsed time, and provenance totals
+     * @return token, cost when available, and elapsed time totals
      */
-    TaskMetrics taskTotals(TaskId taskId);
+    AgentMetrics taskTotals(TaskId taskId);
 }
 ```
 
-Cost values require provenance:
-
-- `PROVIDER_REPORTED`: the provider identifies the amount as billing data.
-- `CLI_ESTIMATE`: the CLI calculated an approximate amount locally.
-- `UNAVAILABLE`: subscription/account use cannot be translated into an API
-  invoice.
-
-Cost equality is numeric rather than scale-sensitive. `TurnMetrics` and
-`TaskMetrics` remove insignificant trailing decimal zeros at construction, so
-equivalent values survive SQLite and summary-JSON round trips without breaking
-the terminal task invariant that summary metrics equal task metrics.
+Cost equality is numeric rather than scale-sensitive. `AgentMetrics` removes
+insignificant trailing decimal zeros at construction, so equivalent values
+survive SQLite and summary-JSON round trips without breaking the terminal task
+invariant that summary metrics equal task metrics.
 
 ByteQuay does not estimate subscription-backed Codex cost from a local price
 table. If the provider does not report an amount, the UI displays
-`unavailable`; a CLI estimate is visibly labeled as approximate.
+`unavailable`; a reported amount is displayed as approximate.
 
 ### 3.8 AgentCompletionService
 
@@ -1121,7 +1114,7 @@ public interface AgentCompletionService
      * block closure. The live-queue check, uncertain-row
      * abandonment, and {@code COMPLETION} claim commit in one unit of work
      * against enqueue's task-version guard. It then closes the provider session,
-     * collects the Git snapshot, durable turn/test facts, compact child index,
+     * collects the Git snapshot, durable turn facts, compact child index,
      * task metrics, and an optional display-only final agent message. It
      * revalidates the task worktree, rejects dirty or open Git state, commits
      * the summary, {@code COMPLETED} state, deletion deadline, and release of
@@ -1391,8 +1384,8 @@ nor `finalResponse` is inspected to decide whether a turn completed or failed.
 `AgentTurnCommand` contains the accepted text and attachments plus the immutable
 per-invocation fields the driver consumes: model, optional reasoning effort,
 and maximum runtime. Durable `AgentTurnSettings` also records the effective
-permission and sandbox policies. Those policies are enforced through the
-task-scoped `AgentSessionContext`: public interactive tasks are fixed to `AUTO`
+permission policy. That policy is enforced through the task-scoped
+`AgentSessionContext`: public interactive tasks are fixed to `AUTO`
 and each workflow policy is fixed for the lifetime of its task, so a reused
 session cannot observe policy drift under the current surface. Any future
 per-turn permission change must move that policy into `AgentTurnCommand` or
@@ -3418,10 +3411,11 @@ permission flags failing the probe make the lane unavailable.
 
 The terminal `result` contains usage for that invocation and, when present,
 `total_cost_usd`. Claude documents that monetary field as a client-side
-estimate, not authoritative billing data; ByteQuay labels it as a CLI estimate
-and never uses it for billing decisions. Cancellation sends graceful
-termination, then forcefully terminates the process tree after the configured
-grace period, and records the observed terminal result or process exit.
+estimate, not authoritative billing data; ByteQuay presents it as an
+approximate amount and never uses it for billing decisions. Cancellation
+sends graceful termination, then forcefully terminates the process tree after
+the configured grace period, and records the observed terminal result or
+process exit.
 
 ### 8.3 Capability differences
 
@@ -3444,7 +3438,7 @@ grace period, and records the observed terminal result or process exit.
 | Text attachments | Provider input item when supported | Exact read-only paths inside the task runtime directory |
 | Steering | Stable `turn/steer` against the expected active turn | Unsupported until a native safe equivalent exists |
 | Token usage | `thread/tokenUsage/updated`, semantics normalized from the adapter's known schema | Per-step assistant usage and terminal invocation totals |
-| Monetary cost | `UNAVAILABLE` unless a future protocol field supplies it | `CLI_ESTIMATE` from terminal `total_cost_usd` when present |
+| Monetary cost | Unavailable unless a future protocol field supplies it | Terminal `total_cost_usd` when present |
 | Cancellation | `turn/interrupt` | Graceful then forced process-tree termination |
 
 Capabilities also describe supported attachment types and capability-gated event
@@ -3606,10 +3600,9 @@ directly to App Server or localhost.
 - task lifecycle state, optimistic version, timestamps, terminal reason, and optional
   worktree-mutation claim kind/owner/acquired time;
 - provider session reference and its contract version;
-- token totals, cost amount when available, cost provenance, elapsed time, and
-  provenance;
-- final summary, Git/test facts, a compact terminal child index (thread and
-  parent IDs, label, final state, elapsed time, and result summary only),
+- token totals, cost amount when available, and elapsed time;
+- final summary, Git facts, a compact terminal child index (thread and parent
+  IDs, label, final state, elapsed time, and result summary only),
   successful worktree-removal time, runtime cleanup state, and runtime deletion
   deadline. A dirty terminal worktree is a derived cleanup-action projection,
   not another stored lifecycle state.
@@ -3618,11 +3611,10 @@ directly to App Server or localhost.
 
 - turn ID, task ID, idempotency key, and state;
 - provider turn reference plus the effective model, reasoning effort,
-  permission/sandbox policy, and attachment references submitted for that
-  turn;
+  permission policy, and attachment references submitted for that turn;
 - start/end timestamps and elapsed time;
-- token usage, cost, provenance, terminal reason, and the optional typed
-  `failureKind` for a failed turn.
+- token usage, cost, terminal reason, and the optional typed `failureKind` for
+  a failed turn.
 
 `agent_queued_input` stores the queue ID, task ID, FIFO insertion sequence,
 state, idempotency key, effective settings, attachment references, payload blob
@@ -3708,8 +3700,8 @@ On successful completion, after the execution tree is quiescent and live queued
 work is empty:
 
 1. Close the provider session and unsubscribe its terminal root/child threads.
-2. Collect Git facts, tests, metrics, and an optional uninterpreted final
-   response for display.
+2. Collect Git facts, metrics, and an optional uninterpreted final response for
+   display.
 3. Commit summary, totals, `COMPLETED`,
    `deleteAfter = completedAt + 7 days`, and release of the matching completion
    mutation claim in SQLite.

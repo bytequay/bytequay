@@ -14,12 +14,12 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
 
 import java.time.Duration;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Temporary normalization boundary for existing provider events. */
@@ -41,38 +41,28 @@ public final class ProviderAgentEventAdapter
                 event.providerTimestamp());
         AgentEventPayload payload = switch (event) {
             case ProviderAgentEvent.Message message -> new AgentEventPayload.AssistantMessage(
-                    AgentEventPayload.MessageKind.valueOf(message.messageKind().name()),
-                    AgentEventPayload.MessagePhase.valueOf(message.phase().name()),
+                    message.messageKind(),
+                    message.phase(),
                     message.text());
-            case ProviderAgentEvent.Plan plan -> new AgentEventPayload.PlanUpdated(plan.items().stream()
-                    .map(item -> new AgentEventPayload.PlanItem(
-                            item.text(),
-                            AgentEventPayload.PlanItemState.valueOf(item.state().name())))
-                    .collect(toImmutableList()));
+            case ProviderAgentEvent.Plan plan -> new AgentEventPayload.PlanUpdated(plan.items());
             case ProviderAgentEvent.Tool tool -> new AgentEventPayload.ToolActivity(
                     tool.name(),
-                    AgentEventPayload.ActivityState.valueOf(tool.state().name()),
+                    tool.state(),
                     tool.summary(),
                     tool.duration().map(Duration::toMillis));
             case ProviderAgentEvent.Command command -> new AgentEventPayload.CommandActivity(
-                    AgentEventPayload.ActivityState.valueOf(command.state().name()),
+                    command.state(),
                     command.argv(),
                     command.output(),
                     command.exitCode(),
                     command.truncated(),
                     command.cwd(),
                     command.duration().map(Duration::toMillis),
-                    command.actions().stream()
-                            .map(action -> new AgentEventPayload.CommandAction(
-                                    AgentEventPayload.CommandActionKind.valueOf(action.kind().name()),
-                                    action.name(),
-                                    action.path(),
-                                    action.query()))
-                            .collect(toImmutableList()));
+                    command.actions());
             case ProviderAgentEvent.FileChange file -> new AgentEventPayload.FileActivity(
-                    AgentEventPayload.ActivityState.COMPLETED,
+                    ActivityState.COMPLETED,
                     file.relativePath(),
-                    AgentEventPayload.ChangeKind.valueOf(file.change().name()),
+                    file.change(),
                     file.diff());
             case ProviderAgentEvent.Usage usage -> usage(usage.sample());
             case ProviderAgentEvent.Lifecycle lifecycle -> new AgentEventPayload.Lifecycle(
@@ -93,8 +83,7 @@ public final class ProviderAgentEventAdapter
                 sample.inputTokens(),
                 sample.cachedInputTokens(),
                 sample.outputTokens(),
-                sample.cost(),
-                sample.costProvenance());
+                sample.cost());
     }
 
     public record CanonicalEvent(AgentEventSource source, AgentEventPayload payload)

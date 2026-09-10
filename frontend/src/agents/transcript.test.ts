@@ -430,7 +430,7 @@ describe('bounded transcript windows', () => {
     knownUnsent: false,
     settings: null,
     terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT5M' },
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT5M' },
   };
 
   it.each(['COMPLETED', 'FAILED', 'CANCELLED'])('does not keep page-local activity live after the durable turn is %s', (state) => {

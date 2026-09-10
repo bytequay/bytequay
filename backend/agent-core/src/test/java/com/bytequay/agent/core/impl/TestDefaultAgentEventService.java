@@ -30,6 +30,8 @@ import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -551,16 +553,16 @@ class TestDefaultAgentEventService
                 Optional.empty(),
                 root(),
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.FINAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.FINAL,
                         text));
     }
 
     private AgentEventOutboxEntry inlineOutbox(String text)
     {
         return outbox(new AgentEventOutboxPayload.Inline(new AgentEventPayload.AssistantMessage(
-                AgentEventPayload.MessageKind.ANSWER,
-                AgentEventPayload.MessagePhase.FINAL,
+                MessageKind.ANSWER,
+                MessagePhase.FINAL,
                 text)));
     }
 

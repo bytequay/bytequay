@@ -44,7 +44,6 @@ const capabilities = {
   interactiveApprovals: true,
   tokenUsage: true,
   steering: true,
-  costProvenance: 'CLI_ESTIMATE',
   permissionPolicies: ['AUTO'],
   attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
 };
@@ -96,9 +95,8 @@ describe('agent contract parsing', () => {
 
   it('reads the worktree claim that decides whether the task is idle', () => {
     expect(parseAgentTask(fixture.task).mutationClaim).toBeNull();
-    expect(parseAgentTask(fixture.task).codegraphArm).toBeNull();
-    expect(parseAgentTask({ ...fixture.task, codegraphArm: 'ON' }).codegraphArm).toBe('ON');
-    expect(() => parseAgentTask({ ...fixture.task, codegraphArm: 'MAYBE' })).toThrow('task.codegraphArm is not a CodeGraph arm');
+    expect(parseAgentTask(fixture.task).codegraph).toBe(false);
+    expect(parseAgentTask({ ...fixture.task, codegraph: true }).codegraph).toBe(true);
 
     const held = parseAgentTask({
       ...fixture.task,
@@ -114,7 +112,6 @@ describe('agent contract parsing', () => {
     const turn = parseAgentTurn(fixture.turn);
 
     expect(turn.id).toBe(fixture.turn.id);
-    expect(turn.settings?.sandboxPolicy).toBe('WORKSPACE_WRITE');
     expect(turn.settings?.attachments).toEqual([]);
 
     // A turn that ran with an image names it the way the backend does: a reference, not a bare id.
@@ -269,7 +266,7 @@ describe('queue and steer contract parsing', () => {
     position: 1,
     state: 'PAUSED',
     preview: 'Then update the design doc',
-    settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 60000, attachments: [] },
+    settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', maximumRuntimeMillis: 60000, attachments: [] },
     turnId: null,
     pauseReason: 'Backend restarted',
     createdAt: '2026-08-20T10:00:02Z',

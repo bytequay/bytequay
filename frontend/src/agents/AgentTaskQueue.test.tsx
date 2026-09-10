@@ -42,7 +42,7 @@ function turn(state: string): AgentTurnDto {
     knownUnsent: false,
     settings: null,
     terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, costProvenance: 'UNAVAILABLE', elapsed: 'PT0S' },
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT0S' },
   };
 }
 
@@ -53,7 +53,7 @@ function queued(id: string, state: string, preview: string, extra: Partial<Agent
     position: Number(id.replace(/\D/g, '')),
     state,
     preview,
-    settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 60000, attachments: [] },
+    settings: { model: 'gpt-5.6-codex', effort: 'high', permissionPolicy: 'AUTO', maximumRuntimeMillis: 60000, attachments: [] },
     turnId: null,
     pauseReason: null,
     createdAt: '2026-08-20T10:00:02Z',
@@ -85,7 +85,7 @@ describe('the queue behind a running turn', () => {
     const markup = body({
       turn: turn('RUNNING'),
       events,
-      queue: [queued('q-1', 'QUEUED', 'Then update the design doc'), queued('q-2', 'QUEUED', 'Open a draft pull request', { settings: { model: 'gpt-5.6-codex', effort: 'medium', permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 60000, attachments: [{ id: 'a-1', name: 'shot.png', mediaType: 'image/png' }] } })],
+      queue: [queued('q-1', 'QUEUED', 'Then update the design doc'), queued('q-2', 'QUEUED', 'Open a draft pull request', { settings: { model: 'gpt-5.6-codex', effort: 'medium', permissionPolicy: 'AUTO', maximumRuntimeMillis: 60000, attachments: [{ id: 'a-1', name: 'shot.png', mediaType: 'image/png' }] } })],
     });
 
     expect(markup).toContain('class="agt-queue is-attached"');

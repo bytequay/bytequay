@@ -14,8 +14,8 @@
 package com.bytequay.app.rebase;
 
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -32,7 +32,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -750,7 +749,6 @@ class TestBranchRebaseService
                     Optional.empty(),
                     Optional.empty(),
                     AgentPermissionPolicy.AUTO,
-                    AgentSandboxPolicy.WORKSPACE_WRITE,
                     Duration.ofMinutes(5),
                     ImmutableList.of());
         }
@@ -762,7 +760,7 @@ class TestBranchRebaseService
             if (turn.state().active()) {
                 turn = turn.finish(
                         TurnState.CANCELLED,
-                        TurnMetrics.empty(),
+                        AgentMetrics.empty(),
                         Optional.of("cancelled"),
                         NOW);
                 turns.put(turnId, turn);
@@ -781,7 +779,7 @@ class TestBranchRebaseService
             AgentTurn turn = turns.get(current);
             turns.put(current, turn.finish(
                     TurnState.COMPLETED,
-                    TurnMetrics.empty(),
+                    AgentMetrics.empty(),
                     Optional.empty(),
                     NOW));
         }
@@ -791,7 +789,7 @@ class TestBranchRebaseService
             AgentTurn turn = turns.get(current);
             turns.put(current, turn.finish(
                     TurnState.FAILED,
-                    TurnMetrics.empty(),
+                    AgentMetrics.empty(),
                     Optional.of("failed"),
                     NOW));
         }

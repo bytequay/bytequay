@@ -15,7 +15,7 @@ package com.bytequay.app.review;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
-import com.bytequay.agent.core.AgentSandboxPolicy;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -34,7 +34,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
@@ -45,7 +44,6 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
@@ -135,7 +133,6 @@ class TestDefaultAgentReviewService
             Optional.of("gpt-5-codex"),
             Optional.of("medium"),
             AgentPermissionPolicy.AUTO,
-            AgentSandboxPolicy.WORKSPACE_WRITE,
             Duration.ofMinutes(30),
             ImmutableList.of());
 
@@ -145,7 +142,7 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(
                 true, true, true, true, true, true, true, true, true, true,
-                CostProvenance.UNAVAILABLE, ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
+                ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
 
@@ -705,7 +702,7 @@ class TestDefaultAgentReviewService
                 Optional.empty(),
                 Optional.of(SETTINGS),
                 terminalReason,
-                TurnMetrics.empty());
+                AgentMetrics.empty());
     }
 
     private static QueuedAgentInput queuedInput()

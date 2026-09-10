@@ -22,8 +22,8 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -34,7 +34,6 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
@@ -59,7 +58,6 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
@@ -78,7 +76,6 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -142,7 +139,7 @@ class TestDefaultAgentTurnService
     private final RecordingCodeGraphService codeGraph = new RecordingCodeGraphService();
     private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
     private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
-    private CodeGraphArm nextArm = CodeGraphArm.ON;
+    private boolean codeGraphEnabled = true;
 
     @BeforeEach
     void setUp()
@@ -158,7 +155,7 @@ class TestDefaultAgentTurnService
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 codeGraph,
-                () -> nextArm,
+                () -> codeGraphEnabled,
                 Runnable::run,
                 CLOCK);
         task = taskService.create(new CreateAgentTaskCommand(
@@ -240,7 +237,6 @@ class TestDefaultAgentTurnService
         assertThat(described.model()).isEqualTo(recorded.model());
         assertThat(described.effort()).isEqualTo(recorded.effort());
         assertThat(described.permissionPolicy()).isEqualTo(recorded.permissionPolicy());
-        assertThat(described.sandboxPolicy()).isEqualTo(recorded.sandboxPolicy());
         assertThat(described.maximumRuntime()).isEqualTo(recorded.maximumRuntime());
         // Attachments belong to a message, so a described turn carries none.
         assertThat(described.attachments()).isEmpty();
@@ -601,7 +597,6 @@ class TestDefaultAgentTurnService
                 1,
                 2,
                 Optional.empty(),
-                CostProvenance.UNAVAILABLE,
                 NOW);
 
         driver.emitUsage(sample);
@@ -1261,7 +1256,6 @@ class TestDefaultAgentTurnService
         assertThat(firstSettings.model()).contains("model-a");
         assertThat(firstSettings.effort()).contains("low");
         assertThat(firstSettings.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
-        assertThat(firstSettings.sandboxPolicy()).isEqualTo(AgentSandboxPolicy.WORKSPACE_WRITE);
         assertThat(firstSettings.maximumRuntime()).isEqualTo(Duration.ofMinutes(5));
         assertThat(firstSettings.attachments()).singleElement().satisfies(reference -> {
             assertThat(reference.id()).isNotBlank();
@@ -1292,7 +1286,6 @@ class TestDefaultAgentTurnService
         assertThat(secondSettings.model()).contains("model-b");
         assertThat(secondSettings.effort()).contains("high");
         assertThat(secondSettings.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
-        assertThat(secondSettings.sandboxPolicy()).isEqualTo(AgentSandboxPolicy.WORKSPACE_WRITE);
         assertThat(secondSettings.maximumRuntime()).isEqualTo(Duration.ofMinutes(5));
         assertThat(secondSettings.attachments()).isEmpty();
         assertThat(driver.commands().getFirst().attachments())
@@ -1741,7 +1734,7 @@ class TestDefaultAgentTurnService
         TurnId uncertainTurn = TurnId.random();
         stores.insert(AgentTurn.accepted(uncertainTurn, task.id(), "queue:uncertain", waiting.settings(), NOW)
                 .markDeliveryStarted(NOW)
-                .finish(TurnState.INTERRUPTED, TurnMetrics.empty(), Optional.of("restarted"), NOW));
+                .finish(TurnState.INTERRUPTED, AgentMetrics.empty(), Optional.of("restarted"), NOW));
         QueuedAgentInput uncertain = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 0 + 2, "queue-2", waiting.textBlob(), "uncertain", waiting.settings(), NOW)
                 .starting(uncertainTurn, EventId.random(), NOW)
                 .uncertain("Backend restarted while the input was being sent", NOW);
@@ -2087,14 +2080,14 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void opensProviderSessionsWithoutTheBridgeForAnOffArmTask()
+    void opensProviderSessionsWithoutTheBridgeForATaskCreatedWithoutTheTool()
     {
-        nextArm = CodeGraphArm.OFF;
-        AgentTask offArm = interactiveTask("Off arm");
+        codeGraphEnabled = false;
+        AgentTask withoutGraph = interactiveTask("Without graph");
 
-        service.start(new StartAgentTurnCommand(offArm.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
+        service.start(new StartAgentTurnCommand(withoutGraph.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
 
-        assertThat(offArm.codegraphArm()).contains(CodeGraphArm.OFF);
+        assertThat(withoutGraph.codegraph()).isFalse();
         assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
     }
 
@@ -2125,7 +2118,6 @@ class TestDefaultAgentTurnService
                 cached,
                 output,
                 Optional.<BigDecimal>empty(),
-                CostProvenance.UNAVAILABLE,
                 NOW);
     }
 

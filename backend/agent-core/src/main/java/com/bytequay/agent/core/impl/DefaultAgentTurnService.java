@@ -21,10 +21,10 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -36,7 +36,6 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphException;
 import com.bytequay.agent.core.CodeGraphInstructions;
 import com.bytequay.agent.core.CodeGraphService;
@@ -55,7 +54,6 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -1081,14 +1079,14 @@ public final class DefaultAgentTurnService
     }
 
     /**
-     * The task-bound graph tool for this session, absent without a managed worktree, when the task's
-     * arm is off, or when the helper is missing. The callback turns every expected graph failure into tool text so the provider
+     * The task-bound graph tool for this session, absent without a managed worktree, when the task was not created with the
+     * graph, or when the helper is missing. The callback turns every expected graph failure into tool text so the provider
      * adapter never sees it.
      */
     private Optional<CodeGraphBridge> codeGraphBridge(AgentTask task, TaskResources resources)
     {
         return task.taskWorktree()
-                .filter(worktree -> task.codegraphArm().orElse(CodeGraphArm.OFF) == CodeGraphArm.ON && codeGraph.available())
+                .filter(worktree -> task.codegraph() && codeGraph.available())
                 .map(worktree -> new CodeGraphBridge(query -> exploreForAgent(worktree, resources, query), CodeGraphInstructions.MANAGED));
     }
 
@@ -1373,7 +1371,7 @@ public final class DefaultAgentTurnService
     {
         EventId eventId = EventId.random();
         unitOfWork.execute(() -> {
-            TurnMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
+            AgentMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
             Instant endedAt = Instant.now(clock);
             AgentTurn latest = requireTurn(turn.id());
             AgentTurn finished = knownUnsent
@@ -1493,7 +1491,6 @@ public final class DefaultAgentTurnService
                 task.defaults().model(),
                 task.defaults().effort(),
                 task.permissionPolicy(),
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 maximumTurnRuntime,
                 attachments,
                 task.defaults().serviceTier());

@@ -20,7 +20,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
@@ -145,7 +144,6 @@ class TestModelSettingsService
                 true,
                 true,
                 true,
-                CostProvenance.CLI_ESTIMATE,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("image/png", "image/jpeg"));
         when(drivers.statuses()).thenReturn(ImmutableList.of(new AgentProviderStatus(

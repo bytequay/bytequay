@@ -577,7 +577,7 @@ Implementation:
 - [x] Keep legacy/internal workflow tasks readable without silently listing
   unknown-workspace tasks as interactive tasks.
 - [x] Add task defaults and per-turn requested snapshots for model, effort, permission,
-  effective sandbox/runtime policy, and attachment references.
+  effective runtime policy, and attachment references.
 - [x] For CI Autofix, freeze distinct remote-head and generated-local-branch
   facts. Local validation and rebase use the generated branch returned by the
   task's `TaskWorktree`; push still targets the authorized remote head ref.
@@ -1039,15 +1039,13 @@ Implementation:
   provider because `AgentTurnCommand` carries it, which it previously did not, so
   a selected model was silently dropped for Codex.
 
-  Approval policy and sandbox are sent once per thread rather than per turn, and
-  that is equivalent rather than partial: `AgentSandboxPolicy` has exactly one
-  constant and the Codex lane advertises exactly one permission policy, so a
-  per-turn value could not differ from the thread's. `turn/start` does accept
-  `approvalPolicy` and `sandboxPolicy`, so the change is available the moment a
-  second value of either exists — until then it would plumb two compile-time
-  constants through four modules. What was genuinely missing was coverage: the
-  driver fixture never read `sandbox` at all, so nothing asserted which one is
-  sent. It does now.
+  The turn itself records no sandbox: the worktree root is the sandbox, so the
+  Codex wire `approvalPolicy` and `sandboxPolicy` are derived in the driver from
+  the turn's own context and sent on both `thread/start` and `turn/start`. A
+  text-only turn sends `never` with a read-only sandbox; a working turn sends
+  `on-request` with workspace-write rooted at the canonical worktree and network
+  access off. The driver fixture reads the sent `sandbox`, so which one goes out
+  is asserted rather than assumed.
 - [x] Adopt the CP1-proven isolated subprocess environment, pre-turn
   child-capable launch profile plus the skill-origin, hook, config-layer
   rule-source, and managed-requirements guards in the production runtime path.

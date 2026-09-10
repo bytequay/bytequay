@@ -13,13 +13,13 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -97,7 +97,7 @@ class TestInteractiveAgentHttpContract
                         "deleteAfter",
                         "cleanupFailure",
                         "checkoutRemovedAt",
-                        "codegraphArm",
+                        "codegraph",
                         "archivedAt");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
@@ -125,9 +125,7 @@ class TestInteractiveAgentHttpContract
                         "finalResponse",
                         "resultBranch",
                         "resultHead",
-                        "tests",
                         "metrics",
-                        "learnings",
                         "notes",
                         "children");
         assertThat(InteractiveAgentHttpContract.TurnSettings.class.getRecordComponents())
@@ -136,7 +134,6 @@ class TestInteractiveAgentHttpContract
                         "model",
                         "effort",
                         "permissionPolicy",
-                        "sandboxPolicy",
                         "maximumRuntimeMillis",
                         "attachments",
                         "serviceTier");
@@ -247,7 +244,7 @@ class TestInteractiveAgentHttpContract
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                TurnMetrics.empty());
+                AgentMetrics.empty());
 
         JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task, task.metrics()));
         JsonNode turnJson = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
@@ -270,7 +267,6 @@ class TestInteractiveAgentHttpContract
                                 Optional.of("opus"),
                                 Optional.of("High"),
                                 AgentPermissionPolicy.AUTO,
-                                com.bytequay.agent.core.AgentSandboxPolicy.WORKSPACE_WRITE,
                                 java.time.Duration.ofMinutes(5),
                                 java.util.List.of()),
                         now)
@@ -278,7 +274,7 @@ class TestInteractiveAgentHttpContract
                 .running(new ProviderTurnRef("private-provider-turn"), Optional.of("opus"))
                 .finish(
                         TurnState.FAILED,
-                        TurnMetrics.empty(),
+                        AgentMetrics.empty(),
                         Optional.of("Claude sign-in required"),
                         Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED),
                         now.plusSeconds(2));

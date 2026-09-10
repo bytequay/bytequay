@@ -14,7 +14,6 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -101,7 +100,6 @@ class TestClaudeEventMapper
                     assertThat(usage.sample().cachedInputTokens()).isEqualTo(16015);
                     assertThat(usage.sample().outputTokens()).isEqualTo(23);
                     assertThat(usage.sample().cost()).contains(new BigDecimal("0.343245"));
-                    assertThat(usage.sample().costProvenance()).isEqualTo(CostProvenance.CLI_ESTIMATE);
                 });
 
         List<ProviderAgentEvent> failed = map("""

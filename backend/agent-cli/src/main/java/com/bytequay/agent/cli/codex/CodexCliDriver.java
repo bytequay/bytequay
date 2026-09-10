@@ -35,7 +35,6 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -177,7 +176,6 @@ public final class CodexCliDriver
             true,
             true,
             true,
-            CostProvenance.UNAVAILABLE,
             ImmutableSet.of(AgentPermissionPolicy.AUTO),
             ImmutableSet.of("image/png", "image/jpeg", "image/gif"));
 

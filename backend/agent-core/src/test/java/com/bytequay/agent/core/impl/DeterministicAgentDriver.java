@@ -26,7 +26,6 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -62,7 +61,6 @@ final class DeterministicAgentDriver
             true,
             true,
             true,
-            CostProvenance.UNAVAILABLE,
             ImmutableSet.of(
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO),

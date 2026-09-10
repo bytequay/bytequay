@@ -127,52 +127,14 @@ record LaunchMarker(
 
     LaunchMarker gated(ProcessIdentity identity, String launcherCommand, long processGroup)
     {
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                LaunchPhase.GATED,
-                Optional.of(identity.pid()),
-                Optional.of(identity.startToken().toString()),
-                Optional.of(launcherCommand),
-                Optional.of(processGroup),
-                Optional.of(ImmutableMap.of()),
-                false,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                recoveryBootSessionId);
+        return copy(format, LaunchPhase.GATED, Optional.of(identity.pid()), Optional.of(identity.startToken().toString()), Optional.of(launcherCommand),
+                Optional.of(processGroup), Optional.of(ImmutableMap.of()), false, false, Optional.empty(), Optional.empty(), Optional.empty(), recoveryBootSessionId);
     }
 
     LaunchMarker withPhase(LaunchPhase next)
     {
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                next,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                descendantStartTokens,
-                descendantTrackingIncomplete(),
-                workFinished,
-                exitCode,
-                exitReason,
-                treeTermination,
-                recoveryBootSessionId);
+        return copy(format, next, pid, startToken, launcherCommand, processGroup, descendantStartTokens, descendantTrackingIncomplete(),
+                workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 
     LaunchMarker withDescendant(ProcessIdentity identity)
@@ -180,128 +142,33 @@ record LaunchMarker(
         ImmutableMap.Builder<Long, String> descendants = ImmutableMap.builder();
         descendantStartTokens.ifPresent(descendants::putAll);
         descendants.put(identity.pid(), identity.startToken().toString());
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                phase,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                Optional.of(descendants.buildKeepingLast()),
-                descendantTrackingIncomplete(),
-                workFinished,
-                exitCode,
-                exitReason,
-                treeTermination,
-                recoveryBootSessionId);
+        return copy(format, phase, pid, startToken, launcherCommand, processGroup, Optional.of(descendants.buildKeepingLast()), descendantTrackingIncomplete(),
+                workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 
     LaunchMarker withIncompleteDescendantTracking()
     {
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                phase,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                descendantStartTokens,
-                true,
-                workFinished,
-                exitCode,
-                exitReason,
-                treeTermination,
-                recoveryBootSessionId);
+        return copy(format, phase, pid, startToken, launcherCommand, processGroup, descendantStartTokens, true,
+                workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 
     LaunchMarker withWorkFinished()
     {
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                phase,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                descendantStartTokens,
-                descendantTrackingIncomplete(),
-                true,
-                exitCode,
-                exitReason,
-                treeTermination,
-                recoveryBootSessionId);
+        return copy(format, phase, pid, startToken, launcherCommand, processGroup, descendantStartTokens, descendantTrackingIncomplete(),
+                true, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 
     LaunchMarker withRecoveryBootSessionId(String bootSessionId)
     {
         checkArgument(recoveryBootSessionId.isEmpty() || recoveryBootSessionId.orElseThrow().equalsIgnoreCase(bootSessionId), "recovery boot session is already recorded");
-        return new LaunchMarker(
-                CURRENT_FORMAT,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                phase,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                descendantStartTokens,
-                descendantTrackingIncomplete(),
-                workFinished,
-                exitCode,
-                exitReason,
-                treeTermination,
-                Optional.of(bootSessionId));
+        return copy(CURRENT_FORMAT, phase, pid, startToken, launcherCommand, processGroup, descendantStartTokens, descendantTrackingIncomplete(),
+                workFinished, exitCode, exitReason, treeTermination, Optional.of(bootSessionId));
     }
 
     LaunchMarker terminal(ProcessExit exit)
     {
-        return new LaunchMarker(
-                format,
-                launchId,
-                backendId,
-                ownerKind,
-                ownerId,
-                profile,
-                executable,
-                argvDigest,
-                LaunchPhase.TERMINAL,
-                pid,
-                startToken,
-                launcherCommand,
-                processGroup,
-                descendantStartTokens,
-                descendantTrackingIncomplete(),
-                workFinished,
-                Optional.of(exit.exitCode()),
-                Optional.of(exit.reason()),
-                Optional.of(exit.treeTermination()),
-                recoveryBootSessionId);
+        return copy(format, LaunchPhase.TERMINAL, pid, startToken, launcherCommand, processGroup, descendantStartTokens, descendantTrackingIncomplete(),
+                workFinished, Optional.of(exit.exitCode()), Optional.of(exit.reason()), Optional.of(exit.treeTermination()), recoveryBootSessionId);
     }
 
     /** Legacy markers used an absent identity map to record an observation gap. */
@@ -347,5 +214,14 @@ record LaunchMarker(
         catch (RuntimeException e) {
             return Optional.empty();
         }
+    }
+
+    private LaunchMarker copy(int format, LaunchPhase phase, Optional<Long> pid, Optional<String> startToken, Optional<String> launcherCommand,
+            Optional<Long> processGroup, Optional<Map<Long, String>> descendantStartTokens, boolean descendantTrackingIncomplete, boolean workFinished,
+            Optional<Integer> exitCode, Optional<ProcessExit.Reason> exitReason, Optional<ProcessExit.TreeTermination> treeTermination,
+            Optional<String> recoveryBootSessionId)
+    {
+        return new LaunchMarker(format, launchId, backendId, ownerKind, ownerId, profile, executable, argvDigest, phase, pid, startToken, launcherCommand,
+                processGroup, descendantStartTokens, descendantTrackingIncomplete, workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 }

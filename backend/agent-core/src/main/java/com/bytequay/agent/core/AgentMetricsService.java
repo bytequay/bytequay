@@ -35,11 +35,11 @@ public interface AgentMetricsService
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample
-     * @param sample counters, semantics, cost, and provenance
+     * @param sample counters, semantics, and cost
      * @return latest persisted per-turn metrics
      * @throws AgentStorageException when metrics cannot be persisted
      */
-    TurnMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample);
+    AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample);
 
     /**
      * Finalizes elapsed time and usage for a terminal turn.
@@ -49,13 +49,13 @@ public interface AgentMetricsService
      * @return immutable final metrics
      * @throws AgentConflictException when {@code terminalState} is not terminal
      */
-    TurnMetrics finishTurn(TurnId turnId, TurnState terminalState);
+    AgentMetrics finishTurn(TurnId turnId, TurnState terminalState);
 
     /**
      * Returns durable totals across every turn in a task.
      *
      * @param taskId task whose totals are requested
-     * @return token, cost, elapsed-time, and provenance totals
+     * @return token, cost, and elapsed-time totals
      */
-    TaskMetrics taskTotals(TaskId taskId);
+    AgentMetrics taskTotals(TaskId taskId);
 }

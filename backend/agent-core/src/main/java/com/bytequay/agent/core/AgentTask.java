@@ -47,13 +47,13 @@ public record AgentTask(
         Optional<Instant> terminalAt,
         Optional<String> terminalReason,
         Optional<AgentSessionRef> sessionReference,
-        TaskMetrics metrics,
+        AgentMetrics metrics,
         Optional<TaskSummary> summary,
         Optional<Instant> worktreeRemovedAt,
         CleanupState cleanupState,
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
-        Optional<CodeGraphArm> codegraphArm,
+        boolean codegraph,
         Optional<Instant> archivedAt)
 {
     public AgentTask
@@ -82,7 +82,6 @@ public record AgentTask(
         requireNonNull(cleanupState, "cleanupState is null");
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
-        requireNonNull(codegraphArm, "codegraphArm is null");
         requireNonNull(archivedAt, "archivedAt is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
@@ -140,13 +139,13 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                TaskMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty(),
+                false,
                 Optional.empty());
     }
 
@@ -174,7 +173,7 @@ public record AgentTask(
             AgentTaskDefaults defaults,
             Instant now)
     {
-        return created(id, interactive, creationFingerprint, title, titleSource, laneId, taskWorktree, defaults, Optional.empty(), now);
+        return created(id, interactive, creationFingerprint, title, titleSource, laneId, taskWorktree, defaults, false, now);
     }
 
     public static AgentTask created(
@@ -186,7 +185,7 @@ public record AgentTask(
             AgentLaneId laneId,
             TaskWorktree taskWorktree,
             AgentTaskDefaults defaults,
-            Optional<CodeGraphArm> codegraphArm,
+            boolean codegraph,
             Instant now)
     {
         requireNonNull(taskWorktree, "taskWorktree is null");
@@ -210,13 +209,13 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                TaskMetrics.empty(),
+                AgentMetrics.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty(),
-                codegraphArm,
+                codegraph,
                 Optional.empty());
     }
 
@@ -350,7 +349,7 @@ public record AgentTask(
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
-    public AgentTask withMetrics(TaskMetrics updatedMetrics, Instant now)
+    public AgentTask withMetrics(AgentMetrics updatedMetrics, Instant now)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
         return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics,
@@ -370,34 +369,7 @@ public record AgentTask(
         checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL,
                 "only a provisional title accepts a proposal");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                updatedTitle,
-                source,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                defaults,
-                state,
-                worktreeMutationClaim,
-                version,
-                createdAt,
-                now,
-                terminalAt,
-                terminalReason,
-                sessionReference,
-                metrics,
-                summary,
-                worktreeRemovedAt,
-                cleanupState,
-                deleteAfter,
-                cleanupFailure,
-                codegraphArm,
-                archivedAt);
+        return copyDetails(updatedTitle, source, defaults, now, worktreeRemovedAt, archivedAt);
     }
 
     /**
@@ -410,34 +382,7 @@ public record AgentTask(
         if (archived == archivedAt.isPresent()) {
             return this;
         }
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                title,
-                titleSource,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                defaults,
-                state,
-                worktreeMutationClaim,
-                version,
-                createdAt,
-                updatedAt,
-                terminalAt,
-                terminalReason,
-                sessionReference,
-                metrics,
-                summary,
-                worktreeRemovedAt,
-                cleanupState,
-                deleteAfter,
-                cleanupFailure,
-                codegraphArm,
-                archived ? Optional.of(now) : Optional.empty());
+        return copyDetails(title, titleSource, defaults, updatedAt, worktreeRemovedAt, archived ? Optional.of(now) : Optional.empty());
     }
 
     public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
@@ -446,34 +391,7 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         checkState(!state.terminal(), "cannot update defaults for a terminal task");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                title,
-                titleSource,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                updatedDefaults,
-                state,
-                worktreeMutationClaim,
-                version,
-                createdAt,
-                now,
-                terminalAt,
-                terminalReason,
-                sessionReference,
-                metrics,
-                summary,
-                worktreeRemovedAt,
-                cleanupState,
-                deleteAfter,
-                cleanupFailure,
-                codegraphArm,
-                archivedAt);
+        return copyDetails(title, titleSource, updatedDefaults, now, worktreeRemovedAt, archivedAt);
     }
 
     public AgentTask withVersion(long updatedVersion)
@@ -515,34 +433,7 @@ public record AgentTask(
         if (worktreeRemovedAt.isPresent()) {
             return this;
         }
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                title,
-                titleSource,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                defaults,
-                state,
-                worktreeMutationClaim,
-                version,
-                createdAt,
-                removedAt,
-                terminalAt,
-                terminalReason,
-                sessionReference,
-                metrics,
-                summary,
-                Optional.of(removedAt),
-                cleanupState,
-                deleteAfter,
-                cleanupFailure,
-                codegraphArm,
-                archivedAt);
+        return copyDetails(title, titleSource, defaults, removedAt, Optional.of(removedAt), archivedAt);
     }
 
     public AgentTask withWorktreeCleanupAttemptAt(Instant attemptedAt)
@@ -583,7 +474,7 @@ public record AgentTask(
             Optional<Instant> updatedTerminalAt,
             Optional<String> updatedTerminalReason,
             Optional<AgentSessionRef> updatedSessionReference,
-            TaskMetrics updatedMetrics,
+            AgentMetrics updatedMetrics,
             Optional<TaskSummary> updatedSummary,
             CleanupState updatedCleanupState,
             Optional<Instant> updatedDeleteAfter,
@@ -616,8 +507,46 @@ public record AgentTask(
                 updatedCleanupState,
                 updatedDeleteAfter,
                 updatedCleanupFailure,
-                codegraphArm,
+                codegraph,
                 archivedAt);
+    }
+
+    private AgentTask copyDetails(
+            String updatedTitle,
+            TitleSource updatedTitleSource,
+            AgentTaskDefaults updatedDefaults,
+            Instant updateTime,
+            Optional<Instant> updatedWorktreeRemovedAt,
+            Optional<Instant> updatedArchivedAt)
+    {
+        return new AgentTask(
+                id,
+                workspaceId,
+                interactive,
+                creationFingerprint,
+                updatedTitle,
+                updatedTitleSource,
+                laneId,
+                repository,
+                worktree,
+                taskWorktree,
+                updatedDefaults,
+                state,
+                worktreeMutationClaim,
+                version,
+                createdAt,
+                updateTime,
+                terminalAt,
+                terminalReason,
+                sessionReference,
+                metrics,
+                summary,
+                updatedWorktreeRemovedAt,
+                cleanupState,
+                deleteAfter,
+                cleanupFailure,
+                codegraph,
+                updatedArchivedAt);
     }
 
     private void requireState(TaskState expected)

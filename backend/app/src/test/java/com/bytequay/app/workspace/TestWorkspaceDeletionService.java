@@ -15,7 +15,6 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -152,8 +151,7 @@ class TestWorkspaceDeletionService
         AgentTask active = task();
         ownedTasks.add(idle);
         ownedTasks.add(active);
-        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), active.id(), "active-request", settings, NOW);
         when(turns.findActive(active.id())).thenReturn(Optional.of(turn));
 

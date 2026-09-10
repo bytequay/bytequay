@@ -35,8 +35,6 @@ public interface AgentTaskJpaRepository
 
     List<AgentTaskEntity> findByWorkspaceIdOrderByCreatedAtAsc(String workspaceId);
 
-    List<AgentTaskEntity> findByCodegraphArmIsNotNullOrderByCreatedAtAsc();
-
     boolean existsByWorkspaceIdAndGeneratedBranchIsNotNull(String workspaceId);
 
     List<AgentTaskEntity> findByStateNotInOrderByCreatedAtAsc(Collection<TaskState> states);

@@ -17,6 +17,8 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -46,8 +48,8 @@ class TestAgentSseSubscriber
                 root(),
                 Instant.parse("2026-08-16T00:00:00Z"),
                 new AgentEventPayload.AssistantMessage(
-                        AgentEventPayload.MessageKind.ANSWER,
-                        AgentEventPayload.MessagePhase.FINAL,
+                        MessageKind.ANSWER,
+                        MessagePhase.FINAL,
                         "done")));
         assertThat(subscription.requested).isEqualTo(2);
 

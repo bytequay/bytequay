@@ -1252,19 +1252,18 @@ function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: Tra
   if (task === null || turns.length === 0) return null;
   const steps = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
-  const { inputTokens, cachedInputTokens, outputTokens, cost, costProvenance } = task.metrics;
+  const { inputTokens, cachedInputTokens, outputTokens, cost } = task.metrics;
   const groups = [
     `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${steps} ${steps === 1 ? 'step' : 'steps'}`,
     `Worked ${formatDuration(worked)}`,
   ];
   if (inputTokens > 0) groups.push(`Cache hit ${Math.round((cachedInputTokens / inputTokens) * 100)}%`);
-  const costText = cost === null
-    ? ' · Cost unavailable'
-    : costProvenance === 'CLI_ESTIMATE' ? ` · Approx. $${cost.toFixed(2)}` : ` · $${cost.toFixed(2)}`;
+  // Every cost the providers report is the CLI's own estimate, never a billed figure.
+  const costText = cost === null ? ' · Cost unavailable' : ` · Approx. $${cost.toFixed(2)}`;
   groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${costText}`);
   const counters = task.metrics.counters;
   if (counters) {
-    groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions} · ${codeGraphText(counters, task.codegraphArm === 'ON')}`);
+    groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions} · ${codeGraphText(counters, task.codegraph)}`);
   }
   return (
     <div className="agt-compose__stats" aria-label="Task statistics">

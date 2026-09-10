@@ -26,7 +26,6 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
@@ -346,7 +345,6 @@ class TestAgentStartupRecovery
                         Optional.empty(),
                         Optional.empty(),
                         AgentPermissionPolicy.AUTO,
-                        AgentSandboxPolicy.WORKSPACE_WRITE,
                         Duration.ofMinutes(5),
                         ImmutableList.of()),
                 Instant.parse("2026-09-01T00:00:00Z"));

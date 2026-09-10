@@ -39,7 +39,6 @@ const APPROVAL_KINDS = ['COMMAND', 'FILE_CHANGE', 'OTHER'] as const;
 const APPROVAL_OPTIONS = ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'] as const;
 const APPROVAL_OUTCOMES = ['ALLOWED', 'DENIED', 'EXPIRED', 'CANCELLED'] as const;
 const USAGE_SEMANTICS = ['CUMULATIVE', 'DELTA', 'FINAL_FOR_INVOCATION'] as const;
-const COST_PROVENANCE = ['PROVIDER_REPORTED', 'CLI_ESTIMATE', 'UNAVAILABLE'] as const;
 const COMMAND_ACTION_KINDS = ['READ', 'LIST_FILES', 'SEARCH', 'OTHER'] as const;
 const LIFECYCLE_PHASES = [
   'SESSION_OPENED',
@@ -143,7 +142,6 @@ export type AgentEventEnvelope =
     cachedInputTokens: number;
     outputTokens: number;
     cost: number | null;
-    costProvenance: typeof COST_PROVENANCE[number];
   }>
   | AgentEvent<'lifecycle', {
     phase: typeof LIFECYCLE_PHASES[number];
@@ -332,7 +330,6 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       integerValue(payload.cachedInputTokens, 'usage.cachedInputTokens');
       integerValue(payload.outputTokens, 'usage.outputTokens');
       nullableNumber(payload.cost, 'usage.cost');
-      enumValue(payload.costProvenance, COST_PROVENANCE, 'usage.costProvenance');
       break;
     case 'lifecycle':
       enumValue(payload.phase, LIFECYCLE_PHASES, 'lifecycle.phase');

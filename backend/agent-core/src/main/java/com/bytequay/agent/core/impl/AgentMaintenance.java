@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -26,7 +27,6 @@ import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -124,7 +124,7 @@ public final class AgentMaintenance
                     }
                     EventId eventId = EventId.random();
                     unitOfWork.execute(() -> {
-                        TurnMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
+                        AgentMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
                         Instant interruptedAt = Instant.now(clock);
                         AgentTask claimedTask = taskStore.find(current.taskId()).orElseThrow();
                         turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
@@ -346,7 +346,7 @@ public final class AgentMaintenance
         String reason = unverifiableLaunch.isPresent() ? UNVERIFIED_STOP_REASON : VERIFIED_STOP_REASON;
         EventId eventId = EventId.random();
         unitOfWork.execute(() -> {
-            TurnMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED);
+            AgentMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED);
             Instant interruptedAt = Instant.now(clock);
             AgentTask current = taskStore.find(task.id()).orElseThrow();
             turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(

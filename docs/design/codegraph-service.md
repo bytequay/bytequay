@@ -138,9 +138,9 @@ public interface CodeGraphService
 ```
 
 `available` is true when the pinned helper bundle is present. The setting
-acts through the arm each task is stamped with at creation (Section 12): an
-`OFF` arm omits the tool bridge and instruction and skips `prepare`, and the
-`off` setting also idles the scheduled job.
+acts through the stamp each task is given at creation (Section 12): a task
+without the graph omits the tool bridge and instruction and skips `prepare`,
+and the `off` setting also idles the scheduled job.
 
 `refreshBaseline` is idempotent: it returns immediately when the baseline
 `HEAD` already equals the commit. Otherwise it takes the per-repository lock,
@@ -411,9 +411,9 @@ to show exactly the `bytequay` server, or none on an unbridged launch.
 `CodeGraphService`. The model never receives the callback token or
 filesystem identity.
 
-The bridge is present when the task has a persisted `TaskWorktree`, its arm
-is `ON`, and the helper bundle is present. There is no separate preflight or
-self-test: the bridge rides on the
+The bridge is present when the task has a persisted `TaskWorktree`, it is
+stamped with the graph, and the helper bundle is present. There is no
+separate preflight or self-test: the bridge rides on the
 same registration as the permission prompt, which cannot fail without
 failing the session open, and it never starts the graph executable or
 touches an index. Without the bridge the session opens without the tool and
@@ -464,7 +464,7 @@ without becoming unavailable.
 | Task preparation | Task creation and turns are unchanged; the first tool call builds lazily and may retry |
 | Explore synchronization, rebuild, or query | Return a recoverable tool error; agent continues |
 | Corrupt/incompatible task index | Discard the derived index and rebuild it inside the same call; the result is the query or a bounded tool error |
-| Helper absent or task arm off | Open the provider session without the CodeGraph tool or instruction and start the turn normally |
+| Helper absent or task without the graph | Open the provider session without the CodeGraph tool or instruction and start the turn normally |
 | Index deletion | Keep the successfully cleaned worktree result; task-runtime retention later removes a leftover task index |
 | Baseline deletion | Keep the workspace record for retry until explicit Delete completes |
 
@@ -502,8 +502,8 @@ The first version has no:
 - `codegraph_refresh` tool, because every query synchronizes first;
 - baseline staleness sweep; the baseline is deleted with its workspace;
 - persistent graph lifecycle/state table;
-- renderer-facing graph management UI; the read-only counters and the
-  comparison table of Section 12 are the only renderer surfaces;
+- renderer-facing graph management UI; the read-only counters of Section 12
+  are the only renderer surface;
 - automatic graph-context injection;
 - review-specific evidence or anchor contract;
 - multi-repository graph query;
@@ -540,8 +540,8 @@ insufficient.
 10. Missing graph binaries and refresh, preparation, and query failures
     become bounded unavailable/tool-error results without terminating the
     provider turn or changing lane readiness.
-11. An absent helper or an `OFF` arm starts the provider turn with the graph
-    tool and the graph managed instruction omitted.
+11. An absent helper or a task without the graph starts the provider turn
+    with the graph tool and the graph managed instruction omitted.
 12. Completion owns the task-local execution boundary across worktree cleanup
     and best-effort graph deletion, so no graph query races worktree removal.
 13. Task-index deletion failure is observable but does not fail already-successful
@@ -566,35 +566,30 @@ insufficient.
 
 ## 12. Benefit measurement
 
-Status: shipped. This includes the `on`/`off`/`compare` setting, the arm
-stamped on each task, the five counters, and the per-workspace comparison
-table.
+Status: shipped. This includes the `on`/`off` setting, the stamp on each
+task, and the five counters.
 
 CodeGraph earns its cost only if a turn that can use it needs fewer tokens,
 fewer exploration calls, and less time than a comparable turn that cannot. No
 single task can show that, because a task never runs twice. ByteQuay therefore
-records the same per-turn cost counters for every turn and lets the user
-compare tasks that had the graph with tasks that did not, inside one
-workspace.
+records the same per-turn cost counters for every turn, whether or not the
+task had the graph.
 
-### Arm
+### Stamp
 
-One global `codegraph` setting selects `on` (default), `off`, or `compare`.
-At task creation ByteQuay stamps an immutable `codegraphArm` of `ON` or
-`OFF` on the task: `on` and `off` map directly, `compare` assigns each new
-task at random, and a task created while the helper bundle is absent is
-`OFF` whatever the setting says, so the arm records what the task actually
-had. Every turn of a task, including resumed turns, offers the tool bridge
-and managed instruction only when the arm is `ON`; `OFF` uses the existing
-omission path and never builds an index. Changing the setting affects new
-tasks only, except that `off` also idles the scheduled baseline job. Tasks
-created before the arm existed have none and are excluded from comparison.
-The setting was a boolean before `compare` existed; a stored `false` still
-reads as `off`.
+One global `codegraph` setting selects `on` (default) or `off`. At task
+creation ByteQuay stamps an immutable `codegraph` boolean on the task: the
+setting maps directly, and a task created while the helper bundle is absent
+is stamped false whatever the setting says, so the stamp records what the
+task actually had. Every turn of a task, including resumed turns, offers the
+tool bridge and managed instruction only when the stamp is true; a task
+without the graph uses the existing omission path and never builds an index.
+Changing the setting affects new tasks only, except that `off` also idles the
+scheduled baseline job.
 
 ### Counters
 
-`TurnMetrics` gains five counters folded from that turn's persisted events
+`AgentMetrics` gains five counters folded from that turn's persisted events
 when the turn reaches a terminal state, so recovery and replay produce the
 same numbers:
 
@@ -616,28 +611,18 @@ event kind, table, or history store is added.
 
 - The task stats line under the composer appends `Tools N · Explored N` and
   either `CodeGraph N calls · S s`, with a failed count when any failed,
-  `CodeGraph off` for a task whose arm is not `ON`, or `CodeGraph unused`.
+  `CodeGraph off` for a task without the graph, or `CodeGraph unused`.
   Each finished turn's footer appends its own tools and explored counts, and
   its graph calls when it made any.
-- A CodeGraph card in Settings holds the mode picker and one read-only table
-  per workspace that has an arm-stamped task, served by
-  `GET /api/settings/codegraph/comparison` and computed on request from the
-  stored tasks and turns: for each arm, task count, finished-turn count,
-  turns per task, and medians per finished turn of input tokens, output
-  tokens, tool calls, exploration actions, and minutes, plus graph calls and
-  seconds per turn for `ON`. A median is absent until the arm has a finished
-  turn. The table states that it is observational and marks an arm with
-  fewer than five tasks.
+- A CodeGraph card in Settings holds the on/off picker.
 
-The numbers are a comparison, not a verdict; different tasks, models, and
-prompts confound them. The probe below is the only benchmark so far. A
-product-level benchmark that runs a fixed prompt set on a fixed repository
-commit under both arms and records whether the produced change passes the
-repository's tests is not built; only such a benchmark would support a claim
-in documentation.
+The probe below is the only benchmark so far. A product-level benchmark that
+runs a fixed prompt set on a fixed repository commit with and without the
+graph and records whether the produced change passes the repository's tests
+is not built; only such a benchmark would support a claim in documentation.
 
 This section narrows the Section 10 exclusion of renderer-facing graph UI to
-management UI; the read-only readout and comparison table are permitted.
+management UI; the read-only readout is permitted.
 
 Deliberately not included: statistical tests, agent self-assessment,
 per-model or per-effort breakdown, a benefit badge, live per-turn charts, and
@@ -654,7 +639,7 @@ arm added upstream's own MCP server with only `codegraph_explore` exposed
 and the Section 7 instruction; the other arm had neither. Three questions
 asked for cross-file traces with file and line citations: the Claude
 permission-prompt registration and driver flags, the Codex `dynamicToolCall`
-path to the transcript, and where `TurnMetrics` are computed, persisted, and
+path to the transcript, and where `AgentMetrics` are computed, persisted, and
 displayed. Each answer was scored against three to five required anchors,
 and every one of the twelve scored full marks, so the comparison is about
 cost, not correctness. Medians per cell:
@@ -676,8 +661,8 @@ gap on the deepest trace. Cost was not compared: cache accounting prices
 first-turn cache creation above later reads and the two arms have different
 prompt prefixes, so differences of a few cents are not signal.
 
-Caveats an in-app comparison must not inherit: upstream's MCP server also
-injected a 5,787-character server instruction into the graph arm; each
+Caveats on the probe's numbers: upstream's MCP server also injected a
+5,787-character server instruction into the graph arm; each
 `codegraph_explore` result was about 25 KB, which the shipped adapter caps
 at 16 KB; and no question required an edit, a test run, or a second turn. A
 first probe without the tool pin was discarded because three of six runs
@@ -818,10 +803,10 @@ staleness sweep is not part of the first version.
   Codex compatibility script gained a code-graph launch profile for its live
   gate, which pins the 0.151.0 binary and needs a signed-in profile, so that
   gate has not run for it. Root agent only.
-- **Metrics.** The `on`/`off`/`compare` setting, the arm stamped on each
-  task, the five Section 12 counters in the task stats line and turn
-  footers, and the per-workspace comparison table in Settings. An `OFF` arm
-  skips `prepare`; the `off` setting also idles the scheduled job.
+- **Metrics.** The `on`/`off` setting, the stamp on each task, and the five
+  Section 12 counters in the task stats line and turn footers. A task
+  without the graph skips `prepare`; the `off` setting also idles the
+  scheduled job.
 - **Packaging.** `scripts/codegraph-bundle.mjs` fetches
   `@colbymchenry/codegraph-<platform>@1.6.0` from the npm registry by its
   recorded sha512 integrity, for darwin-arm64 and darwin-x64, into the
@@ -882,5 +867,4 @@ bounds, and the storage-outside-the-worktree rule were unchanged by the
 redesign. After the implementation shipped the same day, Sections 2, 3, 4,
 5, 6, 7, 8, 9, 11, 12, and this section were reconciled with the code and
 the temporary implementation tracker was deleted; its evidence lives in
-Sections 5, 12, and 13. The compare arm and comparison table followed the
-same day, closing the checkpoint plan.
+Sections 5, 12, and 13.

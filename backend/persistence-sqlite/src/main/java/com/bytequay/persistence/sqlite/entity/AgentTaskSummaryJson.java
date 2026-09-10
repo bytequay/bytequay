@@ -13,15 +13,14 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.ChildSummary;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.agent.core.TestFact;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeSnapshot;
-import com.bytequay.agent.spi.CostProvenance;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -42,7 +41,7 @@ final class AgentTaskSummaryJson
 
     public static String encode(TaskSummary summary)
     {
-        TaskMetrics metrics = summary.metrics();
+        AgentMetrics metrics = summary.metrics();
         Optional<WorktreeSnapshot> worktree = summary.worktree();
         SummaryValue value = new SummaryValue(
                 summary.finalResponse(),
@@ -52,17 +51,12 @@ final class AgentTaskSummaryJson
                 worktree.map(WorktreeSnapshot::head).orElse(null),
                 worktree.map(WorktreeSnapshot::dirty).orElse(false),
                 worktree.map(WorktreeSnapshot::gitOperationInProgress).orElse(false),
-                summary.tests().stream()
-                        .map(test -> new TestValue(test.name(), test.status(), test.detail().orElse(null)))
-                        .collect(toImmutableList()),
                 metrics.inputTokens(),
                 metrics.cachedInputTokens(),
                 metrics.outputTokens(),
                 metrics.cost().map(BigDecimal::toPlainString).orElse(null),
-                metrics.costProvenance(),
                 metrics.elapsed().toMillis(),
                 metrics.counters(),
-                summary.learnings(),
                 summary.notes().orElse(null),
                 summary.children().stream()
                         .map(child -> new ChildValue(
@@ -87,12 +81,11 @@ final class AgentTaskSummaryJson
     {
         try {
             SummaryValue value = OBJECT_MAPPER.readValue(json, SummaryValue.class);
-            TaskMetrics metrics = new TaskMetrics(
+            AgentMetrics metrics = new AgentMetrics(
                     value.inputTokens(),
                     value.cachedInputTokens(),
                     value.outputTokens(),
                     Optional.ofNullable(value.cost()).map(BigDecimal::new),
-                    value.costProvenance(),
                     Duration.ofMillis(value.elapsedMillis()),
                     // A summary stored before tool counters existed has no field for them.
                     value.counters() == null ? ToolCounters.ZERO : value.counters());
@@ -105,11 +98,7 @@ final class AgentTaskSummaryJson
             return new TaskSummary(
                     value.finalResponse(),
                     worktree,
-                    value.tests().stream()
-                            .map(test -> new TestFact(test.name(), test.status(), Optional.ofNullable(test.detail())))
-                            .collect(toImmutableList()),
                     metrics,
-                    ImmutableList.copyOf(value.learnings()),
                     Optional.ofNullable(value.notes()),
                     // A summary stored before subagents were indexed has no field for them.
                     (value.children() == null ? ImmutableList.<ChildValue>of() : value.children()).stream()
@@ -132,6 +121,7 @@ final class AgentTaskSummaryJson
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private record SummaryValue(
             String finalResponse,
             String worktree,
@@ -140,15 +130,12 @@ final class AgentTaskSummaryJson
             String head,
             boolean dirty,
             Boolean gitOperationInProgress,
-            List<TestValue> tests,
             long inputTokens,
             long cachedInputTokens,
             long outputTokens,
             String cost,
-            CostProvenance costProvenance,
             long elapsedMillis,
             ToolCounters counters,
-            List<String> learnings,
             String notes,
             List<ChildValue> children) {}
 
@@ -161,6 +148,4 @@ final class AgentTaskSummaryJson
             String result,
             Instant startedAt,
             Instant endedAt) {}
-
-    private record TestValue(String name, TestFact.Status status, String detail) {}
 }

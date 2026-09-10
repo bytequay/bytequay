@@ -28,10 +28,8 @@ public record AgentProperties(
         String desktopSessionToken,
         String codexExecutable,
         String codexMinimumVersion,
-        boolean codexEnabled,
         Path codexHome,
-        String claudeExecutable,
-        boolean claudeEnabled)
+        String claudeExecutable)
 {
     public AgentProperties
     {

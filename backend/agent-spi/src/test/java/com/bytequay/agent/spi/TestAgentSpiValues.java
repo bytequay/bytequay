@@ -57,7 +57,6 @@ class TestAgentSpiValues
                 true,
                 true,
                 false,
-                CostProvenance.UNAVAILABLE,
                 permissionPolicies,
                 mediaTypes);
 
@@ -72,7 +71,7 @@ class TestAgentSpiValues
     }
 
     @Test
-    void missingCostIsUnavailableRatherThanZero()
+    void costIsOptionalAndNeverNegative()
     {
         ProviderUsageSample sample = new ProviderUsageSample(
                 Optional.of("usage-1"),
@@ -81,7 +80,6 @@ class TestAgentSpiValues
                 2,
                 4,
                 Optional.empty(),
-                CostProvenance.UNAVAILABLE,
                 Instant.parse("2026-08-16T00:00:00Z"));
 
         assertThat(sample.cost()).isEmpty();
@@ -91,11 +89,10 @@ class TestAgentSpiValues
                 0,
                 0,
                 0,
-                Optional.of(BigDecimal.ZERO),
-                CostProvenance.UNAVAILABLE,
+                Optional.of(new BigDecimal("-0.01")),
                 Instant.parse("2026-08-16T00:00:00Z")))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("disagree");
+                .hasMessageContaining("cost must not be negative");
     }
 
     @Test

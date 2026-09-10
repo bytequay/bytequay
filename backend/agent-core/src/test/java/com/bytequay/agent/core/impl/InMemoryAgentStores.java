@@ -186,15 +186,6 @@ final class InMemoryAgentStores
     }
 
     @Override
-    public synchronized List<AgentTask> listWithCodeGraphArm()
-    {
-        return tasks.values().stream()
-                .filter(task -> task.codegraphArm().isPresent())
-                .sorted(Comparator.comparing(AgentTask::createdAt))
-                .collect(toImmutableList());
-    }
-
-    @Override
     public synchronized List<AgentTask> listRecentInteractive(String workspaceId, int limit)
     {
         return tasks.values().stream()

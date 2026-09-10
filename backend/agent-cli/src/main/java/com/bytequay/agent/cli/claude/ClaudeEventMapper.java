@@ -14,7 +14,6 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -308,7 +307,6 @@ final class ClaudeEventMapper
                 usage.cacheReadInputTokens(),
                 usage.outputTokens(),
                 result.totalCostUsd(),
-                result.totalCostUsd().isPresent() ? CostProvenance.CLI_ESTIMATE : CostProvenance.UNAVAILABLE,
                 observedAt)));
         if (!result.successful()) {
             events.add(new ProviderAgentEvent.Error(

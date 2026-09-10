@@ -29,7 +29,6 @@ public record AgentTurnSettings(
         Optional<String> model,
         Optional<String> effort,
         AgentPermissionPolicy permissionPolicy,
-        AgentSandboxPolicy sandboxPolicy,
         Duration maximumRuntime,
         List<AgentAttachmentReference> attachments,
         Optional<String> serviceTier)
@@ -38,11 +37,10 @@ public record AgentTurnSettings(
             Optional<String> model,
             Optional<String> effort,
             AgentPermissionPolicy permissionPolicy,
-            AgentSandboxPolicy sandboxPolicy,
             Duration maximumRuntime,
             List<AgentAttachmentReference> attachments)
     {
-        this(model, effort, permissionPolicy, sandboxPolicy, maximumRuntime, attachments, Optional.empty());
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty());
     }
 
     public AgentTurnSettings
@@ -51,7 +49,6 @@ public record AgentTurnSettings(
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
-        requireNonNull(sandboxPolicy, "sandboxPolicy is null");
         requireNonNull(maximumRuntime, "maximumRuntime is null");
         attachments = ImmutableList.copyOf(attachments);
         checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");

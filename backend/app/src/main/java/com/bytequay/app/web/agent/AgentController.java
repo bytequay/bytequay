@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
@@ -41,7 +42,6 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
@@ -172,7 +172,7 @@ public class AgentController
      */
     private InteractiveAgentHttpContract.TaskResponse taskResponse(AgentTask task)
     {
-        TaskMetrics metrics = task.worktreeMutationClaim().isPresent() ? metricsService.taskTotals(task.id()) : task.metrics();
+        AgentMetrics metrics = task.worktreeMutationClaim().isPresent() ? metricsService.taskTotals(task.id()) : task.metrics();
         return InteractiveAgentHttpContract.task(task, metrics);
     }
 

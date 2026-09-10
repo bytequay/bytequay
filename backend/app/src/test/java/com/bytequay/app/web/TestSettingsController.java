@@ -13,12 +13,7 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison.ArmComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison.RepositoryComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparisonService;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
@@ -28,7 +23,6 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.QuietHours;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
@@ -53,9 +47,8 @@ class TestSettingsController
 {
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final CodeGraphComparisonService comparison = mock(CodeGraphComparisonService.class);
     private final AtomicReference<CodeGraphBaseline> baseline = new AtomicReference<>(CodeGraphBaseline.NONE);
-    private final SettingsController controller = new SettingsController(models, settings, comparison, baseline::get);
+    private final SettingsController controller = new SettingsController(models, settings, baseline::get);
 
     /** Boot's own serialization settings, so the test asserts the wire format the renderer parses. */
     private static ObjectMapper appMapper()
@@ -119,7 +112,7 @@ class TestSettingsController
         when(settings.quietHours()).thenReturn(QuietHours.DEFAULT);
         QuietHours evening = new QuietHours(true, 1320, 420);
         when(settings.saveQuietHours(evening)).thenReturn(evening);
-        when(settings.codeGraphMode()).thenReturn(CodeGraphMode.COMPARE);
+        when(settings.codeGraphMode()).thenReturn(CodeGraphMode.ON);
         CodeGraphSetting off = new CodeGraphSetting(CodeGraphMode.OFF);
         when(settings.saveCodeGraph(off)).thenReturn(off);
         MockMvc mvc = mvc();
@@ -134,32 +127,21 @@ class TestSettingsController
                 .andExpect(jsonPath("$.enabled").value(true));
         mvc.perform(get("/api/settings/codegraph"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mode").value("COMPARE"));
+                .andExpect(jsonPath("$.mode").value("ON"));
         mvc.perform(put("/api/settings/codegraph").contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"OFF\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").value("OFF"));
     }
 
     @Test
-    void codeGraphBaselineAndComparisonAreReadOnlyReadouts()
+    void codeGraphBaselineIsAReadOnlyReadout()
             throws Exception
     {
         baseline.set(new CodeGraphBaseline(3, Optional.of(Instant.parse("2026-09-10T04:00:00Z"))));
-        when(comparison.compare()).thenReturn(new CodeGraphComparison(ImmutableList.of(
-                new RepositoryComparison("bytequay/sample", ImmutableList.of(new ArmComparison(
-                        CodeGraphArm.ON, 4, 6, 1.5, true,
-                        Optional.of(1200.0), Optional.of(90.0), Optional.of(8.0),
-                        Optional.of(3.0), Optional.of(2.5), Optional.of(1.0), Optional.of(4.0)))))));
-        MockMvc mvc = mvc();
 
-        mvc.perform(get("/api/settings/codegraph/baseline"))
+        mvc().perform(get("/api/settings/codegraph/baseline"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositories").value(3))
                 .andExpect(jsonPath("$.updatedAt").value("2026-09-10T04:00:00Z"));
-        mvc.perform(get("/api/settings/codegraph/comparison"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories[0].repository").value("bytequay/sample"))
-                .andExpect(jsonPath("$.repositories[0].arms[0].arm").value("ON"))
-                .andExpect(jsonPath("$.repositories[0].arms[0].smallSample").value(true));
     }
 }

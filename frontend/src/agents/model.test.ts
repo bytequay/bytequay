@@ -75,7 +75,6 @@ function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
       cachedInputTokens: 0,
       outputTokens: 0,
       cost: null,
-      costProvenance: 'UNAVAILABLE',
       elapsed: 'PT0S',
     },
   };
@@ -93,7 +92,7 @@ function queued(id: string, state = 'QUEUED', preview = 'later'): AgentQueuedInp
     position: Number(id.replace(/\D/g, '')),
     state,
     preview,
-    settings: { model: 'm', effort: null, permissionPolicy: 'AUTO', sandboxPolicy: 'WORKSPACE_WRITE', maximumRuntimeMillis: 1000, attachments: [] },
+    settings: { model: 'm', effort: null, permissionPolicy: 'AUTO', maximumRuntimeMillis: 1000, attachments: [] },
     turnId: null,
     pauseReason: null,
     createdAt: '2026-08-20T10:00:02Z',

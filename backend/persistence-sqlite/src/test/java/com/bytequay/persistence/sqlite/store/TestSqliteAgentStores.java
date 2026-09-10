@@ -19,15 +19,14 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentProcessLaunch;
-import com.bytequay.agent.core.AgentSandboxPolicy;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
@@ -38,15 +37,12 @@ import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.agent.core.TestFact;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -70,7 +66,6 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -150,12 +145,11 @@ class TestSqliteAgentStores
     void roundTripsTaskSummarySessionMetricsAndCleanupFacts()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        TaskMetrics metrics = new TaskMetrics(
+        AgentMetrics metrics = new AgentMetrics(
                 10,
                 2,
                 5,
                 Optional.of(new BigDecimal("0.1873740")),
-                CostProvenance.PROVIDER_REPORTED,
                 Duration.ofSeconds(3),
                 new ToolCounters(4, 2, 1, 900, 0));
         TaskId taskId = TaskId.random();
@@ -174,9 +168,7 @@ class TestSqliteAgentStores
         TaskSummary summary = new TaskSummary(
                 "finished",
                 Optional.of(snapshot),
-                ImmutableList.of(new TestFact("mvn verify", TestFact.Status.PASSED, Optional.empty())),
                 metrics,
-                ImmutableList.of("keep the boundary small"),
                 Optional.of("reviewed"));
         AgentTask task = AgentTask.created(
                         taskId,
@@ -287,11 +279,11 @@ class TestSqliteAgentStores
         AgentTask original = newTask(now);
         taskStore.insert(original);
 
-        AgentTask updated = taskStore.update(original.withMetrics(TaskMetrics.empty(), now.plusSeconds(1)));
+        AgentTask updated = taskStore.update(original.withMetrics(AgentMetrics.empty(), now.plusSeconds(1)));
 
         assertThat(updated.version()).isEqualTo(1);
         assertThat(taskStore.find(original.id())).contains(updated);
-        assertThatThrownBy(() -> taskStore.update(original.withMetrics(TaskMetrics.empty(), now.plusSeconds(2))))
+        assertThatThrownBy(() -> taskStore.update(original.withMetrics(AgentMetrics.empty(), now.plusSeconds(2))))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("version changed");
     }
@@ -338,9 +330,7 @@ class TestSqliteAgentStores
         TaskSummary summary = new TaskSummary(
                 "finished",
                 Optional.empty(),
-                ImmutableList.of(),
-                TaskMetrics.empty(),
-                ImmutableList.of(),
+                AgentMetrics.empty(),
                 Optional.empty());
         AgentTask task = newTask(now).complete(
                 summary,
@@ -379,20 +369,17 @@ class TestSqliteAgentStores
     }
 
     @Test
-    void roundTripsTheCodeGraphArmAndListsOnlyStampedTasks()
+    void roundTripsWhetherTheTaskGotTheCodeGraph()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask unstamped = managedTask(now);
-        AgentTask on = managedTask(now.plusSeconds(1), Optional.of(CodeGraphArm.ON));
-        AgentTask off = managedTask(now.plusSeconds(2), Optional.of(CodeGraphArm.OFF));
-        taskStore.insert(unstamped);
-        taskStore.insert(off);
-        taskStore.insert(on);
+        AgentTask withGraph = managedTask(now.plusSeconds(1), true);
+        AgentTask withoutGraph = managedTask(now.plusSeconds(2), false);
+        taskStore.insert(withGraph);
+        taskStore.insert(withoutGraph);
         entityManager.clear();
 
-        assertThat(taskStore.find(on.id()).orElseThrow().codegraphArm()).contains(CodeGraphArm.ON);
-        assertThat(taskStore.find(unstamped.id()).orElseThrow().codegraphArm()).isEmpty();
-        assertThat(taskStore.listWithCodeGraphArm()).containsExactly(on, off);
+        assertThat(taskStore.find(withGraph.id()).orElseThrow().codegraph()).isTrue();
+        assertThat(taskStore.find(withoutGraph.id()).orElseThrow().codegraph()).isFalse();
     }
 
     @Test
@@ -457,7 +444,7 @@ class TestSqliteAgentStores
         jdbc.update("""
                 UPDATE agent_turn
                 SET requested_model = NULL, effort = NULL, permission_policy = NULL,
-                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL,
+                    maximum_runtime_millis = NULL, attachments_json = NULL,
                     known_unsent = NULL
                 WHERE id = ?
                 """, turn.id().toString());
@@ -484,7 +471,7 @@ class TestSqliteAgentStores
         jdbc.update("""
                 UPDATE agent_turn
                 SET requested_model = NULL, effort = NULL, permission_policy = NULL,
-                    sandbox_policy = NULL, maximum_runtime_millis = NULL, attachments_json = NULL
+                    maximum_runtime_millis = NULL, attachments_json = NULL
                 WHERE id = ?
                 """, turn.id().toString());
         entityManager.clear();
@@ -517,7 +504,7 @@ class TestSqliteAgentStores
         taskStore.insert(task);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
                 .markDeliveryStarted(now.plusSeconds(1))
-                .finishKnownUnsent(TurnMetrics.empty(), "not sent", now.plusSeconds(2));
+                .finishKnownUnsent(AgentMetrics.empty(), "not sent", now.plusSeconds(2));
         turnStore.insert(turn);
         entityManager.clear();
 
@@ -539,7 +526,7 @@ class TestSqliteAgentStores
                 .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"))
                 .finish(
                         TurnState.FAILED,
-                        TurnMetrics.empty(),
+                        AgentMetrics.empty(),
                         Optional.of("Claude sign-in required"),
                         Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED),
                         now.plusSeconds(2));
@@ -584,7 +571,7 @@ class TestSqliteAgentStores
 
         AgentTurn terminal = turnStore.update(first.finish(
                 TurnState.COMPLETED,
-                new TurnMetrics(1, 0, 1, Optional.of(new BigDecimal("0.1873740")), CostProvenance.CLI_ESTIMATE, Duration.ofSeconds(2)),
+                new AgentMetrics(1, 0, 1, Optional.of(new BigDecimal("0.1873740")), Duration.ofSeconds(2)),
                 Optional.empty(),
                 now.plusSeconds(2)));
         AgentTurn second = AgentTurn.accepted(TurnId.random(), task.id(), "request-2", turnSettings(), now.plusSeconds(3));
@@ -595,7 +582,7 @@ class TestSqliteAgentStores
         assertThat(turnStore.find(terminal.id())).contains(terminal);
         assertThat(turnStore.findActive(task.id())).contains(second);
         assertThat(turnStore.list(task.id())).containsExactly(terminal, second);
-        assertThatThrownBy(() -> turnStore.update(first.withMetrics(TurnMetrics.empty())))
+        assertThatThrownBy(() -> turnStore.update(first.withMetrics(AgentMetrics.empty())))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -608,7 +595,7 @@ class TestSqliteAgentStores
         AgentTurn terminal = AgentTurn.accepted(TurnId.random(), task.id(), "same-request", turnSettings(), now)
                 .finish(
                         TurnState.CANCELLED,
-                        TurnMetrics.empty(),
+                        AgentMetrics.empty(),
                         Optional.of("cancelled"),
                         now.plusSeconds(1));
         turnStore.insert(terminal);
@@ -874,7 +861,7 @@ class TestSqliteAgentStores
         return managedTask(now, AgentPermissionPolicy.AUTO);
     }
 
-    private static AgentTask managedTask(Instant now, Optional<CodeGraphArm> codegraphArm)
+    private static AgentTask managedTask(Instant now, boolean codegraph)
     {
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
@@ -893,7 +880,7 @@ class TestSqliteAgentStores
                 AgentLaneId.CODEX_CLI,
                 worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                codegraphArm,
+                codegraph,
                 now);
     }
 
@@ -941,7 +928,6 @@ class TestSqliteAgentStores
                 Optional.of("model"),
                 Optional.of("medium"),
                 AgentPermissionPolicy.AUTO,
-                AgentSandboxPolicy.WORKSPACE_WRITE,
                 Duration.ofMinutes(5),
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")),
                 Optional.of("priority"));
@@ -990,7 +976,6 @@ class TestSqliteAgentStores
                 false,
                 false,
                 false,
-                CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO),
                 ImmutableSet.of());
 

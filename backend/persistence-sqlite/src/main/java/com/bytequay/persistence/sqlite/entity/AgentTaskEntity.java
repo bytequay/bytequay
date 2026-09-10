@@ -13,14 +13,13 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskMetrics;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -29,7 +28,6 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -67,9 +65,8 @@ public class AgentTaskEntity
 
     private String creationFingerprint;
 
-    // Nullable: a task created before the compare arm existed has no arm and stays out of comparisons.
-    @Enumerated(EnumType.STRING)
-    private CodeGraphArm codegraphArm;
+    @Column(nullable = false)
+    private boolean codegraph;
 
     @Column(nullable = false)
     private String title;
@@ -151,10 +148,6 @@ public class AgentTaskEntity
     private BigDecimal cost;
 
     @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private CostProvenance costProvenance;
-
-    @Column(nullable = false)
     private long elapsedMillis;
 
     // Nullable so a database written before these counters keeps opening; null reads as zero.
@@ -210,7 +203,7 @@ public class AgentTaskEntity
         workspaceId = task.workspaceId().orElse(null);
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
-        codegraphArm = task.codegraphArm().orElse(null);
+        codegraph = task.codegraph();
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -238,7 +231,6 @@ public class AgentTaskEntity
         cachedInputTokens = task.metrics().cachedInputTokens();
         outputTokens = task.metrics().outputTokens();
         cost = task.metrics().cost().orElse(null);
-        costProvenance = task.metrics().costProvenance();
         elapsedMillis = task.metrics().elapsed().toMillis();
         toolCalls = task.metrics().counters().toolCalls();
         exploreActions = task.metrics().counters().exploreActions();
@@ -285,12 +277,11 @@ public class AgentTaskEntity
                 Optional.ofNullable(terminalAt),
                 Optional.ofNullable(terminalReason),
                 sessionReference,
-                new TaskMetrics(
+                new AgentMetrics(
                         inputTokens,
                         cachedInputTokens,
                         outputTokens,
                         Optional.ofNullable(cost),
-                        costProvenance,
                         Duration.ofMillis(elapsedMillis),
                         counters()),
                 Optional.ofNullable(summaryJson).map(json -> AgentTaskSummaryJson.decode(json, storedWorktree)),
@@ -298,7 +289,7 @@ public class AgentTaskEntity
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
-                Optional.ofNullable(codegraphArm),
+                codegraph,
                 Optional.ofNullable(archivedAt));
     }
 

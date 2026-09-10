@@ -29,7 +29,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CostProvenance;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
@@ -155,7 +154,6 @@ class TestCherryPickExecutionService
                 false,
                 false,
                 false,
-                CostProvenance.UNAVAILABLE,
                 ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK),
                 ImmutableSet.of());
         driver = mock(AgentDriver.class);

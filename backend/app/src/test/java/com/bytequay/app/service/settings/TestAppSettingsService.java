@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.settings;
 
-import com.bytequay.agent.core.CodeGraphArm;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -23,7 +22,6 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,10 +54,10 @@ class TestAppSettingsService
     {
         assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.ON);
 
-        settings.saveCodeGraph(new CodeGraphSetting(CodeGraphMode.COMPARE));
+        settings.saveCodeGraph(new CodeGraphSetting(CodeGraphMode.OFF));
 
-        assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.COMPARE);
-        assertThat(rows).containsEntry("codegraph.mode", "COMPARE");
+        assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.OFF);
+        assertThat(rows).containsEntry("codegraph.mode", "OFF");
     }
 
     @Test
@@ -91,18 +89,10 @@ class TestAppSettingsService
     }
 
     @Test
-    void readsTheBooleanSettingWrittenBeforeCompareExisted()
+    void readsTheBooleanSettingWrittenBeforeTheModeExisted()
     {
         rows.put("codegraph.enabled", "false");
 
         assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.OFF);
-    }
-
-    @Test
-    void compareAssignsBothArms()
-    {
-        assertThat(IntStream.range(0, 200).mapToObj(ignored -> CodeGraphMode.COMPARE.arm()).distinct()).containsExactlyInAnyOrder(CodeGraphArm.ON, CodeGraphArm.OFF);
-        assertThat(CodeGraphMode.ON.arm()).isEqualTo(CodeGraphArm.ON);
-        assertThat(CodeGraphMode.OFF.arm()).isEqualTo(CodeGraphArm.OFF);
     }
 }

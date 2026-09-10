@@ -89,7 +89,7 @@ class TestProviderAgentEventAdapter
                 Optional.empty(),
                 ProviderAgentEventSource.root());
         assertThat(((AgentEventPayload.AssistantMessage) ProviderAgentEventAdapter.adapt(summary).payload()).messageKind())
-                .isEqualTo(AgentEventPayload.MessageKind.REASONING_SUMMARY);
+                .isEqualTo(ProviderAgentEvent.MessageKind.REASONING_SUMMARY);
 
         ProviderAgentEvent.Command command = new ProviderAgentEvent.Command(
                 Optional.of("event-2"),
@@ -112,8 +112,8 @@ class TestProviderAgentEventAdapter
                 (AgentEventPayload.CommandActivity) ProviderAgentEventAdapter.adapt(command).payload();
         assertThat(activity.cwd()).contains("backend");
         assertThat(activity.durationMs()).contains(1450L);
-        assertThat(activity.actions()).containsExactly(new AgentEventPayload.CommandAction(
-                AgentEventPayload.CommandActionKind.SEARCH,
+        assertThat(activity.actions()).containsExactly(new ProviderAgentEvent.CommandAction(
+                ProviderAgentEvent.CommandActionKind.SEARCH,
                 Optional.of("TODO references"),
                 Optional.empty(),
                 Optional.of("TODO")));

@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.GitHubTokenSource;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -58,7 +59,8 @@ public class CredentialController
     {
         return new AccountResponse(
                 credentialService.isGitHubAccountConfigured(),
-                credentialService.maskedGitHubToken().orElse(null));
+                credentialService.maskedGitHubToken().orElse(null),
+                credentialService.gitHubTokenSource());
     }
 
     /** Full stored token for main-process clipboard copy; the renderer never displays it. */
@@ -76,7 +78,7 @@ public class CredentialController
         credentialService.deleteGitHubToken();
     }
 
-    public record AccountResponse(boolean configured, String maskedToken) {}
+    public record AccountResponse(boolean configured, String maskedToken, GitHubTokenSource source) {}
 
     @GetMapping("/api/auth/github/cli")
     public Map<String, Boolean> ghCliAvailable()

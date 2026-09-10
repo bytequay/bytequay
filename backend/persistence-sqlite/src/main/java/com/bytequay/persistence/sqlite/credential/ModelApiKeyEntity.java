@@ -36,16 +36,21 @@ class ModelApiKeyEntity
     @Column(nullable = false)
     private String ciphertext;
 
+    /** Nullable: rows written before the hint was kept have none. */
+    @Column
+    private String maskedHint;
+
     @Column(nullable = false)
     private Instant createdAt;
 
     protected ModelApiKeyEntity() {}
 
-    ModelApiKeyEntity(String alias, String provider, String ciphertext, Instant createdAt)
+    ModelApiKeyEntity(String alias, String provider, String ciphertext, String maskedHint, Instant createdAt)
     {
         this.alias = alias;
         this.provider = provider;
         this.ciphertext = ciphertext;
+        this.maskedHint = maskedHint;
         this.createdAt = createdAt;
     }
 }

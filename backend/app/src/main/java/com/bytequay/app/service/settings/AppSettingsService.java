@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.ZoneId;
 
 import static java.util.Objects.requireNonNull;
@@ -30,6 +31,7 @@ public class AppSettingsService
     private static final String QUIET_HOURS_KEY = "github.quietHours";
     private static final String CODEGRAPH_KEY = "codegraph.mode";
     private static final String LEGACY_CODEGRAPH_KEY = "codegraph.enabled";
+    private static final String PREFERENCES_KEY = "app.preferences";
 
     private final AppSettingsStore store;
     private final ObjectMapper mapper;
@@ -82,6 +84,53 @@ public class AppSettingsService
     public boolean inQuietHours()
     {
         return quietHours().quietAt(clock.instant().atZone(ZoneId.systemDefault()).toLocalTime());
+    }
+
+    public AppPreferences preferences()
+    {
+        return store.get(PREFERENCES_KEY)
+                .map(this::readPreferences)
+                .orElse(AppPreferences.DEFAULT);
+    }
+
+    public AppPreferences savePreferences(AppPreferences preferences)
+    {
+        requireNonNull(preferences, "preferences is null");
+        try {
+            store.put(PREFERENCES_KEY, mapper.writeValueAsString(preferences));
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("preferences could not be encoded", failure);
+        }
+        return preferences;
+    }
+
+    /** How long a finished task's detailed runtime survives before cleanup deletes it. */
+    public Duration taskRuntimeRetention()
+    {
+        return Duration.ofDays(preferences().taskRetentionDays());
+    }
+
+    /** How far back the local Recent record reaches. */
+    public int recentRetentionDays()
+    {
+        return preferences().recentRetentionDays();
+    }
+
+    /** How long background GitHub refresh waits between passes. */
+    public Duration refreshInterval()
+    {
+        return Duration.ofMinutes(preferences().refreshIntervalMinutes());
+    }
+
+    private AppPreferences readPreferences(String value)
+    {
+        try {
+            return mapper.readValue(value, AppPreferences.class);
+        }
+        catch (JsonProcessingException | IllegalArgumentException corrupt) {
+            return AppPreferences.DEFAULT;
+        }
     }
 
     private QuietHours readQuietHours(String value)

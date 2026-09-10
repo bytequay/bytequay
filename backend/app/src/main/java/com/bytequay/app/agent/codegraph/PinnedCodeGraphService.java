@@ -31,11 +31,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
@@ -262,6 +264,45 @@ public final class PinnedCodeGraphService
         finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Counts the indexed repositories and the newest baseline head under the
+     * baseline root. Read-only and best-effort: a missing root or an
+     * unreadable entry reports nothing rather than failing the settings page.
+     */
+    public CodeGraphBaseline baselines()
+    {
+        if (!Files.isDirectory(baselineRoot, NOFOLLOW_LINKS)) {
+            return CodeGraphBaseline.NONE;
+        }
+        int repositories = 0;
+        Instant newest = null;
+        try (Stream<Path> owners = Files.list(baselineRoot)) {
+            for (Path owner : owners.toList()) {
+                if (!Files.isDirectory(owner, NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                try (Stream<Path> names = Files.list(owner)) {
+                    for (Path name : names.toList()) {
+                        Path head = name.resolve(HEAD_FILE);
+                        if (!Files.isDirectory(name.resolve(INDEX_DIRECTORY), NOFOLLOW_LINKS) || !Files.isRegularFile(head, NOFOLLOW_LINKS)) {
+                            continue;
+                        }
+                        repositories++;
+                        Instant updated = Files.getLastModifiedTime(head).toInstant();
+                        if (newest == null || updated.isAfter(newest)) {
+                            newest = updated;
+                        }
+                    }
+                }
+            }
+        }
+        catch (IOException unreadable) {
+            LOG.debug("CodeGraph baselines could not be listed: {}", unreadable.getMessage());
+            return CodeGraphBaseline.NONE;
+        }
+        return new CodeGraphBaseline(repositories, Optional.ofNullable(newest));
     }
 
     static boolean rebuildNeeded(long changedFiles, long trackedFiles)

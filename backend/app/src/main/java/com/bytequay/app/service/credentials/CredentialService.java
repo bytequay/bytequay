@@ -155,6 +155,17 @@ public class CredentialService
         return storedGitHubToken().map(SecretMasker::mask);
     }
 
+    /**
+     * Where the stored account token came from, so the settings page can name
+     * it instead of assuming a personal access token.
+     */
+    public GitHubTokenSource gitHubTokenSource()
+    {
+        return credentialStore.source().filter(GITHUB_CLI_SOURCE::equals).isPresent()
+                ? GitHubTokenSource.GITHUB_CLI
+                : GitHubTokenSource.PERSONAL_ACCESS_TOKEN;
+    }
+
     /** The full stored account token for clipboard copy; the UI never renders it. */
     public Optional<String> gitHubTokenValue()
     {

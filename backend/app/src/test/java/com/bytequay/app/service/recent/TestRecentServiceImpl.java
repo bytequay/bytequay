@@ -14,6 +14,7 @@
 package com.bytequay.app.service.recent;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -66,13 +67,15 @@ class TestRecentServiceImpl
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final RecentTouchRecorder recorder = mock(RecentTouchRecorder.class);
+    private final AppSettingsService appSettings = mock(AppSettingsService.class);
 
     private RecentServiceImpl service;
 
     @BeforeEach
     void setUp()
     {
-        service = new RecentServiceImpl(store, recorder, details, viewStates, workspaces, credentials, CLOCK);
+        when(appSettings.recentRetentionDays()).thenReturn(14);
+        service = new RecentServiceImpl(store, recorder, details, viewStates, workspaces, credentials, appSettings, CLOCK);
         when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
         when(viewStates.findByPrIds(anySet())).thenReturn(ImmutableMap.of());
     }

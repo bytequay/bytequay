@@ -518,7 +518,7 @@ class TestBetterWordsService
     {
         ModelApiKeyStore keys = mock(ModelApiKeyStore.class);
         when(keys.findAll()).thenReturn(ImmutableList.of(
-                new ModelApiKey(alias, provider, Instant.parse("2026-08-28T00:00:00Z"))));
+                new ModelApiKey(alias, provider, "sk-1••••••••2Je", Instant.parse("2026-08-28T00:00:00Z"))));
         when(keys.findSecret(alias)).thenReturn(Optional.of(secret));
         return keys;
     }

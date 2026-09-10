@@ -51,6 +51,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
@@ -61,8 +62,6 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentCompletionService
         implements AgentCompletionService
 {
-    static final Duration RETENTION_PERIOD = Duration.ofDays(7);
-
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -76,6 +75,7 @@ public final class DefaultAgentCompletionService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final AgentMetricsService metricsService;
     private final CodeGraphService codeGraph;
+    private final Supplier<Duration> retentionPeriod;
     private final Clock clock;
 
     public DefaultAgentCompletionService(
@@ -91,6 +91,7 @@ public final class DefaultAgentCompletionService
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
             CodeGraphService codeGraph,
+            Supplier<Duration> retentionPeriod,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -106,6 +107,7 @@ public final class DefaultAgentCompletionService
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.retentionPeriod = requireNonNull(retentionPeriod, "retentionPeriod is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -188,7 +190,7 @@ public final class DefaultAgentCompletionService
     private AgentTask persistCompletion(TaskId taskId, WorktreeMutationClaim claim, TaskSummary summary)
     {
         Instant completedAt = Instant.now(clock);
-        Instant deleteAfter = completedAt.plus(RETENTION_PERIOD);
+        Instant deleteAfter = completedAt.plus(retentionPeriod.get());
         EventId eventId = EventId.random();
         return unitOfWork.execute(() -> {
             AgentTask current = requireTask(taskId);
@@ -221,6 +223,7 @@ public final class DefaultAgentCompletionService
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireAbandonable(taskId);
             Instant failedAt = Instant.now(clock);
+            Duration retention = retentionPeriod.get();
             return eventCommitter.commit(
                     pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.TASK_FAILED, reason, failedAt),
                     () -> {
@@ -229,8 +232,8 @@ public final class DefaultAgentCompletionService
                         // The worktree is kept, not cleaned: the reason this task is stuck is that
                         // something may still have been writing to it, and that evidence is the point.
                         return taskStore.update(current.worktreeMutationClaim()
-                                .map(claim -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD), claim))
-                                .orElseGet(() -> current.fail(reason, failedAt, failedAt.plus(RETENTION_PERIOD))));
+                                .map(claim -> current.fail(reason, failedAt, failedAt.plus(retention), claim))
+                                .orElseGet(() -> current.fail(reason, failedAt, failedAt.plus(retention))));
                     });
         }
     }

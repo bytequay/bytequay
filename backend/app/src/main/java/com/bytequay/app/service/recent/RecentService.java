@@ -30,9 +30,6 @@ public interface RecentService
      */
     Duration DWELL_THRESHOLD = Duration.ofSeconds(20);
 
-    /** How far back the record reaches. Rolling, local, and clearable. */
-    int RETENTION_DAYS = 14;
-
     /**
      * One day of the stream.
      *

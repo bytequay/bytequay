@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,29 +38,38 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestSyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestSyncJob.class);
-    private static final long REFRESH_DELAY_MILLIS = 6 * 60_000L;
+    /**
+     * How often the job wakes. The user-set refresh interval decides whether a
+     * wake-up actually refreshes, so a longer interval costs nothing and a
+     * shortened one takes effect within a minute instead of after a restart.
+     */
+    private static final long TICK_MILLIS = 60_000L;
 
     private final PullRequestRefreshService refreshService;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceStore workspaces;
     private final CredentialService credentials;
     private final AppSettingsService appSettings;
+    private final Clock clock;
+    private volatile Instant lastRefreshedAt = Instant.EPOCH;
 
     public PullRequestSyncJob(
             PullRequestRefreshService refreshService,
             WorkspaceMetadataService metadata,
             WorkspaceStore workspaces,
             CredentialService credentials,
-            AppSettingsService appSettings)
+            AppSettingsService appSettings,
+            Clock clock)
     {
         this.refreshService = requireNonNull(refreshService, "refreshService is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @Scheduled(fixedDelay = REFRESH_DELAY_MILLIS)
+    @Scheduled(fixedDelay = TICK_MILLIS)
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured()) {
@@ -69,6 +80,11 @@ public class PullRequestSyncJob
             log.debug("Sync skipped: GitHub quiet hours");
             return;
         }
+        Instant now = Instant.now(clock);
+        if (now.isBefore(lastRefreshedAt.plus(appSettings.refreshInterval()))) {
+            return;
+        }
+        lastRefreshedAt = now;
         refresh("global dashboard", refreshService::refreshDashboard);
         List<Workspace> configuredWorkspaces = workspaces.findAll();
         Set<Long> metadataRepositories = new HashSet<>();

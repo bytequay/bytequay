@@ -21,19 +21,24 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** The observational CodeGraph comparison: per workspace, what tasks in each arm used per finished turn. */
-public record CodeGraphComparison(List<WorkspaceComparison> workspaces)
+/** The observational CodeGraph comparison: per repository, what tasks in each arm used per finished turn. */
+public record CodeGraphComparison(List<RepositoryComparison> repositories)
 {
     public CodeGraphComparison
     {
-        workspaces = ImmutableList.copyOf(requireNonNull(workspaces, "workspaces is null"));
+        repositories = ImmutableList.copyOf(requireNonNull(repositories, "repositories is null"));
     }
 
-    public record WorkspaceComparison(String workspaceId, String repository, List<ArmComparison> arms)
+    /**
+     * One repository's arms. Grouped by {@code owner/name} rather than by
+     * workspace, because two workspaces can watch the same repository and one
+     * workspace can change which repository it watches; either way the arms
+     * being compared are the repository's, not the workspace's.
+     */
+    public record RepositoryComparison(String repository, List<ArmComparison> arms)
     {
-        public WorkspaceComparison
+        public RepositoryComparison
         {
-            requireNonNull(workspaceId, "workspaceId is null");
             requireNonNull(repository, "repository is null");
             arms = ImmutableList.copyOf(requireNonNull(arms, "arms is null"));
         }

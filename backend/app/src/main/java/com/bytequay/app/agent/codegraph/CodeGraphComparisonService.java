@@ -20,7 +20,7 @@ import com.bytequay.agent.core.TurnMetrics;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.agent.codegraph.CodeGraphComparison.ArmComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison.WorkspaceComparison;
+import com.bytequay.app.agent.codegraph.CodeGraphComparison.RepositoryComparison;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -55,13 +55,12 @@ public class CodeGraphComparisonService
 
     public CodeGraphComparison compare()
     {
-        Map<String, List<AgentTask>> byWorkspace = tasks.listWithCodeGraphArm().stream()
+        Map<String, List<AgentTask>> byRepository = tasks.listWithCodeGraphArm().stream()
                 .filter(task -> task.workspaceId().isPresent())
-                .collect(groupingBy(task -> task.workspaceId().orElseThrow(), LinkedHashMap::new, toList()));
-        return new CodeGraphComparison(byWorkspace.entrySet().stream()
-                .map(entry -> new WorkspaceComparison(
+                .collect(groupingBy(task -> task.repository().toString(), LinkedHashMap::new, toList()));
+        return new CodeGraphComparison(byRepository.entrySet().stream()
+                .map(entry -> new RepositoryComparison(
                         entry.getKey(),
-                        entry.getValue().getFirst().repository().owner() + "/" + entry.getValue().getFirst().repository().name(),
                         Stream.of(CodeGraphArm.ON, CodeGraphArm.OFF)
                                 .flatMap(arm -> arm(arm, entry.getValue().stream().filter(task -> task.codegraphArm().orElseThrow() == arm).toList()).stream())
                                 .collect(toImmutableList())))

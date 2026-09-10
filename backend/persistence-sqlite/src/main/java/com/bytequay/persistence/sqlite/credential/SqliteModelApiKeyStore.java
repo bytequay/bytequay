@@ -43,7 +43,7 @@ public class SqliteModelApiKeyStore
     public List<ModelApiKey> findAll()
     {
         return jpaRepository.findAllByOrderByCreatedAtAsc().stream()
-                .map(entity -> new ModelApiKey(entity.getAlias(), entity.getProvider(), entity.getCreatedAt()))
+                .map(entity -> new ModelApiKey(entity.getAlias(), entity.getProvider(), entity.getMaskedHint(), entity.getCreatedAt()))
                 .collect(toImmutableList());
     }
 
@@ -64,7 +64,7 @@ public class SqliteModelApiKeyStore
         checkArgument(!trimmed.isEmpty(), "secret must not be blank");
         checkArgument(!jpaRepository.existsById(key.alias()), "alias already exists");
         jpaRepository.save(new ModelApiKeyEntity(
-                key.alias(), key.provider(), cipher.encrypt(trimmed), key.createdAt()));
+                key.alias(), key.provider(), cipher.encrypt(trimmed), key.maskedHint(), key.createdAt()));
     }
 
     @Override

@@ -2049,6 +2049,7 @@ class TestDefaultAgentTurnService
                 runtimeRegistry,
                 metrics,
                 codeGraph,
+                () -> Duration.ofDays(7),
                 CLOCK);
     }
 

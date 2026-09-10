@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphComparison;
 import com.bytequay.app.agent.codegraph.CodeGraphComparisonService;
+import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static java.util.Objects.requireNonNull;
@@ -41,12 +44,18 @@ public class SettingsController
     private final ModelSettingsService models;
     private final AppSettingsService settings;
     private final CodeGraphComparisonService comparison;
+    private final Supplier<CodeGraphBaseline> baseline;
 
-    public SettingsController(ModelSettingsService models, AppSettingsService settings, CodeGraphComparisonService comparison)
+    public SettingsController(
+            ModelSettingsService models,
+            AppSettingsService settings,
+            CodeGraphComparisonService comparison,
+            Supplier<CodeGraphBaseline> baseline)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.comparison = requireNonNull(comparison, "comparison is null");
+        this.baseline = requireNonNull(baseline, "baseline is null");
     }
 
     @GetMapping("/models")
@@ -88,6 +97,12 @@ public class SettingsController
         return new CodeGraphSetting(settings.codeGraphMode());
     }
 
+    @GetMapping("/codegraph/baseline")
+    public CodeGraphBaseline codeGraphBaseline()
+    {
+        return baseline.get();
+    }
+
     @GetMapping("/codegraph/comparison")
     public CodeGraphComparison codeGraphComparison()
     {
@@ -98,6 +113,18 @@ public class SettingsController
     public CodeGraphSetting saveCodeGraph(@RequestBody CodeGraphSetting request)
     {
         return settings.saveCodeGraph(request);
+    }
+
+    @GetMapping("/app")
+    public AppPreferences preferences()
+    {
+        return settings.preferences();
+    }
+
+    @PutMapping("/app")
+    public AppPreferences savePreferences(@RequestBody AppPreferences request)
+    {
+        return settings.savePreferences(request);
     }
 
     @GetMapping("/quiet-hours")

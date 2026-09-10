@@ -24,6 +24,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -49,7 +51,7 @@ class TestPullRequestSyncJob
         Workspace third = workspace("third", 3, other);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(first, second, third));
         PullRequestSyncJob job = new PullRequestSyncJob(
-                refreshService, metadata, workspaces, credentials, mock(AppSettingsService.class));
+                refreshService, metadata, workspaces, credentials, idleSettings(), Clock.systemUTC());
 
         job.tick();
 
@@ -69,13 +71,35 @@ class TestPullRequestSyncJob
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.inQuietHours()).thenReturn(true);
+        when(appSettings.refreshInterval()).thenReturn(Duration.ofMinutes(6));
         PullRequestSyncJob job = new PullRequestSyncJob(
                 refreshService, mock(WorkspaceMetadataService.class),
-                mock(WorkspaceStore.class), configuredCredentials(), appSettings);
+                mock(WorkspaceStore.class), configuredCredentials(), appSettings, Clock.systemUTC());
 
         job.tick();
 
         verify(refreshService, never()).refreshDashboard();
+    }
+
+    @Test
+    void refreshesOncePerConfiguredIntervalRatherThanOnEveryTick()
+    {
+        PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        AppSettingsService appSettings = mock(AppSettingsService.class);
+        when(appSettings.refreshInterval()).thenReturn(Duration.ofMinutes(30));
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
+        PullRequestSyncJob job = new PullRequestSyncJob(
+                refreshService, mock(WorkspaceMetadataService.class),
+                mock(WorkspaceStore.class), configuredCredentials(), appSettings, clock);
+
+        job.tick();
+        clock.advance(Duration.ofMinutes(10));
+        job.tick();
+        verify(refreshService).refreshDashboard();
+
+        clock.advance(Duration.ofMinutes(21));
+        job.tick();
+        verify(refreshService, org.mockito.Mockito.times(2)).refreshDashboard();
     }
 
     @Test
@@ -87,11 +111,20 @@ class TestPullRequestSyncJob
                 mock(WorkspaceMetadataService.class),
                 mock(WorkspaceStore.class),
                 mock(CredentialService.class),
-                mock(AppSettingsService.class));
+                idleSettings(),
+                Clock.systemUTC());
 
         job.tick();
 
         verify(refreshService, never()).refreshDashboard();
+    }
+
+    /** Settings whose refresh interval has already elapsed, so the tick under test is the one being asserted. */
+    private static AppSettingsService idleSettings()
+    {
+        AppSettingsService settings = mock(AppSettingsService.class);
+        when(settings.refreshInterval()).thenReturn(Duration.ofMinutes(6));
+        return settings;
     }
 
     private static CredentialService configuredCredentials()
@@ -99,6 +132,40 @@ class TestPullRequestSyncJob
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         return credentials;
+    }
+
+    private static final class MutableClock
+            extends Clock
+    {
+        private Instant now;
+
+        private MutableClock(Instant now)
+        {
+            this.now = now;
+        }
+
+        void advance(Duration amount)
+        {
+            now = now.plus(amount);
+        }
+
+        @Override
+        public java.time.ZoneId getZone()
+        {
+            return java.time.ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone)
+        {
+            return this;
+        }
+
+        @Override
+        public Instant instant()
+        {
+            return now;
+        }
     }
 
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)

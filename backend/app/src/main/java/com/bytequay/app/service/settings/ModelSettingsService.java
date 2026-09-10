@@ -239,7 +239,7 @@ public class ModelSettingsService
         if (apiKeys.findAll().stream().anyMatch(key -> key.alias().equals(trimmedAlias))) {
             throw new IllegalArgumentException("An API key named " + trimmedAlias + " already exists.");
         }
-        apiKeys.save(new ModelApiKey(trimmedAlias, provider, clock.instant()), secret);
+        apiKeys.save(new ModelApiKey(trimmedAlias, provider, SecretMasker.mask(secret), clock.instant()), secret);
         return get();
     }
 
@@ -332,7 +332,7 @@ public class ModelSettingsService
                 id,
                 key.alias(),
                 key.provider(),
-                apiKeys.findSecret(key.alias()).map(SecretMasker::mask).orElse(""),
+                key.maskedHint(),
                 key.createdAt(),
                 models,
                 selection.model(),

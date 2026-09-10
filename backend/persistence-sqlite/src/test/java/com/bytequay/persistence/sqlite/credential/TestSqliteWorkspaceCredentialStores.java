@@ -81,13 +81,13 @@ class TestSqliteWorkspaceCredentialStores
     void apiKeysListWithoutSecretsAndRejectDuplicates()
     {
         Instant createdAt = Instant.parse("2026-08-23T10:00:00Z");
-        apiKeys.save(new ModelApiKey("personal-deepseek", "DeepSeek", createdAt), "sk-secret");
+        apiKeys.save(new ModelApiKey("personal-deepseek", "DeepSeek", "sk-se••••••cret", createdAt), "sk-secret");
 
         assertThat(apiKeys.findAll())
-                .containsExactly(new ModelApiKey("personal-deepseek", "DeepSeek", createdAt));
+                .containsExactly(new ModelApiKey("personal-deepseek", "DeepSeek", "sk-se••••••cret", createdAt));
         assertThat(apiKeys.findSecret("personal-deepseek")).contains("sk-secret");
         assertThatThrownBy(() -> apiKeys.save(
-                new ModelApiKey("personal-deepseek", "DeepSeek", createdAt), "sk-other"))
+                new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt), "sk-other"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         apiKeys.delete("personal-deepseek");

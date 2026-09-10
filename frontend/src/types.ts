@@ -1077,8 +1077,20 @@ export type CodeGraphArmComparisonDto = {
   graphCalls: number | null;
   graphSeconds: number | null;
 };
-export type CodeGraphWorkspaceComparisonDto = { workspaceId: string; repository: string; arms: CodeGraphArmComparisonDto[] };
-export type CodeGraphComparisonDto = { workspaces: CodeGraphWorkspaceComparisonDto[] };
+export type CodeGraphRepositoryComparisonDto = { repository: string; arms: CodeGraphArmComparisonDto[] };
+export type CodeGraphComparisonDto = { repositories: CodeGraphRepositoryComparisonDto[] };
+/** How many repositories have a baseline index, and when the newest was last brought current. */
+export type CodeGraphBaselineDto = { repositories: number; updatedAt?: string | null };
+
+/** Dark has no palette yet; the picker offers System and Light. */
+export type AppThemeDto = 'SYSTEM' | 'LIGHT' | 'DARK';
+
+export type AppPreferencesDto = {
+  taskRetentionDays: number;
+  recentRetentionDays: number;
+  refreshIntervalMinutes: number;
+  theme: AppThemeDto;
+};
 
 export type QuietHoursDto = {
   enabled: boolean;
@@ -1086,9 +1098,12 @@ export type QuietHoursDto = {
   endMinute: number;
 };
 
+export type GitHubTokenSource = 'PERSONAL_ACCESS_TOKEN' | 'GITHUB_CLI';
+
 export type GitHubAccountDto = {
   configured: boolean;
   maskedToken?: string | null;
+  source: GitHubTokenSource;
 };
 
 export type GitDiffFileDto = {
@@ -1413,6 +1428,9 @@ export type Bridge = {
   getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
   saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
   getCodeGraphComparison: () => Promise<CodeGraphComparisonDto>;
+  getCodeGraphBaseline: () => Promise<CodeGraphBaselineDto>;
+  getAppPreferences: () => Promise<AppPreferencesDto>;
+  saveAppPreferences: (preferences: AppPreferencesDto) => Promise<AppPreferencesDto>;
   getGitHubAccount: () => Promise<GitHubAccountDto>;
   /** Copies the stored token to the clipboard in the main process; the renderer never sees it. */
   copyGitHubToken: () => Promise<boolean>;

@@ -20,7 +20,7 @@ import type {
   CodeGraphComparisonDto,
   CodeGraphMode,
   CodeGraphSettingDto,
-  CodeGraphWorkspaceComparisonDto,
+  CodeGraphRepositoryComparisonDto,
   GitHubAccountDto,
   ModelApiKeyDto,
   ModelOptionDto,
@@ -448,7 +448,8 @@ function GitHubAccountCard() {
             : <span className="sets-badge is-neutral">Not connected</span>}
           {configured && (
             <span className="sets-row-sub-inline">
-              {login ? <>as <strong>{login}</strong> · </> : null}personal access token
+              {login ? <>as <strong>{login}</strong> · </> : null}
+              {account?.source === 'GITHUB_CLI' ? 'GitHub CLI login' : 'personal access token'}
             </span>
           )}
         </div>
@@ -577,7 +578,7 @@ function CodeGraphCard() {
         cross-file structure in one call. Off hides the tool and stops indexing. Compare gives each new task
         the tool or not at random, so the table below can show whether it helps.
       </p>
-      {comparison?.workspaces.map(workspace => <CodeGraphComparisonTable key={workspace.workspaceId} workspace={workspace} />)}
+      {comparison?.repositories.map(entry => <CodeGraphComparisonTable key={entry.repository} entry={entry} />)}
       {error && <div className="sets-error" role="alert">{error}</div>}
     </section>
   );
@@ -593,11 +594,11 @@ const COMPARISON_COLUMNS: { label: string; value: (arm: CodeGraphArmComparisonDt
   { label: 'Graph s', value: arm => arm.graphSeconds, digits: 1 },
 ];
 
-/** One workspace's arms side by side; every number after the counts is a median per finished turn. */
-function CodeGraphComparisonTable({ workspace }: { workspace: CodeGraphWorkspaceComparisonDto }) {
+/** One repository's arms side by side; every number after the counts is a median per finished turn. */
+function CodeGraphComparisonTable({ entry }: { entry: CodeGraphRepositoryComparisonDto }) {
   return (
     <div className="sets-card-note">
-      <div className="sets-compare-title">{workspace.repository}</div>
+      <div className="sets-compare-title">{entry.repository}</div>
       <table className="sets-compare">
         <thead>
           <tr>
@@ -606,7 +607,7 @@ function CodeGraphComparisonTable({ workspace }: { workspace: CodeGraphWorkspace
           </tr>
         </thead>
         <tbody>
-          {workspace.arms.map(arm => (
+          {entry.arms.map(arm => (
             <tr key={arm.arm}>
               <td>{arm.arm === 'ON' ? 'Graph' : 'No graph'}{arm.smallSample ? ' *' : ''}</td>
               <td>{arm.taskCount}</td>

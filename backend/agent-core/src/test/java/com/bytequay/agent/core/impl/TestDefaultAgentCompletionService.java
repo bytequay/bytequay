@@ -528,6 +528,7 @@ class TestDefaultAgentCompletionService
                 runtimeRegistry,
                 new FixedMetrics(),
                 codeGraph,
+                () -> Duration.ofDays(7),
                 clock);
     }
 

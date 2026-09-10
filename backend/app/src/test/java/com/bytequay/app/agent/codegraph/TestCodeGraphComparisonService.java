@@ -32,7 +32,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.agent.codegraph.CodeGraphComparison.ArmComparison;
-import com.bytequay.app.agent.codegraph.CodeGraphComparison.WorkspaceComparison;
+import com.bytequay.app.agent.codegraph.CodeGraphComparison.RepositoryComparison;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -57,12 +57,12 @@ class TestCodeGraphComparisonService
     private int keys;
 
     @Test
-    void groupsStampedTasksByWorkspaceAndArmWithMediansPerFinishedTurn()
+    void groupsStampedTasksByRepositoryAndArmWithMediansPerFinishedTurn()
     {
         AgentTask on = task("workspace-a", CodeGraphArm.ON, NOW);
         AgentTask onAgain = task("workspace-a", CodeGraphArm.ON, NOW.plusSeconds(1));
         AgentTask off = task("workspace-a", CodeGraphArm.OFF, NOW.plusSeconds(2));
-        AgentTask elsewhere = task("workspace-b", CodeGraphArm.OFF, NOW.plusSeconds(3));
+        AgentTask elsewhere = task("workspace-b", "bytequay/other", CodeGraphArm.OFF, NOW.plusSeconds(3));
         when(tasks.listWithCodeGraphArm()).thenReturn(ImmutableList.of(on, onAgain, off, elsewhere));
         when(turns.list(on.id())).thenReturn(ImmutableList.of(
                 finished(on, 100, 10, new ToolCounters(4, 2, 1, 1500, 0), Duration.ofMinutes(2)),
@@ -74,9 +74,8 @@ class TestCodeGraphComparisonService
 
         CodeGraphComparison comparison = service.compare();
 
-        assertThat(comparison.workspaces()).extracting(WorkspaceComparison::workspaceId).containsExactly("workspace-a", "workspace-b");
-        WorkspaceComparison first = comparison.workspaces().getFirst();
-        assertThat(first.repository()).isEqualTo("bytequay/sample");
+        assertThat(comparison.repositories()).extracting(RepositoryComparison::repository).containsExactly("bytequay/sample", "bytequay/other");
+        RepositoryComparison first = comparison.repositories().getFirst();
         assertThat(first.arms()).extracting(ArmComparison::arm).containsExactly(CodeGraphArm.ON, CodeGraphArm.OFF);
         ArmComparison onArm = first.arms().getFirst();
         assertThat(onArm.taskCount()).isEqualTo(2);
@@ -95,10 +94,25 @@ class TestCodeGraphComparisonService
         assertThat(offArm.inputTokens()).contains(500.0);
         assertThat(offArm.graphCalls()).isEmpty();
         assertThat(offArm.graphSeconds()).isEmpty();
-        WorkspaceComparison second = comparison.workspaces().getLast();
+        RepositoryComparison second = comparison.repositories().getLast();
         assertThat(second.arms()).hasSize(1);
         assertThat(second.arms().getFirst().turnCount()).isZero();
         assertThat(second.arms().getFirst().inputTokens()).isEmpty();
+    }
+
+    @Test
+    void twoWorkspacesWatchingOneRepositoryShareOneComparison()
+    {
+        AgentTask here = task("workspace-a", "bytequay/sample", CodeGraphArm.ON, NOW);
+        AgentTask there = task("workspace-b", "bytequay/sample", CodeGraphArm.ON, NOW.plusSeconds(1));
+        when(tasks.listWithCodeGraphArm()).thenReturn(ImmutableList.of(here, there));
+        when(turns.list(here.id())).thenReturn(ImmutableList.of());
+        when(turns.list(there.id())).thenReturn(ImmutableList.of());
+
+        CodeGraphComparison comparison = service.compare();
+
+        assertThat(comparison.repositories()).extracting(RepositoryComparison::repository).containsExactly("bytequay/sample");
+        assertThat(comparison.repositories().getFirst().arms().getFirst().taskCount()).isEqualTo(2);
     }
 
     @Test
@@ -123,11 +137,16 @@ class TestCodeGraphComparisonService
 
     private static AgentTask task(String workspaceId, CodeGraphArm arm, Instant createdAt)
     {
+        return task(workspaceId, "bytequay/sample", arm, createdAt);
+    }
+
+    private static AgentTask task(String workspaceId, String repository, CodeGraphArm arm, Instant createdAt)
+    {
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,
                 workspaceId,
-                new RepositoryIdentity("bytequay", "sample"),
+                RepositoryIdentity.valueOf(repository),
                 Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");

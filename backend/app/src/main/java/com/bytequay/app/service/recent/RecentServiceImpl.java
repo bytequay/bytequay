@@ -14,6 +14,7 @@
 package com.bytequay.app.service.recent;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrViewState;
@@ -74,6 +75,7 @@ public class RecentServiceImpl
     private final PrViewStateStore viewStates;
     private final WorkspaceStore workspaces;
     private final CredentialService credentials;
+    private final AppSettingsService appSettings;
     private final Clock clock;
 
     public RecentServiceImpl(
@@ -83,6 +85,7 @@ public class RecentServiceImpl
             PrViewStateStore viewStates,
             WorkspaceStore workspaces,
             CredentialService credentials,
+            AppSettingsService appSettings,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -91,6 +94,7 @@ public class RecentServiceImpl
         this.viewStates = requireNonNull(viewStates, "viewStates is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -108,7 +112,7 @@ public class RecentServiceImpl
                 .filter(candidate -> cursor == null || !candidate.isAfter(cursor))
                 .findFirst();
         if (day.isEmpty()) {
-            return new RecentDayPage(null, ImmutableList.of(), null, true, activeDays, RETENTION_DAYS);
+            return new RecentDayPage(null, ImmutableList.of(), null, true, activeDays, retentionDays());
         }
         LocalDate selected = day.orElseThrow();
         LocalDate next = activeDays.stream().filter(candidate -> candidate.isBefore(selected)).findFirst().orElse(null);
@@ -116,7 +120,7 @@ public class RecentServiceImpl
                 .filter(touch -> touch.day().equals(selected))
                 .map(this::toRow)
                 .collect(toImmutableList());
-        return new RecentDayPage(selected, rows, next, next == null, activeDays, RETENTION_DAYS);
+        return new RecentDayPage(selected, rows, next, next == null, activeDays, retentionDays());
     }
 
     @Override
@@ -219,7 +223,13 @@ public class RecentServiceImpl
     @Override
     public LocalDate windowStart()
     {
-        return today().minusDays(RETENTION_DAYS - 1L);
+        return today().minusDays(retentionDays() - 1L);
+    }
+
+    /** How far back the record reaches. Rolling, local, clearable, and user-set. */
+    private int retentionDays()
+    {
+        return appSettings.recentRetentionDays();
     }
 
     // ── Stream filtering ──────────────────────────────────────────────────────
@@ -359,7 +369,8 @@ public class RecentServiceImpl
             score += tokenScore;
         }
         long ageDays = Math.max(Duration.between(touch.touchedAt(), now).toDays(), 0);
-        return score + Math.max(RETENTION_DAYS - ageDays, 0) / (double) RETENTION_DAYS * 2;
+        int window = retentionDays();
+        return score + Math.max(window - ageDays, 0) / (double) window * 2;
     }
 
     private static String lower(String value)

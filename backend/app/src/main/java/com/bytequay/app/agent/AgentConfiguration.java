@@ -54,6 +54,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
 import com.bytequay.app.agent.codegraph.CodeGraphProperties;
 import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
@@ -78,6 +79,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Supplier;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({AgentProperties.class, CodeGraphProperties.class})
@@ -154,7 +156,7 @@ public class AgentConfiguration
     }
 
     @Bean
-    public CodeGraphService codeGraphService(
+    public PinnedCodeGraphService codeGraphService(
             CodeGraphProperties properties,
             AgentProperties agentProperties,
             WorkspacePaths workspacePaths,
@@ -163,6 +165,17 @@ public class AgentConfiguration
         // The helper may read only its task's source and index below these roots: no other worktree, runtime, log, or provider file.
         CodeGraphCli cli = new CodeGraphCli(properties.bundleHome(), git, ImmutableList.of(agentProperties.runtimeRoot(), workspacePaths.root()));
         return new PinnedCodeGraphService(cli, git, agentProperties.runtimeRoot().resolve("codegraph-baselines"));
+    }
+
+    /**
+     * The settings page's read-only baseline readout. A supplier rather than a
+     * direct dependency so the settings controller does not reach into the
+     * turn-path service.
+     */
+    @Bean
+    public Supplier<CodeGraphBaseline> codeGraphBaselines(PinnedCodeGraphService codeGraph)
+    {
+        return codeGraph::baselines;
     }
 
     @Bean
@@ -329,6 +342,7 @@ public class AgentConfiguration
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
             CodeGraphService codeGraph,
+            AppSettingsService appSettings,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -344,6 +358,7 @@ public class AgentConfiguration
                 runtimeRegistry,
                 metricsService,
                 codeGraph,
+                appSettings::taskRuntimeRetention,
                 agentClock);
     }
 

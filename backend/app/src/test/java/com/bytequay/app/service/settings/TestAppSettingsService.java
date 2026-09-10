@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -59,6 +60,34 @@ class TestAppSettingsService
 
         assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.COMPARE);
         assertThat(rows).containsEntry("codegraph.mode", "COMPARE");
+    }
+
+    @Test
+    void preferencesDefaultAndRoundTripAsOneRow()
+    {
+        assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
+        assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(7));
+        assertThat(settings.recentRetentionDays()).isEqualTo(14);
+        assertThat(settings.refreshInterval()).isEqualTo(Duration.ofMinutes(6));
+
+        settings.savePreferences(new AppPreferences(30, 21, 15, AppTheme.LIGHT));
+
+        assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(30));
+        assertThat(settings.recentRetentionDays()).isEqualTo(21);
+        assertThat(settings.refreshInterval()).isEqualTo(Duration.ofMinutes(15));
+        assertThat(rows).containsKey("app.preferences");
+    }
+
+    @Test
+    void anUnreadableOrOutOfRangePreferenceRowFallsBackToTheDefault()
+    {
+        rows.put("app.preferences", "{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"refreshIntervalMinutes\":6,\"theme\":\"SYSTEM\"}");
+
+        assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
+
+        rows.put("app.preferences", "not json");
+
+        assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
     }
 
     @Test

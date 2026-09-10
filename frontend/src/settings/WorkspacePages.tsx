@@ -34,7 +34,7 @@ function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   );
 }
 
-export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemote, onRemoveRemote, onSaveTarget, onResetTarget }: {
+export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemote, onRemoveRemote, onSaveTarget, onResetTarget, onRename }: {
   workspace: WorkspaceDto;
   settings: WorkspaceSettingsDto | null;
   error: string | null;
@@ -42,19 +42,45 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
   onRemoveRemote: (remote: WorkspaceRemoteDto) => void;
   onSaveTarget: (branch: string) => void;
   onResetTarget: () => void;
+  onRename: (name: string) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [branch, setBranch] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const target = settings?.commitsTarget ?? null;
   const branchValue = branch ?? target?.branch ?? '';
+  const nameValue = workspaceName ?? workspace.name;
+
+  const commitName = () => {
+    const trimmed = nameValue.trim();
+    setWorkspaceName(null);
+    if (trimmed !== '' && trimmed !== workspace.name) onRename(trimmed);
+  };
 
   return (
     <div className="setw-page">
       <Eyebrow workspace={workspace} />
       <h1>Repository</h1>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
+
+      <SettingsCard>
+        <SettingsRow title="Name">
+          <input
+            className="setw-input"
+            aria-label="Workspace name"
+            style={{ width: 220 }}
+            value={nameValue}
+            onChange={event => setWorkspaceName(event.target.value)}
+            onBlur={commitName}
+            onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+          />
+        </SettingsRow>
+        <SettingsRow title="Local checkout">
+          <span className="setw-row-sub setw-mono">{workspace.localRepositoryPath}</span>
+        </SettingsRow>
+      </SettingsCard>
 
       <div className="setw-section"><span className="setw-section-title">Remotes</span></div>
       <SettingsCard footer={

@@ -449,6 +449,11 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               onResetTarget={() => {
                 window.bridge.clearWorkspaceCommitsTarget(workspace.id).then(loadWorkspaceSettings).catch(report);
               }}
+              onRename={name => {
+                window.bridge.renameWorkspace(workspace.id, name)
+                  .then(renamed => setWorkspaces(current => current.map(item => (item.id === renamed.id ? renamed : item))))
+                  .catch(report);
+              }}
             />
           )}
           {current === 'ws-agents' && workspace !== null && (

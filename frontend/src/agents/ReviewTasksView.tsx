@@ -62,6 +62,23 @@ export function ReviewTasksView({ workspaceId, onOpenReview }: {
 
 const STATUS_CLASSES = { running: 'is-running', warn: 'is-waiting', ready: 'is-idle', danger: 'is-failed', neutral: '' };
 
+type ReviewDateGroup = { label: string; reviews: AgentReviewDto[] };
+
+export function groupReviewsByDate(reviews: AgentReviewDto[], now: number): ReviewDateGroup[] {
+  const groups: ReviewDateGroup[] = ['Today', 'Yesterday', 'Recent 7 days', 'Recent 30 days', 'Older']
+    .map((label): ReviewDateGroup => ({ label, reviews: [] }));
+  // Compare local calendar dates without letting daylight-saving shifts change the day count.
+  const calendarDay = (date: Date): number => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000;
+  const today = calendarDay(new Date(now));
+  const ordered = [...reviews].sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt) || left.id.localeCompare(right.id));
+  for (const review of ordered) {
+    const daysAgo = today - calendarDay(new Date(review.createdAt));
+    const index = daysAgo <= 0 ? 0 : daysAgo === 1 ? 1 : daysAgo < 7 ? 2 : daysAgo < 30 ? 3 : 4;
+    groups[index].reviews.push(review);
+  }
+  return groups.filter(group => group.reviews.length > 0);
+}
+
 export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview, now = Date.now() }: {
   reviews: AgentReviewDto[];
   loading: boolean;
@@ -92,31 +109,33 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
       )}
       {reviews.length > 0 && (
         <div className="agt-groups">
-          <div className="agt-group">
-            <div className="agt-group__head">
-              <span className="agt-group__label">Pull request reviews</span>
-              <span className="agt-spacer" />
-              <span className="agt-group__count">{reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}</span>
+          {groupReviewsByDate(reviews, now).map(group => (
+            <div className="agt-group" key={group.label}>
+              <div className="agt-group__head">
+                <span className="agt-group__label">{group.label}</span>
+                <span className="agt-spacer" />
+                <span className="agt-group__count">{group.reviews.length} {group.reviews.length === 1 ? 'review' : 'reviews'}</span>
+              </div>
+              {group.reviews.map(review => {
+                const status = reviewStatus(review);
+                return (
+                  <button type="button" className="agt-trow agt-review-row" key={review.id} onClick={() => onOpenReview(review)}>
+                    <GitPullRequest className="agt-review-row__icon" size={16} aria-hidden="true" />
+                    <span className="agt-trow__title" title={`${review.repo} #${review.number}`}>{review.repo} #{review.number}</span>
+                    <span className="agt-mono agt-trow__meta">
+                      {review.task.laneLabel}{review.task.model === null ? '' : ` · ${displayModelName(review.task.model)}`}
+                      {' · started '}<time dateTime={review.createdAt} title={new Date(review.createdAt).toLocaleString()}>{relativeTime(review.createdAt, { now })}</time>
+                    </span>
+                    <span className={`agt-state ${STATUS_CLASSES[status.tone]}`} title={status.detail}>
+                      {status.busy && <LoaderCircle className="agt-spin" aria-hidden="true" />}
+                      {status.label}
+                    </span>
+                    <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
+                  </button>
+                );
+              })}
             </div>
-            {reviews.map(review => {
-              const status = reviewStatus(review);
-              return (
-                <button type="button" className="agt-trow agt-review-row" key={review.id} onClick={() => onOpenReview(review)}>
-                  <GitPullRequest className="agt-review-row__icon" size={16} aria-hidden="true" />
-                  <span className="agt-trow__title" title={`${review.repo} #${review.number}`}>{review.repo} #{review.number}</span>
-                  <span className="agt-mono agt-trow__meta">
-                    {review.task.laneLabel}{review.task.model === null ? '' : ` · ${displayModelName(review.task.model)}`}
-                    {' · started '}<time dateTime={review.createdAt} title={new Date(review.createdAt).toLocaleString()}>{relativeTime(review.createdAt, { now })}</time>
-                  </span>
-                  <span className={`agt-state ${STATUS_CLASSES[status.tone]}`} title={status.detail}>
-                    {status.busy && <LoaderCircle className="agt-spin" aria-hidden="true" />}
-                    {status.label}
-                  </span>
-                  <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
+          ))}
         </div>
       )}
     </section>

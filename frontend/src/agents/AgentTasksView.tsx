@@ -31,7 +31,7 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
-type TaskTab = 'active' | 'archived' | 'reviews';
+type TaskTab = 'active' | 'archived';
 
 /** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
 const AUTO_ARCHIVE_DAYS = 7;
@@ -823,19 +823,9 @@ export function AgentTaskList({
                 {label}<span className="agt-tab__count">{count}</span>
               </button>
             ))}
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === 'reviews'}
-              className={`agt-tab${tab === 'reviews' ? ' is-active' : ''}`}
-              onClick={() => switchTab('reviews')}
-            >
-              Review tasks
-            </button>
           </div>
         </div>
         {active && children}
-        {tab === 'reviews' ? reviewTasks : (
         <section className="agt-section" aria-label={active ? 'Agent tasks' : 'Archived tasks'}>
           <div className="agt-head">
             {selecting ? (
@@ -910,7 +900,7 @@ export function AgentTaskList({
             ))}
           </div>
         </section>
-        )}
+        {active && reviewTasks}
       </div>
 
       {/* Anchored under the list: sending this first message is what creates a task. */}

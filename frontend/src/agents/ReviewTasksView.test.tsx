@@ -15,7 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList } from './AgentTasksView';
-import { ReviewTaskList } from './ReviewTasksView';
+import { groupReviewsByDate, ReviewTaskList } from './ReviewTasksView';
 import { previewTask } from './fixtures/previewBridge';
 import { reviewFixture, runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 
@@ -33,8 +33,45 @@ const props = {
 };
 
 describe('workspace review tasks', () => {
-  it('opens a separate review list without interactive task controls or errors', () => {
-    const markup = renderToStaticMarkup(
+  it('groups by local creation date with non-overlapping ranges and newest reviews first', () => {
+    const now = new Date(2026, 8, 10, 0, 5).getTime();
+    const reviewDaysAgo = (id: string, daysAgo: number, hour = 23, minute = 59) => reviewFixture({
+      id,
+      createdAt: new Date(2026, 8, 10 - daysAgo, hour, minute).toISOString(),
+    });
+    const input = [
+      reviewDaysAgo('six-days', 6),
+      reviewDaysAgo('today-b', 0, 0, 0),
+      reviewDaysAgo('thirty-days', 30),
+      reviewDaysAgo('yesterday', 1),
+      reviewDaysAgo('seven-days', 7),
+      reviewDaysAgo('today-a', 0, 0, 0),
+      reviewDaysAgo('two-days', 2),
+      reviewDaysAgo('twenty-nine-days', 29),
+      reviewDaysAgo('future', -1),
+    ];
+    const original = structuredClone(input);
+
+    expect(groupReviewsByDate(input, now).map(group => ({ label: group.label, ids: group.reviews.map(review => review.id) }))).toEqual([
+      { label: 'Today', ids: ['future', 'today-a', 'today-b'] },
+      { label: 'Yesterday', ids: ['yesterday'] },
+      { label: 'Recent 7 days', ids: ['two-days', 'six-days'] },
+      { label: 'Recent 30 days', ids: ['seven-days', 'twenty-nine-days'] },
+      { label: 'Older', ids: ['thirty-days'] },
+    ]);
+    expect(input).toEqual(original);
+
+    const markup = renderToStaticMarkup(<ReviewTaskList {...props} reviews={input} now={now} />);
+    expect(Array.from(markup.matchAll(/class="agt-group__label">([^<]+)</g), match => match[1])).toEqual([
+      'Today', 'Yesterday', 'Recent 7 days', 'Recent 30 days', 'Older',
+    ]);
+    expect(Array.from(markup.matchAll(/class="agt-group__count">([^<]+)</g), match => match[1])).toEqual([
+      '3 reviews', '1 review', '2 reviews', '2 reviews', '1 review',
+    ]);
+  });
+
+  it('shows reviews as the third section on Active and leaves them out of Archived', () => {
+    const renderList = (initialTab: 'active' | 'archived') => renderToStaticMarkup(
       <AgentTaskList
         tasks={[{ ...previewTask('workspace-1', 'interactive-task'), title: 'Interactive task' }]}
         loading={false}
@@ -50,33 +87,47 @@ describe('workspace review tasks', () => {
         onSelectModel={() => {}}
         onCreate={() => {}}
         onOpenTask={() => {}}
-        initialTab="reviews"
+        initialTab={initialTab}
         reviewTasks={<ReviewTaskList {...props} />}
       >
-        <div>Cherry-pick executions</div>
+        <section aria-label="Cherry-pick executions">Cherry-pick executions</section>
       </AgentTaskList>,
     );
+    const markup = renderList('active');
 
-    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]*>Review tasks<\/button>/);
-    expect(markup).toContain('aria-label="Review tasks"');
+    expect(markup.match(/role="tab"/g)).toHaveLength(2);
+    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]*>Active<span/);
+    expect(Array.from(markup.matchAll(/<section\b[^>]*aria-label="([^"]+)"/g), match => match[1])).toEqual([
+      'Cherry-pick executions', 'Agent tasks', 'Review tasks',
+    ]);
     expect(markup).toContain('trinodb/trino #27365');
-    expect(markup).not.toContain('Interactive task');
-    expect(markup).not.toContain('Cherry-pick executions');
-    expect(markup).not.toContain('aria-label="Describe a task"');
-    expect(markup).not.toContain('Archive task:');
-    expect(markup).not.toContain('Delete task:');
+    expect(markup).toContain('Interactive task');
+    expect(markup).toContain('Interactive tasks unavailable');
+    expect(markup).toContain('aria-label="Describe a task"');
+
+    const archived = renderList('archived');
+    expect(archived).toContain('aria-label="Archived tasks"');
+    expect(archived).not.toContain('Review tasks');
+    expect(archived).not.toContain('trinodb/trino #27365');
+    expect(archived).not.toContain('Cherry-pick executions');
+    expect(archived).not.toContain('aria-label="Describe a task"');
   });
 
   it('keeps ended reviews visible and uses review status, provider, model, and recorded creation time', () => {
     const markup = renderToStaticMarkup(<ReviewTaskList {...props} />);
 
     expect(markup.match(/class="agt-trow agt-review-row"/g)).toHaveLength(2);
+    expect(markup.match(/class="agt-group__label"/g)).toHaveLength(1);
+    expect(markup).toContain('class="agt-group__label">Yesterday</span>');
     expect(markup).toContain('2 reviews');
     expect(markup).toContain('Running');
     expect(markup).toContain('Ended');
     expect(markup).toContain('Codex');
     expect(markup).toContain('gpt-5-codex');
     expect(markup).toContain(`started <time dateTime="${reviews[0].createdAt}"`);
+    expect(markup).not.toContain('aria-label="Describe a task"');
+    expect(markup).not.toContain('Archive task:');
+    expect(markup).not.toContain('Delete task:');
   });
 
   it('shows approval needs from the same status projection as the PR review', () => {
@@ -102,5 +153,6 @@ describe('workspace review tasks', () => {
     expect(empty).toContain('No review tasks yet');
     expect(empty).toContain('Start an agent review from a pull request');
     expect(empty).not.toContain('role="alert"');
+    expect(empty).not.toContain('class="agt-group"');
   });
 });

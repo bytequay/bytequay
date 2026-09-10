@@ -171,7 +171,12 @@
   padding: 34px 44px 48px;
 }
 
-.setw-page { max-width: 700px; }
+/* A fixed reading column, centred in whatever width the pane has: settings owns the
+   whole window now, so left-aligning it would strand every extra pixel on the right. */
+.setw-page {
+  max-width: 700px;
+  margin: 0 auto;
+}
 
 .setw-page h1 {
   margin: 0 0 22px;

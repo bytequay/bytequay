@@ -940,6 +940,7 @@ samp {
 
 .find-bar {
   position: fixed;
+  -webkit-app-region: no-drag;
   /* Above the zoomed pull-request pane (70) and the Home overlays (110),
      below modals (200), which trap focus and should cover the bar. */
   z-index: 150;

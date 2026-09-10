@@ -24,106 +24,6 @@
   background: #fff;
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────────────────── */
-
-.setw-side {
-  width: 242px;
-  flex: none;
-  background: #f4f4f6;
-  border-right: 1px solid #e5e5ea;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.setw-back {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 4px 10px 0;
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  border-radius: 7px;
-  font-size: 13.5px;
-  color: #1d1d1f;
-  cursor: pointer;
-  text-align: left;
-}
-
-.setw-back:hover { background: #e8e8ed; }
-
-.setw-search {
-  padding: 10px 12px 8px;
-  flex: none;
-}
-
-.setw-search-field {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  background: #fff;
-  border: 1px solid #e0e0e5;
-  border-radius: 8px;
-}
-
-.setw-search-field:focus-within { border-color: #0969da; }
-
-.setw-search-field input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: #1d1d1f;
-  width: 100%;
-  padding: 0;
-}
-
-.setw-nav {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px 10px 16px;
-}
-
-.setw-group {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: #8e8e93;
-  padding: 14px 10px 5px;
-}
-
-.setw-group:first-child { padding-top: 8px; }
-
-.setw-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6.5px 10px;
-  border: none;
-  border-radius: 7px;
-  font-size: 13.5px;
-  color: #1d1d1f;
-  cursor: pointer;
-  text-align: left;
-  background: transparent;
-}
-
-.setw-item:hover { background: #ececf1; }
-.setw-item.is-current { background: #e5e5ea; }
-.setw-item:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
-.setw-item svg { flex: none; }
-
-.setw-empty {
-  padding: 12px 10px;
-  font-size: 12.5px;
-  color: #a1a1a6;
-}
-
 /* ── Workspace picker ─────────────────────────────────────────────────────── */
 
 .setw-ws {
@@ -157,20 +57,9 @@
   white-space: nowrap;
 }
 
-/* ── Content pane ─────────────────────────────────────────────────────────── */
-
-.setw-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: #fff;
-  min-height: 0;
-}
-
+/* The settings content pane. .app-content clips, so this is what scrolls. */
 .setw-scroll {
-  flex: 1;
-  min-height: 0;
+  height: 100%;
   overflow: auto;
   padding: 34px 44px 48px;
 }

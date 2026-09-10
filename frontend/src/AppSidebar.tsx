@@ -12,11 +12,45 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
-import { CircleDot, GitBranch, History, House, LayoutGrid, ListChecks, PanelLeft, Settings, SquareCheck } from 'lucide-react';
+import {
+  Bot, ChevronDown, ChevronLeft, CircleDot, CircleUser, GitBranch, History, House, KeyRound,
+  LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  Sparkles, Sun, Tags, TriangleAlert,
+} from 'lucide-react';
 import Avatar from './Avatar';
+import RepoAvatar from './RepoAvatar';
 import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
+import {
+  SETTINGS_ENTRIES,
+  SETTINGS_GROUPS,
+  type SettingsSection,
+  matchesSearch,
+} from './settings/routes';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
+
+/** What the sidebar needs to be the settings window's nav. Absent on every other page. */
+export type SettingsNav = {
+  section: SettingsSection;
+  workspaces: WorkspaceDto[];
+  workspaceId: string | null;
+  onSection: (section: SettingsSection) => void;
+  onWorkspace: (workspaceId: string) => void;
+  onExit: () => void;
+};
+
+const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
+  general: <Settings size={16} strokeWidth={1.7} aria-hidden="true" />,
+  appearance: <Sun size={16} strokeWidth={1.7} aria-hidden="true" />,
+  models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
+  skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'code-graph': <Network size={16} strokeWidth={1.7} aria-hidden="true" />,
+  github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-token': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-advanced': <TriangleAlert size={16} strokeWidth={1.7} aria-hidden="true" />,
+};
 
 /** The window buttons, in whichever sidebar is currently flush with the window's left edge. */
 export function WindowControls() {
@@ -61,6 +95,7 @@ export default function AppSidebar({
   workspace,
   workspaceTab,
   onWorkspaceTab,
+  settings,
 }: {
   page: AppPage;
   onNavigate: (page: AppPage) => void;
@@ -71,8 +106,12 @@ export default function AppSidebar({
   workspace: WorkspaceDto | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
+  /** Present only while settings is open, when the sidebar becomes its category nav. */
+  settings?: SettingsNav;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [query, setQuery] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const sidebar = useResizablePane(222, 200, 420);
 
   const historyControls = (
@@ -122,6 +161,97 @@ export default function AppSidebar({
     );
   };
 
+  const settingsBody = settings === undefined ? null : (() => {
+    const visible = SETTINGS_ENTRIES.filter(entry => matchesSearch(entry, query));
+    const picked = settings.workspaces.find(candidate => candidate.id === settings.workspaceId)
+      ?? settings.workspaces[0]
+      ?? null;
+    return (
+      <>
+        <button type="button" className="app-sidebar__item" aria-label="Back to app" title="Back to app" onClick={settings.onExit}>
+          <span aria-hidden="true"><ChevronLeft size={16} strokeWidth={1.7} /></span>
+          <span className="app-sidebar__label">Back to app</span>
+        </button>
+        {!collapsed && (
+          <div className="app-sidebar__search">
+            <Search size={13} strokeWidth={2.2} aria-hidden="true" />
+            <input
+              value={query}
+              placeholder="Search settings"
+              aria-label="Search settings"
+              onChange={event => setQuery(event.target.value)}
+            />
+          </div>
+        )}
+        <nav className="app-sidebar__nav app-sidebar__nav--scroll" aria-label="Settings navigation">
+          {SETTINGS_GROUPS.map(group => {
+            const entries = visible.filter(entry => entry.group === group);
+            if (entries.length === 0) return null;
+            return (
+              <div key={group}>
+                {collapsed ? <div className="app-sidebar__rule" /> : <div className="app-sidebar__brand">{group}</div>}
+                {group === 'Workspace' && !collapsed && (
+                  <div className="app-sidebar__picker">
+                    <button
+                      type="button"
+                      className="setw-ws-button"
+                      aria-label="Workspace being edited"
+                      aria-expanded={pickerOpen}
+                      disabled={settings.workspaces.length === 0}
+                      onClick={() => setPickerOpen(open => !open)}
+                    >
+                      {picked === null
+                        ? <span className="setw-avatar" aria-hidden="true">?</span>
+                        : <RepoAvatar owner={picked.selectedOwner} repo={picked.selectedRepo} size={19} />}
+                      <span className="setw-ws-name">
+                        {picked === null ? 'No workspace' : `${picked.selectedOwner}/${picked.selectedRepo}`}
+                      </span>
+                      <ChevronDown size={12} strokeWidth={2.4} aria-hidden="true" />
+                    </button>
+                    {pickerOpen && (
+                      <div className="setw-menu is-left is-full" role="listbox">
+                        {settings.workspaces.map(candidate => (
+                          <button
+                            type="button"
+                            key={candidate.id}
+                            role="option"
+                            aria-selected={candidate.id === picked?.id}
+                            className="setw-menu-item"
+                            onClick={() => { setPickerOpen(false); settings.onWorkspace(candidate.id); }}
+                          >
+                            <RepoAvatar owner={candidate.selectedOwner} repo={candidate.selectedRepo} size={19} />
+                            <span className="setw-menu-label">{candidate.selectedOwner}/{candidate.selectedRepo}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {entries.map(entry => (
+                  <button
+                    key={entry.section}
+                    type="button"
+                    className={`app-sidebar__item${entry.section === settings.section ? ' is-active' : ''}`}
+                    aria-label={entry.label}
+                    aria-current={entry.section === settings.section ? 'page' : undefined}
+                    title={entry.label}
+                    onClick={() => settings.onSection(entry.section)}
+                  >
+                    <span aria-hidden="true">{SETTINGS_ICONS[entry.section]}</span>
+                    <span className="app-sidebar__label">{entry.label}</span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {visible.length === 0 && !collapsed && (
+            <div className="app-sidebar__empty">Nothing matches “{query}”.</div>
+          )}
+        </nav>
+      </>
+    );
+  })();
+
   return (
     <aside
       className={`app-sidebar${collapsed ? ' is-collapsed' : ''}${sidebar.resizing ? ' is-resizing' : ''}`}
@@ -164,6 +294,7 @@ export default function AppSidebar({
         )}
       </div>
       {collapsed && historyControls}
+      {settingsBody !== null ? settingsBody : <>
       <nav className="app-sidebar__nav" aria-label="Global navigation">
         {GLOBAL_NAV_ITEMS.map(navItem)}
         <div className="app-sidebar__rule" />
@@ -196,6 +327,7 @@ export default function AppSidebar({
           <div className="app-sidebar__spacer" />
         </>
       )}
+      </>}
       {!collapsed && (
         <div
           className="app-sidebar__resize"

@@ -36,7 +36,14 @@ import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
 import { splitRepo } from './recent/model';
 import SettingsWindow from './settings/SettingsWindow';
-import { settingsLocationFromRoute, type SettingsSection } from './settings/routes';
+import {
+  isWorkspaceSection,
+  readLastSection,
+  rememberSection,
+  settingsLocationFromRoute,
+  settingsRoute,
+  type SettingsSection,
+} from './settings/routes';
 import type { RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -68,6 +75,7 @@ export default function App() {
   const [page, setPage] = useState<AppPage>('home');
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(null);
+  const [settingsWorkspaces, setSettingsWorkspaces] = useState<WorkspaceDto[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
@@ -300,6 +308,33 @@ export default function App() {
     scrollToWrittenText(hit.id);
   };
 
+  // A bare `#/settings` reopens whichever page was last open.
+  const settingsPage = page === 'settings' ? settingsSection ?? readLastSection() : null;
+  const settingsWorkspace = settingsWorkspaces.find(candidate => candidate.id === settingsWorkspaceId)
+    ?? settingsWorkspaces[0]
+    ?? null;
+
+  useEffect(() => {
+    if (settingsPage === null) return;
+    rememberSection(settingsPage);
+  }, [settingsPage]);
+
+  const loadSettingsWorkspaces = useCallback(() => {
+    void window.bridge.listWorkspaces().then(setSettingsWorkspaces).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (page !== 'settings') return;
+    loadSettingsWorkspaces();
+  }, [loadSettingsWorkspaces, page]);
+
+  const goToSettings = useCallback((section: SettingsSection, workspaceId?: string | null) => {
+    window.location.hash = settingsRoute(
+      section,
+      isWorkspaceSection(section) ? (workspaceId ?? settingsWorkspaceId ?? settingsWorkspace?.id ?? null) : null,
+    );
+  }, [settingsWorkspace, settingsWorkspaceId]);
+
   if (status === 'checking') return <LogoLoading />;
   if (status === 'needs-pat') {
     return <OnboardingScreen onSaved={() => setStatus('ready')} />;
@@ -334,15 +369,6 @@ export default function App() {
   return (
     <>
     <div className="app-shell" inert={previewPr !== null}>
-      {page === 'settings' ? (
-        <SettingsWindow
-          section={settingsSection}
-          workspaceId={settingsWorkspaceId}
-          // Leaves settings outright. Going back through history would only walk the
-          // settings pages, because each one pushes its own entry.
-          onBack={() => { window.location.hash = '#/home'; }}
-        />
-      ) : <>
         <AppSidebar
           page={page}
           canGoBack={canGoBack(navigation)}
@@ -354,6 +380,14 @@ export default function App() {
             setPage(next);
             updateWorkspace(null);
             window.location.hash = `#/${next}`;
+          }}
+          settings={settingsPage === null ? undefined : {
+            section: settingsPage,
+            workspaces: settingsWorkspaces,
+            workspaceId: settingsWorkspace?.id ?? null,
+            onSection: goToSettings,
+            onWorkspace: id => { setSettingsWorkspaceId(id); goToSettings(settingsPage, id); },
+            onExit: () => { window.location.hash = '#/home'; },
           }}
           workspace={inWorkspace ? workspace : null}
           workspaceTab={workspaceTab}
@@ -401,8 +435,14 @@ export default function App() {
               onSelectIssue={selectWorkspaceIssue}
             />
           )}
-        </main>
-      </>}
+          {settingsPage !== null && (
+          <SettingsWindow
+            section={settingsPage}
+            workspace={settingsWorkspace}
+            onWorkspacesChanged={() => { setSettingsWorkspaceId(null); loadSettingsWorkspaces(); }}
+          />
+        )}
+      </main>
     </div>
       {previewPr !== null && (
         <PullsScreen

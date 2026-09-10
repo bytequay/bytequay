@@ -935,6 +935,49 @@ samp {
   margin: 5px 10px;
 }
 
+/* Settings supplies the sidebar's body; these are the parts only it renders. */
+.app-sidebar__nav--scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.app-sidebar__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 10px 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-4);
+}
+
+.app-sidebar__search:focus-within { border-color: var(--accent); }
+
+.app-sidebar__search input {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+
+.app-sidebar__picker { position: relative; padding: 0 8px 2px; }
+
+.app-sidebar__empty { padding: 10px 12px; color: var(--text-4); font-size: 12.5px; }
+
+/* Sidebar rows are focusable controls, and this family rings them individually. */
+.app-sidebar__item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.app-sidebar.is-collapsed .app-sidebar__brand,
+.app-sidebar.is-collapsed .app-sidebar__search,
+.app-sidebar.is-collapsed .app-sidebar__picker { display: none; }
+
 .app-sidebar.is-collapsed .app-sidebar__nav { padding: 6px; }
 .app-sidebar.is-collapsed .app-sidebar__item { justify-content: center; gap: 0; padding: 7px 0; }
 

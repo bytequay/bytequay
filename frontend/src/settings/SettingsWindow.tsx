@@ -11,22 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Bot,
-  ChevronDown,
-  ChevronLeft,
-  CircleUser,
-  KeyRound,
-  Network,
-  Search,
-  Settings as SettingsIcon,
-  Sparkles,
-  SquareLibrary,
-  Sun,
-  Tags,
-  TriangleAlert,
-} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   AgentModelType,
   AgentSkillDto,
@@ -41,8 +26,6 @@ import type {
   WorkspaceRemoteDto,
   WorkspaceSettingsDto,
 } from '../types';
-import { WindowControls } from '../AppSidebar';
-import RepoAvatar from '../RepoAvatar';
 import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
@@ -56,59 +39,20 @@ import {
   WorkspaceRepositoryPage,
   WorkspaceTokenPage,
 } from './WorkspacePages';
-import {
-  SETTINGS_ENTRIES,
-  SETTINGS_GROUPS,
-  type SettingsSection,
-  isWorkspaceSection,
-  matchesSearch,
-  settingsLocationFromRoute,
-  settingsRoute,
-} from './routes';
+import { isWorkspaceSection, settingsLocationFromRoute, type SettingsSection } from './routes';
 import '../css/settings-window.css';
-
-/** Which page the window reopens on. Personal, this Mac, not worth a backend row. */
-const LAST_SECTION_KEY = 'bytequay.settings.section';
-
-const ICONS: Record<SettingsSection, typeof SettingsIcon> = {
-  general: SettingsIcon,
-  appearance: Sun,
-  models: Sparkles,
-  skills: SquareLibrary,
-  'code-graph': Network,
-  github: CircleUser,
-  'ws-repository': Tags,
-  'ws-agents': Bot,
-  'ws-token': KeyRound,
-  'ws-advanced': TriangleAlert,
-};
-
-function readLastSection(): SettingsSection {
-  try {
-    const stored = window.localStorage.getItem(LAST_SECTION_KEY);
-    if (stored !== null && SETTINGS_ENTRIES.some(entry => entry.section === stored)) {
-      return stored as SettingsSection;
-    }
-  }
-  catch { /* a private window has no storage; the default is as good an answer */ }
-  return 'models';
-}
 
 function clockTime(at: Date): string {
   return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function SettingsWindow({ section, workspaceId, onBack }: {
-  section: SettingsSection | null;
-  /** The workspace a deep link named, or null to use whichever the picker last chose. */
-  workspaceId: string | null;
-  onBack: () => void;
+export default function SettingsWindow({ section, workspace, onWorkspacesChanged }: {
+  section: SettingsSection;
+  /** Resolved by the shell, because its sidebar owns the workspace picker. */
+  workspace: WorkspaceDto | null;
+  /** Renaming, unwatching or deleting changes the list the picker shows. */
+  onWorkspacesChanged: () => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [current, setCurrent] = useState<SettingsSection>(section ?? readLastSection());
-  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
-  const [pickedWorkspace, setPickedWorkspace] = useState<string | null>(workspaceId);
-  const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
@@ -137,23 +81,10 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
     setError(failure instanceof Error ? failure.message : String(failure));
   }, []);
 
-  // A deep link wins over the remembered page; a bare `#/settings` keeps what is open.
-  useEffect(() => { if (section !== null) setCurrent(section); }, [section]);
-  useEffect(() => { if (workspaceId !== null) setPickedWorkspace(workspaceId); }, [workspaceId]);
-  useEffect(() => {
-    try { window.localStorage.setItem(LAST_SECTION_KEY, current); }
-    catch { /* storage is a convenience here, never a requirement */ }
-  }, [current]);
-
-  const go = useCallback((next: SettingsSection, workspace?: string | null) => {
-    setCurrent(next);
-    setError(null);
-    window.location.hash = settingsRoute(next, isWorkspaceSection(next) ? (workspace ?? pickedWorkspace) : null);
-  }, [pickedWorkspace]);
+  useEffect(() => setError(null), [section]);
 
   useEffect(() => {
     void window.bridge.getAppVersion().then(value => setVersion(value.version)).catch(() => {});
-    void window.bridge.listWorkspaces().then(setWorkspaces).catch(() => {});
     void window.bridge.getAppPreferences().then(setPreferences).catch(report);
   }, [report]);
 
@@ -166,21 +97,21 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   }, [report]);
 
   useEffect(() => {
-    if (current !== 'models' && current !== 'ws-agents') return;
+    if (section !== 'models' && section !== 'ws-agents') return;
     loadModels();
-  }, [current, loadModels]);
+  }, [section, loadModels]);
 
   useEffect(() => {
-    if (current !== 'skills') return;
+    if (section !== 'skills') return;
     void window.bridge.getAgentSkills().then(setSkills).catch(report);
-  }, [current, report]);
+  }, [section, report]);
 
   useEffect(() => {
-    if (current !== 'code-graph') return;
+    if (section !== 'code-graph') return;
     void window.bridge.getCodeGraphSetting().then(value => setGraphMode(value.mode)).catch(report);
     void window.bridge.getCodeGraphBaseline().then(setBaseline).catch(() => {});
     void window.bridge.getCodeGraphComparison().then(value => setComparison(value.repositories)).catch(() => {});
-  }, [current, report]);
+  }, [section, report]);
 
   const loadAccount = useCallback(() => {
     void window.bridge.getGitHubAccount()
@@ -195,18 +126,16 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   }, [report]);
 
   useEffect(() => {
-    if (current !== 'github' && current !== 'ws-token') return;
+    if (section !== 'github' && section !== 'ws-token') return;
     loadAccount();
     void window.bridge.getQuietHours().then(setQuietHours).catch(() => {});
-  }, [current, loadAccount]);
+  }, [section, loadAccount]);
 
-  const workspace = workspaces.find(candidate => candidate.id === pickedWorkspace) ?? workspaces[0] ?? null;
-
-  const workspaceId_ = workspace?.id ?? null;
+    const workspaceId_ = workspace?.id ?? null;
 
   /**
    * Re-reads the workspace after something on the page changed it. It leaves the
-   * current values on screen while the answer is in flight, because the page is
+   * section values on screen while the answer is in flight, because the page is
    * already showing this workspace.
    */
   const refreshWorkspaceSettings = useCallback(() => {
@@ -222,19 +151,14 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   // Clearing and loading live in one effect keyed on the workspace: separating them is how
   // re-picking the workspace already open blanked the page with nothing left to refill it.
   useEffect(() => {
-    if (!isWorkspaceSection(current) || workspaceId_ === null) return;
+    if (!isWorkspaceSection(section) || workspaceId_ === null) return;
     let active = true;
     setWsSettings(null);
     window.bridge.getWorkspaceSettings(workspaceId_)
       .then(value => { if (active) setWsSettings(value); })
       .catch(failure => { if (active) report(failure); });
     return () => { active = false; };
-  }, [current, report, workspaceId_]);
-
-  const visible = useMemo(
-    () => SETTINGS_ENTRIES.filter(entry => matchesSearch(entry, query)),
-    [query],
-  );
+  }, [section, report, workspaceId_]);
 
   const chooseModel = (type: AgentModelType, choice: ModelChoice) => {
     setError(null);
@@ -264,99 +188,9 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
   };
 
   return (
-    <div className="setw">
-      <aside className="setw-side">
-        {/* Settings takes the whole left edge, so it owns the window buttons while it is open. */}
-        <div className="app-sidebar__traffic"><WindowControls /></div>
-        <button type="button" className="setw-back" onClick={onBack}>
-          <ChevronLeft size={15} strokeWidth={2} color="#8e8e93" />
-          <span>Back to app</span>
-        </button>
-        <div className="setw-search">
-          <div className="setw-search-field">
-            <Search size={13} strokeWidth={2.2} color="#a1a1a6" />
-            <input
-              value={query}
-              placeholder="Search settings"
-              aria-label="Search settings"
-              onChange={event => setQuery(event.target.value)}
-            />
-          </div>
-        </div>
-        <nav className="setw-nav" aria-label="Settings categories">
-          {SETTINGS_GROUPS.map(group => {
-            const entries = visible.filter(entry => entry.group === group);
-            if (entries.length === 0) return null;
-            return (
-              <div key={group}>
-                <div className="setw-group">{group}</div>
-                {group === 'Workspace' && (
-                  <div className="setw-ws">
-                    <button
-                      type="button"
-                      className="setw-ws-button"
-                      aria-label="Workspace being edited"
-                      aria-expanded={wsMenuOpen}
-                      disabled={workspaces.length === 0}
-                      onClick={() => setWsMenuOpen(open => !open)}
-                    >
-                      {workspace === null
-                        ? <span className="setw-avatar" aria-hidden="true">?</span>
-                        : <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={19} />}
-                      <span className="setw-ws-name">
-                        {workspace === null ? 'No workspace' : `${workspace.selectedOwner}/${workspace.selectedRepo}`}
-                      </span>
-                      <ChevronDown size={12} strokeWidth={2.4} color="#8e8e93" />
-                    </button>
-                    {wsMenuOpen && (
-                      <div className="setw-menu is-left is-full" role="listbox">
-                        {workspaces.map(candidate => (
-                          <button
-                            type="button"
-                            key={candidate.id}
-                            role="option"
-                            aria-selected={candidate.id === workspace?.id}
-                            className="setw-menu-item"
-                            onClick={() => {
-                              // Switching the workspace must not leave the page the user is on.
-                              setWsMenuOpen(false);
-                              setPickedWorkspace(candidate.id);
-                              if (isWorkspaceSection(current)) go(current, candidate.id);
-                            }}
-                          >
-                            <RepoAvatar owner={candidate.selectedOwner} repo={candidate.selectedRepo} size={19} />
-                            <span className="setw-menu-label">{candidate.selectedOwner}/{candidate.selectedRepo}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {entries.map(entry => {
-                  const Icon = ICONS[entry.section];
-                  return (
-                    <button
-                      type="button"
-                      key={entry.section}
-                      className={`setw-item${entry.section === current ? ' is-current' : ''}`}
-                      aria-current={entry.section === current ? 'page' : undefined}
-                      onClick={() => go(entry.section)}
-                    >
-                      <Icon size={16} strokeWidth={1.9} color="#6e6e73" />
-                      <span>{entry.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            );
-          })}
-          {visible.length === 0 && <div className="setw-empty">Nothing matches “{query}”.</div>}
-        </nav>
-      </aside>
-
-      <main className="setw-main">
-        <div className="setw-scroll">
-          {current === 'general' && preferences !== null && (
+    <>
+    <div className="setw-scroll">
+          {section === 'general' && preferences !== null && (
             <GeneralPage
               preferences={preferences}
               version={version}
@@ -372,10 +206,10 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               }}
             />
           )}
-          {current === 'appearance' && preferences !== null && (
+          {section === 'appearance' && preferences !== null && (
             <AppearancePage preferences={preferences} error={error} onChange={savePreferences} />
           )}
-          {current === 'models' && models !== null && (
+          {section === 'models' && models !== null && (
             <ModelsPage
               settings={models}
               checking={checking}
@@ -397,7 +231,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               }}
             />
           )}
-          {current === 'skills' && (
+          {section === 'skills' && (
             <SkillsPage
               skills={skills ?? []}
               busy={skillsBusy}
@@ -421,7 +255,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               }}
             />
           )}
-          {current === 'code-graph' && graphMode !== null && (
+          {section === 'code-graph' && graphMode !== null && (
             <CodeGraphPage
               mode={graphMode}
               baseline={baseline}
@@ -433,7 +267,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               }}
             />
           )}
-          {current === 'github' && preferences !== null && (
+          {section === 'github' && preferences !== null && (
             <GitHubPage
               account={account}
               login={login}
@@ -452,13 +286,13 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
             />
           )}
 
-          {isWorkspaceSection(current) && workspace === null && (
+          {isWorkspaceSection(section) && workspace === null && (
             <div className="setw-page">
               <h1>Workspace</h1>
               <div className="setw-row-empty">Watch a repository to get workspace settings.</div>
             </div>
           )}
-          {current === 'ws-repository' && workspace !== null && (
+          {section === 'ws-repository' && workspace !== null && (
             <WorkspaceRepositoryPage
               workspace={workspace}
               settings={wsSettings}
@@ -481,13 +315,11 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
                 window.bridge.clearWorkspaceCommitsTarget(workspace.id).then(refreshWorkspaceSettings).catch(report);
               }}
               onRename={name => {
-                window.bridge.renameWorkspace(workspace.id, name)
-                  .then(renamed => setWorkspaces(current => current.map(item => (item.id === renamed.id ? renamed : item))))
-                  .catch(report);
+                window.bridge.renameWorkspace(workspace.id, name).then(onWorkspacesChanged).catch(report);
               }}
             />
           )}
-          {current === 'ws-agents' && workspace !== null && (
+          {section === 'ws-agents' && workspace !== null && (
             <WorkspaceAgentsPage
               workspace={workspace}
               settings={wsSettings}
@@ -502,7 +334,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               onCheck={loadModels}
             />
           )}
-          {current === 'ws-token' && workspace !== null && (
+          {section === 'ws-token' && workspace !== null && (
             <WorkspaceTokenPage
               workspace={workspace}
               settings={wsSettings}
@@ -518,7 +350,7 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               onCopy={() => copyToken(window.bridge.copyWorkspaceGitHubToken(workspace.id))}
             />
           )}
-          {current === 'ws-advanced' && workspace !== null && (
+          {section === 'ws-advanced' && workspace !== null && (
             <WorkspaceAdvancedPage
               workspace={workspace}
               busy={wsBusy}
@@ -527,10 +359,8 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
               onDelete={() => setDeleting(true)}
             />
           )}
-        </div>
-      </main>
-
-      {unwatching && workspace !== null && (
+    </div>
+    {unwatching && workspace !== null && (
         <UnwatchWorkspaceDialog
           workspace={workspace}
           busy={wsBusy}
@@ -538,29 +368,21 @@ export default function SettingsWindow({ section, workspaceId, onBack }: {
           onConfirm={() => {
             setWsBusy(true);
             window.bridge.removeWorkspace(workspace.id)
-              .then(() => {
-                setUnwatching(false);
-                setPickedWorkspace(null);
-                return window.bridge.listWorkspaces().then(setWorkspaces);
-              })
+              .then(() => { setUnwatching(false); onWorkspacesChanged(); })
               .catch(report)
               .finally(() => setWsBusy(false));
           }}
           onCancel={() => setUnwatching(false)}
         />
-      )}
-      {deleting && workspace !== null && (
+    )}
+    {deleting && workspace !== null && (
         <DeleteWorkspaceDialog
           workspace={workspace}
-          onDeleted={() => {
-            setDeleting(false);
-            setPickedWorkspace(null);
-            void window.bridge.listWorkspaces().then(setWorkspaces);
-          }}
+          onDeleted={() => { setDeleting(false); onWorkspacesChanged(); }}
           onCancel={() => setDeleting(false)}
         />
-      )}
-    </div>
+    )}
+    </>
   );
 }
 

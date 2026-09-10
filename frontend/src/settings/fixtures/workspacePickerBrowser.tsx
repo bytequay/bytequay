@@ -11,9 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { WorkspaceSettingsDto } from '../../types';
+import AppSidebar from '../../AppSidebar';
+import type { WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -58,18 +60,55 @@ function stubBridge(reads: string[]) {
   Object.defineProperty(window, 'bridge', { value: bridge, configurable: true });
 }
 
-function fixture(reads: string[], onBack: () => void = () => {}) {
+/**
+ * The app's own composition: one sidebar beside the content pane. Mounting
+ * SettingsWindow alone would no longer exercise the picker — settings shares the
+ * app sidebar instead of carrying one of its own.
+ */
+function Harness({ exits }: { exits: () => void }) {
+  const [workspaceId, setWorkspaceId] = useState('ws-1');
+  const picked = (WORKSPACES.find(candidate => candidate.id === workspaceId) ?? WORKSPACES[0]) as WorkspaceDto;
+  return (
+    <>
+      <AppSidebar
+        page="settings"
+        onNavigate={() => {}}
+        canGoBack={false}
+        canGoForward={false}
+        onBack={() => {}}
+        onForward={() => {}}
+        workspace={null}
+        workspaceTab="home"
+        onWorkspaceTab={() => {}}
+        settings={{
+          section: 'ws-repository',
+          workspaces: WORKSPACES as WorkspaceDto[],
+          workspaceId: picked.id,
+          onSection: () => {},
+          onWorkspace: setWorkspaceId,
+          onExit: exits,
+        }}
+      />
+      <main className="app-content">
+        <SettingsWindow section="ws-repository" workspace={picked} onWorkspacesChanged={() => {}} />
+      </main>
+    </>
+  );
+}
+
+function fixture(reads: string[], onExit: () => void = () => {}) {
   stubBridge(reads);
   const host = document.createElement('div');
   host.className = 'app-shell';
   host.style.cssText = 'display:flex;height:600px;width:1200px;overflow:hidden';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<SettingsWindow section="ws-repository" workspaceId="ws-1" onBack={onBack} />));
+  flushSync(() => root.render(<Harness exits={onExit} />));
 
   return {
     host,
     text: () => host.textContent ?? '',
+    sidebar: () => host.querySelector<HTMLElement>('.app-sidebar'),
     async click(label: string) {
       const button = [...host.querySelectorAll('button')]
         .find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label);
@@ -77,24 +116,38 @@ function fixture(reads: string[], onBack: () => void = () => {}) {
       button.click();
       await settle();
     },
-    /** Options carry an avatar initial in their text, so they are matched on their label alone. */
+    /** Options carry an avatar in their text, so they are matched on their label alone. */
     async pick(label: string) {
-      const option = [...host.querySelectorAll('.setw-ws .setw-menu-item')]
+      const option = [...host.querySelectorAll('.setw-menu-item')]
         .find(item => item.querySelector('.setw-menu-label')?.textContent?.trim() === label);
       assert(option instanceof HTMLButtonElement && !option.disabled, `Workspace ${label} must be offered`);
       option.click();
       await settle();
     },
-    menu: () => host.querySelector<HTMLElement>('.setw-ws .setw-menu'),
+    menu: () => host.querySelector<HTMLElement>('.setw-menu'),
+    /** Drags the sidebar's right edge the way a person would. */
+    async dragBoundary(byPixels: number) {
+      const handle = host.querySelector('.app-sidebar__resize');
+      assert(handle !== null, 'The sidebar must have a resize handle');
+      const from = handle.getBoundingClientRect().left;
+      handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: from }));
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: from + byPixels }));
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await settle();
+    },
     dispose() { flushSync(() => root.unmount()); host.remove(); },
   };
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
-  const check = async (name: string, test: (view: ReturnType<typeof fixture>, reads: string[]) => Promise<void>) => {
+  const check = async (
+    name: string,
+    test: (view: ReturnType<typeof fixture>, reads: string[]) => Promise<void>,
+    onExit?: () => void,
+  ) => {
     const reads: string[] = [];
-    const view = fixture(reads);
+    const view = fixture(reads, onExit);
     try {
       await settle();
       await settle();
@@ -129,6 +182,26 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(!view.text().includes('Loading remotes'), 'The page must not stay in its loading state');
   });
 
+  await check('the workspace menu is not clipped by the sidebar it opens in', async view => {
+    await view.click('Workspace being edited');
+    const menu = view.menu();
+    assert(menu !== null, 'The menu must open');
+    const side = view.sidebar();
+    assert(side !== null, 'The settings nav must be the app sidebar');
+    // An ancestor that scrolls clips an absolutely positioned menu at its padding box.
+    const clip = side.getBoundingClientRect();
+    const box = menu.getBoundingClientRect();
+    assert(
+      Math.round(box.right) <= Math.round(clip.right) && Math.round(box.left) >= Math.round(clip.left),
+      `The menu overflows the sidebar horizontally by ${Math.round(box.right - clip.right)}px`,
+    );
+    assert(
+      Math.round(box.bottom) <= Math.round(clip.bottom),
+      `The menu overflows the sidebar bottom by ${Math.round(box.bottom - clip.bottom)}px and is clipped`,
+    );
+    assert(box.width > 100, `The menu collapsed to ${Math.round(box.width)}px`);
+  });
+
   await (async () => {
     const name = 'Back to app leaves settings through its own handler';
     let left = 0;
@@ -143,20 +216,35 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { view.dispose(); }
   })();
 
-  await check('the workspace menu is not clipped by the sidebar it opens in', async view => {
-    await view.click('Workspace being edited');
-    const menu = view.menu();
-    assert(menu !== null, 'The menu must open');
-    const nav = view.host.querySelector('.setw-nav');
-    assert(nav !== null, 'The sidebar nav must exist');
-    // An ancestor that scrolls clips an absolutely positioned menu at its padding box.
-    const clip = nav.getBoundingClientRect();
-    const box = menu.getBoundingClientRect();
+  await check('the settings boundary drags, because it is the app sidebar', async view => {
+    const side = view.sidebar();
+    assert(side !== null, 'The settings nav must be the app sidebar');
+    const before = side.getBoundingClientRect().width;
+
+    await view.dragBoundary(60);
+
+    const after = side.getBoundingClientRect().width;
+    assert(after > before, `Dragging the boundary must widen the sidebar, ${before} -> ${after}`);
+  });
+
+  await check('settings shares the sidebar rather than carrying its own', async view => {
+    assert(view.host.querySelectorAll('.app-sidebar').length === 1, 'There must be exactly one sidebar');
+    assert(view.host.querySelector('.setw-side') === null, 'The settings-only sidebar must be gone');
+    // Shares the chrome, not the app's own tabs.
+    assert(view.host.querySelector('[aria-label="Settings navigation"]') !== null, 'Settings supplies the nav body');
+    assert(view.host.querySelector('[aria-label="Global navigation"]') === null, 'Settings must not show the app tabs');
+    assert(view.host.querySelector('.app-sidebar__resize') !== null, 'The shared resize handle must be present');
+
+    // The pane scrolls inside .app-content rather than pushing past it.
+    const pane = view.host.querySelector('.setw-scroll');
+    assert(pane !== null, 'The settings content pane must be present');
+    const content = view.host.querySelector('.app-content');
+    assert(content !== null, 'Settings must sit in the shell content area');
     assert(
-      Math.round(box.right) <= Math.round(clip.right),
-      `The menu overflows the scrolling nav by ${Math.round(box.right - clip.right)}px and is clipped`,
+      Math.round(pane.getBoundingClientRect().bottom) <= Math.round(content.getBoundingClientRect().bottom),
+      'The settings pane must not overflow the content area',
     );
-    assert(box.width > 100, `The menu collapsed to ${Math.round(box.width)}px`);
+    assert(getComputedStyle(pane).overflowY === 'auto', 'The settings pane must be what scrolls');
   });
 
   return results;

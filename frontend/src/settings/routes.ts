@@ -153,6 +153,25 @@ export function settingsLocationFromRoute(hash: string): { section: SettingsSect
   return entry === undefined ? { section: null, workspaceId: null } : { section: entry.section, workspaceId: null };
 }
 
+/** Which page settings reopens on. Personal, this Mac, not worth a backend row. */
+const LAST_SECTION_KEY = 'bytequay.settings.section';
+
+export function readLastSection(): SettingsSection {
+  try {
+    const stored = window.localStorage.getItem(LAST_SECTION_KEY);
+    if (stored !== null && SETTINGS_ENTRIES.some(entry => entry.section === stored)) {
+      return stored as SettingsSection;
+    }
+  }
+  catch { /* a private window has no storage; the default is as good an answer */ }
+  return 'models';
+}
+
+export function rememberSection(section: SettingsSection): void {
+  try { window.localStorage.setItem(LAST_SECTION_KEY, section); }
+  catch { /* storage is a convenience here, never a requirement */ }
+}
+
 /** Sidebar filtering: a page matches when its own label matches, or when one of its rows does. */
 export function matchesSearch(entry: SettingsEntry, query: string): boolean {
   const trimmed = query.trim().toLowerCase();

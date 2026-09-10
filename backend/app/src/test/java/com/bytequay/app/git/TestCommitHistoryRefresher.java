@@ -139,7 +139,7 @@ class TestCommitHistoryRefresher
     {
         Commit commit = commit("abc123", NOW.minusSeconds(60));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
-        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300))
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(
                         ImmutableList.of(new CommitAvatar(
                                 commit.sha(),
@@ -175,8 +175,57 @@ class TestCommitHistoryRefresher
         InOrder order = inOrder(provisioning, git, gitHub, pullRequests);
         order.verify(provisioning).synchronizeCode(WORKSPACE_ID);
         order.verify(git).log(REPOSITORY, "origin/main", 300);
-        order.verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300);
+        order.verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, commit.sha(), 1);
         order.verify(pullRequests).lookUpResult(eq(SELECTED), eq(ImmutableList.of(commit.sha())), eq("main"), anyList());
+    }
+
+    @Test
+    void refreshReusesFreshIdentitiesWithoutExtendingTheirFreshness()
+    {
+        Instant checkedAt = NOW.minusSeconds(300);
+        Commit commit = commit("cached", NOW.minusSeconds(600));
+        store.upsertEnrichment(ImmutableList.of(positive(101, commit.sha(), checkedAt)));
+        when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
+        when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of()), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
+
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+
+        assertThat(status.state()).isEqualTo(IDLE);
+        verify(provisioning).synchronizeCode(WORKSPACE_ID);
+        verifyNoInteractions(gitHub, avatars);
+        assertThat(store.values()).singleElement().satisfies(value -> {
+            assertThat(value.avatarCheckedAt()).contains(checkedAt);
+            assertThat(value.pullRequestNumber()).contains(42);
+        });
+    }
+
+    @Test
+    void fetchesIdentitiesOnlyThroughTheOldestCommitDueForRefresh()
+    {
+        Commit newCommit = commit("new", NOW.minusSeconds(60));
+        Commit freshCommit = commit("fresh", NOW.minusSeconds(600));
+        Commit staleCommit = commit("stale", NOW.minusSeconds(3_600));
+        Commit oldCommit = commit("old", NOW.minusSeconds(7_200));
+        Instant freshCheckedAt = NOW.minusSeconds(300);
+        store.upsertEnrichment(ImmutableList.of(
+                positive(101, freshCommit.sha(), freshCheckedAt),
+                positive(101, staleCommit.sha(), NOW.minusSeconds(86_400)),
+                positive(101, oldCommit.sha(), freshCheckedAt)));
+        when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(newCommit, freshCommit, staleCommit, oldCommit));
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, newCommit.sha(), 3))
+                .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
+        when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of(newCommit.sha())), eq("main"), anyList()))
+                .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
+
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+
+        assertThat(status.state()).isEqualTo(IDLE);
+        verify(gitHub).fetchCommitAvatarSnapshot("test-token", SELECTED, newCommit.sha(), 3);
+        assertThat(store.findEnrichment(101, ImmutableList.of(newCommit.sha(), freshCommit.sha(), staleCommit.sha())).commits())
+                .allSatisfy(value -> assertThat(value.avatarCheckedAt()).contains(NOW));
+        assertThat(store.findEnrichment(101, ImmutableList.of(oldCommit.sha())).commits())
+                .singleElement().satisfies(value -> assertThat(value.avatarCheckedAt()).contains(freshCheckedAt));
     }
 
     @Test
@@ -243,7 +292,7 @@ class TestCommitHistoryRefresher
     void providerFailureRetainsTheLastSnapshotAndSuccessTime()
     {
         Instant previousSuccess = NOW.minusSeconds(300);
-        CommitEnrichment previous = negative("abc123", NOW.minusSeconds(120), NOW.minusSeconds(60));
+        CommitEnrichment previous = negative("abc123", NOW.minusSeconds(86_400), NOW.minusSeconds(60));
         store.upsertEnrichment(ImmutableList.of(previous));
         store.saveRefreshMetadata(new CommitRefreshMetadata(
                 WORKSPACE_ID,
@@ -252,7 +301,7 @@ class TestCommitHistoryRefresher
                 Optional.empty()));
         Commit commit = commit(previous.sha(), NOW.minusSeconds(60));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
-        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300))
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), false));
 
         CommitRefreshStatus status = service.refresh(
@@ -323,9 +372,9 @@ class TestCommitHistoryRefresher
                 Optional.of(202L),
                 Optional.of(repository)));
         Commit commit = commit("remote123", NOW.minusSeconds(60));
-        store.upsertEnrichment(ImmutableList.of(positive(202, commit.sha())));
+        store.upsertEnrichment(ImmutableList.of(positive(202, commit.sha(), NOW.minusSeconds(86_400))));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
-        when(gitHub.fetchCommitAvatarSnapshot("test-token", repository, "main", 300))
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(
                         ImmutableList.of(new CommitAvatar(
                                 commit.sha(),
@@ -349,7 +398,7 @@ class TestCommitHistoryRefresher
             assertThat(value.avatarKey()).contains(AVATAR_KEY);
             assertThat(value.pullRequestNumber()).contains(42);
         });
-        verify(gitHub).fetchCommitAvatarSnapshot("test-token", repository, "main", 300);
+        verify(gitHub).fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1);
         verify(pullRequests).lookUpResult(eq(repository), eq(ImmutableList.of()), eq("main"), anyList());
     }
 
@@ -367,7 +416,7 @@ class TestCommitHistoryRefresher
                 negative(dueNegative.sha(), NOW.minusSeconds(2 * 86_400), NOW),
                 negative(expiredNegative.sha(), NOW.minusSeconds(2 * 86_400), NOW)));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(commits);
-        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, "main", 300))
+        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, positive.sha(), 4))
                 .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
         when(pullRequests.lookUpResult(
                 eq(SELECTED), eq(ImmutableList.of(dueNegative.sha())), eq("main"), anyList()))
@@ -382,8 +431,6 @@ class TestCommitHistoryRefresher
     private void successfulEmptyBranch(String branch)
     {
         when(git.log(REPOSITORY, "origin/" + branch, 300)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, branch, 300))
-                .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
         when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of()), eq(branch), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
     }
@@ -443,6 +490,11 @@ class TestCommitHistoryRefresher
 
     private static CommitEnrichment positive(long repositoryId, String sha)
     {
+        return positive(repositoryId, sha, NOW);
+    }
+
+    private static CommitEnrichment positive(long repositoryId, String sha, Instant avatarCheckedAt)
+    {
         return new CommitEnrichment(
                 repositoryId,
                 sha,
@@ -453,7 +505,7 @@ class TestCommitHistoryRefresher
                 Optional.of(42),
                 Optional.of("Example pull request"),
                 Optional.of("https://example.invalid/pull/42"),
-                Optional.of(NOW),
+                Optional.of(avatarCheckedAt),
                 Optional.of(NOW.minusSeconds(86_400)),
                 NOW);
     }

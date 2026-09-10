@@ -83,10 +83,10 @@ public class GitHubRepoClient
         checkArgument(!ref.isBlank(), "ref is blank");
         checkArgument(limit > 0, "limit is not positive");
         ImmutableList.Builder<CommitAvatar> avatars = ImmutableList.builder();
+        int pageSize = Math.min(limit, 100);
         int remaining = limit;
         try {
             for (int page = 1; remaining > 0; page++) {
-                int pageSize = Math.min(remaining, 100);
                 int currentPage = page;
                 List<CommitResponse> commits = gitHubRestClient.get()
                         .uri(builder -> builder.path("/repos/{owner}/{repo}/commits")
@@ -101,6 +101,7 @@ public class GitHubRepoClient
                     break;
                 }
                 commits.stream()
+                        .limit(remaining)
                         .filter(commit -> commit.sha() != null && !commit.sha().isBlank())
                         .filter(commit -> commit.author() != null || commit.committer() != null)
                         .map(commit -> new CommitAvatar(

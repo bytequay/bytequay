@@ -34,6 +34,7 @@ import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.CommitHistoryStore;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -48,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
@@ -56,6 +58,7 @@ import java.util.function.Supplier;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /** Fetches and persists one commit refresh before returning. */
@@ -64,6 +67,7 @@ class CommitHistoryRefresher
 {
     private static final Logger log = LoggerFactory.getLogger(CommitHistoryRefresher.class);
     private static final int MAX_COMMITS = 300;
+    private static final Duration AVATAR_REFRESH_INTERVAL = Duration.ofDays(1);
     private static final Duration NEGATIVE_RETRY_INTERVAL = Duration.ofDays(1);
     private static final Duration NEGATIVE_RETRY_WINDOW = Duration.ofDays(7);
 
@@ -248,13 +252,20 @@ class CommitHistoryRefresher
                         repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
-        CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(
-                token, repository, ref.providerRef(), MAX_COMMITS);
-        if (!avatarSnapshot.succeeded()) {
-            throw new IllegalStateException("commit avatar synchronization failed");
+        int avatarLimit = avatarScanLimit(commits, existing, now);
+        Map<String, CommitAvatar> identities;
+        if (avatarLimit > 0) {
+            CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(token, repository, commits.getFirst().sha(), avatarLimit);
+            if (!avatarSnapshot.succeeded()) {
+                throw new IllegalStateException("commit avatar synchronization failed");
+            }
+            identities = avatarSnapshot.avatars().stream()
+                    .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
         }
-        Map<String, CommitAvatar> identities = avatarSnapshot.avatars().stream()
-                .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
+        else {
+            identities = ImmutableMap.of();
+        }
+        Set<String> checkedAvatarShas = commits.subList(0, avatarLimit).stream().map(Commit::sha).collect(toImmutableSet());
         List<String> dueAssociations = commits.stream()
                 .filter(commit -> associationDue(commit, Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
@@ -275,9 +286,22 @@ class CommitHistoryRefresher
                         Optional.ofNullable(existing.get(commit.sha())),
                         Optional.ofNullable(identities.get(commit.sha())),
                         Optional.ofNullable(associations.get(commit.sha())),
+                        checkedAvatarShas.contains(commit.sha()),
                         dueAssociations.contains(commit.sha()),
                         now))
                 .toList();
+    }
+
+    private static int avatarScanLimit(List<Commit> commits, Map<String, CommitEnrichment> existing, Instant now)
+    {
+        // GitHub paginates from the branch tip; stop after the oldest identity that needs a refresh.
+        for (int index = commits.size() - 1; index >= 0; index--) {
+            Optional<Instant> checkedAt = Optional.ofNullable(existing.get(commits.get(index).sha())).flatMap(CommitEnrichment::avatarCheckedAt);
+            if (checkedAt.isEmpty() || !checkedAt.orElseThrow().isAfter(now.minus(AVATAR_REFRESH_INTERVAL))) {
+                return index + 1;
+            }
+        }
+        return 0;
     }
 
     private CommitEnrichment enrichment(
@@ -286,6 +310,7 @@ class CommitHistoryRefresher
             Optional<CommitEnrichment> existing,
             Optional<CommitAvatar> identity,
             Optional<PullRequestAssociation> association,
+            boolean avatarChecked,
             boolean associationChecked,
             Instant now)
     {
@@ -318,7 +343,7 @@ class CommitHistoryRefresher
                 pullRequestNumber,
                 pullRequestTitle,
                 pullRequestUrl,
-                Optional.of(now),
+                avatarChecked ? Optional.of(now) : existing.flatMap(CommitEnrichment::avatarCheckedAt),
                 associationCheckedAt,
                 now);
     }

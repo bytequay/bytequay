@@ -338,9 +338,13 @@ For one accepted workspace request, the synchronous refresh call:
 3. Reads up to 300 commits per requested ref from local Git.
 4. Loads all existing enrichment for those SHAs in one SQLite query through
    `RepositoryEnrichmentService`.
-5. Fetches the branch author/committer identity map once, caches new image
-   bytes, and records provider logins and local avatar keys. A provider failure
-   leaves old identities and keys unchanged.
+5. Reuses author/committer identity checks for one day. When an identity is
+   missing or due, fetches the branch prefix through the oldest due commit,
+   pinned to the fetched head SHA so a moving branch cannot shift the pages,
+   caches new image bytes, and records provider logins and local avatar keys.
+   A fully fresh branch skips this provider scan. Skipped commits retain their
+   check timestamps so they become due normally. A provider failure leaves
+   old identities and keys unchanged.
 6. Calls the existing commit-to-PR lookup only for unknown, expired-negative,
    or previously failed associations. Positive associations are reused.
 7. Upserts enrichment through `RepositoryEnrichmentService` and saves a new

@@ -25,7 +25,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -216,6 +218,31 @@ class TestGitHubRepoClient
 
         assertThat(snapshot.succeeded()).isFalse();
         assertThat(snapshot.avatars()).isEmpty();
+        fixture.server().verify();
+    }
+
+    @Test
+    void keepsAvatarPaginationStableAndCapsTheLastPage()
+    {
+        Fixture fixture = fixture();
+        String firstPage = IntStream.rangeClosed(1, 100)
+                .mapToObj(index -> "{\"sha\":\"commit-" + index + "\",\"author\":{\"login\":\"alice\"}}")
+                .collect(joining(",", "[", "]"));
+        fixture.server().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=1"))
+                .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=2"))
+                .andRespond(withSuccess("""
+                        [{"sha":"commit-101","author":{"login":"alice"}},
+                         {"sha":"commit-102","author":{"login":"alice"}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot("pat", REPOSITORY, "main", 101);
+
+        assertThat(snapshot.succeeded()).isTrue();
+        assertThat(snapshot.avatars()).extracting(CommitAvatarSnapshot.CommitAvatar::sha)
+                .containsExactlyElementsOf(IntStream.rangeClosed(1, 101).mapToObj(index -> "commit-" + index).toList());
         fixture.server().verify();
     }
 

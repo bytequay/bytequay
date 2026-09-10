@@ -187,9 +187,6 @@ export default function AppSidebar({
             {WORKSPACE_TABS.map(workspaceItem)}
           </nav>
           <div className="app-sidebar__spacer" />
-          <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Workspace settings">
-            {workspaceItem({ tab: 'settings', label: 'Workspace settings', icon: <SettingsIcon /> })}
-          </nav>
         </>
       )}
       {!collapsed && (

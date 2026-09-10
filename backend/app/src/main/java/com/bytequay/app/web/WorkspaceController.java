@@ -16,9 +16,9 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
-import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
 import com.bytequay.app.workspace.WatchRepositoryCommand;
 import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
@@ -58,7 +58,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -278,8 +280,9 @@ public class WorkspaceController
     {
         return new WorkspaceSettingsResponse(
                 remoteSources.list(workspaceId),
-                models.workspaceOverride(workspaceId).orElse(null),
-                models.mainModel(),
+                Stream.of(AgentModelType.values())
+                        .map(type -> models.agentModel(type, Optional.of(workspaceId)))
+                        .collect(toImmutableList()),
                 credentials.workspaceGitHubToken(workspaceId).orElse(null),
                 commitsSettings.get(workspaceId));
     }
@@ -308,23 +311,25 @@ public class WorkspaceController
         return remoteSources.remove(workspaceId, name);
     }
 
-    @PutMapping("/{workspaceId}/agent-model")
-    public WorkspaceAgentModel setAgentModel(
+    @PutMapping("/{workspaceId}/agent-model/{type}")
+    public AgentModelSetting setAgentModel(
             @PathVariable String workspaceId,
+            @PathVariable AgentModelType type,
             @RequestBody AgentModelRequest request)
     {
         workspaces.getWorkspace(workspaceId);
         return models.setWorkspaceOverride(
                 workspaceId,
+                type,
                 request.configId(),
                 request.model(),
                 Optional.ofNullable(request.effort()));
     }
 
-    @DeleteMapping("/{workspaceId}/agent-model")
-    public void clearAgentModel(@PathVariable String workspaceId)
+    @DeleteMapping("/{workspaceId}/agent-model/{type}")
+    public AgentModelSetting clearAgentModel(@PathVariable String workspaceId, @PathVariable AgentModelType type)
     {
-        models.clearWorkspaceOverride(workspaceId);
+        return models.clearWorkspaceOverride(workspaceId, type);
     }
 
     @PutMapping("/{workspaceId}/github-token")
@@ -377,8 +382,7 @@ public class WorkspaceController
 
     public record WorkspaceSettingsResponse(
             List<WorkspaceRemote> remotes,
-            WorkspaceAgentModel agentModelOverride,
-            MainModel mainModel,
+            List<AgentModelSetting> agents,
             CredentialService.WorkspaceToken githubToken,
             WorkspaceCommitsTarget commitsTarget) {}
 }

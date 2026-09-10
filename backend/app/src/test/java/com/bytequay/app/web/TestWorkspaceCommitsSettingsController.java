@@ -16,6 +16,8 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
@@ -27,6 +29,8 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+
+import java.util.Optional;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -50,12 +54,17 @@ class TestWorkspaceCommitsSettingsController
         when(settings.get("workspace")).thenReturn(automatic);
         when(settings.reset("workspace")).thenReturn(automatic);
         when(settings.save("workspace", "release/next")).thenReturn(new WorkspaceCommitsTarget("upstream", "release/next", true));
+        ModelSettingsService models = mock(ModelSettingsService.class);
+        for (AgentModelType type : AgentModelType.values()) {
+            when(models.agentModel(type, Optional.of("workspace"))).thenReturn(new AgentModelSetting(
+                    type, false, "claude", "Claude", "opus", "Opus", Optional.of("High")));
+        }
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
-                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), mock(CredentialService.class), settings);
+                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings);
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/api/workspaces/workspace/settings"))

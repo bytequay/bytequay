@@ -27,10 +27,10 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
-import com.bytequay.app.service.settings.ModelSettingsService.WorkspaceAgentModel;
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -59,6 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -93,8 +94,8 @@ class TestBetterWordsService
             throws Exception
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.workspaceOverride("ws-1")).thenReturn(Optional.of(new WorkspaceAgentModel(
-                "claude", "Claude", "sonnet", "Sonnet", Optional.of("Low"))));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), eq(Optional.of("ws-1")))).thenReturn(
+                new AgentModelSetting(AgentModelType.REVIEW, true, "claude", "Claude", "sonnet", "Sonnet", Optional.of("Low")));
         ModelApiKeyStore keys = mock(ModelApiKeyStore.class);
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         AgentResourceService resources = mock(AgentResourceService.class);
@@ -156,7 +157,7 @@ class TestBetterWordsService
         ArgumentCaptor<TaskId> taskId = ArgumentCaptor.forClass(TaskId.class);
         verify(resources).allocate(taskId.capture());
         verify(resources).delete(taskId.getValue());
-        verify(settings, never()).mainModel();
+        verify(settings).agentModel(AgentModelType.REVIEW, Optional.of("ws-1"));
     }
 
     @Test
@@ -164,7 +165,7 @@ class TestBetterWordsService
             throws Exception
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.mainModel()).thenReturn(mainModel("claude", "sonnet"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("claude", "sonnet"));
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("retained-runtime");
@@ -208,8 +209,7 @@ class TestBetterWordsService
     void usesOpenAiResponsesApiWithTheSelectedModelAndKey()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.workspaceOverride("ws-without-override")).thenReturn(Optional.empty());
-        when(settings.mainModel()).thenReturn(mainModel("key:work", "gpt-5.2-mini"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:work", "gpt-5.2-mini"));
         ModelApiKeyStore keys = apiKeyStore("work", "OpenAI", "sk-openai-secret");
 
         RestClient.Builder openAiBuilder = RestClient.builder().baseUrl("https://openai.test");
@@ -253,7 +253,7 @@ class TestBetterWordsService
         when(skills.instructions()).thenReturn("Use the updated terminology.");
         assertThat(service.improve("fix it asap", REPOSITORY, Optional.of("ws-without-override")))
                 .isEqualTo("Please resolve this soon.");
-        verify(settings, times(2)).mainModel();
+        verify(settings, times(2)).agentModel(eq(AgentModelType.REVIEW), any());
         verify(skills, times(2)).instructions();
         server.verify();
     }
@@ -262,7 +262,7 @@ class TestBetterWordsService
     void usesDeepSeekChatCompletionsWithTheSelectedModelAndKey()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.mainModel()).thenReturn(mainModel("key:personal", "deepseek-chat"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-chat"));
         ModelApiKeyStore keys = apiKeyStore("personal", "DeepSeek", "sk-deepseek-secret");
 
         RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
@@ -306,7 +306,7 @@ class TestBetterWordsService
     void rejectsTruncatedProviderResponses()
     {
         ModelSettingsService openAiSettings = mock(ModelSettingsService.class);
-        when(openAiSettings.mainModel()).thenReturn(mainModel("key:work", "gpt-5.2-mini"));
+        when(openAiSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:work", "gpt-5.2-mini"));
         RestClient.Builder openAiBuilder = RestClient.builder().baseUrl("https://openai.test");
         MockRestServiceServer openAiServer = MockRestServiceServer.bindTo(openAiBuilder).build();
         openAiServer.expect(once(), requestTo("https://openai.test/v1/responses"))
@@ -329,7 +329,7 @@ class TestBetterWordsService
         openAiServer.verify();
 
         ModelSettingsService deepSeekSettings = mock(ModelSettingsService.class);
-        when(deepSeekSettings.mainModel()).thenReturn(mainModel("key:personal", "deepseek-chat"));
+        when(deepSeekSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-chat"));
         RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
         MockRestServiceServer deepSeekServer = MockRestServiceServer.bindTo(deepSeekBuilder).build();
         deepSeekServer.expect(once(), requestTo("https://deepseek.test/chat/completions"))
@@ -379,7 +379,7 @@ class TestBetterWordsService
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("repository");
 
-        when(settings.mainModel()).thenReturn(mainModel("codex", "gpt-5.6-sol"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("codex", "gpt-5.6-sol"));
         assertThatThrownBy(() -> service.improve("Please make this clearer.", REPOSITORY, Optional.empty()))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("selected CLI model");
@@ -406,16 +406,14 @@ class TestBetterWordsService
         assertThatThrownBy(() -> service.improve("Please clarify this.", REPOSITORY, Optional.of("wrong-repo")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
-        verify(settings, never()).workspaceOverride(any());
-        verify(settings, never()).mainModel();
+        verify(settings, never()).agentModel(any(), any());
     }
 
     @Test
     void validatesForkWorkspaceAgainstItsMonitoredRepository()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.workspaceOverride("fork-workspace")).thenReturn(Optional.empty());
-        when(settings.mainModel()).thenReturn(mainModel("codex", "gpt-5.6-sol"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("codex", "gpt-5.6-sol"));
         BetterWordsService service = service(
                 settings,
                 linkedWorkspaceStore(
@@ -509,9 +507,9 @@ class TestBetterWordsService
         return workspaces;
     }
 
-    private static MainModel mainModel(String configId, String model)
+    private static AgentModelSetting reviewModel(String configId, String model)
     {
-        return new MainModel(configId, configId, model, model, Optional.empty());
+        return new AgentModelSetting(AgentModelType.REVIEW, true, configId, configId, model, model, Optional.empty());
     }
 
     private static ModelApiKeyStore apiKeyStore(String alias, String provider, String secret)

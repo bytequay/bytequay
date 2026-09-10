@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentModelSettingDto,
   AgentApprovalDto,
   AgentAttachmentDto,
   AgentCapabilitiesDto,
@@ -399,7 +400,6 @@ function modelProvider(value: unknown, path: string): ModelProviderDto {
     models: list(source.models, `${path}.models`).map((model, index) => modelOption(model, `${path}.models[${index}]`)),
     selectedModel: text(source.selectedModel, `${path}.selectedModel`),
     selectedEffort: text(source.selectedEffort, `${path}.selectedEffort`),
-    main: flag(source.main, `${path}.main`),
   };
 }
 
@@ -413,14 +413,31 @@ function modelApiKey(value: unknown, path: string): ModelApiKeyDto {
     createdAt: text(source.createdAt, `${path}.createdAt`),
     models: textList(source.models, `${path}.models`),
     selectedModel: text(source.selectedModel, `${path}.selectedModel`),
-    main: flag(source.main, `${path}.main`),
+  };
+}
+
+export function parseAgentModelSetting(value: unknown, path: string): AgentModelSettingDto {
+  const source = object(value, path);
+  const type = source.type;
+  if (type !== 'DEVELOPMENT' && type !== 'REVIEW') {
+    throw new Error(`${path}.type is not an agent model type`);
+  }
+  return {
+    type,
+    explicit: flag(source.explicit, `${path}.explicit`),
+    configId: text(source.configId, `${path}.configId`),
+    label: text(source.label, `${path}.label`),
+    model: text(source.model, `${path}.model`),
+    modelLabel: text(source.modelLabel, `${path}.modelLabel`),
+    effort: optionalText(source.effort, `${path}.effort`),
   };
 }
 
 export function parseModelSettings(value: unknown): ModelSettingsDto {
   const source = object(value, 'modelSettings');
   return {
-    mainId: text(source.mainId, 'modelSettings.mainId'),
+    agents: list(source.agents, 'modelSettings.agents')
+      .map((agent, index) => parseAgentModelSetting(agent, `modelSettings.agents[${index}]`)),
     providers: list(source.providers, 'modelSettings.providers')
       .map((provider, index) => modelProvider(provider, `modelSettings.providers[${index}]`)),
     apiKeys: list(source.apiKeys, 'modelSettings.apiKeys')

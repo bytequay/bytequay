@@ -21,8 +21,8 @@ import TasksView from '../commits/TasksView';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { settingsRoute } from '../settings/routes';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import WorkspaceSettings from './WorkspaceSettings';
 import type { CherryPickExecution, WorkspaceDto } from '../types';
 import {
   workspaceHasReadableCode,
@@ -31,7 +31,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue, onRemoved }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -45,7 +45,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
   onPreviewPullRequest: (number: number) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
-  onRemoved: () => void;
 }) {
   const [openExecutionId, setOpenExecutionId] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
@@ -141,7 +140,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         onOpenPullRequest={number => {
           onSelectPullRequest(number, 'push');
         }}
-        onOpenSettings={() => onSelectTab('settings')}
+        onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       />
     );
   }
@@ -180,7 +179,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           onBack={() => onSelectAgentTask(null, 'push')}
           onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
           workspace={workspace}
-          onOpenSettings={() => onSelectTab('settings')}
+          onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
         />,
       );
     }
@@ -205,19 +204,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         workspaceId={workspace.id}
         onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-        onOpenSettings={() => onSelectTab('settings')}
+        onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       >
         {cherryPicks}
       </AgentTasksView>,
-    );
-  }
-  if (tab === 'settings') {
-    return (
-      <WorkspaceSettings
-        workspace={workspace}
-        onWorkspaceChanged={onWorkspaceChanged}
-        onRemoved={onRemoved}
-      />
     );
   }
   // The design's Home: the question, three starting points, the open tasks as windows.
@@ -226,7 +216,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       workspaceId={workspace.id}
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-      onOpenSettings={() => onSelectTab('settings')}
+      onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       onShowAll={() => setOverviewOpen(true)}
       onOpenPullRequests={() => onSelectTab('prs')}
       onOpenPullRequest={onPreviewPullRequest}

@@ -203,7 +203,10 @@ describe('provider contracts', () => {
       .toThrow(/steering/);
 
     const settings = parseModelSettings({
-      mainId: 'codex',
+      agents: [
+        { type: 'DEVELOPMENT', explicit: true, configId: 'codex', label: 'Codex', model: 'm', modelLabel: 'Model', effort: 'high' },
+        { type: 'REVIEW', explicit: false, configId: 'codex', label: 'Codex', model: 'm', modelLabel: 'Model', effort: 'high' },
+      ],
       providers: [{
         id: 'codex',
         label: 'Codex',

@@ -134,7 +134,7 @@ describe('workspace model', () => {
   });
 
   it('round-trips every workspace tab through the renderer route', () => {
-    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits', 'settings'] as const) {
+    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits'] as const) {
       const route = workspaceRoute('workspace/id', tab);
       expect(workspaceLocationFromRoute(route)).toEqual({
         workspaceId: 'workspace/id',

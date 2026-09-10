@@ -971,7 +971,16 @@ export type WorkspaceRemoteDto = {
   role: 'ORIGIN' | 'UPSTREAM' | 'CUSTOM';
 };
 
-type WorkspaceAgentModelDto = {
+export type AgentModelType = 'DEVELOPMENT' | 'REVIEW';
+
+/**
+ * One agent type's resolved model. `explicit` is false when nothing is stored
+ * at the level asked for and the value came from the level below — Review
+ * inheriting Development, or a workspace inheriting the global value.
+ */
+export type AgentModelSettingDto = {
+  type: AgentModelType;
+  explicit: boolean;
   configId: string;
   label: string;
   model: string;
@@ -993,8 +1002,7 @@ export type WorkspaceCommitsTargetDto = {
 export type WorkspaceSettingsDto = {
   remotes: WorkspaceRemoteDto[];
   commitsTarget: WorkspaceCommitsTargetDto;
-  agentModelOverride?: WorkspaceAgentModelDto | null;
-  mainModel: WorkspaceAgentModelDto;
+  agents: AgentModelSettingDto[];
   githubToken?: WorkspaceTokenDto | null;
 };
 
@@ -1024,7 +1032,6 @@ export type ModelProviderDto = {
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort: string;
-  main: boolean;
 };
 
 export type ModelApiKeyDto = {
@@ -1035,11 +1042,10 @@ export type ModelApiKeyDto = {
   createdAt: string;
   models: string[];
   selectedModel: string;
-  main: boolean;
 };
 
 export type ModelSettingsDto = {
-  mainId: string;
+  agents: AgentModelSettingDto[];
   providers: ModelProviderDto[];
   apiKeys: ModelApiKeyDto[];
   keyProviders: Array<{ name: string; models: string[] }>;
@@ -1414,9 +1420,15 @@ export type Bridge = {
     message: string,
   ) => Promise<{ sha: string }>;
 
-  getModelSettings: () => Promise<ModelSettingsDto>;
+  getModelSettings: (workspaceId?: string) => Promise<ModelSettingsDto>;
   updateModelSelection: (configId: string, model: string, effort: string | null) => Promise<ModelSettingsDto>;
-  setMainModel: (configId: string) => Promise<ModelSettingsDto>;
+  setAgentModel: (
+    type: AgentModelType,
+    configId: string,
+    model: string,
+    effort: string | null,
+  ) => Promise<ModelSettingsDto>;
+  clearAgentModel: (type: AgentModelType) => Promise<ModelSettingsDto>;
   addModelApiKey: (provider: string, alias: string, key: string) => Promise<ModelSettingsDto>;
   removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;
   getAgentSkills: () => Promise<AgentSkillDto[]>;
@@ -1444,11 +1456,12 @@ export type Bridge = {
   removeWorkspaceRemote: (workspaceId: string, name: string) => Promise<WorkspaceRemoteDto[]>;
   setWorkspaceAgentModel: (
     workspaceId: string,
+    type: AgentModelType,
     configId: string,
     model: string,
     effort: string | null,
-  ) => Promise<WorkspaceAgentModelDto>;
-  clearWorkspaceAgentModel: (workspaceId: string) => Promise<void>;
+  ) => Promise<AgentModelSettingDto>;
+  clearWorkspaceAgentModel: (workspaceId: string, type: AgentModelType) => Promise<AgentModelSettingDto>;
   saveWorkspaceGitHubToken: (workspaceId: string, value: string) => Promise<{ login: string }>;
   deleteWorkspaceGitHubToken: (workspaceId: string) => Promise<void>;
   copyWorkspaceGitHubToken: (workspaceId: string) => Promise<boolean>;

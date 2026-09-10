@@ -41,6 +41,8 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -679,19 +681,17 @@ public class DefaultAgentReviewService
         return result.output().strip();
     }
 
+    /**
+     * The model this workspace's reviews run with: its Review override, else
+     * the global Review value, else Development. The setting is frozen into
+     * the task at review creation, so a later change reaches new reviews only.
+     */
     private ModelSelection selectModel(String workspaceId)
     {
-        return models.workspaceOverride(workspaceId)
-                .map(
-                        override -> new ModelSelection(
-                                new AgentLaneId(override.configId()),
-                                new AgentTaskDefaults(Optional.of(override.model()), override.effort(), AgentPermissionPolicy.AUTO, Optional.empty())))
-                .orElseGet(() -> {
-                    ModelSettingsService.MainModel main = models.mainModel();
-                    return new ModelSelection(
-                            new AgentLaneId(main.configId()),
-                            new AgentTaskDefaults(Optional.of(main.model()), main.effort(), AgentPermissionPolicy.AUTO, Optional.empty()));
-                });
+        AgentModelSetting setting = models.agentModel(AgentModelType.REVIEW, Optional.ofNullable(workspaceId));
+        return new ModelSelection(
+                new AgentLaneId(setting.configId()),
+                new AgentTaskDefaults(Optional.of(setting.model()), setting.effort(), AgentPermissionPolicy.AUTO, Optional.empty()));
     }
 
     private AgentReviewProjection projection(String reviewId)

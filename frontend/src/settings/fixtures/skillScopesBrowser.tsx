@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
-import AgentSkillsCard from '../AgentSkillsCard';
+import SkillsPage from '../SkillsPage';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
@@ -24,56 +24,87 @@ function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+const SCOPE_LABELS: Record<AgentSkillScope, string> = {
+  GLOBAL: 'Global',
+  DEVELOPMENT: 'Development',
+  REVIEW: 'Review',
+};
+
+/** The shell's own save wiring, so the fixture drives the real controls rather than a stand-in. */
+function Harness({ initial, writes }: { initial: AgentSkillDto[]; writes: AgentSkillInput[] }) {
+  const [skills, setSkills] = useState(initial);
+  const save = (input: AgentSkillInput, id: string | null) => {
+    const skill = parseAgentSkillInput(input);
+    writes.push(skill);
+    setSkills(current => (id === null
+      ? [...current, { ...skill, id: `skill-${current.length}` }]
+      : current.map(existing => (existing.id === id ? { ...skill, id } : existing))));
+  };
+  return (
+    <SkillsPage
+      skills={skills}
+      busy={false}
+      error={null}
+      onSave={save}
+      onToggle={skill => save({ ...skill, enabled: !skill.enabled }, skill.id)}
+    />
+  );
+}
+
 function fixture(initial: AgentSkillDto[] = []) {
-  let saved = initial;
   const writes: AgentSkillInput[] = [];
-  const bridge = {
-    getAgentSkills: async () => saved,
-    addAgentSkill: async (input: AgentSkillInput) => {
-      const skill = parseAgentSkillInput(input);
-      writes.push(skill);
-      saved = [...saved, { ...skill, id: `skill-${saved.length}` }];
-      return saved;
-    },
-    updateAgentSkill: async (id: string, input: AgentSkillInput) => {
-      const skill = parseAgentSkillInput(input);
-      writes.push(skill);
-      saved = saved.map(existing => existing.id === id ? { ...skill, id } : existing);
-      return saved;
-    },
-  } satisfies Partial<Window['bridge']>;
-  Object.defineProperty(window, 'bridge', { value: bridge, configurable: true });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<AgentSkillsCard />));
+  flushSync(() => root.render(<Harness initial={initial} writes={writes} />));
+
+  /** While a dialog is open it owns the controls, so "Add skill" means confirm, not reopen. */
+  const scope_ = (): ParentNode => host.querySelector('.setw-dialog') ?? host;
+
+  const scopeRadios = () => {
+    const group = [...scope_().querySelectorAll('[role="radiogroup"]')]
+      .find(candidate => candidate.getAttribute('aria-label') === 'Skill scope');
+    assert(group !== undefined, 'The dialog must expose a labelled scope control');
+    return [...group.querySelectorAll('button')];
+  };
+
   return {
     host,
     writes,
+    rows: () => [...host.querySelectorAll('.setw-row')],
     async click(label: string) {
-      const button = [...host.querySelectorAll('button')].find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label);
+      const button = [...scope_().querySelectorAll('button')]
+        .find(item => item.getAttribute('aria-label') === label || item.textContent?.trim() === label);
       assert(button !== undefined && !button.disabled, `Button ${label} must be available`);
       button.click();
       await settle();
     },
     async fill(selector: string, value: string) {
-      const input = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
+      const input = scope_().querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
       assert(input !== null, `Input ${selector} is missing`);
       const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await settle();
     },
-    scope() {
-      const select = host.querySelector('select');
-      assert(select !== null && select.labels?.[0]?.textContent?.trim().startsWith('Scope') === true, 'Scope must have an accessible label');
-      return select;
+    scope(): AgentSkillScope {
+      const chosen = scopeRadios().find(button => button.getAttribute('aria-checked') === 'true');
+      assert(chosen !== undefined, 'A scope must always be chosen');
+      const entry = Object.entries(SCOPE_LABELS).find(([, label]) => label === chosen.textContent?.trim());
+      assert(entry !== undefined, `Unknown scope label ${chosen.textContent}`);
+      return entry[0] as AgentSkillScope;
     },
-    async select(scope: AgentSkillScope) {
-      const select = this.scope();
-      select.value = scope;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
+    async select(next: AgentSkillScope) {
+      const button = scopeRadios().find(candidate => candidate.textContent?.trim() === SCOPE_LABELS[next]);
+      assert(button !== undefined, `Scope ${next} must be offered`);
+      button.click();
       await settle();
+    },
+    enabled(name: string): boolean {
+      const toggle = [...host.querySelectorAll('button')]
+        .find(item => item.getAttribute('aria-label') === `Enable ${name}`);
+      assert(toggle !== undefined, `${name} must have an enable switch`);
+      return toggle.getAttribute('aria-checked') === 'true';
     },
     dispose() { flushSync(() => root.unmount()); host.remove(); },
   };
@@ -81,44 +112,57 @@ function fixture(initial: AgentSkillDto[] = []) {
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
-  const check = async (name: string, test: (view: ReturnType<typeof fixture>) => Promise<void>, initial?: AgentSkillDto[]) => {
+  const check = async (
+    name: string,
+    test: (view: ReturnType<typeof fixture>) => Promise<void>,
+    initial?: AgentSkillDto[],
+  ) => {
     const view = fixture(initial);
     try { await settle(); await test(view); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     finally { view.dispose(); }
   };
+
   await check('creates each user scope and shows only the saved custom skills', async view => {
-    assert(view.host.querySelectorAll('.sets-skill-row').length === 0, 'An empty collection must not contain system skill rows');
+    assert(view.rows().length === 0, 'An empty collection must not contain rows');
     for (const [scope, label] of [['GLOBAL', 'Global'], ['DEVELOPMENT', 'Development'], ['REVIEW', 'Review']] as const) {
-      await view.click('+ Add skill');
-      assert(view.scope().value === 'GLOBAL', 'A new skill must default to Global');
-      await view.fill('input[maxlength="100"]', `  ${label} preference  `);
+      await view.click('Add skill');
+      assert(view.scope() === 'GLOBAL', 'A new skill must default to Global');
+      await view.fill('input[aria-label="Skill name"]', `  ${label} preference  `);
       await view.fill('textarea', `Instructions for ${label}.`);
       if (scope !== 'GLOBAL') await view.select(scope);
-      await view.click('Save skill');
+      await view.click('Add skill');
       assert(JSON.stringify(view.writes.at(-1)) === JSON.stringify({
         name: `${label} preference`, instructions: `Instructions for ${label}.`, enabled: true, scope,
-      }), `${label} must reach the bridge in the complete save payload`);
-      assert([...view.host.querySelectorAll('.sets-skill-row')].some(row => row.textContent?.includes(`${label} · Enabled`)), `${label} must be displayed on the saved row`);
+      }), `${label} must reach the save payload complete`);
+      assert(view.rows().some(row => row.textContent?.includes(label)), `${label} must be shown on the saved row`);
     }
-    assert(view.host.querySelectorAll('.sets-skill-row').length === 3, 'Only the three user-created skills should be listed');
+    assert(view.rows().length === 3, 'Only the three user-created skills should be listed');
   });
+
   await check('preserves scope through content edits and toggles and allows changing it', async view => {
     await view.click('Edit Review preference');
-    assert(view.scope().value === 'REVIEW', 'Edit must start with the saved Review scope');
+    assert(view.scope() === 'REVIEW', 'Edit must start with the saved Review scope');
     await view.fill('textarea', 'Updated review instructions.');
     await view.click('Save skill');
-    assert(view.writes.at(-1)?.scope === 'REVIEW' && view.writes.at(-1)?.instructions === 'Updated review instructions.', 'Editing content must preserve the saved scope');
+    assert(view.writes.at(-1)?.scope === 'REVIEW' && view.writes.at(-1)?.instructions === 'Updated review instructions.',
+      'Editing content must preserve the saved scope');
+
     await view.click('Enable Review preference');
-    assert(view.writes.at(-1)?.scope === 'REVIEW' && view.writes.at(-1)?.enabled === false, 'Disabling must preserve the saved scope');
-    assert(view.host.textContent?.includes('Review · Disabled') === true, 'The row must keep its scope while disabled');
+    assert(view.writes.at(-1)?.scope === 'REVIEW' && view.writes.at(-1)?.enabled === false, 'Disabling must preserve the scope');
+    assert(!view.enabled('Review preference'), 'The switch must read as off');
+
     await view.click('Edit Review preference');
     await view.select('DEVELOPMENT');
     await view.click('Save skill');
-    assert(view.writes.at(-1)?.scope === 'DEVELOPMENT' && view.writes.at(-1)?.enabled === false, 'Changing scope must preserve the disabled state');
-    assert(view.host.textContent?.includes('Development · Disabled') === true, 'The row must reflect its new scope');
+    assert(view.writes.at(-1)?.scope === 'DEVELOPMENT' && view.writes.at(-1)?.enabled === false,
+      'Changing scope must preserve the disabled state');
+    assert(view.rows().some(row => row.textContent?.includes('Development')), 'The row must reflect its new scope');
+
     await view.click('Enable Review preference');
-    assert(view.writes.at(-1)?.scope === 'DEVELOPMENT' && view.writes.at(-1)?.enabled === true, 'Enabling must preserve the changed scope');
+    assert(view.writes.at(-1)?.scope === 'DEVELOPMENT' && view.writes.at(-1)?.enabled === true,
+      'Enabling must preserve the changed scope');
   }, [{ id: 'review', name: 'Review preference', instructions: 'Original instructions.', enabled: true, scope: 'REVIEW' }]);
+
   return results;
 }

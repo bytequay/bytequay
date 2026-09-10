@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphComparison;
 import com.bytequay.app.agent.codegraph.CodeGraphComparisonService;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphSetting;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
@@ -58,10 +60,15 @@ public class SettingsController
         this.baseline = requireNonNull(baseline, "baseline is null");
     }
 
+    /**
+     * @param workspaceId resolves each agent type through that workspace's
+     * overrides, so a composer opened inside a workspace is seeded with the
+     * model its next task will actually launch with.
+     */
     @GetMapping("/models")
-    public ModelSettings models()
+    public ModelSettings models(@RequestParam(required = false) String workspaceId)
     {
-        return models.get();
+        return models.get(Optional.ofNullable(workspaceId));
     }
 
     @PutMapping("/models/{configId}/selection")
@@ -71,10 +78,18 @@ public class SettingsController
         return models.get();
     }
 
-    @PutMapping("/models/main")
-    public ModelSettings setMain(@RequestBody MainRequest request)
+    @PutMapping("/models/agents/{type}")
+    public ModelSettings setAgentModel(@PathVariable AgentModelType type, @RequestBody SelectionRequest request)
     {
-        models.setMain(request.configId());
+        models.setAgentModel(type, request.configId(), request.model(), Optional.ofNullable(request.effort()));
+        return models.get();
+    }
+
+    /** Clears the type's stored value so it inherits again: Review from Development, Development from the catalog. */
+    @DeleteMapping("/models/agents/{type}")
+    public ModelSettings clearAgentModel(@PathVariable AgentModelType type)
+    {
+        models.clearAgentModel(type);
         return models.get();
     }
 
@@ -139,9 +154,7 @@ public class SettingsController
         return settings.saveQuietHours(request);
     }
 
-    public record SelectionRequest(String model, String effort) {}
-
-    public record MainRequest(String configId) {}
+    public record SelectionRequest(String configId, String model, String effort) {}
 
     public record ApiKeyRequest(String provider, String alias, String key) {}
 }

@@ -51,6 +51,8 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -826,7 +828,8 @@ class TestDefaultAgentReviewService
             when(driver.capabilities()).thenReturn(AgentCapabilities.none());
             when(driver.label()).thenReturn("Codex");
             when(driver.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.READY, Optional.of("0.151.0"), "ready", AgentCapabilities.none()));
-            when(models.mainModel()).thenReturn(new ModelSettingsService.MainModel("codex", "Codex", "gpt-5-codex", "GPT-5 Codex", Optional.of("medium")));
+            when(models.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(new AgentModelSetting(
+                    AgentModelType.REVIEW, true, "codex", "Codex", "gpt-5-codex", "GPT-5 Codex", Optional.of("medium")));
             when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(
                     WORKSPACE,
                     REPOSITORY,

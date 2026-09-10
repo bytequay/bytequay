@@ -117,7 +117,7 @@ public class WorkspaceDeletionService
             verifyDirectory(current, ImmutableList.of());
             deleteDirectory(current);
             codeGraph.deleteBaseline(new RepositoryIdentity(current.selectedRepository().owner(), current.selectedRepository().repo()));
-            models.clearWorkspaceOverride(workspaceId);
+            models.clearWorkspaceOverrides(workspaceId);
             workspaces.delete(workspaceId);
         }
         catch (IOException failure) {

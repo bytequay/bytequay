@@ -26,9 +26,10 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.app.service.settings.ModelSettingsService.MainModel;
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -130,6 +131,10 @@ public class BetterWordsService
 
         SelectedModel model = selectedModel(requestedRepository, workspaceId);
         String managedInstructions = skills.instructions();
+        // ponytail: the API-key branch is currently unreachable — the Review setting only accepts a
+        // CLI lane, because no agent driver can run against a raw key. It is kept, not deleted,
+        // because it is the working half of an API-key lane; the branch comes back the moment one
+        // exists, or the moment comment rewriting gets a model setting of its own.
         String improved = model.configId().startsWith(API_KEY_PREFIX)
                 ? improveWithApiKey(model, comment, managedInstructions)
                 : improveWithCli(model, comment, managedInstructions);
@@ -151,12 +156,9 @@ public class BetterWordsService
             }
             return id;
         });
-        return validWorkspaceId.flatMap(modelSettings::workspaceOverride)
-                .map(model -> new SelectedModel(model.configId(), model.model(), model.effort()))
-                .orElseGet(() -> {
-                    MainModel model = modelSettings.mainModel();
-                    return new SelectedModel(model.configId(), model.model(), model.effort());
-                });
+        // Rewriting a review comment is review work, so it runs on the same model the reviews do.
+        AgentModelSetting model = modelSettings.agentModel(AgentModelType.REVIEW, validWorkspaceId);
+        return new SelectedModel(model.configId(), model.model(), model.effort());
     }
 
     private String improveWithCli(SelectedModel model, String comment, String managedInstructions)

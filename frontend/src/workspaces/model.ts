@@ -15,7 +15,7 @@
 import type { WorkspaceDto } from '../types';
 
 export type WorkspaceTab =
-  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits' | 'settings';
+  | 'home' | 'tasks' | 'prs' | 'issues' | 'commits';
 
 export function workspaceIsUpdating(workspace: WorkspaceDto): boolean {
   return !workspaceHasReadableCode(workspace);
@@ -102,7 +102,7 @@ export function workspaceLocationFromRoute(hash: string): {
   issueNumber: number | null;
   agentTaskId: string | null;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits|settings)(?:\/(?:agent\/([^/]+)|(\d+)))?)?$/
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits)(?:\/(?:agent\/([^/]+)|(\d+)))?)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;

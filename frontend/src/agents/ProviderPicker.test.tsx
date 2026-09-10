@@ -31,7 +31,6 @@ function provider(id: string, readiness: ModelProviderDto['readiness']): ModelPr
     models: [],
     selectedModel: '',
     selectedEffort: '',
-    main: id === 'codex',
   };
 }
 

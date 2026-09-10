@@ -123,8 +123,13 @@ final class SqliteWorkspacePurge
         for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata")) {
             sql.update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }
-        sql.update("DELETE FROM app_settings WHERE setting_key IN (:keys)",
-                ImmutableMap.of("keys", ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id)));
+        // Matched by prefix, not by exact key: these settings are per workspace and now also per
+        // agent type, so an exact list silently leaks every suffix a later type adds.
+        for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id)) {
+            sql.update(
+                    "DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern",
+                    ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));
+        }
         for (Map.Entry<Long, RepoRef> repository : repositories.entrySet()) {
             if (!referencedElsewhere(id, repository.getKey(), repository.getValue(), others, remotes)) {
                 deleteRepositoryData(repository.getKey(), repository.getValue());

@@ -202,10 +202,12 @@ const bridge: Bridge = {
   gitSquash: (workspaceId, branch, baseSha, tipSha, message) =>
     ipcRenderer.invoke('git:squash', workspaceId, branch, baseSha, tipSha, message),
 
-  getModelSettings: () => ipcRenderer.invoke('settings:models'),
+  getModelSettings: workspaceId => ipcRenderer.invoke('settings:models', workspaceId),
   updateModelSelection: (configId, model, effort) =>
     ipcRenderer.invoke('settings:models:select', configId, model, effort),
-  setMainModel: configId => ipcRenderer.invoke('settings:models:main', configId),
+  setAgentModel: (type, configId, model, effort) =>
+    ipcRenderer.invoke('settings:models:agent:set', type, configId, model, effort),
+  clearAgentModel: type => ipcRenderer.invoke('settings:models:agent:clear', type),
   addModelApiKey: (provider, alias, key) =>
     ipcRenderer.invoke('settings:api-keys:add', provider, alias, key),
   removeModelApiKey: alias => ipcRenderer.invoke('settings:api-keys:remove', alias),
@@ -233,10 +235,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:remotes:add', workspaceId, name, url),
   removeWorkspaceRemote: (workspaceId, name) =>
     ipcRenderer.invoke('workspaces:remotes:remove', workspaceId, name),
-  setWorkspaceAgentModel: (workspaceId, configId, model, effort) =>
-    ipcRenderer.invoke('workspaces:agent-model:set', workspaceId, configId, model, effort),
-  clearWorkspaceAgentModel: workspaceId =>
-    ipcRenderer.invoke('workspaces:agent-model:clear', workspaceId),
+  setWorkspaceAgentModel: (workspaceId, type, configId, model, effort) =>
+    ipcRenderer.invoke('workspaces:agent-model:set', workspaceId, type, configId, model, effort),
+  clearWorkspaceAgentModel: (workspaceId, type) =>
+    ipcRenderer.invoke('workspaces:agent-model:clear', workspaceId, type),
   saveWorkspaceGitHubToken: (workspaceId, value) =>
     ipcRenderer.invoke('workspaces:token:save', workspaceId, value),
   deleteWorkspaceGitHubToken: workspaceId =>

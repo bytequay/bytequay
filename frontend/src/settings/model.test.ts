@@ -31,7 +31,7 @@ describe('settings model helpers', () => {
 
   it('maps provider readiness to badges and availability, with checking winning', () => {
     expect(providerStatusLabel('READY', true).label).toBe('Checking…');
-    expect(providerStatusLabel('READY', false)).toEqual({ label: '✓ Available', tone: 'is-ok' });
+    expect(providerStatusLabel('READY', false)).toEqual({ label: 'Ready', tone: 'is-ok' });
     expect(providerStatusLabel('AUTHENTICATION_REQUIRED', false).label).toBe('Sign in required');
     expect(providerStatusLabel('CLI_MISSING', false).label).toBe('Not installed');
     expect(providerStatusLabel('UNSUPPORTED', false).label).toBe('Unsupported');

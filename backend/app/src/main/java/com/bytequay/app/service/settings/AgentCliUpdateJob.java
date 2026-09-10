@@ -47,6 +47,8 @@ public class AgentCliUpdateJob
     public void onApplicationReady()
     {
         models.seedCatalogs();
+        // After seeding, so the legacy main model can still resolve its label through a catalog.
+        models.migrateLegacyMainModel();
         Thread.ofVirtual().name("bytequay-cli-update").start(this::runUpdates);
     }
 

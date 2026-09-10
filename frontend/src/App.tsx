@@ -35,7 +35,8 @@ import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
 import { splitRepo } from './recent/model';
-import SettingsShell from './settings/SettingsShell';
+import SettingsWindow from './settings/SettingsWindow';
+import { settingsLocationFromRoute, type SettingsSection } from './settings/routes';
 import type { RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -51,7 +52,8 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 
 function pageFromRoute(hash: string): AppPage {
-  const match = /^#\/(home|recent|pulls|workspaces|settings)$/.exec(hash);
+  if (settingsLocationFromRoute(hash) !== null) return 'settings';
+  const match = /^#\/(home|recent|pulls|workspaces)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
 }
 
@@ -64,6 +66,8 @@ function parseItemKey(itemKey: string): { repo: string; number: number } | null 
 export default function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [page, setPage] = useState<AppPage>('home');
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const [settingsWorkspaceId, setSettingsWorkspaceId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
@@ -140,6 +144,9 @@ export default function App() {
     let request = 0;
     const applyRoute = () => {
       setPreviewPr(null);
+      const settingsLocation = settingsLocationFromRoute(window.location.hash);
+      setSettingsSection(settingsLocation?.section ?? null);
+      setSettingsWorkspaceId(settingsLocation?.workspaceId ?? null);
       const workspaceLocation = workspaceLocationFromRoute(window.location.hash);
       if (!workspaceLocation) {
         request++;
@@ -383,10 +390,15 @@ export default function App() {
             onPreviewPullRequest={previewWorkspacePullRequest}
             onSelectAgentTask={selectAgentTask}
             onSelectIssue={selectWorkspaceIssue}
-            onRemoved={() => { window.location.hash = '#/workspaces'; }}
           />
         )}
-        {page === 'settings' && <SettingsShell />}
+        {page === 'settings' && (
+          <SettingsWindow
+            section={settingsSection}
+            workspaceId={settingsWorkspaceId}
+            onBack={() => window.history.back()}
+          />
+        )}
       </main>
     </div>
       {previewPr !== null && (

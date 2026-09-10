@@ -26,8 +26,7 @@ const MODELS: ModelOptionDto[] = [
 const PROVIDERS: ModelProviderDto[] = [{
   id: 'codex', label: 'Codex', readiness: 'READY', version: null, diagnostic: '',
   capabilities: { ...NO_AGENT_CAPABILITIES, attachmentMediaTypes: ['image/png'] },
-  models: MODELS, selectedModel: MODELS[0].id, selectedEffort: 'medium', main: true,
-}];
+  models: MODELS, selectedModel: MODELS[0].id, selectedEffort: 'medium', }];
 const props = {
   tasks: [{ ...previewTask('workspace-1', 'existing-task'), title: 'Existing task' }],
   loading: false,

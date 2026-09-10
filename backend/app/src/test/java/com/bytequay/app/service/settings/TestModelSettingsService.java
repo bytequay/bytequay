@@ -55,6 +55,7 @@ class TestModelSettingsService
 
     private AgentDriverRegistry drivers;
     private AgentDriver codexDriver;
+    private InMemoryAppSettingsStore settingsStore;
     private ModelSettingsService service;
 
     @BeforeEach
@@ -83,10 +84,11 @@ class TestModelSettingsService
                         ImmutableList.of("low", "medium", "high", "xhigh", "max"),
                         Optional.of("medium"), false)));
         when(drivers.require(CODEX)).thenReturn(codexDriver);
+        settingsStore = new InMemoryAppSettingsStore();
         service = new ModelSettingsService(
                 drivers,
                 new InMemoryModelApiKeyStore(),
-                new InMemoryAppSettingsStore(),
+                settingsStore,
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
         service.seedCatalogs();
@@ -94,15 +96,20 @@ class TestModelSettingsService
     }
 
     @Test
-    void defaultsToClaudeMainWithSeededAndProbedCatalogs()
+    void bothAgentTypesDefaultToTheClaudeCatalogWithSeededAndProbedCatalogs()
     {
         ModelSettings settings = service.get();
-        assertThat(settings.mainId()).isEqualTo("claude");
+        assertThat(settings.agents()).extracting(AgentModelSetting::type)
+                .containsExactly(AgentModelType.DEVELOPMENT, AgentModelType.REVIEW);
+        assertThat(settings.agents()).allSatisfy(agent -> {
+            assertThat(agent.explicit()).isFalse();
+            assertThat(agent.configId()).isEqualTo("claude");
+            assertThat(agent.model()).isEqualTo("opus");
+        });
         var claude = settings.providers().getFirst();
         assertThat(claude.readiness()).isEqualTo(Readiness.READY);
         assertThat(claude.selectedModel()).isEqualTo("opus");
         assertThat(claude.selectedEffort()).isEqualTo("High");
-        assertThat(claude.main()).isTrue();
         var codex = settings.providers().get(1);
         assertThat(codex.readiness()).isEqualTo(Readiness.READY);
         assertThat(codex.models()).extracting(ModelOption::id)
@@ -176,18 +183,64 @@ class TestModelSettingsService
     }
 
     @Test
-    void apiKeysCanBecomeMainAndFallBackWhenRemoved()
+    void anApiKeyIsListedButCannotBeAnAgentTypesModel()
     {
         service.addApiKey("DeepSeek", "personal-deepseek", "sk-4fabcdefghijklmnope2a1");
-        service.setMain("key:personal-deepseek");
         ModelSettings settings = service.get();
-        assertThat(settings.mainId()).isEqualTo("key:personal-deepseek");
         var key = settings.apiKeys().getFirst();
         assertThat(key.maskedKey()).doesNotContain("abcdefgh").contains("••••");
         assertThat(key.selectedModel()).isEqualTo("deepseek-chat");
-        assertThat(key.main()).isTrue();
 
-        assertThat(service.removeApiKey("personal-deepseek").mainId()).isEqualTo("claude");
+        // No agent driver can run a turn against a raw API key, so the value is refused rather
+        // than stored and left to throw later when a review starts.
+        assertThatThrownBy(() -> service.setAgentModel(
+                AgentModelType.DEVELOPMENT, "key:personal-deepseek", "deepseek-chat", Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cannot run agent tasks");
+        assertThatThrownBy(() -> service.setWorkspaceOverride(
+                "ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-chat", Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void reviewInheritsDevelopmentUntilItIsChosenAndClearingRestoresInheritance()
+    {
+        service.setAgentModel(AgentModelType.DEVELOPMENT, "codex", "gpt-5.6-sol", Optional.of("high"));
+
+        AgentModelSetting review = service.agentModel(AgentModelType.REVIEW);
+        assertThat(review.explicit()).isFalse();
+        assertThat(review.configId()).isEqualTo("codex");
+        assertThat(review.model()).isEqualTo("gpt-5.6-sol");
+        assertThat(review.effort()).contains("high");
+
+        service.setAgentModel(AgentModelType.REVIEW, "claude", "sonnet", Optional.of("Max"));
+        AgentModelSetting chosen = service.agentModel(AgentModelType.REVIEW);
+        assertThat(chosen.explicit()).isTrue();
+        assertThat(chosen.model()).isEqualTo("sonnet");
+        assertThat(chosen.modelLabel()).isEqualTo("Sonnet");
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).model()).isEqualTo("gpt-5.6-sol");
+
+        assertThat(service.clearAgentModel(AgentModelType.REVIEW).model()).isEqualTo("gpt-5.6-sol");
+    }
+
+    @Test
+    void aLegacyMainModelBecomesDevelopmentAndLeavesReviewInheriting()
+    {
+        service.select("codex", "gpt-5.6-sol", Optional.of("high"));
+        settingsStore.put("model.main", "codex");
+
+        service.migrateLegacyMainModel();
+
+        AgentModelSetting development = service.agentModel(AgentModelType.DEVELOPMENT);
+        assertThat(development.explicit()).isTrue();
+        assertThat(development.configId()).isEqualTo("codex");
+        assertThat(development.model()).isEqualTo("gpt-5.6-sol");
+        assertThat(service.agentModel(AgentModelType.REVIEW).explicit()).isFalse();
+        assertThat(settingsStore.get("model.main")).isEmpty();
+
+        // Idempotent: a second pass has nothing to move and must not clobber the value.
+        service.migrateLegacyMainModel();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).model()).isEqualTo("gpt-5.6-sol");
     }
 
     @Test
@@ -198,25 +251,47 @@ class TestModelSettingsService
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addApiKey("Acme", "acme", "sk-secret"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.setMain("key:missing"))
+        assertThatThrownBy(() -> service.setAgentModel(AgentModelType.DEVELOPMENT, "missing", "opus", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    void workspaceOverrideRoundTripsAndValidates()
+    void aWorkspaceOverrideAppliesToOneTypeInOneWorkspace()
     {
-        assertThat(service.workspaceOverride("ws-1")).isEmpty();
-        service.setWorkspaceOverride("ws-1", "codex", "gpt-5.6-sol", Optional.of("xhigh"));
-        var override = service.workspaceOverride("ws-1").orElseThrow();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1")).explicit()).isFalse();
+
+        service.setWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT, "codex", "gpt-5.6-sol", Optional.of("xhigh"));
+
+        AgentModelSetting override = service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1"));
+        assertThat(override.explicit()).isTrue();
         assertThat(override.model()).isEqualTo("gpt-5.6-sol");
         assertThat(override.modelLabel()).isEqualTo("GPT-5.6-Sol");
         assertThat(override.effort()).contains("xhigh");
+        // The other type in the same workspace, and the same type elsewhere, are untouched.
+        assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("ws-1")).explicit()).isFalse();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-2")).explicit()).isFalse();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).explicit()).isFalse();
 
-        assertThatThrownBy(() -> service.setWorkspaceOverride("ws-1", "codex", "opus", Optional.empty()))
+        assertThatThrownBy(() -> service.setWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT, "codex", "opus", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        service.clearWorkspaceOverride("ws-1");
-        assertThat(service.workspaceOverride("ws-1")).isEmpty();
+        assertThat(service.clearWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT).explicit()).isFalse();
+    }
+
+    @Test
+    void aMissingCatalogStillAnswersInsteadOfFailingEverySurface()
+    {
+        ModelSettingsService fresh = new ModelSettingsService(
+                drivers,
+                new InMemoryModelApiKeyStore(),
+                new InMemoryAppSettingsStore(),
+                new ObjectMapper(),
+                Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
+
+        AgentModelSetting development = fresh.agentModel(AgentModelType.DEVELOPMENT);
+
+        assertThat(development.configId()).isEqualTo("claude");
+        assertThat(development.explicit()).isFalse();
     }
 
     @Test

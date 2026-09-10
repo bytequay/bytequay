@@ -55,7 +55,10 @@ const PREVIEW_CAPABILITIES = {
 
 /** A catalog shaped like a probed Codex lane, so the preview exercises real selection code. */
 const PREVIEW_CATALOG: ModelSettingsDto = {
-  mainId: 'codex',
+  agents: [
+    { type: 'DEVELOPMENT', explicit: true, configId: 'codex', label: 'Codex', model: 'gpt-5.6-codex', modelLabel: '5.6 Terra', effort: 'high' },
+    { type: 'REVIEW', explicit: false, configId: 'codex', label: 'Codex', model: 'gpt-5.6-codex', modelLabel: '5.6 Terra', effort: 'high' },
+  ],
   providers: [{
     id: 'codex',
     label: 'Codex',
@@ -70,7 +73,6 @@ const PREVIEW_CATALOG: ModelSettingsDto = {
     ],
     selectedModel: 'gpt-5.6-codex',
     selectedEffort: 'high',
-    main: true,
   }],
   apiKeys: [],
   keyProviders: [],

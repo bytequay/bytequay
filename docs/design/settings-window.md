@@ -106,7 +106,11 @@ existing definition of agent type and is reused rather than re-invented.
 Three places pick a model today. Two must change; one needs a decision.
 
 - `DefaultAgentReviewService.selectModel` — switch to the Review value.
-- `BetterWordsService.selectedModel` — duplicates the same resolver verbatim.
+- `BetterWordsService.selectedModel` — rewriting a review comment is review work, so it
+  resolves through the Review value too. A consequence: because an agent-type value
+  cannot be an API key, its API-key branch is now unreachable and stored API keys are
+  inert until an API-key lane exists or comment rewriting gets its own setting. The
+  branch is marked rather than deleted.
 - Development tasks resolve **no model on the backend at all**. The renderer
   picks it in `useAgentTaskCreation.applyCatalog` from
   `providers[].selectedModel`, and `CreateTaskRequest` rejects an empty model.
@@ -142,15 +146,17 @@ to the `.DEVELOPMENT` suffix by the same read-once rule.
 
 Only deltas from what exists are listed.
 
-**Personal → General** — worktrees folder with `Change`; keep detailed task
-runtime; Recent retention; `Clear history`; app version footnote.
+**Personal → General** — keep detailed task runtime; Recent retention;
+`Clear history`; app version footnote.
 
-The two retentions are hardcoded constants today —
-`DefaultAgentCompletionService.RETENTION_PERIOD = Duration.ofDays(7)` and
-`frontend/src/recent/model.ts RETENTION_DAYS = 14`. Making them settings means
-new store keys read by `DefaultAgentCompletionService` and `RecentRetentionJob`.
-The worktrees folder is `bytequay.agent.runtime-root`, a fixed property with no
-settings surface.
+The prototype's **worktrees folder** row is deliberately not built. Worktrees
+live under `bytequay.workspace.root/<workspaceId>/worktrees/<taskId>`;
+`WorkspacePaths.repository(Workspace)` rejects any workspace whose stored
+`localRepositoryPath` does not match that derived root, and a git worktree
+embeds absolute paths in its `.git` file. `Change` would therefore have to
+relocate every workspace, rewrite every stored path and run `git worktree
+repair` — a feature, not a settings row. The row is dropped rather than shipped
+as a button that bricks the checkout.
 
 **Personal → Appearance** — theme only. See §7.
 
@@ -158,6 +164,14 @@ settings surface.
 API-key models are exposed today as `List<String>` with no efforts; joining them
 to the same `ModelOption` catalog the pickers read is a wire-shape change to
 `ApiKeyDto.models`.
+
+**API-key models appear in both agent-type pickers but cannot be chosen.** An
+agent turn runs through an `AgentLaneId`, whose regex admits only `codex` and
+`claude`; a `key:<alias>` config id is not a lane and never can be until an
+API-key `AgentDriver` exists. The rows are rendered disabled with that reason
+rather than hidden, so the picker still shows the whole configured set. The
+backend rejects a key-backed config id for an agent-type value, which also
+fixes today's crash when such an id is main and a review starts.
 
 **Agents → Skills** — scope filter, one row per skill, add/edit dialog. The
 dialog is a UI change only; the `agent.skills` contract is unchanged. Internal

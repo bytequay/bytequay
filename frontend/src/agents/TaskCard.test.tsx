@@ -38,7 +38,6 @@ const PROVIDERS: ModelProviderDto[] = [{
   models: MODELS,
   selectedModel: 'gpt-5.6-sol',
   selectedEffort: 'high',
-  main: true,
 }];
 const NOW = Date.parse('2026-08-20T10:12:00Z');
 

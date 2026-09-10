@@ -138,7 +138,7 @@ export function providerStatusLabel(readiness: AgentProviderReadiness, checking:
   if (checking) return { label: 'Checking…', tone: 'is-neutral' };
   switch (readiness) {
     case 'READY':
-      return { label: '✓ Available', tone: 'is-ok' };
+      return { label: 'Ready', tone: 'is-ok' };
     case 'AUTHENTICATION_REQUIRED':
       return { label: 'Sign in required', tone: 'is-danger' };
     case 'CLI_MISSING':

@@ -1044,8 +1044,9 @@ function registerIpc(): void {
   ipcMain.handle('pat:delete', () =>
     backendVoid(`${backendBase()}/api/auth/github/token`, { method: 'DELETE' }));
 
-  ipcMain.handle('settings:models', () =>
-    backendJson(`${backendBase()}/api/settings/models`).then(parseModelSettings));
+  ipcMain.handle('settings:models', (_event, workspaceId?: string) =>
+    backendJson(`${backendBase()}/api/settings/models${workspaceId === undefined ? '' : `?workspaceId=${encodeURIComponent(workspaceId)}`}`)
+      .then(parseModelSettings));
   ipcMain.handle('settings:models:select', (
     _event,
     configId: string,
@@ -1055,8 +1056,18 @@ function registerIpc(): void {
     `${backendBase()}/api/settings/models/${encodeURIComponent(configId)}/selection`,
     jsonInit('PUT', { model, effort }),
   ).then(parseModelSettings));
-  ipcMain.handle('settings:models:main', (_event, configId: string) =>
-    backendJson(`${backendBase()}/api/settings/models/main`, jsonInit('PUT', { configId }))
+  ipcMain.handle('settings:models:agent:set', (
+    _event,
+    type: string,
+    configId: string,
+    model: string,
+    effort: string | null,
+  ) => backendJson(
+    `${backendBase()}/api/settings/models/agents/${encodeURIComponent(type)}`,
+    jsonInit('PUT', { configId, model, effort }),
+  ).then(parseModelSettings));
+  ipcMain.handle('settings:models:agent:clear', (_event, type: string) =>
+    backendJson(`${backendBase()}/api/settings/models/agents/${encodeURIComponent(type)}`, { method: 'DELETE' })
       .then(parseModelSettings));
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
     backendJson(`${backendBase()}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
@@ -1117,17 +1128,19 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:agent-model:set', (
     _event,
     workspaceId: string,
+    type: string,
     configId: string,
     model: string,
     effort: string | null,
   ) => backendJson(
-    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`,
+    `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model/${encodeURIComponent(type)}`,
     jsonInit('PUT', { configId, model, effort }),
   ));
-  ipcMain.handle('workspaces:agent-model:clear', (_event, workspaceId: string) =>
-    backendVoid(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model`, {
-      method: 'DELETE',
-    }));
+  ipcMain.handle('workspaces:agent-model:clear', (_event, workspaceId: string, type: string) =>
+    backendJson(
+      `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/agent-model/${encodeURIComponent(type)}`,
+      { method: 'DELETE' },
+    ));
   ipcMain.handle('workspaces:token:save', (_event, workspaceId: string, value: string) =>
     backendJson(
       `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token`,

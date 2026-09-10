@@ -66,7 +66,10 @@ function providerStatus(readiness: AgentProviderReadiness, extra: Partial<AgentP
 /** A catalog shaped like a probed, ready Codex lane. */
 function readyCatalog(models: ModelOptionDto[]): ModelSettingsDto {
   return {
-    mainId: 'codex',
+    agents: [
+      { type: 'DEVELOPMENT', explicit: true, configId: 'codex', label: 'Codex', model: models[0]?.id ?? '', modelLabel: 'Model', effort: 'high' },
+      { type: 'REVIEW', explicit: false, configId: 'codex', label: 'Codex', model: models[0]?.id ?? '', modelLabel: 'Model', effort: 'high' },
+    ],
     providers: [{
       id: 'codex',
       label: 'Codex',
@@ -76,7 +79,6 @@ function readyCatalog(models: ModelOptionDto[]): ModelSettingsDto {
       models,
       selectedModel: models[0]?.id ?? '',
       selectedEffort: 'high',
-      main: true,
       capabilities: CAPABILITIES,
     }],
     apiKeys: [],

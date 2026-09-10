@@ -128,7 +128,7 @@ class TestWorkspaceDeletionService
 
         verify(completion).delete(task.id());
         verify(codeGraph).deleteBaseline(PHYSICAL_REPOSITORY);
-        verify(models).clearWorkspaceOverride(WORKSPACE_ID);
+        verify(models).clearWorkspaceOverrides(WORKSPACE_ID);
         verify(workspaces).delete(WORKSPACE_ID);
         assertThat(paths.workspace(WORKSPACE_ID)).doesNotExist();
         assertThat(external).hasContent("keep");

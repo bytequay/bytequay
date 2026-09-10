@@ -202,11 +202,28 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
   const submissions = submissionRef.current;
 
-  const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaneId) => {
+  /**
+   * Seeds the composer from the Development setting — the model this workspace's
+   * next task is meant to launch with — unless the caller names a lane, which
+   * happens when a blocked start is retried on the lane it failed on.
+   */
+  const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId?: string) => {
     setCatalog(settings);
-    const provider = settings.providers.find((candidate) => candidate.id === preferredLaneId)
-      ?? settings.providers.find((candidate) => candidate.id === settings.mainId)
-      ?? settings.providers[0];
+    if (preferredLaneId !== undefined) {
+      const named = settings.providers.find((candidate) => candidate.id === preferredLaneId);
+      if (named !== undefined && named.selectedModel !== '') {
+        setLaneId(named.id);
+        setSelection({ model: named.selectedModel, effort: named.selectedEffort === '' ? null : named.selectedEffort });
+        return;
+      }
+    }
+    const development = settings.agents.find((agent) => agent.type === 'DEVELOPMENT');
+    if (development !== undefined && settings.providers.some((candidate) => candidate.id === development.configId)) {
+      setLaneId(development.configId);
+      setSelection({ model: development.model, effort: development.effort ?? null });
+      return;
+    }
+    const provider = settings.providers.find((candidate) => candidate.id === initialLaneId) ?? settings.providers[0];
     if (provider !== undefined && provider.selectedModel !== '') {
       setLaneId(provider.id);
       setSelection({
@@ -237,7 +254,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   useEffect(() => {
     let active = true;
-    bridge().getModelSettings()
+    bridge().getModelSettings(workspaceId)
       .then((settings) => {
         if (!active) return;
         // The user's own default selection, not a guess this screen invents.
@@ -245,7 +262,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       })
       .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
     return () => { active = false; };
-  }, [applyCatalog, bridge]);
+  }, [applyCatalog, bridge, workspaceId]);
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
@@ -333,7 +350,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
           + (command === null ? '' : ` Run: ${command}`));
         // The preflight contract says no mutation happened, so do not replay it as an ambiguous
         // delivery. Refresh the typed catalog and wait for another deliberate click.
-        void bridge().getModelSettings()
+        void bridge().getModelSettings(workspaceId)
           .then((settings) => applyCatalog(settings, unavailable.laneId))
           .catch(() => {});
         return;

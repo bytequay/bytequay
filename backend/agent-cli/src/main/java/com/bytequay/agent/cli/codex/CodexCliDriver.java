@@ -124,7 +124,7 @@ import static java.util.stream.Collectors.joining;
  * </pre>
  */
 public final class CodexCliDriver
-        implements AgentDriver, AutoCloseable
+        implements AgentDriver
 {
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
@@ -511,13 +511,6 @@ public final class CodexCliDriver
         }
     }
 
-    @Override
-    public void close()
-    {
-        // Each session owns the App Server process serving its task and closes it. The driver
-        // itself holds no process between calls.
-    }
-
     private OptionalInt compareVersion(String reported)
     {
         Matcher version = VERSION.matcher(reported);
@@ -676,20 +669,13 @@ public final class CodexCliDriver
 
         private ModelProfile select(Optional<String> selectedModel)
         {
-            List<CodexProtocol.ModelEntry> visible = entries.stream()
+            CodexProtocol.ModelEntry selected = entries.stream()
                     .filter(entry -> !entry.hidden())
-                    .collect(toImmutableList());
-            CodexProtocol.ModelEntry selected = selectedModel
-                    .flatMap(model -> visible.stream().filter(entry -> entry.id().equals(model)).findFirst())
-                    .orElseGet(() -> selectedModel.isPresent() ? null : visible.stream()
-                            .filter(CodexProtocol.ModelEntry::isDefault)
-                            .findFirst()
-                            .orElse(null));
-            if (selected == null) {
-                throw new AgentUnavailableException(selectedModel
-                        .map(model -> "Codex model " + model + " is not in the current model catalog")
-                        .orElse("Codex model catalog has no visible default model"));
-            }
+                    .filter(entry -> selectedModel.map(entry.id()::equals).orElse(entry.isDefault()))
+                    .findFirst()
+                    .orElseThrow(() -> new AgentUnavailableException(selectedModel
+                            .map(model -> "Codex model " + model + " is not in the current model catalog")
+                            .orElse("Codex model catalog has no visible default model")));
             CodexProtocol.MultiAgentVersion version = selected.multiAgentVersion().orElse(CodexProtocol.MultiAgentVersion.DISABLED);
             CodexLaunchProfile.ChildProfile childProfile = switch (version) {
                 case DISABLED -> CodexLaunchProfile.ChildProfile.NONE;
@@ -1141,12 +1127,8 @@ public final class CodexCliDriver
             }
         }
 
-        /**
-         * Applies the one edge format selected for this model process.
-         *
-         * @return child thread ids named by authoritative edges in this item
-         */
-        private List<String> registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
+        /** Applies the one edge format selected for this model process. */
+        private void registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
         {
             if (item instanceof CodexProtocol.CollabAgentToolCallItem collab) {
                 if (!collab.senderThreadId().equals(namingThread)) {
@@ -1155,7 +1137,7 @@ public final class CodexCliDriver
                 if (!collab.tool().equals("spawnAgent")) {
                     collab.receiverThreadIds().forEach(this::requireKnownGraphIdentity);
                     collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
-                    return ImmutableList.of();
+                    return;
                 }
                 if (childProfile != CodexLaunchProfile.ChildProfile.V1) {
                     collab.receiverThreadIds().forEach(receiver -> {
@@ -1163,7 +1145,7 @@ public final class CodexCliDriver
                         enrichKnown(receiver, Optional.empty(), collab.prompt());
                     });
                     collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
-                    return ImmutableList.of();
+                    return;
                 }
                 collab.agentsStates().keySet().stream()
                         .filter(threadId -> !collab.receiverThreadIds().contains(threadId))
@@ -1172,7 +1154,7 @@ public final class CodexCliDriver
                 // message of its own, so this is the only record of its purpose.
                 collab.receiverThreadIds().forEach(receiver ->
                         register(receiver, namingThread, Optional.empty(), collab.prompt()));
-                return collab.receiverThreadIds();
+                return;
             }
             if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
                 boolean edge = childProfile == CodexLaunchProfile.ChildProfile.V2
@@ -1191,13 +1173,11 @@ public final class CodexCliDriver
                     }
                     rememberV2AgentPath(activity.agentThreadId(), agentPath);
                     enrichKnown(activity.agentThreadId(), label, Optional.empty());
-                    return ImmutableList.of();
+                    return;
                 }
                 register(activity.agentThreadId(), namingThread, label);
                 rememberV2AgentPath(activity.agentThreadId(), agentPath);
-                return ImmutableList.of(activity.agentThreadId());
             }
-            return ImmutableList.of();
         }
 
         private void requireKnownGraphIdentity(String threadId)
@@ -1769,10 +1749,6 @@ public final class CodexCliDriver
                     catch (AgentUnavailableException failure) {
                         return CompletableFuture.failedFuture(failure);
                     }
-                }
-                if (availableDecisions.isEmpty()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex command approval offers no ByteQuay-supported decision"));
                 }
                 startedAtMs = approval.params().startedAtMs();
             }

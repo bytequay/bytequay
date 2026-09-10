@@ -92,7 +92,7 @@ public class AgentConfiguration
         return new DefaultProcessSupervisor(properties.runtimeRoot().resolve("_processes"), intents);
     }
 
-    @Bean(destroyMethod = "close")
+    @Bean
     @ConditionalOnProperty(name = "bytequay.agent.codex-enabled", havingValue = "true")
     public CodexCliDriver codexCliDriver(
             AgentProperties properties,

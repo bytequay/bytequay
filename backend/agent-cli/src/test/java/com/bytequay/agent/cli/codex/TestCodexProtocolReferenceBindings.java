@@ -187,6 +187,33 @@ class TestCodexProtocolReferenceBindings
         assertThat(encoded.has("includeTurns")).isFalse();
     }
 
+    @Test
+    void ignoresUnusedThreadHistoryFields()
+            throws Exception
+    {
+        JsonNode value = objectMapper.readTree("""
+                {"id":"thread-1","status":{"type":"idle"},"sessionId":{},"turns":[{"id":null}]}
+                """);
+
+        CodexProtocol.HistoryThread thread = codec.decodeResult(value, CodexProtocol.HistoryThread.class);
+
+        assertThat(thread.id()).isEqualTo("thread-1");
+        assertThat(thread.status().type()).isEqualTo("idle");
+    }
+
+    @Test
+    void ignoresUnusedBackgroundTerminalFields()
+            throws Exception
+    {
+        JsonNode value = objectMapper.readTree("""
+                {"processId":"process-1","itemId":null,"command":{},"cwd":[]}
+                """);
+
+        CodexProtocol.ThreadBackgroundTerminal terminal = codec.decodeResult(value, CodexProtocol.ThreadBackgroundTerminal.class);
+
+        assertThat(terminal.processId()).isEqualTo("process-1");
+    }
+
     private void verifyDecodeBinding(JsonNode binding, Class<?> type, RecordComponent[] actualComponents)
     {
         String description = description(binding);

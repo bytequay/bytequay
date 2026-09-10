@@ -395,17 +395,10 @@ const referenceRecordBindings = [
   ], [component("threadId"), component("processId")]),
   recordBinding("ThreadBackgroundTerminal", "decode", [
     schemaSource("v2", "ThreadBackgroundTerminal"),
-  ], [
-    component("processId"),
-    component("itemId"),
-    component("command"),
-    component("cwd"),
-  ]),
+  ], [component("processId")]),
   recordBinding("HistoryThread", "decode", [schemaSource("v2", "Thread")], [
     component("id"),
-    component("sessionId"),
     component("parentThreadId"),
-    component("turns"),
     component("status"),
     component("agentNickname"),
     component("agentRole"),

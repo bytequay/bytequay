@@ -178,8 +178,6 @@ class TestCodexCliDriver
         // inventory that can prove a thread owns no live process.
         assertThat(supervisor.servers()).allSatisfy(
                 server -> assertThat(server.experimentalApi()).containsExactly(true));
-
-        driver.close();
     }
 
     @Test
@@ -200,7 +198,6 @@ class TestCodexCliDriver
                 supervisor.server().completeTurn();
                 turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
             }
-            driver.close();
         }
     }
 
@@ -378,8 +375,6 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("late", ImmutableList.of())))
                 .isInstanceOf(AgentUnavailableException.class)
                 .isNotInstanceOf(AgentDeliveryUncertainException.class);
-
-        driver.close();
     }
 
     @Test
@@ -466,8 +461,6 @@ class TestCodexCliDriver
 
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("maybe written", ImmutableList.of())))
                 .isInstanceOf(AgentDeliveryUncertainException.class);
-
-        driver.close();
     }
 
     @Test
@@ -509,8 +502,6 @@ class TestCodexCliDriver
         assertThat(disconnectedResult.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason ->
                 assertThat(reason).contains("Codex CLI 0.153.4").contains("exited with code 1"));
-
-        driver.close();
     }
 
     @Test
@@ -527,7 +518,6 @@ class TestCodexCliDriver
             assertThat(driver.models()).isNotEmpty();
             assertThat(driver.update()).isEmpty();
             assertThat(supervisor.updateRuns()).isOne();
-            driver.close();
         }
     }
 
@@ -542,7 +532,6 @@ class TestCodexCliDriver
             assertThat(driver.update()).isEmpty();
             assertThat(supervisor.updateRuns()).isZero();
             assertThat(driver.models()).isNotEmpty();
-            driver.close();
         }
     }
 
@@ -564,7 +553,6 @@ class TestCodexCliDriver
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining("requires 0.153.4 or newer");
             assertThat(supervisor.servers()).isEmpty();
-            driver.close();
         }
     }
 
@@ -586,7 +574,6 @@ class TestCodexCliDriver
         assertThatThrownBy(driver::models).hasMessageContaining("minimum version 0.155.2");
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .hasMessageContaining("minimum version 0.155.2");
-        driver.close();
     }
 
     @Test
@@ -647,7 +634,6 @@ class TestCodexCliDriver
         AgentProviderStatus authentication = loggedOutDriver.probe();
         assertThat(authentication.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
         assertThat(authentication.available()).isFalse();
-        loggedOutDriver.close();
 
         ScriptedProcessSupervisor missing = new ScriptedProcessSupervisor(objectMapper);
         missing.executableMissing();
@@ -655,7 +641,6 @@ class TestCodexCliDriver
         AgentProviderStatus executable = missingDriver.probe();
         assertThat(executable.readiness()).isEqualTo(AgentProviderStatus.Readiness.CLI_MISSING);
         assertThat(executable.available()).isFalse();
-        missingDriver.close();
     }
 
     @Test
@@ -672,7 +657,6 @@ class TestCodexCliDriver
         assertThat(supervisor.environments()).isNotEmpty();
         assertThat(supervisor.environments())
                 .allSatisfy(environment -> assertThat(environment).containsEntry("CODEX_HOME", codexHome().toString()));
-        driver.close();
     }
 
     @Test
@@ -688,7 +672,6 @@ class TestCodexCliDriver
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
         assertThat(status.signInCommand()).contains("CODEX_HOME=\"" + codexHome() + "\" /fake/codex login");
         assertThat(status.diagnostic()).contains("not signed in for ByteQuay");
-        driver.close();
     }
 
     @Test
@@ -707,7 +690,6 @@ class TestCodexCliDriver
         assertThat(status.available()).isFalse();
         assertThat(status.version()).contains("0.153.4");
         assertThat(status.diagnostic()).contains("exec-policy rules").contains("move that rules folder aside");
-        driver.close();
     }
 
     @Test
@@ -721,8 +703,6 @@ class TestCodexCliDriver
                 .hasMessageContaining("Codex CLI 0.153.4")
                 .hasMessageContaining("thread/start")
                 .hasMessageContaining("unsupported protocol");
-
-        driver.close();
     }
 
     @Test
@@ -853,7 +833,6 @@ class TestCodexCliDriver
         assertThat(server.error(100).path("message").asText()).contains("scoped grant");
         assertThat(server.error(102).path("message").asText()).contains("scoped grant");
         assertThat(approval).hasValue(null);
-        driver.close();
     }
 
     @Test
@@ -908,7 +887,6 @@ class TestCodexCliDriver
 
         awaitCondition(() -> server.error(98) != null);
         assertThat(server.error(98).path("message").asText()).contains("no longer belongs");
-        driver.close();
     }
 
     @Test
@@ -953,7 +931,6 @@ class TestCodexCliDriver
         server.releaseInterruptCompletion();
         assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.CANCELLED);
-        driver.close();
     }
 
     @Test
@@ -1025,7 +1002,6 @@ class TestCodexCliDriver
         awaitCondition(() -> server.result(99) != null);
         assertThat(server.result(99).path("decision").asText()).isEqualTo("accept");
         assertThat(approval.get()).isSameAs(before);
-        driver.close();
     }
 
     @Test
@@ -2401,7 +2377,6 @@ class TestCodexCliDriver
             session.close();
         }
         assertThat(supervisor.environments()).noneMatch(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"));
-        driver.close();
     }
 
     @Test

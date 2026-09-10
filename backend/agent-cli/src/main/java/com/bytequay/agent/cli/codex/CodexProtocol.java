@@ -342,7 +342,7 @@ final class CodexProtocol
     {
         PlanUpdatedParams
         {
-            plan = ImmutableList.copyOf(requireNonNull(plan, "plan is null"));
+            plan = ImmutableList.copyOf(plan);
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
         }
@@ -475,7 +475,7 @@ final class CodexProtocol
         FileChangeItem
         {
             checkIdentifier(id, "id");
-            changes = ImmutableList.copyOf(requireNonNull(changes, "changes is null"));
+            changes = ImmutableList.copyOf(changes);
             requireNonNull(status, "status is null");
         }
     }
@@ -1215,14 +1215,12 @@ final class CodexProtocol
             checkIdentifier(model, "model");
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
-            config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
+            config = ImmutableMap.copyOf(config);
             checkIdentifier(sandbox, "sandbox");
             requireNonNull(developerInstructions, "developerInstructions is null");
             checkIdentifier(serviceName, "serviceName");
-            dynamicTools = ImmutableList.copyOf(requireNonNull(dynamicTools, "dynamicTools is null"));
-            selectedCapabilityRoots = ImmutableList.copyOf(requireNonNull(
-                    selectedCapabilityRoots,
-                    "selectedCapabilityRoots is null"));
+            dynamicTools = ImmutableList.copyOf(dynamicTools);
+            selectedCapabilityRoots = ImmutableList.copyOf(selectedCapabilityRoots);
         }
     }
 
@@ -1243,7 +1241,7 @@ final class CodexProtocol
             checkIdentifier(model, "model");
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
-            config = ImmutableMap.copyOf(requireNonNull(config, "config is null"));
+            config = ImmutableMap.copyOf(config);
             checkIdentifier(sandbox, "sandbox");
             requireNonNull(developerInstructions, "developerInstructions is null");
         }
@@ -1320,7 +1318,7 @@ final class CodexProtocol
     {
         ThreadBackgroundTerminalsListResponse
         {
-            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+            data = ImmutableList.copyOf(data);
             requireNonNull(nextCursor, "nextCursor is null");
         }
     }
@@ -1360,14 +1358,11 @@ final class CodexProtocol
         }
     }
 
-    record ThreadBackgroundTerminal(String processId, String itemId, String command, String cwd)
+    record ThreadBackgroundTerminal(String processId)
     {
         ThreadBackgroundTerminal
         {
             checkIdentifier(processId, "processId");
-            checkIdentifier(itemId, "itemId");
-            requireNonNull(command, "command is null");
-            checkIdentifier(cwd, "cwd");
         }
     }
 
@@ -1381,9 +1376,7 @@ final class CodexProtocol
 
     record HistoryThread(
             String id,
-            String sessionId,
             Optional<String> parentThreadId,
-            List<Turn> turns,
             ThreadStatus status,
             Optional<String> agentNickname,
             Optional<String> agentRole)
@@ -1391,10 +1384,8 @@ final class CodexProtocol
         HistoryThread
         {
             checkIdentifier(id, "id");
-            checkIdentifier(sessionId, "sessionId");
             requireNonNull(parentThreadId, "parentThreadId is null");
             parentThreadId.ifPresent(parent -> checkIdentifier(parent, "parentThreadId"));
-            turns = ImmutableList.copyOf(turns);
             requireNonNull(status, "status is null");
             requireNonNull(agentNickname, "agentNickname is null");
             requireNonNull(agentRole, "agentRole is null");
@@ -1521,7 +1512,7 @@ final class CodexProtocol
         TurnStartParams
         {
             checkIdentifier(threadId, "threadId");
-            input = ImmutableList.copyOf(requireNonNull(input, "input is null"));
+            input = ImmutableList.copyOf(input);
             checkArgument(!input.isEmpty(), "input is empty");
             requireNonNull(model, "model is null");
             requireNonNull(effort, "effort is null");
@@ -1529,7 +1520,7 @@ final class CodexProtocol
             checkIdentifier(approvalPolicy, "approvalPolicy");
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
             checkIdentifier(cwd, "cwd");
-            sandboxPolicy = ImmutableMap.copyOf(requireNonNull(sandboxPolicy, "sandboxPolicy is null"));
+            sandboxPolicy = ImmutableMap.copyOf(sandboxPolicy);
         }
     }
 
@@ -1597,7 +1588,7 @@ final class CodexProtocol
     {
         ModelListResponse
         {
-            data = ImmutableList.copyOf(requireNonNull(data, "data is null"));
+            data = ImmutableList.copyOf(data);
         }
     }
 
@@ -1623,8 +1614,7 @@ final class CodexProtocol
             requireNonNull(hidden, "hidden is null");
             requireNonNull(isDefault, "isDefault is null");
             requireNonNull(defaultReasoningEffort, "defaultReasoningEffort is null");
-            supportedReasoningEfforts = ImmutableList.copyOf(
-                    requireNonNull(supportedReasoningEfforts, "supportedReasoningEfforts is null"));
+            supportedReasoningEfforts = ImmutableList.copyOf(supportedReasoningEfforts);
             requireNonNull(multiAgentVersion, "multiAgentVersion is null");
         }
     }

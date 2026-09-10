@@ -145,9 +145,13 @@ history, so neither alone proves that a child's turn is terminal.
 
 The compact Java projection retains the optional model multi-agent version,
 the required V1 sender/receiver/state identity and optional state message, the
-required V2 thread/path lifecycle identity, and recursive `thread/read`
-parent/session/turn/item history. It accepts omitted optional capability
-fields, additive object fields, and future enum members through `UNKNOWN`.
+required V2 thread/path lifecycle identity, and the thread identity, parent,
+status, and labels consumed by routing and completion. It omits unused thread
+session IDs and embedded turn history; latest-turn status comes from the
+separate bounded response, and live notifications supply item activity.
+Background-terminal entries retain only the process ID used by completion and
+termination. It accepts omitted optional capability fields, additive object
+fields, and future enum members through `UNKNOWN`.
 This projection check does not subscribe to child threads, build a graph, or
 publish V2 activity. The live child-capable proof covers the reference
 behavior; the later integration checkpoints now supply production routing.

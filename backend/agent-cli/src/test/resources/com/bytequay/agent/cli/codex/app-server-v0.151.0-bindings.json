@@ -2416,27 +2416,6 @@
           "required": true,
           "nullable": false,
           "sample": "value"
-        },
-        {
-          "javaName": "itemId",
-          "wireName": "itemId",
-          "required": true,
-          "nullable": false,
-          "sample": "value"
-        },
-        {
-          "javaName": "command",
-          "wireName": "command",
-          "required": true,
-          "nullable": false,
-          "sample": "value"
-        },
-        {
-          "javaName": "cwd",
-          "wireName": "cwd",
-          "required": true,
-          "nullable": false,
-          "sample": "value"
         }
       ]
     },
@@ -2455,25 +2434,11 @@
           "sample": "value"
         },
         {
-          "javaName": "sessionId",
-          "wireName": "sessionId",
-          "required": true,
-          "nullable": false,
-          "sample": "value"
-        },
-        {
           "javaName": "parentThreadId",
           "wireName": "parentThreadId",
           "required": false,
           "nullable": true,
           "sample": "value"
-        },
-        {
-          "javaName": "turns",
-          "wireName": "turns",
-          "required": true,
-          "nullable": false,
-          "sample": []
         },
         {
           "javaName": "status",

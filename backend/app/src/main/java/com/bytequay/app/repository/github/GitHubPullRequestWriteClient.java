@@ -40,8 +40,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
 import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
+import static com.bytequay.app.repository.github.GitHubApiSupport.send;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
@@ -65,18 +68,9 @@ public class GitHubPullRequestWriteClient
     public PrTimelineEvent createIssueComment(String pat, PullRequestRef pr, String body)
     {
         return translating(() -> {
-            GitHubIssueComment posted = gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/issues/{number}/comments", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("body", body))
-                    .retrieve()
-                    .body(GitHubIssueComment.class);
-            if (posted == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "Empty response from GitHub when posting issue comment");
-            }
+            GitHubIssueComment posted = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("body", body),
+                    "/repos/{owner}/{repo}/issues/{number}/comments", pr.owner(), pr.repo(), pr.number())
+                    .body(GitHubIssueComment.class), "Empty response from GitHub when posting issue comment");
             return GitHubPullRequestReadClient.toCommentedTimelineEvent(posted);
         });
     }
@@ -161,10 +155,7 @@ public class GitHubPullRequestWriteClient
         boolean remove = Boolean.FALSE.equals(viewerHasReacted)
                 || (viewerHasReacted == null && alreadyReacted);
         if (remove) {
-            GitHubReaction reaction = response.getBody();
-            if (reaction == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty response from GitHub when setting reaction");
-            }
+            GitHubReaction reaction = requireBody(response.getBody(), "Empty response from GitHub when setting reaction");
             deleteReaction(pat, uri, reaction.id(), uriVariables);
             return false;
         }
@@ -173,12 +164,7 @@ public class GitHubPullRequestWriteClient
 
     private ResponseEntity<GitHubReaction> addReaction(String pat, String uri, String content, Object... uriVariables)
     {
-        return translating(() -> gitHubRestClient.post()
-                .uri(uri, uriVariables)
-                .header("Authorization", authorization(pat))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ImmutableMap.of("content", content))
-                .retrieve()
+        return translating(() -> send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("content", content), uri, uriVariables)
                 .toEntity(GitHubReaction.class));
     }
 
@@ -193,23 +179,15 @@ public class GitHubPullRequestWriteClient
 
     public void closePullRequest(String pat, PullRequestRef pr)
     {
-        translating(() -> gitHubRestClient.patch()
-                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                .header("Authorization", authorization(pat))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ImmutableMap.of("state", "closed"))
-                .retrieve()
+        translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("state", "closed"),
+                "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
                 .toBodilessEntity());
     }
 
     public void updatePullRequestDescription(String pat, PullRequestRef pr, String description)
     {
-        translating(() -> gitHubRestClient.patch()
-                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                .header("Authorization", authorization(pat))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ImmutableMap.of("body", requireNonNull(description, "description is null")))
-                .retrieve()
+        translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("body", requireNonNull(description, "description is null")),
+                "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
                 .toBodilessEntity());
     }
 
@@ -257,18 +235,14 @@ public class GitHubPullRequestWriteClient
     private UpdatedIssue updateIssue(String pat, PullRequestRef issue, Map<String, Object> request)
     {
         return translating(() -> {
-            UpdatedIssue updated = gitHubRestClient.patch()
+            UpdatedIssue updated = requireBody(gitHubRestClient.patch()
                     .uri("/repos/{owner}/{repo}/issues/{number}", issue.owner(), issue.repo(), issue.number())
                     .header("Authorization", authorization(pat))
                     .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
-                    .body(UpdatedIssue.class);
-            if (updated == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub when updating issue");
-            }
+                    .body(UpdatedIssue.class), "Empty response from GitHub when updating issue");
             return updated;
         });
     }
@@ -276,13 +250,9 @@ public class GitHubPullRequestWriteClient
     public void updateReviewerRequest(String pat, PullRequestRef pullRequest, String login, boolean requested)
     {
         checkText(login, "reviewer login");
-        translating(() -> gitHubRestClient.method(requested ? HttpMethod.POST : HttpMethod.DELETE)
-                .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
+        translating(() -> send(gitHubRestClient, requested ? HttpMethod.POST : HttpMethod.DELETE, pat, ImmutableMap.of("reviewers", ImmutableList.of(login)),
+                "/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                         pullRequest.owner(), pullRequest.repo(), pullRequest.number())
-                .header("Authorization", authorization(pat))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ImmutableMap.of("reviewers", ImmutableList.of(login)))
-                .retrieve()
                 .toBodilessEntity());
     }
 
@@ -315,18 +285,9 @@ public class GitHubPullRequestWriteClient
     private PrReviewState postReview(String pat, PullRequestRef pr, Map<String, ?> request)
     {
         return translating(() -> {
-            GitHubReview created = gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(GitHubReview.class);
-            if (created == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "Empty response from GitHub when submitting review");
-            }
+            GitHubReview created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
+                    "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
+                    .body(GitHubReview.class), "Empty response from GitHub when submitting review");
             return created.toReviewState();
         });
     }
@@ -336,18 +297,9 @@ public class GitHubPullRequestWriteClient
         return translating(() -> {
             Map<String, Object> request = toReviewCommentRequest(comment);
             request.put("commit_id", comment.commitId());
-            GitHubReviewComment posted = gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/comments", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(GitHubReviewComment.class);
-            if (posted == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "Empty response from GitHub when posting review comment");
-            }
+            GitHubReviewComment posted = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
+                    "/repos/{owner}/{repo}/pulls/{number}/comments", pr.owner(), pr.repo(), pr.number())
+                    .body(GitHubReviewComment.class), "Empty response from GitHub when posting review comment");
             return GitHubPullRequestReadClient.toReviewThreadEvent(posted);
         });
     }
@@ -368,13 +320,9 @@ public class GitHubPullRequestWriteClient
 
     public void replyToReviewComment(String pat, PullRequestRef pr, long commentId, String body)
     {
-        translating(() -> gitHubRestClient.post()
-                .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
+        translating(() -> send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("body", body),
+                "/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
                         pr.owner(), pr.repo(), pr.number(), commentId)
-                .header("Authorization", authorization(pat))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(ImmutableMap.of("body", body))
-                .retrieve()
                 .toBodilessEntity());
     }
 
@@ -383,17 +331,8 @@ public class GitHubPullRequestWriteClient
         String mutation = resolved
                 ? "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}"
                 : "mutation($threadId:ID!){unresolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
-        ReviewThreadMutationResponse response = translating(() -> graphQlRestClient.post()
-                .header("Authorization", authorization(pat))
-                .body(ImmutableMap.of(
-                        "query", mutation,
-                        "variables", ImmutableMap.of("threadId", threadId)))
-                .retrieve()
-                .body(ReviewThreadMutationResponse.class));
-        if (response == null) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502), "Empty response from GitHub when updating review thread");
-        }
+        ReviewThreadMutationResponse response = requireBody(translating(() -> graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("threadId", threadId))
+                .body(ReviewThreadMutationResponse.class)), "Empty response from GitHub when updating review thread");
         if (response.errors() != null && !response.errors().isEmpty()) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(502),
@@ -408,10 +347,7 @@ public class GitHubPullRequestWriteClient
         checkText(nodeId, "nodeId", 255);
         String mutation = "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}";
         translating(() -> {
-            JsonNode response = graphQlRestClient.post()
-                    .header("Authorization", authorization(pat))
-                    .body(ImmutableMap.of("query", mutation, "variables", ImmutableMap.of("id", nodeId)))
-                    .retrieve()
+            JsonNode response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", nodeId))
                     .body(JsonNode.class);
             if (response == null || (response.has("errors") && (!response.path("errors").isArray() || !response.path("errors").isEmpty()))) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review response is uncertain; the mutation will not be retried");
@@ -439,18 +375,9 @@ public class GitHubPullRequestWriteClient
         checkText(title, "title");
         requireNonNull(body, "body is null");
         return translating(() -> {
-            GitHubCreatedPullRequest created = gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(ImmutableMap.of("title", title, "body", body, "head", head, "base", base))
-                    .retrieve()
-                    .body(GitHubCreatedPullRequest.class);
-            if (created == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "Empty response from GitHub when creating pull request");
-            }
+            GitHubCreatedPullRequest created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("title", title, "body", body, "head", head, "base", base),
+                    "/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
+                    .body(GitHubCreatedPullRequest.class), "Empty response from GitHub when creating pull request");
             return new CreatedPullRequest(created.id(), created.number(), created.htmlUrl());
         });
     }

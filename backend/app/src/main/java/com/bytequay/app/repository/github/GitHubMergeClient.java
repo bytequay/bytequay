@@ -20,8 +20,8 @@ import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,7 +32,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
+import static com.bytequay.app.repository.github.GitHubApiSupport.send;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static java.util.Objects.requireNonNull;
 
@@ -54,15 +55,8 @@ public class GitHubMergeClient
     {
         String query = "query($owner: String!, $name: String!, $branch: String!) {"
                 + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
-        Map<String, Object> body = ImmutableMap.of(
-                "query", query,
-                "variables", ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch));
         return translating(() -> {
-            MergeQueueResponse response = graphqlRestClient
-                    .post()
-                    .header("Authorization", authorization(pat))
-                    .body(body)
-                    .retrieve()
+            MergeQueueResponse response = graphql(graphqlRestClient, pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch))
                     .body(MergeQueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
                 throw new ResponseStatusException(
@@ -86,13 +80,7 @@ public class GitHubMergeClient
         command.commitMessage().ifPresent(value -> body.put("commit_message", value));
         command.sha().ifPresent(value -> body.put("sha", value));
         return translating(() -> {
-            MergeResponse response = gitHubRestClient
-                    .put()
-                    .uri("/repos/{owner}/{repo}/pulls/{number}/merge", pr.owner(), pr.repo(), pr.number())
-                    .header("Authorization", authorization(pat))
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
+            MergeResponse response = send(gitHubRestClient, HttpMethod.PUT, pat, body, "/repos/{owner}/{repo}/pulls/{number}/merge", pr.owner(), pr.repo(), pr.number())
                     .body(MergeResponse.class);
             return response == null ? null : response.toDomain();
         });
@@ -107,14 +95,7 @@ public class GitHubMergeClient
     {
         String query = "query($owner: String!, $name: String!, $number: Int!) {"
                 + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
-        Map<String, Object> body = ImmutableMap.of(
-                "query", query,
-                "variables", ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()));
-        return translating(() -> graphqlRestClient
-                .post()
-                .header("Authorization", authorization(pat))
-                .body(body)
-                .retrieve()
+        return translating(() -> graphql(graphqlRestClient, pat, query, ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()))
                 .body(ProbeResponse.class));
     }
 
@@ -142,13 +123,7 @@ public class GitHubMergeClient
                 + " enqueuePullRequest(input: { pullRequestId: $id }) {"
                 + " mergeQueueEntry { position state } } }";
         return translating(() -> {
-            EnqueueResponse response = graphqlRestClient
-                    .post()
-                    .header("Authorization", authorization(pat))
-                    .body(ImmutableMap.of(
-                            "query", mutation,
-                            "variables", ImmutableMap.of("id", pullRequestNodeId)))
-                    .retrieve()
+            EnqueueResponse response = graphql(graphqlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
                     .body(EnqueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
                 throw new ResponseStatusException(

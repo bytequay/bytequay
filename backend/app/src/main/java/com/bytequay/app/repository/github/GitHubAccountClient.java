@@ -37,10 +37,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.get;
+import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
@@ -68,16 +70,9 @@ public class GitHubAccountClient
         return translating(
                 () -> {
                     GitHubUserProfileResponse response =
-                            gitHubRestClient
-                                    .get()
-                                    .uri("/user")
-                                    .header("Authorization", authorization(pat))
+                            requireBody(get(gitHubRestClient, pat, "/user")
                                     .retrieve()
-                                    .body(GitHubUserProfileResponse.class);
-                    if (response == null) {
-                        throw new ResponseStatusException(
-                                HttpStatusCode.valueOf(502), "Empty response from GitHub /user");
-                    }
+                                    .body(GitHubUserProfileResponse.class), "Empty response from GitHub /user");
                     return toUserProfile(response);
                 });
     }
@@ -86,16 +81,9 @@ public class GitHubAccountClient
         return translating(
                 () -> {
                     GitHubUserProfileResponse response =
-                            gitHubRestClient
-                                    .get()
-                                    .uri("/users/{login}", login)
-                                    .header("Authorization", authorization(pat))
+                            requireBody(get(gitHubRestClient, pat, "/users/{login}", login)
                                     .retrieve()
-                                    .body(GitHubUserProfileResponse.class);
-                    if (response == null) {
-                        throw new ResponseStatusException(
-                                HttpStatusCode.valueOf(502), "Empty response from GitHub /users/{login}");
-                    }
+                                    .body(GitHubUserProfileResponse.class), "Empty response from GitHub /users/{login}");
                     return toUserProfile(response);
                 });
     }
@@ -134,16 +122,9 @@ public class GitHubAccountClient
                         + "    }"
                         + "  }"
                         + "}";
-        Map<String, Object> body =
-                ImmutableMap.of("query", query, "variables", ImmutableMap.of("login", login));
         try {
-            ContributionGqlResponse response =
-                    graphqlRestClient
-                            .post()
-                            .header("Authorization", authorization(pat))
-                            .body(body)
-                            .retrieve()
-                            .body(ContributionGqlResponse.class);
+            ContributionGqlResponse response = graphql(graphqlRestClient, pat, query, ImmutableMap.of("login", login))
+                    .body(ContributionGqlResponse.class);
             if (response == null
                     || response.data() == null
                     || response.data().user() == null
@@ -241,17 +222,13 @@ public class GitHubAccountClient
         String query = "author:" + login + " author-date:" + isoDate;
         try {
             CommitSearchResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path("/search/commits")
-                                                    .queryParam("q", query)
-                                                    .queryParam("per_page", 30)
-                                                    .queryParam("sort", "author-date")
-                                                    .queryParam("order", "desc")
-                                                    .build())
-                            .header("Authorization", authorization(pat))
+                    get(gitHubRestClient, pat, u ->
+                                    u.path("/search/commits")
+                                            .queryParam("q", query)
+                                            .queryParam("per_page", 30)
+                                            .queryParam("sort", "author-date")
+                                            .queryParam("order", "desc")
+                                            .build())
                             .header("Accept", "application/vnd.github+json")
                             .retrieve()
                             .body(CommitSearchResponse.class);
@@ -333,27 +310,23 @@ public class GitHubAccountClient
             List<GitHubUserRepoItem> items =
                     translating(
                             () ->
-                                    gitHubRestClient
-                                            .get()
-                                            .uri(
-                                                    u ->
-                                                            u.path("/user/repos")
-                                                                    .queryParam("sort", "pushed")
-                                                                    // Include org repos the user
-                                                                    // has access to — without
-                                                                    // `organization_member`,
-                                                                    // company repos never appear
-                                                                    // in the list regardless of
-                                                                    // the token's scope.
-                                                                    .queryParam(
-                                                                            "affiliation",
-                                                                            "owner,collaborator,organization_member")
-                                                                    .queryParam(
-                                                                            "per_page", perPage)
-                                                                    .queryParam(
-                                                                            "page", currentPage)
-                                                                    .build())
-                                            .header("Authorization", authorization(pat))
+                                    get(gitHubRestClient, pat, u ->
+                                                    u.path("/user/repos")
+                                                            .queryParam("sort", "pushed")
+                                                            // Include org repos the user
+                                                            // has access to — without
+                                                            // `organization_member`,
+                                                            // company repos never appear
+                                                            // in the list regardless of
+                                                            // the token's scope.
+                                                            .queryParam(
+                                                                    "affiliation",
+                                                                    "owner,collaborator,organization_member")
+                                                            .queryParam(
+                                                                    "per_page", perPage)
+                                                            .queryParam(
+                                                                    "page", currentPage)
+                                                            .build())
                                             .retrieve()
                                             .body(new ParameterizedTypeReference<>() {}));
             if (items == null || items.isEmpty()) {
@@ -379,13 +352,9 @@ public class GitHubAccountClient
         // which is the safe default.
         try {
             GitHubRepoPermissionsResponse response =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path("/repos/{owner}/{repo}")
-                                                    .build(repo.owner(), repo.repo()))
-                            .header("Authorization", authorization(pat))
+                    get(gitHubRestClient, pat, u ->
+                                    u.path("/repos/{owner}/{repo}")
+                                            .build(repo.owner(), repo.repo()))
                             .retrieve()
                             .body(GitHubRepoPermissionsResponse.class);
             return Optional.ofNullable(response)
@@ -409,15 +378,11 @@ public class GitHubAccountClient
         return translating(
                 () -> {
                     GitHubRepoSearchResponse response =
-                            gitHubRestClient
-                                    .get()
-                                    .uri(
-                                            u ->
-                                                    u.path("/search/repositories")
-                                                            .queryParam("q", query)
-                                                            .queryParam("per_page", 30)
-                                                            .build())
-                                    .header("Authorization", authorization(pat))
+                            get(gitHubRestClient, pat, u ->
+                                            u.path("/search/repositories")
+                                                    .queryParam("q", query)
+                                                    .queryParam("per_page", 30)
+                                                    .build())
                                     .retrieve()
                                     .body(GitHubRepoSearchResponse.class);
                     if (response == null || response.items() == null) {
@@ -432,10 +397,7 @@ public class GitHubAccountClient
     public Optional<UserRepo> fetchRepository(String pat, String owner, String repo) {
         try {
             GitHubUserRepoItem item =
-                    gitHubRestClient
-                            .get()
-                            .uri("/repos/{owner}/{repo}", owner, repo)
-                            .header("Authorization", authorization(pat))
+                    get(gitHubRestClient, pat, "/repos/{owner}/{repo}", owner, repo)
                             .retrieve()
                             .body(GitHubUserRepoItem.class);
             return Optional.ofNullable(item).map(GitHubAccountClient::toUserRepoFromSearch);
@@ -451,10 +413,7 @@ public class GitHubAccountClient
     public Optional<UserRepo> fetchRepository(String pat, long repositoryId) {
         try {
             GitHubUserRepoItem item =
-                    gitHubRestClient
-                            .get()
-                            .uri("/repositories/{repositoryId}", repositoryId)
-                            .header("Authorization", authorization(pat))
+                    get(gitHubRestClient, pat, "/repositories/{repositoryId}", repositoryId)
                             .retrieve()
                             .body(GitHubUserRepoItem.class);
             return Optional.ofNullable(item).map(GitHubAccountClient::toUserRepoFromSearch);
@@ -476,21 +435,15 @@ public class GitHubAccountClient
         // Forks may be renamed, so inspect every owned fork instead of guessing login/upstream.name.
         for (int page = 1; ; page++) {
             int currentPage = page;
-            List<GitHubUserRepoItem> items = translating(() -> gitHubRestClient
-                    .get()
-                    .uri(uri -> uri.path("/user/repos")
-                            .queryParam("affiliation", "owner")
-                            .queryParam("sort", "full_name")
-                            .queryParam("direction", "asc")
-                            .queryParam("per_page", perPage)
-                            .queryParam("page", currentPage)
-                            .build())
-                    .header("Authorization", authorization(pat))
+            List<GitHubUserRepoItem> items = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/user/repos")
+                    .queryParam("affiliation", "owner")
+                    .queryParam("sort", "full_name")
+                    .queryParam("direction", "asc")
+                    .queryParam("per_page", perPage)
+                    .queryParam("page", currentPage)
+                    .build())
                     .retrieve()
-                    .body(new ParameterizedTypeReference<>() {}));
-            if (items == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response while finding your GitHub fork");
-            }
+                    .body(new ParameterizedTypeReference<>() {})), "Empty response while finding your GitHub fork");
             for (GitHubUserRepoItem item : items) {
                 if (!item.fork()) {
                     continue;
@@ -514,16 +467,13 @@ public class GitHubAccountClient
     {
         requirePat(pat);
         requireNonNull(upstream, "upstream is null");
-        GitHubUserRepoItem item = translating(() -> gitHubRestClient
+        GitHubUserRepoItem item = requireBody(translating(() -> gitHubRestClient
                 .post()
                 .uri("/repos/{owner}/{repo}/forks", upstream.owner(), upstream.name())
                 .header("Authorization", authorization(pat))
                 .body(ImmutableMap.of("default_branch_only", false))
                 .retrieve()
-                .body(GitHubUserRepoItem.class));
-        if (item == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub returned no repository after accepting the fork request. Retry watching to find it.");
-        }
+                .body(GitHubUserRepoItem.class)), "GitHub returned no repository after accepting the fork request. Retry watching to find it.");
         UserRepo fork = toUserRepo(item);
         if (!isForkOf(fork, upstream)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub did not return a fork of the selected upstream repository");
@@ -584,14 +534,10 @@ public class GitHubAccountClient
             String pathTemplate, String pat, String login, int limit) {
         try {
             List<GitHubEventItem> items =
-                    gitHubRestClient
-                            .get()
-                            .uri(
-                                    u ->
-                                            u.path(pathTemplate)
-                                                    .queryParam("per_page", Math.min(limit, 100))
-                                                    .build(login))
-                            .header("Authorization", authorization(pat))
+                    get(gitHubRestClient, pat, u ->
+                                    u.path(pathTemplate)
+                                            .queryParam("per_page", Math.min(limit, 100))
+                                            .build(login))
                             .retrieve()
                             .body(new ParameterizedTypeReference<>() {});
             if (items == null) {

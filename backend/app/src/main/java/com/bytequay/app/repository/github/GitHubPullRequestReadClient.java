@@ -63,7 +63,9 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.get;
+import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
@@ -118,14 +120,12 @@ public class GitHubPullRequestReadClient
         ImmutableList.Builder<FetchedPullRequest> result = ImmutableList.builder();
         for (int page = 1; page <= 50; page++) {
             int currentPage = page;
-            List<GitHubRepoPullRequestItem> rows = translating(() -> gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/pulls")
-                            .queryParam("state", "all")
-                            .queryParam("head", "{head}")
-                            .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
-                            .queryParam("page", currentPage)
-                            .build(repository.owner(), repository.repo(), head))
-                    .header("Authorization", authorization(pat))
+            List<GitHubRepoPullRequestItem> rows = translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
+                    .queryParam("state", "all")
+                    .queryParam("head", "{head}")
+                    .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                    .queryParam("page", currentPage)
+                    .build(repository.owner(), repository.repo(), head))
                     .retrieve()
                     .body(new ParameterizedTypeReference<List<GitHubRepoPullRequestItem>>() {}));
             if (rows == null || rows.isEmpty()) {
@@ -149,19 +149,14 @@ public class GitHubPullRequestReadClient
         ImmutableList.Builder<GitHubPullRequestIdentity> result = ImmutableList.builder();
         for (int page = 1; page <= 50; page++) {
             int currentPage = page;
-            List<PublicationPullRequest> rows = translating(() -> gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/pulls")
-                            .queryParam("state", "all")
-                            .queryParam("head", "{head}")
-                            .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
-                            .queryParam("page", currentPage)
-                            .build(baseRepository.owner(), baseRepository.repo(), headRepository.owner() + ":" + headBranch))
-                    .header("Authorization", authorization(pat))
+            List<PublicationPullRequest> rows = requireBody(translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
+                    .queryParam("state", "all")
+                    .queryParam("head", "{head}")
+                    .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                    .queryParam("page", currentPage)
+                    .build(baseRepository.owner(), baseRepository.repo(), headRepository.owner() + ":" + headBranch))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {}));
-            if (rows == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull-request identity response");
-            }
+                    .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {})), "GitHub returned no pull-request identity response");
             for (PublicationPullRequest row : rows) {
                 GitHubPullRequestIdentity identity = publicationIdentity(row, baseRepository);
                 if (!identity.headRepository().fullName().equalsIgnoreCase(headRepository.fullName()) || !identity.headBranch().equals(headBranch)) {
@@ -180,9 +175,8 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
-        PublicationPullRequest response = translating(() -> gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/pulls/{number}", pullRequest.owner(), pullRequest.repo(), pullRequest.number())
-                .header("Authorization", authorization(pat))
+        PublicationPullRequest response = translating(() -> get(gitHubRestClient, pat,
+                "/repos/{owner}/{repo}/pulls/{number}", pullRequest.owner(), pullRequest.repo(), pullRequest.number())
                 .retrieve()
                 .body(PublicationPullRequest.class));
         GitHubPullRequestIdentity identity = publicationIdentity(response, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
@@ -267,10 +261,7 @@ public class GitHubPullRequestReadClient
         Map<String, Object> variables = new LinkedHashMap<>(ImmutableMap.of(
                 "owner", pullRequest.owner(), "name", pullRequest.repo(), "number", pullRequest.number()));
         cursor.ifPresent(value -> variables.put("cursor", value));
-        JsonNode response = translating(() -> graphQlRestClient.post()
-                .header("Authorization", authorization(pat))
-                .body(ImmutableMap.of("query", query, "variables", variables))
-                .retrieve()
+        JsonNode response = translating(() -> graphql(graphQlRestClient, pat, query, variables)
                 .body(JsonNode.class));
         if (response == null || (response.has("errors") && (!response.path("errors").isArray() || !response.path("errors").isEmpty()))) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub could not verify current PR checks and branch protection");
@@ -331,10 +322,9 @@ public class GitHubPullRequestReadClient
     {
         for (int page = 1; page <= 10; page++) {
             int currentPage = page;
-            JsonNode rows = translating(() -> gitHubRestClient.get()
-                    .uri(uri -> uri.path("/repos/{owner}/{repo}/rules/branches/{branch}").queryParam("per_page", 100).queryParam("page", currentPage)
+            JsonNode rows = translating(() -> get(gitHubRestClient, pat,
+                    uri -> uri.path("/repos/{owner}/{repo}/rules/branches/{branch}").queryParam("per_page", 100).queryParam("page", currentPage)
                             .build(identity.baseRepository().owner(), identity.baseRepository().repo(), identity.baseBranch()))
-                    .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(JsonNode.class));
             checkState(rows != null && rows.isArray(), "GitHub omitted active branch rules");
@@ -531,23 +521,19 @@ public class GitHubPullRequestReadClient
         int safePage = Math.max(1, page);
         int safePerPage = Math.clamp(perPage, 1, 100);
         GitHubSearchResponse response = translating(() ->
-                gitHubRestClient
-                        .get()
-                        .uri(
-                                uri -> {
-                                    uri.path("/search/issues")
-                                            .queryParam("q", query)
-                                            .queryParam("per_page", safePerPage)
-                                            .queryParam("page", safePage);
-                                    if (sort != null && !sort.isBlank()) {
-                                        uri.queryParam("sort", sort);
-                                    }
-                                    if (order != null && !order.isBlank()) {
-                                        uri.queryParam("order", order);
-                                    }
-                                    return uri.build();
-                                })
-                        .header("Authorization", authorization(pat))
+                get(gitHubRestClient, pat, uri -> {
+                            uri.path("/search/issues")
+                                    .queryParam("q", query)
+                                    .queryParam("per_page", safePerPage)
+                                    .queryParam("page", safePage);
+                            if (sort != null && !sort.isBlank()) {
+                                uri.queryParam("sort", sort);
+                            }
+                            if (order != null && !order.isBlank()) {
+                                uri.queryParam("order", order);
+                            }
+                            return uri.build();
+                        })
                         .retrieve()
                         .body(GitHubSearchResponse.class));
         if (response == null || response.items() == null) {
@@ -646,9 +632,7 @@ public class GitHubPullRequestReadClient
 
     private GitHubPullRequestDetailResponse fetchPullRequestDetailResponse(String pat, PullRequestRef pr)
     {
-        return translating(() -> gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                .header("Authorization", authorization(pat))
+        return translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
                 .retrieve()
                 .body(GitHubPullRequestDetailResponse.class));
     }
@@ -721,10 +705,7 @@ public class GitHubPullRequestReadClient
         query.append('}');
 
         try {
-            JsonNode response = graphQlRestClient.post()
-                    .header("Authorization", authorization(pat))
-                    .body(ImmutableMap.of("query", query.toString(), "variables", variables))
-                    .retrieve()
+            JsonNode response = graphql(graphQlRestClient, pat, query.toString(), variables)
                     .body(JsonNode.class);
             Map<String, String> replacements = new LinkedHashMap<>();
             index = 0;
@@ -801,9 +782,7 @@ public class GitHubPullRequestReadClient
 
     public List<PrReaction> fetchPrDescriptionReactions(String pat, PullRequestRef pr)
     {
-        GitHubIssueReactionsResponse response = translating(() -> gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/issues/{number}", pr.owner(), pr.repo(), pr.number())
-                .header("Authorization", authorization(pat))
+        GitHubIssueReactionsResponse response = translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", pr.owner(), pr.repo(), pr.number())
                 .retrieve()
                 .body(GitHubIssueReactionsResponse.class));
         if (response == null) {
@@ -874,10 +853,7 @@ public class GitHubPullRequestReadClient
         if (baseSha == null || baseSha.isBlank() || headSha == null || headSha.isBlank()) {
             return fetchPrDiffFiles(pat, pr);
         }
-        GitHubCompareResponse response = translating(() -> gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/compare/{base}...{head}",
-                        pr.owner(), pr.repo(), baseSha, headSha)
-                .header("Authorization", authorization(pat))
+        GitHubCompareResponse response = translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/compare/{base}...{head}", pr.owner(), pr.repo(), baseSha, headSha)
                 .retrieve()
                 .body(GitHubCompareResponse.class));
         return response == null ? ImmutableList.of() : toDiffFiles(response.files());
@@ -931,10 +907,7 @@ public class GitHubPullRequestReadClient
         if (path == null || path.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
         }
-        GitHubPullRequestDetailResponse detail = fetchPullRequestDetailResponse(pat, pr);
-        if (detail == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty pull request response from GitHub");
-        }
+        GitHubPullRequestDetailResponse detail = requireBody(fetchPullRequestDetailResponse(pat, pr), "Empty pull request response from GitHub");
         String baseSha = Optional.ofNullable(detail.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null);
         String headSha = Optional.ofNullable(detail.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
         return fetchPrDiffFileContent(pat, pr, path, baseSha, headSha);
@@ -971,9 +944,7 @@ public class GitHubPullRequestReadClient
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ref must not be blank");
         }
         try {
-            return Optional.ofNullable(gitHubRestClient.get()
-                    .uri(repositoryFileUri(repository, path, ref))
-                    .header("Authorization", authorization(pat))
+            return Optional.ofNullable(get(gitHubRestClient, pat, repositoryFileUri(repository, path, ref))
                     .header("Accept", "application/vnd.github.raw+json")
                     .retrieve()
                     .body(String.class));
@@ -1016,9 +987,7 @@ public class GitHubPullRequestReadClient
         if (startLine <= 0 || endLine < startLine) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
         }
-        return gitHubRestClient.get()
-                .uri(repositoryFileUri(repository, path, ref))
-                .header("Authorization", authorization(pat))
+        return get(gitHubRestClient, pat, repositoryFileUri(repository, path, ref))
                 .header("Accept", "application/vnd.github.raw+json")
                 .exchange((request, response) -> {
                     if (response.getStatusCode() == HttpStatus.NOT_FOUND) {
@@ -1179,10 +1148,7 @@ public class GitHubPullRequestReadClient
             variables.put("repo", pr.repo());
             variables.put("number", pr.number());
             variables.put("after", cursor);
-            R response = graphQlRestClient.post()
-                    .header("Authorization", authorization(pat))
-                    .body(ImmutableMap.of("query", query, "variables", variables))
-                    .retrieve()
+            R response = graphql(graphQlRestClient, pat, query, variables)
                     .body(responseType);
             GitHubReviewThreadsResponse.PageInfo pageInfo = page.apply(response);
             if (pageInfo == null || !pageInfo.hasNextPage() || pageInfo.endCursor() == null) {
@@ -1215,12 +1181,7 @@ public class GitHubPullRequestReadClient
             List<String> batch = ImmutableList.copyOf(ids.subList(offset, Math.min(offset + 100, ids.size())));
             ViewerReactionsResponse response;
             try {
-                response = graphQlRestClient.post()
-                        .header("Authorization", authorization(pat))
-                        .body(ImmutableMap.of(
-                                "query", query,
-                                "variables", ImmutableMap.of("ids", batch)))
-                        .retrieve()
+                response = graphql(graphQlRestClient, pat, query, ImmutableMap.of("ids", batch))
                         .body(ViewerReactionsResponse.class);
             }
             catch (RestClientException ignored) {
@@ -1651,14 +1612,7 @@ public class GitHubPullRequestReadClient
     public PullRequestFetch getPullRequest(String pat, PullRequestRef pr, Optional<String> etag) {
         String fullName = pr.repoFullName();
         requireNonNull(etag, "etag is null");
-        RestClient.RequestHeadersSpec<?> request = gitHubRestClient
-                .get()
-                .uri(
-                        "/repos/{owner}/{repo}/pulls/{number}",
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number())
-                .header("Authorization", authorization(pat));
+        RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number());
         etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
         ResponseEntity<GitHubRepoPullRequestItem> response = translating(() -> request
                 .retrieve()
@@ -1693,16 +1647,12 @@ public class GitHubPullRequestReadClient
     public List<AttentionPrRef> fetchAttentionPrRefs(String pat) {
         requirePat(pat);
         List<GitHubNotification> notifications = translating(() ->
-                gitHubRestClient
-                        .get()
-                        .uri(
-                                uri ->
-                                        uri.path("/notifications")
-                                                .queryParam("participating", "true")
-                                                .queryParam("all", "true")
-                                                .queryParam("per_page", PER_PAGE)
-                                                .build())
-                        .header("Authorization", authorization(pat))
+                get(gitHubRestClient, pat, uri ->
+                                uri.path("/notifications")
+                                        .queryParam("participating", "true")
+                                        .queryParam("all", "true")
+                                        .queryParam("per_page", PER_PAGE)
+                                        .build())
                         .retrieve()
                         .body(new ParameterizedTypeReference<>() {}));
         if (notifications == null) {

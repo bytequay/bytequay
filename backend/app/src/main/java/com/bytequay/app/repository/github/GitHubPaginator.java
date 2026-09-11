@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static java.util.Objects.requireNonNull;
 
@@ -98,12 +98,10 @@ final class GitHubPaginator
         Optional<String> responseEtag = etag;
         for (int page = 1; page <= MAX_PAGES; page++) {
             int currentPage = page;
-            RestClient.RequestHeadersSpec<?> request = gitHubRestClient.get()
-                    .uri(u -> u.path(pathTemplate)
-                            .queryParam("per_page", PAGE_SIZE)
-                            .queryParam("page", currentPage)
-                            .build(uriVariables))
-                    .header("Authorization", authorization(pat));
+            RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, u -> u.path(pathTemplate)
+                    .queryParam("per_page", PAGE_SIZE)
+                    .queryParam("page", currentPage)
+                    .build(uriVariables));
             if (currentPage == 1) {
                 etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
             }
@@ -155,17 +153,15 @@ final class GitHubPaginator
             Object... uriVariables)
     {
         return translating(() -> {
-            List<T> rows = gitHubRestClient.get()
-                    .uri(u -> {
-                        u.path(pathTemplate)
-                                .queryParam("per_page", PAGE_SIZE)
-                                .queryParam("page", page);
-                        if (since != null) {
-                            u.queryParam("since", since.toString());
-                        }
-                        return u.build(uriVariables);
-                    })
-                    .header("Authorization", authorization(pat))
+            List<T> rows = get(gitHubRestClient, pat, u -> {
+                u.path(pathTemplate)
+                        .queryParam("per_page", PAGE_SIZE)
+                        .queryParam("page", page);
+                if (since != null) {
+                    u.queryParam("since", since.toString());
+                }
+                return u.build(uriVariables);
+            })
                     .retrieve()
                     .body(typeRef);
             return rows == null ? ImmutableList.of() : rows;

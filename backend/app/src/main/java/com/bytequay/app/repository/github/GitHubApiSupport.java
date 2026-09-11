@@ -15,17 +15,24 @@ package com.bytequay.app.repository.github;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriBuilder;
 
 import java.io.IOException;
+import java.net.URI;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Shared GitHub client mechanics: auth header formatting, PAT guards,
+ * Shared GitHub client mechanics: authenticated requests, PAT guards,
  * readable API error translation, and issue-type response decoding.
  */
 final class GitHubApiSupport
@@ -42,6 +49,43 @@ final class GitHubApiSupport
     static String authorization(String pat)
     {
         return "Bearer " + pat;
+    }
+
+    /** Starts an authenticated GET; the caller adds any conditional headers before {@code retrieve()}. */
+    static RestClient.RequestHeadersSpec<?> get(RestClient client, String pat, String uri, Object... uriVariables)
+    {
+        return client.get().uri(uri, uriVariables).header("Authorization", authorization(pat));
+    }
+
+    static RestClient.RequestHeadersSpec<?> get(RestClient client, String pat, Function<UriBuilder, URI> uri)
+    {
+        return client.get().uri(uri).header("Authorization", authorization(pat));
+    }
+
+    static RestClient.RequestHeadersSpec<?> get(RestClient client, String pat, URI uri)
+    {
+        return client.get().uri(uri).header("Authorization", authorization(pat));
+    }
+
+    /** Sends an authenticated JSON write; the caller decodes the response. */
+    static RestClient.ResponseSpec send(RestClient client, HttpMethod method, String pat, Object body, String uri, Object... uriVariables)
+    {
+        return client.method(method).uri(uri, uriVariables).header("Authorization", authorization(pat)).contentType(MediaType.APPLICATION_JSON).body(body).retrieve();
+    }
+
+    /** Posts one GraphQL document with its variables; the caller decodes the response. */
+    static RestClient.ResponseSpec graphql(RestClient client, String pat, String query, Object variables)
+    {
+        return client.post().header("Authorization", authorization(pat)).body(ImmutableMap.of("query", query, "variables", variables)).retrieve();
+    }
+
+    /** GitHub answered with no body where one was required. */
+    static <T> T requireBody(T body, String message)
+    {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), message);
+        }
+        return body;
     }
 
     static void requirePat(String pat)

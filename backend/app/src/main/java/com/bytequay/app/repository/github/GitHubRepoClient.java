@@ -37,8 +37,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -89,13 +90,11 @@ public class GitHubRepoClient
         try {
             for (int page = 1; remaining > 0; page++) {
                 int currentPage = page;
-                List<CommitResponse> commits = gitHubRestClient.get()
-                        .uri(builder -> builder.path("/repos/{owner}/{repo}/commits")
-                                .queryParam("sha", ref)
-                                .queryParam("per_page", pageSize)
-                                .queryParam("page", currentPage)
-                                .build(repo.owner(), repo.repo()))
-                        .header("Authorization", authorization(pat))
+                List<CommitResponse> commits = get(gitHubRestClient, pat, builder -> builder.path("/repos/{owner}/{repo}/commits")
+                        .queryParam("sha", ref)
+                        .queryParam("per_page", pageSize)
+                        .queryParam("page", currentPage)
+                        .build(repo.owner(), repo.repo()))
                         .retrieve()
                         .body(new ParameterizedTypeReference<>() {});
                 if (commits == null || commits.isEmpty()) {
@@ -142,16 +141,9 @@ public class GitHubRepoClient
     public RepositoryOverview fetchOverview(String pat, RepoRef repo)
     {
         return translating(() -> {
-            GitHubRepoResponse response = gitHubRestClient
-                    .get()
-                    .uri("/repos/{owner}/{repo}", repo.owner(), repo.repo())
-                    .header("Authorization", authorization(pat))
+            GitHubRepoResponse response = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}", repo.owner(), repo.repo())
                     .retrieve()
-                    .body(GitHubRepoResponse.class);
-            if (response == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub /repos");
-            }
+                    .body(GitHubRepoResponse.class), "Empty response from GitHub /repos");
             return new RepositoryOverview(
                     response.description(),
                     response.stargazersCount(),
@@ -199,9 +191,7 @@ public class GitHubRepoClient
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return translating(() -> {
-            IssueResponse issue = Optional.ofNullable(gitHubRestClient.get()
-                            .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
-                            .header("Authorization", authorization(pat))
+            IssueResponse issue = Optional.ofNullable(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
                             .retrieve()
                             .body(IssueResponse.class))
                     .filter(value -> value.title() != null && value.updatedAt() != null)
@@ -230,15 +220,10 @@ public class GitHubRepoClient
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return translating(() -> {
-            IssueResponse issue = gitHubRestClient.get()
-                    .uri("/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
-                    .header("Authorization", authorization(pat))
+            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
                     .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
                     .retrieve()
-                    .body(IssueResponse.class);
-            if (issue == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty issue response from GitHub");
-            }
+                    .body(IssueResponse.class), "Empty issue response from GitHub");
             return issueTypeName(issue.type());
         });
     }
@@ -246,9 +231,7 @@ public class GitHubRepoClient
     public List<String> fetchIssueTypes(String pat, RepoRef repo)
     {
         return translating(() -> {
-            List<IssueTypeResponse> types = gitHubRestClient.get()
-                    .uri("/repos/{owner}/{repo}/issue-types", repo.owner(), repo.repo())
-                    .header("Authorization", authorization(pat))
+            List<IssueTypeResponse> types = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issue-types", repo.owner(), repo.repo())
                     .headers(headers -> headers.set("X-GitHub-Api-Version", ISSUE_TYPES_API_VERSION))
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
@@ -264,10 +247,7 @@ public class GitHubRepoClient
     private Map<String, Long> fetchLanguages(String pat, RepoRef repo)
     {
         try {
-            Map<String, Long> languages = gitHubRestClient
-                    .get()
-                    .uri("/repos/{owner}/{repo}/languages", repo.owner(), repo.repo())
-                    .header("Authorization", authorization(pat))
+            Map<String, Long> languages = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/languages", repo.owner(), repo.repo())
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             return languages == null ? ImmutableMap.of() : languages;

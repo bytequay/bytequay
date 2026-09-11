@@ -801,21 +801,29 @@ describe('agent task side panel', () => {
     const opened = renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...create} {...props} />);
     expect(opened).not.toContain('Create draft PR');
-    // A merged or closed one on the branch does not stand in the way of a fresh draft.
+    // A merged one is what the task delivered, so it replaces the empty state as well.
     const merged = renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...create} {...props} />);
-    expect(merged).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent/);
+    expect(merged).not.toContain('Create draft PR');
+    // A closed, unmerged one does not stand in the way of a fresh draft.
+    const closed = renderToStaticMarkup(
+      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'closed')]} {...create} {...props} />);
+    expect(closed).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent/);
   });
 
-  it('reads the branch pull request the task is working on, not an abandoned one', () => {
+  it('reads the branch pull request the task is working on, then the one it delivered', () => {
     const merged = pullRequest(480, 'Earlier attempt', 'merged');
     const open = pullRequest(482, 'Fix preview output limit');
     const later = pullRequest(486, 'Second attempt');
+    const closed = pullRequest(488, 'Abandoned attempt', 'closed');
     expect(taskPullRequest([])).toBeNull();
     expect(taskPullRequest([merged, open])?.number).toBe(482);
     expect(taskPullRequest([open, later])?.number).toBe(486);
-    // A merged or closed row leaves the branch without an open pull request, not with an old one.
-    expect(taskPullRequest([merged])).toBeNull();
+    // Without an open pull request the task stays linked to the newest one that merged.
+    expect(taskPullRequest([merged, closed])?.number).toBe(480);
+    expect(taskPullRequest([merged, pullRequest(490, 'Second delivery', 'merged')])?.number).toBe(490);
+    // A closed, unmerged row leaves the branch without a pull request.
+    expect(taskPullRequest([closed])).toBeNull();
   });
 
   it('treats a transcript link to the task pull request as that panel tab', () => {

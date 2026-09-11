@@ -535,16 +535,16 @@ current branch of its verified managed checkout, so an agent-renamed branch
 remains discoverable. Reading the current branch validates repository, origin,
 path, and worktree registration without changing immutable cleanup ownership.
 Missing or detached checkouts retain the generated-branch lookup. The panel
-reads the one pull request the branch still has open, newest first; a merged or
-closed row leaves the branch without an open pull request rather than standing
-in for one. That is the state below, and the merged row remains on the
-Pull requests screen.
+reads the pull request the branch still has open, newest first; without one it
+reads the newest merged pull request, so a task stays linked to the work it
+delivered. A closed, unmerged row never stands in for one; it leaves the branch
+without a pull request, which is the state below.
 
-Without an open pull request the PR tab reads **Pull request**, without a
-number, and renders a centred empty state: the title, the task's branch and the
-monitored repository, the **Create draft PR** action, and one line saying the
-action sends a request into the task's conversation and that ByteQuay never
-writes to GitHub on its own.
+Without an open or merged pull request the PR tab reads **Pull request**,
+without a number, and renders a centred empty state: the title, the task's
+branch and the monitored repository, the **Create draft PR** action, and one
+line saying the action sends a request into the task's conversation and that
+ByteQuay never writes to GitHub on its own.
 
 Opening an idle task, ending any ordinary turn, or selecting the PR panel
 refreshes those branches through GitHub's head-filtered pull-request endpoint.
@@ -564,7 +564,7 @@ treated as authoritative association, and no separate durable task-to-PR link
 is introduced. Matching stored rows remains repository plus branch.
 
 Its **Create draft PR** action, offered while the task is idle and the branch
-has no open pull request, sends one fixed request into the task's conversation
+has no open or merged pull request, sends one fixed request into the task's conversation
 as an ordinary turn: the agent commits pending work, reads the repository's
 pull request template, pushes the branch to `origin`, and opens the draft with
 the GitHub CLI against the workspace's monitored repository and default branch,

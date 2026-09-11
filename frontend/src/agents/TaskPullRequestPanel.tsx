@@ -32,17 +32,19 @@ function reference(pr: PullRequestDto | null): string | null {
 }
 
 /**
- * The one pull request the panel reads: the open one on this task's branch.
+ * The one pull request the panel reads for this task's branch.
  *
  * The branch match can return several rows over a task's life — an abandoned attempt, a merged
- * predecessor, the current one. Only a pull request that is still open is the one this task is
- * working on; a merged or closed row leaves the branch without an open pull request, which is
- * the state that offers a fresh draft. Among several open rows the newest number wins.
+ * delivery, the current one. An open pull request is the one the task is working on; without one,
+ * the merged pull request is what the task delivered, so the task stays linked to it. Only a closed,
+ * unmerged row leaves the branch without a pull request, which is the state that offers a fresh
+ * draft. Within each state the newest number wins.
  */
 export function taskPullRequest(pullRequests: PullRequestDto[]): PullRequestDto | null {
-  return pullRequests
-    .filter((pr) => pr.state !== 'merged' && pr.state !== 'closed')
+  const newest = (matches: (pr: PullRequestDto) => boolean): PullRequestDto | null => pullRequests
+    .filter(matches)
     .reduce<PullRequestDto | null>((best, pr) => (best === null || pr.number > best.number ? pr : best), null);
+  return newest((pr) => pr.state !== 'merged' && pr.state !== 'closed') ?? newest((pr) => pr.state === 'merged');
 }
 
 /**

@@ -661,7 +661,7 @@ Fresh Claude smoke and final integration evidence:
 
 - [ ] Obtain publication approval and complete a live Claude repair-to-ready
   run after the already recorded Codex development/publication validation.
-- [ ] Integrate the final verified adapter fixes into local main after the
+- [x] Integrate the final verified adapter fixes into local main after the
   approval block is resolved. Do not push the divergent remote main history.
 
 
@@ -721,5 +721,34 @@ Codex CI verification evidence:
   paths and detached-HEAD rebase admission. Shared Git objects remain writable
   for local commits; this boundary is explicit in the agent design.
 - A live model repairing a real GitHub PR is still unverified. Native adapter
-  checks made no GitHub writes. The existing local-main integration and live
-  publication approval blocks remain separate outstanding work.
+  checks made no GitHub writes. Explicit user authorization subsequently
+  resolved local-main integration; live publication remains separate work.
+
+
+## Integration into local main
+
+- [x] Preserve main's window-dragging changes while rebasing all four delivery
+  commits. Range-diff confirms every patch is unchanged.
+- [x] Fast-forward clean local main to `7c4568433`, including the Codex CI,
+  Claude heartbeat, and approval-timeout fixes.
+- [x] Verify the merged main backend, frontend, native Codex sandbox, and
+  desktop package.
+
+No remote branch was pushed during local integration.
+
+Merged-main verification passed:
+
+- `mvn verify`: 1,876 tests, zero failures, errors, or skips.
+  Log: `/private/tmp/bytequay-codex-ci-main-backend-verify.log`.
+- Frontend lint and TypeScript passed; all 770 tests across 66 files passed,
+  including native Electron suites. Logs:
+  `/private/tmp/bytequay-codex-ci-main-frontend-{lint,tsc,test}.log`.
+- Native Codex 0.153.4 sandbox probe passed local commits, protected-write and
+  network denial, unattended start/turn/resume policy, and detached rebase
+  staging. Log: `/private/tmp/bytequay-codex-ci-main-native.log`.
+  Evidence: `/private/tmp/bytequay-codex-ci-py0xwkke`.
+- macOS arm64 package built successfully with the freshly verified backend.
+  Log: `/private/tmp/bytequay-codex-ci-main-package.log`.
+
+These checks verify the merged implementation and local native contract. A
+live model repairing a real GitHub PR remains separately unverified.

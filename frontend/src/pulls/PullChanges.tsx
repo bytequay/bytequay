@@ -632,6 +632,15 @@ export function applyMarkdownCommand(value: string, start: number, end: number, 
   };
 }
 
+function ToolbarIcon({ paths }: { paths: string[] }) {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths.map((path, index) => <path d={path} key={index} />)}
+    </svg>
+  );
+}
+
 const MARKDOWN_ICONS: Record<MarkdownCommand, string[]> = {
   heading: ['M4 3v10', 'M12 3v10', 'M4 8h8'],
   bold: ['M5.5 3h3.2a2.4 2.4 0 0 1 0 4.8H5.5z', 'M5.5 7.8h3.8a2.6 2.6 0 0 1 0 5.2H5.5z'],
@@ -677,10 +686,7 @@ export function MarkdownToolbar({ onCommand }: { onCommand: (command: MarkdownCo
               // The textarea keeps its selection because the button never takes focus.
               onMouseDown={event => event.preventDefault()}
               onClick={() => onCommand(command)}>
-              <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-                strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {MARKDOWN_ICONS[command].map((path, index) => <path d={path} key={index} />)}
-              </svg>
+              <ToolbarIcon paths={MARKDOWN_ICONS[command]} />
             </button>
           ))}
         </Fragment>
@@ -834,11 +840,10 @@ function DiffFileCard({
     };
   };
 
-  const runMarkdownCommand = (command: MarkdownCommand) => {
+  const editReviewBody = (edit: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
     const textarea = bodyRef.current;
     if (textarea === null) return;
-    const next = applyMarkdownCommand(
-      textarea.value, textarea.selectionStart, textarea.selectionEnd, command);
+    const next = edit(textarea.value, textarea.selectionStart, textarea.selectionEnd);
     setReviewBody(next.value);
     requestAnimationFrame(() => {
       textarea.focus();
@@ -1025,7 +1030,8 @@ function DiffFileCard({
                   <button type="button" role="tab" aria-selected={preview}
                     className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
                 </div>
-                {!preview && <MarkdownToolbar onCommand={runMarkdownCommand} />}
+                {!preview && <MarkdownToolbar
+                  onCommand={command => editReviewBody((value, start, end) => applyMarkdownCommand(value, start, end, command))} />}
               </div>
               {preview && <div className="pull-diff-review__preview">
                 {reviewBody.trim()

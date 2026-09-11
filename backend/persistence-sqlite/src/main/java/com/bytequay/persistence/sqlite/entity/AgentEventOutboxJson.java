@@ -17,9 +17,10 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentEventOutboxJson
 {
@@ -57,7 +58,7 @@ final class AgentEventOutboxJson
             return decode(json, AgentEventOutboxPayload.UserMessageBlob.class, "event payload");
         }
 
-        try {
+        return AGENT.guard("Cannot deserialize event payload", () -> {
             JsonNode payload = MAPPER.readTree(json);
             AgentEventPayload decoded = switch (kind) {
                 case USER_MESSAGE -> MAPPER.treeToValue(payload, AgentEventPayload.UserMessage.class);
@@ -74,37 +75,16 @@ final class AgentEventOutboxJson
                 case ERROR -> MAPPER.treeToValue(payload, AgentEventPayload.Error.class);
             };
             return new AgentEventOutboxPayload.Inline(decoded);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw storageException("Cannot deserialize event payload", e);
-        }
+        });
     }
 
     private static String encode(Object value, String description)
     {
-        try {
-            return MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw storageException("Cannot serialize " + description, e);
-        }
+        return AGENT.guard("Cannot serialize " + description, () -> MAPPER.writeValueAsString(value));
     }
 
     private static <T> T decode(String json, Class<T> type, String description)
     {
-        try {
-            return MAPPER.readValue(json, type);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw storageException("Cannot deserialize " + description, e);
-        }
-    }
-
-    private static AgentStorageException storageException(String message, Exception failure)
-    {
-        if (failure instanceof AgentStorageException storageException) {
-            return storageException;
-        }
-        return new AgentStorageException(message, failure);
+        return AGENT.guard("Cannot deserialize " + description, () -> MAPPER.readValue(json, type));
     }
 }

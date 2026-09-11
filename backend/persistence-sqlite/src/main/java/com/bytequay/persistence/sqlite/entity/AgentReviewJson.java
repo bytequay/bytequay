@@ -13,10 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.review.ReviewConflictException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
 
 /** JSON columns of the review tables; the domain records are the wire shape, read back through their own validation. */
 final class AgentReviewJson
@@ -27,31 +27,16 @@ final class AgentReviewJson
 
     static String encode(Object value)
     {
-        try {
-            return OBJECT_MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new ReviewConflictException("Cannot serialize review data", e);
-        }
+        return REVIEW.guard("Cannot serialize review data", () -> OBJECT_MAPPER.writeValueAsString(value));
     }
 
     static <T> T decode(String json, TypeReference<T> type)
     {
-        try {
-            return OBJECT_MAPPER.readValue(json, type);
-        }
-        catch (JsonProcessingException e) {
-            throw new ReviewConflictException("Cannot deserialize review data", e);
-        }
+        return REVIEW.guard("Cannot deserialize review data", () -> OBJECT_MAPPER.readValue(json, type));
     }
 
     static <T> T decode(String json, Class<T> type)
     {
-        try {
-            return OBJECT_MAPPER.readValue(json, type);
-        }
-        catch (JsonProcessingException e) {
-            throw new ReviewConflictException("Cannot deserialize review data", e);
-        }
+        return REVIEW.guard("Cannot deserialize review data", () -> OBJECT_MAPPER.readValue(json, type));
     }
 }

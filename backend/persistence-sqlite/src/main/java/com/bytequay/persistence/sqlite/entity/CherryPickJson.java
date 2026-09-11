@@ -22,8 +22,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
-import com.bytequay.core.cherrypick.CherryPickStorageException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -32,6 +30,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.CHERRY_PICK;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class CherryPickJson
@@ -51,14 +50,9 @@ final class CherryPickJson
         if (json == null || json.isBlank()) {
             return ImmutableList.of();
         }
-        try {
-            return MAPPER.readValue(json, ITEM_VALUES).stream()
-                    .map(CherryPickJson::toItem)
-                    .collect(toImmutableList());
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw new CherryPickStorageException("Cannot deserialize cherry-pick items", e);
-        }
+        return CHERRY_PICK.guard("Cannot deserialize cherry-pick items", () -> MAPPER.readValue(json, ITEM_VALUES).stream()
+                .map(CherryPickJson::toItem)
+                .collect(toImmutableList()));
     }
 
     public static String encodeJournal(Optional<ActionJournal> journal)
@@ -79,7 +73,7 @@ final class CherryPickJson
         if (json == null || json.isBlank()) {
             return Optional.empty();
         }
-        try {
+        return CHERRY_PICK.guard("Cannot deserialize cherry-pick action journal", () -> {
             JournalValue value = MAPPER.readValue(json, JournalValue.class);
             return Optional.of(new ActionJournal(
                     ActionType.valueOf(value.type()),
@@ -88,10 +82,7 @@ final class CherryPickJson
                     value.attempt(),
                     value.idempotencyKey(),
                     Instant.parse(value.startedAt())));
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw new CherryPickStorageException("Cannot deserialize cherry-pick action journal", e);
-        }
+        });
     }
 
     private static ItemValue toValue(CherryPickItem item)
@@ -150,12 +141,7 @@ final class CherryPickJson
 
     private static String encode(Object value, String description)
     {
-        try {
-            return MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new CherryPickStorageException("Cannot serialize " + description, e);
-        }
+        return CHERRY_PICK.guard("Cannot serialize " + description, () -> MAPPER.writeValueAsString(value));
     }
 
     private record ItemValue(

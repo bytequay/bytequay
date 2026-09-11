@@ -14,14 +14,12 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.ChildSummary;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -31,6 +29,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentTaskSummaryJson
@@ -69,17 +68,12 @@ final class AgentTaskSummaryJson
                                 child.startedAt().orElse(null),
                                 child.endedAt().orElse(null)))
                         .collect(toImmutableList()));
-        try {
-            return OBJECT_MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new AgentStorageException("Cannot serialize task summary", e);
-        }
+        return AGENT.guard("Cannot serialize task summary", () -> OBJECT_MAPPER.writeValueAsString(value));
     }
 
     public static TaskSummary decode(String json, Optional<TaskWorktree> taskWorktree)
     {
-        try {
+        return AGENT.guard("Cannot deserialize task summary", () -> {
             SummaryValue value = OBJECT_MAPPER.readValue(json, SummaryValue.class);
             AgentMetrics metrics = new AgentMetrics(
                     value.inputTokens(),
@@ -112,13 +106,7 @@ final class AgentTaskSummaryJson
                                     Optional.ofNullable(child.startedAt()),
                                     Optional.ofNullable(child.endedAt())))
                             .collect(toImmutableList()));
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            if (e instanceof AgentStorageException storageException) {
-                throw storageException;
-            }
-            throw new AgentStorageException("Cannot deserialize task summary", e);
-        }
+        });
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

@@ -15,14 +15,13 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
-import com.bytequay.core.ci.CiAutofixStorageException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.CI_AUTOFIX;
 import static com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS;
 
 final class CiAutofixJson
@@ -43,12 +42,7 @@ final class CiAutofixJson
         if (json == null || json.isBlank()) {
             return ImmutableList.of();
         }
-        try {
-            return ImmutableList.copyOf(MAPPER.readValue(json, WARNING_VALUES));
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw new CiAutofixStorageException("Cannot deserialize CI Autofix warnings", e);
-        }
+        return CI_AUTOFIX.guard("Cannot deserialize CI Autofix warnings", () -> ImmutableList.copyOf(MAPPER.readValue(json, WARNING_VALUES)));
     }
 
     public static String encodeFailures(List<FailureEvidence> failures)
@@ -58,21 +52,11 @@ final class CiAutofixJson
 
     public static List<FailureEvidence> decodeFailures(String json)
     {
-        try {
-            return ImmutableList.copyOf(MAPPER.readValue(json, FAILURE_VALUES));
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw new CiAutofixStorageException("Cannot deserialize CI Autofix failures", e);
-        }
+        return CI_AUTOFIX.guard("Cannot deserialize CI Autofix failures", () -> ImmutableList.copyOf(MAPPER.readValue(json, FAILURE_VALUES)));
     }
 
     private static String encode(Object value, String label)
     {
-        try {
-            return MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException e) {
-            throw new CiAutofixStorageException("Cannot serialize " + label, e);
-        }
+        return CI_AUTOFIX.guard("Cannot serialize " + label, () -> MAPPER.writeValueAsString(value));
     }
 }

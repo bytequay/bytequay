@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentAttachmentReference;
-import com.bytequay.agent.core.AgentStorageException;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentAttachmentReferenceJson
 {
@@ -31,24 +31,11 @@ final class AgentAttachmentReferenceJson
 
     public static String encode(List<AgentAttachmentReference> references)
     {
-        try {
-            return OBJECT_MAPPER.writeValueAsString(references);
-        }
-        catch (JsonProcessingException e) {
-            throw new AgentStorageException("Cannot serialize turn attachment references", e);
-        }
+        return AGENT.guard("Cannot serialize turn attachment references", () -> OBJECT_MAPPER.writeValueAsString(references));
     }
 
     public static List<AgentAttachmentReference> decode(String json)
     {
-        try {
-            return ImmutableList.copyOf(OBJECT_MAPPER.readValue(json, REFERENCE_LIST));
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            if (e instanceof AgentStorageException storageException) {
-                throw storageException;
-            }
-            throw new AgentStorageException("Cannot deserialize turn attachment references", e);
-        }
+        return AGENT.guard("Cannot deserialize turn attachment references", () -> ImmutableList.copyOf(OBJECT_MAPPER.readValue(json, REFERENCE_LIST)));
     }
 }

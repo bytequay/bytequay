@@ -13,10 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.ApprovalRequest;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentApprovalJson
 {
@@ -26,29 +26,11 @@ final class AgentApprovalJson
 
     public static String encode(ApprovalRequest request)
     {
-        try {
-            return MAPPER.writeValueAsString(request);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw storageException("Cannot serialize approval request", e);
-        }
+        return AGENT.guard("Cannot serialize approval request", () -> MAPPER.writeValueAsString(request));
     }
 
     public static ApprovalRequest decode(String json)
     {
-        try {
-            return MAPPER.readValue(json, ApprovalRequest.class);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            throw storageException("Cannot deserialize approval request", e);
-        }
-    }
-
-    private static AgentStorageException storageException(String message, Exception failure)
-    {
-        if (failure instanceof AgentStorageException storageException) {
-            return storageException;
-        }
-        return new AgentStorageException(message, failure);
+        return AGENT.guard("Cannot deserialize approval request", () -> MAPPER.readValue(json, ApprovalRequest.class));
     }
 }

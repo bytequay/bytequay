@@ -27,7 +27,7 @@ import type {
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
 import BetterWordsButton from './BetterWordsButton';
-import MarkdownBody from './MarkdownBody';
+import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import { CopyLinkButton, remoteErrorMessage, ReviewThread, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
@@ -632,6 +632,45 @@ export function applyMarkdownCommand(value: string, start: number, end: number, 
   };
 }
 
+/**
+ * Replaces the [start, end) selection with a ```suggestion block holding `lines`, with the caret
+ * at the end of the last suggested line. The fence outgrows any backtick run inside the lines.
+ */
+export function insertSuggestion(value: string, start: number, end: number, lines: string[]):
+  { value: string; start: number; end: number } {
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const longestRun = Math.max(0, ...(lines.join('\n').match(/`+/g) ?? []).map(run => run.length));
+  const fence = '`'.repeat(Math.max(3, longestRun + 1));
+  const opening = `${before && !before.endsWith('\n') ? '\n' : ''}${fence}suggestion\n${lines.join('\n')}`;
+  const caret = before.length + opening.length;
+  return {
+    value: `${before}${opening}\n${fence}${after && !after.startsWith('\n') ? '\n' : ''}${after}`,
+    start: caret,
+    end: caret,
+  };
+}
+
+/** Head-side text of new lines start..end from the diff rows, else the loaded head file; null if any line is unknown. */
+export function headLines(hunks: Array<{ rows: DiffRow[] }>, newLines: string[], start: number, end: number): string[] | null {
+  const rows = new Map(hunks.flatMap(hunk => hunk.rows).map(row => [row.newLine, row.content] as const));
+  const lines: string[] = [];
+  for (let line = start; line <= end; line++) {
+    const text = rows.get(line) ?? newLines[line - 1];
+    if (text === undefined) return null;
+    lines.push(text);
+  }
+  return lines.length > 0 ? lines : null;
+}
+
+const SUGGESTION_ICON = [
+  'M9.5 2H4.2A1.2 1.2 0 0 0 3 3.2v9.6A1.2 1.2 0 0 0 4.2 14h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z',
+  'M9.5 2v3.5H13',
+  'M8 6v3',
+  'M6.5 7.5h3',
+  'M6.5 11.3h3',
+];
+
 function ToolbarIcon({ paths }: { paths: string[] }) {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
@@ -675,9 +714,20 @@ const MARKDOWN_GROUPS: Array<Array<{ command: MarkdownCommand; label: string }>>
   ],
 ];
 
-export function MarkdownToolbar({ onCommand }: { onCommand: (command: MarkdownCommand) => void }) {
+export function MarkdownToolbar({ onCommand, onSuggest }: {
+  onCommand: (command: MarkdownCommand) => void;
+  onSuggest?: () => void;
+}) {
   return (
     <div className="pull-diff-review__toolbar">
+      {onSuggest && <>
+        <button type="button" title="Add a suggestion" aria-label="Add a suggestion"
+          onMouseDown={event => event.preventDefault()}
+          onClick={onSuggest}>
+          <ToolbarIcon paths={SUGGESTION_ICON} />
+        </button>
+        <span className="pull-diff-review__divider" aria-hidden="true" />
+      </>}
       {MARKDOWN_GROUPS.map((group, groupIndex) => (
         <Fragment key={groupIndex}>
           {groupIndex > 0 && <span className="pull-diff-review__divider" aria-hidden="true" />}
@@ -840,6 +890,9 @@ function DiffFileCard({
     };
   };
 
+  // Suggestions change the head file, so deleted (LEFT) lines cannot be suggested.
+  const suggestionLines = selection?.side === 'RIGHT' ? headLines(hunks, newLines, selection.start, selection.end) : null;
+
   const editReviewBody = (edit: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
     const textarea = bodyRef.current;
     if (textarea === null) return;
@@ -997,6 +1050,10 @@ function DiffFileCard({
             rowKind={displayRow.kind}
             viewer={viewer}
             repository={review.repo}
+            suggestion={comment.side === 'RIGHT' ? {
+              startLine: comment.startLine ?? comment.line,
+              lines: headLines(hunks, newLines, comment.startLine ?? comment.line, comment.line),
+            } : undefined}
             editBody={pendingEdit?.comment === comment ? pendingEdit.body : null}
             onEdit={body => setPendingEdit(body === null ? null : { comment, body })}
             onSave={() => {
@@ -1031,11 +1088,15 @@ function DiffFileCard({
                     className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
                 </div>
                 {!preview && <MarkdownToolbar
-                  onCommand={command => editReviewBody((value, start, end) => applyMarkdownCommand(value, start, end, command))} />}
+                  onCommand={command => editReviewBody((value, start, end) => applyMarkdownCommand(value, start, end, command))}
+                  onSuggest={suggestionLines === null
+                    ? undefined
+                    : () => editReviewBody((value, start, end) => insertSuggestion(value, start, end, suggestionLines))} />}
               </div>
               {preview && <div className="pull-diff-review__preview">
                 {reviewBody.trim()
-                  ? <MarkdownBody body={reviewBody} repository={review.repo} />
+                  ? <MarkdownBody body={reviewBody} repository={review.repo}
+                    suggestion={selection.side === 'RIGHT' ? { startLine: selection.start, lines: suggestionLines } : undefined} />
                   : <p className="pull-diff-review__nothing">Nothing to preview</p>}
               </div>}
               <textarea ref={bodyRef} value={reviewBody} autoFocus hidden={preview}
@@ -1176,11 +1237,12 @@ function UnplacedReviewThreads({ reviewThreads, activities, label }: {
   </section>;
 }
 
-export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, editBody, onEdit, onSave, onDiscard }: {
+export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, suggestion, editBody, onEdit, onSave, onDiscard }: {
   comment: InlineReviewCommentDto;
   rowKind: DisplayRow['kind'];
   viewer?: UserProfileDto | null;
   repository: string;
+  suggestion?: SuggestionBase;
   editBody: string | null;
   onEdit: (body: string | null) => void;
   onSave: () => void;
@@ -1202,7 +1264,7 @@ export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, 
             <span className="pull-diff-pending__badge">Pending</span>
           </summary>
           {editBody === null ? <>
-            <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} /></div>
+            <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} suggestion={suggestion} /></div>
             <footer className="pull-diff-pending__actions">
               <button type="button" onClick={() => onEdit(comment.body)}>Edit</button>
               <button type="button" className="is-destructive" onClick={onDiscard}>Discard</button>

@@ -14,6 +14,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
+import { parseUnifiedDiff } from '../diffParse';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
@@ -30,7 +31,7 @@ import type {
   RepoUserDto,
 } from '../types';
 import BetterWordsButton from './BetterWordsButton';
-import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask } from './MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
@@ -895,6 +896,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
   const resolutionInFlight = useRef(false);
   const targetLine = payload.line ?? payload.originalLine;
   const commentedLine = showCode && payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
+  const suggestion = reviewThreadSuggestion(payload);
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
   const resolved = optimisticResolved ?? payload.resolved;
@@ -969,7 +971,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
         <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
           onClick={() => setPreview(true)}>Preview</button>
       </div>
-      {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} />}
+      {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} suggestion={suggestion} />}
       <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Reply to review thread" value={body} rows={4}
         placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
         onKeyDown={event => {
@@ -1008,7 +1010,7 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
           <span className="pr-thread-row__resolved"><CircleCheck size={14} aria-hidden="true" /> Resolved</span>
         </summary>
         <div className="pr-thread-row__comments">
-          {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
+          {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
             pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
           {controls}
         </div>
@@ -1023,16 +1025,17 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
         {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
       </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
-      {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl}
+      {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
       {controls}
     </details>
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, pr, onDetailUpdate, onQuote }: {
+function ThreadComment({ comment, fallbackUrl, suggestion, pr, onDetailUpdate, onQuote }: {
   comment: PullTimelineCommentDto;
   fallbackUrl: string;
+  suggestion?: SuggestionBase;
   pr: PullRequestDto;
   onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
@@ -1059,7 +1062,7 @@ function ThreadComment({ comment, fallbackUrl, pr, onDetailUpdate, onQuote }: {
           onQuote: () => onQuote(comment.body ?? ''),
         }} />}</div>
       </div>
-      {comment.body && <MarkdownBody body={comment.body} repository={pr.repo} />}
+      {comment.body && <MarkdownBody body={comment.body} repository={pr.repo} suggestion={suggestion} />}
       <Reactions reactions={reaction?.reactions ?? comment.reactions} reaction={reaction} />
     </div>
   );
@@ -1089,6 +1092,22 @@ export function reviewCommentLine(diffHunk: string, targetLine: number | null, s
     if (onRight) newLine++;
   }
   return null;
+}
+
+/**
+ * The head-side lines a RIGHT review thread's suggestion replaces. GitHub's diff_hunk is the hunk as of
+ * the comment's original commit, ending at the commented line, so its text is read by original numbers.
+ */
+export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): SuggestionBase | undefined {
+  const end = payload.originalLine ?? payload.line;
+  if (payload.side?.toUpperCase() !== 'RIGHT' || !payload.diffHunk || end === null) return undefined;
+  const start = (payload.originalLine !== null ? payload.originalStartLine : payload.startLine) ?? end;
+  const rows = parseUnifiedDiff(payload.diffHunk).flatMap(hunk => hunk.rows)
+    .filter(row => row.newLine !== null && row.newLine >= start && row.newLine <= end);
+  return {
+    startLine: payload.line !== null ? payload.startLine ?? payload.line : start,
+    lines: rows.length > 0 && rows.length === end - start + 1 ? rows.map(row => row.content) : null,
+  };
 }
 
 function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {

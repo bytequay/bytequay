@@ -53,6 +53,9 @@ type Segment =
 
 type Fence = { marker: '`' | '~'; length: number; language: string };
 
+/** The head-side lines a review comment covers; `lines` is null when their text could not be resolved. */
+export type SuggestionBase = { startLine: number; lines: string[] | null };
+
 const TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓])\)|\[([ xX])\])\s+(.+)$/;
 const SOURCE_TASK_LINE = /^(\s*(?:[-*+]\s+)?)(?:\(([ xX*✓]|&#(?:x0*2713|0*10003);)\)|\[([ xX])\])(\s+.+)$/i;
 // ponytail: Covers bot-generated HTTP definitions; use a GFM parser for the full reference grammar.
@@ -800,10 +803,55 @@ function highlightedCode(text: string, language: string) {
     : hljs.highlightAuto(text).value;
 }
 
-export default function MarkdownBody({ body, className = '', repository, onTaskToggle, tasksDisabled = false }: {
+/** Common prefix and suffix lengths around the differing middle of two lines; null when they share neither. */
+export function changedSpan(before: string, after: string): { prefix: number; suffix: number } | null {
+  if (before === after) return null;
+  const shortest = Math.min(before.length, after.length);
+  let prefix = 0;
+  while (prefix < shortest && before[prefix] === after[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < shortest - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+  return prefix + suffix > 0 ? { prefix, suffix } : null;
+}
+
+// GitHub lists every original line as removed and then every suggested line as added; it does not line-diff.
+function SuggestedChange({ base, text }: { base: SuggestionBase; text: string }) {
+  const removed = base.lines ?? [];
+  // ponytail: a suggestion of exactly one blank line also reads as a deletion because code blocks keep joined text.
+  const added = text === '' ? [] : text.split('\n');
+  const spans = removed.length === added.length ? removed.map((line, index) => changedSpan(line, added[index])) : [];
+  const row = (kind: 'add' | 'del', line: string, index: number) => {
+    const span = spans[index];
+    const middle = span ? line.slice(span.prefix, line.length - span.suffix) : '';
+    return (
+      <tr className={`md-suggestion__row is-${kind}`} key={`${kind}-${index}`}>
+        <td className="md-suggestion__number">{base.startLine + index}</td>
+        <td className="md-suggestion__code"><span>{kind === 'add' ? '+' : '−'}</span>{span
+          ? <>{line.slice(0, span.prefix)}{middle && <mark>{middle}</mark>}{line.slice(line.length - span.suffix)}</>
+          : line || ' '}</td>
+      </tr>
+    );
+  };
+  return (
+    <div className="md-suggestion">
+      <div className="md-suggestion__header">Suggested change</div>
+      <table className="md-suggestion__rows" aria-label="Suggested change">
+        <colgroup><col className="md-suggestion__number-column" /><col /></colgroup>
+        <tbody>
+          {removed.map((line, index) => row('del', line, index))}
+          {added.map((line, index) => row('add', line, index))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function MarkdownBody({ body, className = '', repository, suggestion, onTaskToggle, tasksDisabled = false }: {
   body: string;
   className?: string;
   repository?: string;
+  /** Renders ```suggestion blocks as a diff against these lines; without it they stay plain code. */
+  suggestion?: SuggestionBase;
   onTaskToggle?: (taskIndex: number, checked: boolean) => void;
   tasksDisabled?: boolean;
 }) {
@@ -816,14 +864,15 @@ export default function MarkdownBody({ body, className = '', repository, onTaskT
   };
   const document = extractHttpLinkDefinitions(body);
   return <MarkdownBodyContent body={document.body} definitions={document.definitions} className={className} repository={repository}
-    tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
+    suggestion={suggestion} tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
 }
 
-function MarkdownBodyContent({ body, definitions, className = '', repository, tasksInteractive, tasksDisabled, onTaskChange }: {
+function MarkdownBodyContent({ body, definitions, className = '', repository, suggestion, tasksInteractive, tasksDisabled, onTaskChange }: {
   body: string;
   definitions: ReadonlyMap<string, string>;
   className?: string;
   repository?: string;
+  suggestion?: SuggestionBase;
   tasksInteractive: boolean;
   tasksDisabled: boolean;
   onTaskChange?: (event: ChangeEvent<HTMLDivElement>) => void;
@@ -834,18 +883,19 @@ function MarkdownBodyContent({ body, definitions, className = '', repository, ta
         <details className="md-details" key={`details-${segmentIndex}`}>
           <summary>{inline(segment.summary, `details-${segmentIndex}`, definitions)}</summary>
           <MarkdownBodyContent body={segment.text} definitions={definitions} repository={repository}
-            tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
+            suggestion={suggestion} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
         </details>
-      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository}
+      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository} suggestion={suggestion}
         definitions={definitions} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} key={`markdown-${segmentIndex}`} />)}
     </div>
   );
 }
 
-function MarkdownBlocks({ markdown, definitions, repository, tasksInteractive, tasksDisabled }: {
+function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksInteractive, tasksDisabled }: {
   markdown: string;
   definitions: ReadonlyMap<string, string>;
   repository?: string;
+  suggestion?: SuggestionBase;
   tasksInteractive: boolean;
   tasksDisabled: boolean;
 }) {
@@ -865,6 +915,7 @@ function MarkdownBlocks({ markdown, definitions, repository, tasksInteractive, t
             onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions)}</label></p>
         );
         if (block.kind === 'code') {
+          if (suggestion && block.language.toLowerCase() === 'suggestion') return <SuggestedChange base={suggestion} text={block.text} key={key} />;
           const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
           return (
             <div className="md-code-block" key={key}>

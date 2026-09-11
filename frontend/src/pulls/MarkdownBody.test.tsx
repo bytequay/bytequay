@@ -13,7 +13,72 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownBody, { CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
+import MarkdownBody, { changedSpan, CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
+
+describe('suggested changes', () => {
+  it('spans the differing middle between a shared prefix and a non-overlapping suffix', () => {
+    const before = '        .collect(toImmutableSet())';
+    const after = '        .distinct()';
+    const span = changedSpan(before, after);
+
+    expect(span).toEqual({ prefix: 9, suffix: 1 });
+    expect(before.slice(9, before.length - 1)).toBe('collect(toImmutableSet()');
+    expect(after.slice(9, after.length - 1)).toBe('distinct(');
+    expect(changedSpan('aa', 'aaa')).toEqual({ prefix: 2, suffix: 0 });
+    expect(changedSpan('same', 'same')).toBeNull();
+    expect(changedSpan('abc', 'xyz')).toBeNull();
+  });
+
+  it('lists every original line as removed, then every suggested line as added, with changed parts marked', () => {
+    const html = renderToStaticMarkup(<MarkdownBody
+      body={'Prefer this:\n\n```suggestion\n        .distinct()\n        .toList();\n```'}
+      suggestion={{ startLine: 12, lines: ['        .collect(toImmutableSet())', '        .toList();'] }}
+    />);
+
+    expect(html).toContain('<div class="md-suggestion"><div class="md-suggestion__header">Suggested change</div>'
+      + '<table class="md-suggestion__rows" aria-label="Suggested change">');
+    expect(html).toContain('<tbody>'
+      + '<tr class="md-suggestion__row is-del"><td class="md-suggestion__number">12</td><td class="md-suggestion__code"><span>−</span>        .<mark>collect(toImmutableSet()</mark>)</td></tr>'
+      + '<tr class="md-suggestion__row is-del"><td class="md-suggestion__number">13</td><td class="md-suggestion__code"><span>−</span>        .toList();</td></tr>'
+      + '<tr class="md-suggestion__row is-add"><td class="md-suggestion__number">12</td><td class="md-suggestion__code"><span>+</span>        .<mark>distinct(</mark>)</td></tr>'
+      + '<tr class="md-suggestion__row is-add"><td class="md-suggestion__number">13</td><td class="md-suggestion__code"><span>+</span>        .toList();</td></tr>'
+      + '</tbody>');
+    expect(html).not.toContain('md-code-block');
+  });
+
+  it('marks nothing when the line counts differ', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'```suggestion\nint a = 2;\n```'}
+      suggestion={{ startLine: 3, lines: ['int a = 1;', 'int b = 1;'] }} />);
+
+    expect(html.match(/is-del/g)).toHaveLength(2);
+    expect(html.match(/is-add/g)).toHaveLength(1);
+    expect(html).not.toContain('<mark>');
+  });
+
+  it('renders an empty suggestion as a deletion and unresolved original lines as additions only', () => {
+    const deletion = renderToStaticMarkup(<MarkdownBody body={'```suggestion\n```'}
+      suggestion={{ startLine: 7, lines: ['remove me'] }} />);
+    const unresolved = renderToStaticMarkup(<MarkdownBody body={'```Suggestion\nfirst\nsecond\n```'}
+      suggestion={{ startLine: 7, lines: null }} />);
+
+    expect(deletion).toContain('<td class="md-suggestion__number">7</td><td class="md-suggestion__code"><span>−</span>remove me</td>');
+    expect(deletion).not.toContain('is-add');
+    expect(unresolved).not.toContain('is-del');
+    expect(unresolved).toContain('<td class="md-suggestion__number">7</td><td class="md-suggestion__code"><span>+</span>first</td>');
+    expect(unresolved).toContain('<td class="md-suggestion__number">8</td><td class="md-suggestion__code"><span>+</span>second</td>');
+  });
+
+  it('keeps a suggestion block as plain code without a base and inside quotes, but not inside details', () => {
+    const body = '```suggestion\nreturn value;\n```';
+    const base = { startLine: 1, lines: ['return null;'] };
+
+    expect(renderToStaticMarkup(<MarkdownBody body={body} />)).toContain('<div class="md-code-block"><span>suggestion</span>');
+    expect(renderToStaticMarkup(<MarkdownBody body={body} />)).not.toContain('md-suggestion');
+    expect(renderToStaticMarkup(<MarkdownBody body={`> ${body.replaceAll('\n', '\n> ')}`} suggestion={base} />)).not.toContain('md-suggestion');
+    expect(renderToStaticMarkup(<MarkdownBody body={`<details><summary>Fix</summary>\n\n${body}\n</details>`} suggestion={base} />))
+      .toContain('Suggested change');
+  });
+});
 
 describe('MarkdownBody', () => {
   it.each(['open', 'closed'])('renders an %s issue preview with its details and actual state', state => {

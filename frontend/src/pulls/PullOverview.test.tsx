@@ -16,7 +16,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
@@ -607,6 +607,40 @@ describe('PullOverview', () => {
 
     expect(html).toContain('<span>Comment on lines <strong>R42–R44</strong></span>');
     expect(html).not.toContain('src/Example.java');
+  });
+
+  it('reads a new-side thread suggestion base from its original hunk lines', () => {
+    const diffHunk = '@@ -10,3 +10,4 @@ class Example\n a\n-b\n+c\n+d';
+
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'RIGHT', diffHunk, line: 12, originalLine: 12 }))
+      .toEqual({ startLine: 12, lines: ['d'] });
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'right', diffHunk, line: 20, startLine: 19, originalLine: 12, originalStartLine: 11 }))
+      .toEqual({ startLine: 19, lines: ['c', 'd'] });
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'RIGHT', diffHunk, line: null, startLine: 30, originalLine: 12, originalStartLine: 10 }))
+      .toEqual({ startLine: 10, lines: ['a', 'c', 'd'] });
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'RIGHT', diffHunk, line: 11, originalLine: 11, originalStartLine: 8 }))
+      .toEqual({ startLine: 11, lines: null });
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'LEFT', diffHunk, line: 11, originalLine: 11 })).toBeUndefined();
+    expect(reviewThreadSuggestion({ ...emptyPayload, side: 'RIGHT', line: 11, originalLine: 11 })).toBeUndefined();
+  });
+
+  it('renders a review-thread suggestion as a suggested change', () => {
+    const html = renderToStaticMarkup(<ReviewThread pr={pullRequest()} showCode={false}
+      onRefresh={async () => {}} onDetailUpdate={() => {}} activity={{
+        actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+        payload: {
+          ...emptyPayload, path: 'src/Example.java', side: 'RIGHT', line: 12, originalLine: 12,
+          diffHunk: '@@ -10,3 +10,4 @@\n a\n-b\n+c\n+        .collect(toImmutableSet())',
+          comments: [{
+            githubId: 99, actor: 'bob', actorAvatarUrl: null, actorBot: false, timestamp: '2026-08-20T09:35:00Z',
+            body: '```suggestion\n        .distinct()\n```', htmlUrl: null, reviewId: 9, inReplyToId: null, reactions: [],
+          }],
+        },
+      }} />);
+
+    expect(html).toContain('<div class="md-suggestion__header">Suggested change</div>');
+    expect(html).toContain('<span>−</span>        .<mark>collect(toImmutableSet()</mark>)</td>');
+    expect(html).toContain('<span>+</span>        .<mark>distinct(</mark>)</td>');
   });
 
   it('parses the markdown blocks used by GitHub descriptions', () => {

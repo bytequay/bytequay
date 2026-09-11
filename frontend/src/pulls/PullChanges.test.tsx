@@ -14,12 +14,17 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
+import { parseUnifiedDiff } from '../diffParse';
+import MarkdownBody from './MarkdownBody';
 import {
   applyMarkdownCommand,
   buildFileTree,
   DiffViewer,
   draggedLineSelection,
   filenameTooltip,
+  headLines,
+  insertSuggestion,
+  MarkdownToolbar,
   nextCommitRange,
   nextLineSelection,
   PendingReviewCommentRow,
@@ -205,6 +210,28 @@ describe('DiffViewer', () => {
     expect(html.indexOf('Old-side pending')).toBeLessThan(html.indexOf('aVeryLongReplacementValue'));
     expect(html.indexOf('New-side pending')).toBeGreaterThan(html.indexOf('aVeryLongReplacementValue'));
     expect(html.indexOf('Range pending')).toBeGreaterThan(html.indexOf('trailing'));
+  });
+
+  it('renders a pending new-side suggestion against the diff lines it covers', () => {
+    const html = renderToStaticMarkup(<DiffViewer
+      files={[file]}
+      review={{
+        repo: 'owner/repo',
+        number: 42,
+        canReview: true,
+        pendingComments: [
+          reviewComment({ body: '```suggestion\nshortValue;\n```' }),
+          reviewComment({ body: '```suggestion\nkept\n```', side: 'LEFT' }),
+        ],
+        onPendingCommentsChange: () => {},
+        onDetailChange: () => {},
+      }}
+    />);
+
+    expect(html.match(/class="md-suggestion"/g)).toHaveLength(1);
+    expect(html).toContain('<td class="md-suggestion__number">96</td><td class="md-suggestion__code"><span>−</span>aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane</td>');
+    expect(html).toContain('<span>+</span>shortValue;</td>');
+    expect(html).toContain('<div class="md-code-block"><span>suggestion</span>');
   });
 
   it('places existing threads at the matching side and range endpoint with replies and avatars', () => {
@@ -510,5 +537,50 @@ describe('applyMarkdownCommand', () => {
       .toEqual({ value: 'one\n> two\nthree', start: 4, end: 9 });
     expect(applyMarkdownCommand('one\ntwo', 0, 7, 'number'))
       .toEqual({ value: '1. one\n2. two', start: 0, end: 13 });
+  });
+});
+
+describe('suggestions', () => {
+  it('offers a leading suggestion button only when a suggestion is possible', () => {
+    const plain = renderToStaticMarkup(<MarkdownToolbar onCommand={() => {}} />);
+    const suggesting = renderToStaticMarkup(<MarkdownToolbar onCommand={() => {}} onSuggest={() => {}} />);
+
+    expect(plain).not.toContain('Add a suggestion');
+    expect(suggesting).toContain('<div class="pull-diff-review__toolbar"><button type="button" title="Add a suggestion" aria-label="Add a suggestion">');
+    expect(suggesting.replace(/<button type="button" title="Add a suggestion"[^]*?<\/button><span class="pull-diff-review__divider" aria-hidden="true"><\/span>/, ''))
+      .toBe(plain);
+  });
+
+  it('fences the lines into an empty draft and parks the caret after the last one', () => {
+    expect(insertSuggestion('', 0, 0, ['int a = 1;', 'int b = 2;'])).toEqual({
+      value: '```suggestion\nint a = 1;\nint b = 2;\n```',
+      start: 35,
+      end: 35,
+    });
+  });
+
+  it('keeps the fence on its own lines around surrounding text', () => {
+    expect(insertSuggestion('Consider', 8, 8, ['x'])).toEqual({ value: 'Consider\n```suggestion\nx\n```', start: 24, end: 24 });
+    expect(insertSuggestion('before\nafter', 7, 7, ['x'])).toEqual({ value: 'before\n```suggestion\nx\n```\nafter', start: 22, end: 22 });
+    expect(insertSuggestion('keep DROP tail', 5, 9, ['x'])).toEqual({ value: 'keep \n```suggestion\nx\n```\n tail', start: 21, end: 21 });
+  });
+
+  it('grows the fence past backtick runs in the lines so the block still renders', () => {
+    const line = 'String fence = "```";';
+    const inserted = insertSuggestion('', 0, 0, [line]);
+
+    expect(inserted.value).toBe(`\`\`\`\`suggestion\n${line}\n\`\`\`\``);
+    expect(inserted.start).toBe(15 + line.length);
+    expect(renderToStaticMarkup(<MarkdownBody body={inserted.value} suggestion={{ startLine: 4, lines: ['String fence = null;'] }} />))
+      .toContain('<span>+</span>String fence = <mark>&quot;```&quot;</mark>;</td>');
+  });
+
+  it('reads head lines from diff rows, falls back to the loaded file, and gives up on unknown lines', () => {
+    const hunks = parseUnifiedDiff(file.patch);
+    const newLines = Array.from({ length: 98 }, (_, index) => `file line ${index + 1}`);
+
+    expect(headLines(hunks, [], 95, 97)).toEqual(['context', 'aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane', 'trailing']);
+    expect(headLines(hunks, newLines, 96, 98)).toEqual(['aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane', 'trailing', 'file line 98']);
+    expect(headLines(hunks, [], 97, 98)).toBeNull();
   });
 });

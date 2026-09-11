@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -31,7 +32,7 @@ public record CiHeadSnapshot(
         PullRequestRef pullRequest,
         boolean open,
         String author,
-        boolean sameRepository,
+        RepoRef headRepository,
         String headRef,
         String headSha,
         String baseRef,
@@ -43,6 +44,9 @@ public record CiHeadSnapshot(
     {
         checkPullRequest(pullRequest);
         checkText(author, "author", 100);
+        requireNonNull(headRepository, "headRepository is null");
+        checkText(headRepository.owner(), "head repository owner", 100);
+        checkText(headRepository.repo(), "head repository name", 100);
         checkText(headRef, "headRef", 255);
         checkSha(headSha, "headSha");
         checkText(baseRef, "baseRef", 255);

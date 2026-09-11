@@ -251,7 +251,6 @@ public final class DevelopmentFollowupCoordinator
     private Optional<CiAutofixRun> runCi(DevelopmentTurnCompletion source, GitHubPullRequestIdentity pullRequest, DevelopmentAutomation automation, Instant activatedAt)
     {
         checkState(owns(source), "Development automation was stopped");
-        checkState(pullRequest.headRepository().equals(pullRequest.baseRepository()), "CI Autofix currently requires a same-repository pull request");
         var lane = automation.ciLaneId().orElseThrow(() -> new IllegalStateException("Select a supported CI repair agent in Automation before starting the task"));
         checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8))), "CI Autofix authorization expired before attachment");
         CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(source.task().workspaceId().orElseThrow(), pullRequest.pullRequest().number(),
@@ -357,7 +356,8 @@ public final class DevelopmentFollowupCoordinator
     private CiHeadSnapshot inspectDeliveryActions(GitHubPullRequestIdentity publishedPr, CiAutofixRun green)
     {
         CiHeadSnapshot snapshot = actions.inspect(new InspectCiHeadQuery(publishedPr.pullRequest()));
-        checkState(snapshot.pullRequest().equals(publishedPr.pullRequest()) && snapshot.open() && snapshot.sameRepository()
+        checkState(snapshot.pullRequest().equals(publishedPr.pullRequest()) && snapshot.open()
+                && snapshot.headRepository().equals(publishedPr.headRepository())
                 && snapshot.headRef().equals(publishedPr.headBranch()) && snapshot.baseRef().equals(publishedPr.baseBranch())
                 && snapshot.headSha().equals(green.expectedRemoteHead()) && snapshot.baseSha().equals(green.latestObservedBaseSha()),
                 "Actions evidence no longer matches the verified pull request");

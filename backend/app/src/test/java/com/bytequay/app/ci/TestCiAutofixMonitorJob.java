@@ -26,6 +26,7 @@ import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -232,6 +233,7 @@ class TestCiAutofixMonitorJob
                 id.toString(),
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 1),
+                        RepoRef.of("bytequay", "sample"),
                         "workspace-1",
                         Optional.empty(),
                         "author",

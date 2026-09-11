@@ -60,7 +60,7 @@ public interface CiAutofixStore
     List<CiAutofixRun> listByParentTaskId(String parentTaskId);
 
     /** Returns the non-finished run reserving this repository head branch. */
-    Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef);
+    Optional<CiAutofixRun> findByActiveBranch(String headRepositoryFullName, String headRef);
 
     /**
      * Lists complete runs in reverse update order.

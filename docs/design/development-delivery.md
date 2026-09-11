@@ -79,10 +79,13 @@ Respect independent settings:
   already-existing PR that exactly matches the clean local revision.
 - Auto CI fix off leaves the published draft as a draft.
 - Missing/unsupported CI shows the actual partial result, not full success.
-  Currently CI requires an authored same-repository PR and a `CI_AUTOFIX`
+  CI requires an authored PR with a verified workspace head remote and a `CI_AUTOFIX`
   provider. Both Codex and Claude support it. The explicitly selected CI repair
   agent may differ from the development agent; there is no provider fallback.
-  Fork draft creation works independently, but fork CI remains unsupported.
+  Fork PRs use the selected repository for repair pushes and the monitored
+  upstream repository for checks and base synchronization. Missing upstream
+  rerun permission pauses the existing CI run for user action; it does not
+  redirect the rerun to the fork or imply green checks.
 
 ## 3. User-input gates come before Git decisions
 

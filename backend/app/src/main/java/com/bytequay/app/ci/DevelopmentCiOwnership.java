@@ -286,7 +286,7 @@ public final class DevelopmentCiOwnership
         return task.state() == TaskState.OPEN && task.interactive()
                 && task.taskWorktree().filter(worktree -> worktree.generatedBranch().equals(run.scope().headRef())
                         && (worktree.physicalRepository().owner() + "/" + worktree.physicalRepository().name())
-                                .equalsIgnoreCase(run.scope().pullRequest().repoFullName())).isPresent();
+                                .equalsIgnoreCase(run.scope().headRepository().fullName())).isPresent();
     }
 
     private record Owner(TaskId parentTaskId, TurnId sourceTurnId, String instructions, AtomicBoolean revoked) {}

@@ -113,7 +113,7 @@ class TestDevelopmentFollowupCoordinator
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
-    private final DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
+    private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
             "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch());
     private final AgentTask task = AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(FULL), NOW);
@@ -549,6 +549,35 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
+    void forkPublicationContinuesThroughCiSynchronizationAndReadyPromotion()
+    {
+        route = new DevelopmentPublicationRoute(route.headRepository(), RepoRef.of("upstream", "repo"), route.pushUrl(),
+                "upstream", "main", BASE, route.headBranch());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
+        preparePublished(FULL);
+        advance();
+        var order = inOrder(ci, git, writes, turns);
+        order.verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        order.verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+        order.verify(writes).markReadyForReview("token", "node-7");
+        order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void changedActionsHeadRepositoryPreventsReadyPromotion()
+    {
+        preparePublished(FULL);
+        CiHeadSnapshot snapshot = actionsSnapshot(HEAD, false);
+        when(actions.inspect(any())).thenReturn(new CiHeadSnapshot(snapshot.pullRequest(), true, snapshot.author(), RepoRef.of("other", "repo"),
+                snapshot.headRef(), snapshot.headSha(), snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns()));
+        advance();
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Actions evidence no longer matches"));
+    }
+
+    @Test
     void timeSpentBeforeCiAttachmentDoesNotRenewAuthorization()
     {
         preparePublished(FULL);
@@ -892,7 +921,7 @@ class TestDevelopmentFollowupCoordinator
         List<CiWorkflowRun> workflows = queued
                 ? ImmutableList.of(workflow, new CiWorkflowRun(2, 2, "queued", 1, "queued", Optional.empty(), head, "https://github.com/run/2", ImmutableList.of()))
                 : ImmutableList.of(workflow);
-        return new CiHeadSnapshot(pr(head, true).pullRequest(), true, "owner", true, route.headBranch(), head, "main", BASE, pr(head, true).url(), workflows);
+        return new CiHeadSnapshot(pr(head, true).pullRequest(), true, "owner", route.headRepository(), route.headBranch(), head, "main", BASE, pr(head, true).url(), workflows);
     }
 
     private GitHubDeliveryChecks checks(GitHubPullRequestIdentity identity)
@@ -903,7 +932,7 @@ class TestDevelopmentFollowupCoordinator
     private CiAutofixRun ciRun()
     {
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
+                new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
                         source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElseThrow().value(), Optional.of(taskId.toString())),
                 deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
@@ -971,7 +1000,7 @@ class TestDevelopmentFollowupCoordinator
 
     private GitHubPullRequestIdentity pr(String head, boolean draft)
     {
-        return new GitHubPullRequestIdentity(new PullRequestRef("owner", "repo", 7), "https://github.com/owner/repo/pull/7", route.headRepository(), route.headBranch(), head,
+        return new GitHubPullRequestIdentity(new PullRequestRef(route.baseRepository().owner(), route.baseRepository().repo(), 7), "https://github.com/" + route.baseRepository().fullName() + "/pull/7", route.headRepository(), route.headBranch(), head,
                 route.baseRepository(), route.baseBranch(), BASE, GitHubPullRequestIdentity.State.OPEN, draft, "owner");
     }
 

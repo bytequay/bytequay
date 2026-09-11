@@ -638,6 +638,7 @@ public record CiAutofixRun(
 
     public record Scope(
             PullRequestRef pullRequest,
+            RepoRef headRepository,
             String workspaceId,
             Optional<RepoRef> physicalRepository,
             String author,
@@ -651,6 +652,12 @@ public record CiAutofixRun(
             requireNonNull(pullRequest, "pullRequest is null");
             checkText(pullRequest.owner(), "repository owner", 100);
             checkText(pullRequest.repo(), "repository name", 100);
+            requireNonNull(headRepository, "headRepository is null");
+            checkText(headRepository.owner(), "head repository owner", 100);
+            checkText(headRepository.repo(), "head repository name", 100);
+            if (headRepository.fullName().equalsIgnoreCase(pullRequest.repoFullName())) {
+                headRepository = RepoRef.of(pullRequest.owner(), pullRequest.repo());
+            }
             checkText(workspaceId, "workspaceId", 128);
             requireNonNull(physicalRepository, "physicalRepository is null");
             physicalRepository.ifPresent(repository -> {
@@ -666,7 +673,7 @@ public record CiAutofixRun(
 
         public String activeBranchSlot()
         {
-            return pullRequest.repoFullName().toLowerCase(Locale.ROOT) + ":" + headRef;
+            return headRepository.fullName().toLowerCase(Locale.ROOT) + ":" + headRef;
         }
     }
 

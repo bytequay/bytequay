@@ -36,6 +36,7 @@ import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -303,6 +304,7 @@ class TestCiAutofixHttpApi
                 "never-expose-this-key",
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 42),
+                        RepoRef.of("bytequay", "sample"),
                         "workspace-1",
                         Optional.empty(),
                         "author",

@@ -14,6 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -66,6 +67,6 @@ class TestCiHeadSnapshot
 
     private static CiHeadSnapshot snapshot(List<CiWorkflowRun> workflows)
     {
-        return new CiHeadSnapshot(PullRequestRef.of("owner", "repo", 1), true, "owner", true, "feature", SHA, "main", SHA, "https://github.com/owner/repo/pull/1", workflows);
+        return new CiHeadSnapshot(PullRequestRef.of("owner", "repo", 1), true, "owner", RepoRef.of("owner", "repo"), "feature", SHA, "main", SHA, "https://github.com/owner/repo/pull/1", workflows);
     }
 }

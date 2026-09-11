@@ -294,7 +294,7 @@ Starting points: `DefaultCiAutofixService`, CI/rebase monitor jobs,
 `BranchRebaseMonitorJob`, `AgentStartupRecovery`, and task Delete handling.
 
 - [x] Start or reuse existing CI Autofix for the verified PR/head. Preserve
-  current eligibility: open authored same-repository PR and a ready CI-capable
+  current eligibility: open authored PR with a verified workspace head remote and a ready CI-capable
   provider. Recheck the accepted CI provider's readiness without fallback at
   attachment. Show the draft and reason when CI is unsupported or unavailable.
 - [x] Preserve three repair attempts, three reruns per unchanged head, and
@@ -493,7 +493,7 @@ verification, checked source synchronization, and one permitted ready mutation.
 It releases the OPEN source only after final verification. Questions and narrowed
 intent retain their gates; lost backend authority fails instead of restarting.
 
-Known MVP limits are explicit: same-repository/authored PR and provider admission
+Known MVP limits are explicit: authored PR, verified workspace head remote, and provider admission
 still follow CI Autofix. Separate test-merge checks, app-bound legacy statuses,
 required workflow/code-scanning rules, and other unverified requirements never
 imply green; the draft waits with a reason within the original deadline, then
@@ -803,3 +803,21 @@ Final storage-fix verification on main:
 - Independent live-database inspection confirms the stale CHECK is absent,
   762 outbox rows remain, and the interrupted task and unverifiable process
   receipt were preserved. The failed task was not replayed or published.
+
+## Fork CI handoff correction
+
+- [x] Retain exact head repository in GitHub CI facts and the existing run scope.
+- [x] Admit authored fork PRs whose head matches the workspace selected repository.
+- [x] Push repairs to the verified head remote; keep base synchronization and Actions on upstream.
+- [x] Bind source ownership and active-branch exclusion to the head repository.
+- [x] Remove the development coordinator's same-repository restriction and verify the fork identity before promotion.
+- [x] Verify regression tests for routing, persistence, ownership, and delivery; run repository checks.
+
+Existing failed development tasks are not replayed or recovered by this change.
+Their published branches and PRs remain available.
+
+Verification: `mvn verify` passed all 1,898 backend tests with no failures or
+skips. Frontend lint, TypeScript, all 770 tests, and the macOS arm64 package
+passed. Real temporary Git repositories verify that rewritten repair pushes
+and source synchronization update the fork while upstream refs remain intact.
+GitHub/provider interactions use fixtures; no live PR was changed by verification.

@@ -28,11 +28,11 @@ public interface CiAutofixService
      * Starts CI Autofix after direct user consent.
      *
      * <p>Verifies the authenticated user is the PR author, the PR is open and
-     * same-repository, the selected worktree matches the PR head, and the
-     * commit/push and failed-job-rerun permissions are explicit. Creates one
-     * durable run and one existing agent task. Does not write to GitHub.
+     * its head has a verified workspace remote, and the commit/push and
+     * failed-job-rerun permissions are explicit. Creates one durable run and
+     * one agent task in a fresh managed worktree. Does not write to GitHub.
      *
-     * @param command PR, worktree, lane, limits, consent, and idempotency key
+     * @param command PR, workspace, lane, limits, consent, and idempotency key
      * @return the created or existing run
      */
     CiAutofixRun start(StartCiAutofixCommand command);

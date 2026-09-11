@@ -268,6 +268,55 @@ class TestCiGitOperations
     }
 
     @Test
+    void pushesRewrittenForkHeadWithoutChangingUpstream()
+            throws IOException
+    {
+        Path root = temporaryDirectory.resolve("fork-routing");
+        Path fork = root.resolve("acme/project.git");
+        Path upstream = root.resolve("upstream/project.git");
+        Path worktree = root.resolve("worktree");
+        Files.createDirectories(fork.getParent());
+        Files.createDirectories(upstream.getParent());
+        git(root, "init", "--bare", fork.toString());
+        git(root, "init", "--bare", upstream.toString());
+        git(root, "init", "-b", HEAD_REF, worktree.toString());
+        git(worktree, "config", "user.name", "ByteQuay Test");
+        git(worktree, "config", "user.email", "bytequay@example.com");
+        git(worktree, "remote", "add", "origin", REMOTE_URL);
+        git(worktree, "remote", "add", "upstream", "https://github.com/upstream/project.git");
+        git(worktree, "config", RoutedGitCommandRunner.ROUTE_CONFIG, RoutedGitCommandRunner.route(root, "https://github.com/"));
+        write(worktree.resolve("source.txt"), "base\n");
+        commit(worktree, "Base");
+        String base = head(worktree);
+        git(worktree, "push", upstream.toString(), "HEAD:refs/heads/main", "HEAD:refs/heads/" + HEAD_REF);
+        git(worktree, "push", fork.toString(), "HEAD:refs/heads/main");
+        write(worktree.resolve("source.txt"), "base\ntarget\n");
+        commit(worktree, "Target change");
+        String original = head(worktree);
+        git(worktree, "push", fork.toString(), "HEAD:refs/heads/" + HEAD_REF);
+        String upstreamRefs = git(upstream, "show-ref");
+
+        git(worktree, "reset", "--hard", base);
+        write(worktree.resolve("source.txt"), "base\nrewritten target\n");
+        commit(worktree, "Target change");
+        write(worktree.resolve("source.txt"), "base\nrewritten target\nfix\n");
+        commit(worktree, "fixup! Target change");
+        Repository fixture = new Repository(worktree.toRealPath(), fork.toRealPath(), base, original);
+        CiGitOperations service = service();
+        CiGitInspection inspection = service.inspectAgentResult(inspect(fixture));
+        assertThat(inspection.outcome()).isEqualTo(READY);
+        gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.localHead().orElseThrow());
+
+        CiPushResult result = service.push(push(fixture, inspection, 0, authorization(true)));
+
+        assertThat(result.outcome()).isEqualTo(PUSHED);
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        assertThat(git(fork, "rev-parse", "refs/heads/main")).isEqualTo(base);
+        assertThat(git(upstream, "show-ref")).isEqualTo(upstreamRefs);
+        gitFailure(upstream, "cat-file", "-e", inspection.localHead().orElseThrow());
+    }
+
+    @Test
     void rejectsUnauthorizedRewriteAndStaleLease()
             throws IOException
     {

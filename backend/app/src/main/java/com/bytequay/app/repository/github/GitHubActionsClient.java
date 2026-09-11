@@ -29,6 +29,7 @@ import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -285,18 +286,20 @@ public class GitHubActionsClient
         if (response.user() == null || response.head() == null || response.base() == null
                 || response.user().login() == null || response.head().sha() == null
                 || response.head().ref() == null || response.base().sha() == null
-                || response.base().ref() == null || response.htmlUrl() == null) {
+                || response.base().ref() == null || response.htmlUrl() == null
+                || response.head().repo() == null || response.head().repo().fullName() == null) {
             throw badGateway("GitHub returned incomplete pull-request head facts");
         }
-        boolean sameRepository = response.head().repo() != null
-                && response.head().repo().fullName() != null
-                && pullRequest.repoFullName().equalsIgnoreCase(response.head().repo().fullName());
+        String[] headRepository = response.head().repo().fullName().split("/", -1);
+        if (headRepository.length != 2 || headRepository[0].isBlank() || headRepository[1].isBlank()) {
+            throw badGateway("GitHub returned an invalid pull-request head repository");
+        }
         List<CiWorkflowRun> runs = fetchWorkflowRuns(pat, pullRequest, response.head().sha());
         return new CiHeadSnapshot(
                 pullRequest,
                 "open".equalsIgnoreCase(response.state()),
                 response.user().login(),
-                sameRepository,
+                RepoRef.of(headRepository[0], headRepository[1]),
                 response.head().ref(),
                 response.head().sha(),
                 response.base().ref(),

@@ -66,6 +66,11 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private String repositoryName;
 
+    // Same-repository heads use the PR repository; only forks need a separate identity.
+    private String forkRepositoryOwner;
+
+    private String forkRepositoryName;
+
     @Column(nullable = false)
     private int pullRequestNumber;
 
@@ -234,6 +239,9 @@ public class CiAutofixRunEntity
         startIdempotencyKey = run.startIdempotencyKey();
         repositoryOwner = scope.pullRequest().owner();
         repositoryName = scope.pullRequest().repo();
+        boolean sameRepository = scope.headRepository().fullName().equalsIgnoreCase(scope.pullRequest().repoFullName());
+        forkRepositoryOwner = sameRepository ? null : scope.headRepository().owner();
+        forkRepositoryName = sameRepository ? null : scope.headRepository().repo();
         pullRequestNumber = scope.pullRequest().number();
         workspaceId = scope.workspaceId();
         worktree = scope.workspaceId();
@@ -281,6 +289,7 @@ public class CiAutofixRunEntity
     {
         Scope scope = new Scope(
                 PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber),
+                headRepository(),
                 resolvedWorkspaceId,
                 physicalRepository(),
                 author,
@@ -331,6 +340,17 @@ public class CiAutofixRunEntity
     public String legacyWorktree()
     {
         return worktree;
+    }
+
+    private RepoRef headRepository()
+    {
+        if (forkRepositoryOwner == null && forkRepositoryName == null) {
+            return RepoRef.of(repositoryOwner, repositoryName);
+        }
+        if (forkRepositoryOwner == null || forkRepositoryName == null) {
+            throw new AgentStorageException("Stored CI Autofix head repository is incomplete: " + id);
+        }
+        return RepoRef.of(forkRepositoryOwner, forkRepositoryName);
     }
 
     private Optional<RepoRef> physicalRepository()

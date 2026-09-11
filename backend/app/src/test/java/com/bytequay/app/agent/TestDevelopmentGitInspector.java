@@ -326,11 +326,21 @@ class TestDevelopmentGitInspector
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(later);
     }
 
-    @Test
-    void synchronizesTheExactRewrittenCiCommitAndPreservesIgnoredBuildOutput()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void synchronizesTheExactRewrittenCiCommitAndPreservesIgnoredBuildOutput(boolean fork)
             throws IOException
     {
+        Path upstream = temporaryDirectory.resolve("upstream.git");
+        if (fork) {
+            run(repository, "init", "--bare", upstream.toString());
+            run(repository, "push", upstream.toString(), baseSha + ":refs/heads/main");
+            when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(true, "main")));
+            run(repository, "remote", "add", "upstream", UPSTREAM);
+            run(repository, "update-ref", "refs/remotes/upstream/main", baseSha);
+        }
         DevelopmentBaseline baseline = inspector.capture(task);
+        assertThat(baseline.route().baseRepository()).isEqualTo(fork ? BASE_REPOSITORY : REPOSITORY);
         String source = commit("source development");
         Path ci = ciRepository();
         String published = publishCi(ci, "rewritten CI repair");
@@ -359,6 +369,10 @@ class TestDevelopmentGitInspector
         assertThat(git.fetches.getFirst()).containsExactly("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--", ORIGIN, published);
         assertThat(git.transitions).containsExactly(ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout",
                 "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), published));
+        if (fork) {
+            assertThat(run(upstream, "show-ref")).isEqualTo(baseSha + " refs/heads/main");
+            assertThat(git.run(upstream, "cat-file", "-e", published).successful()).isFalse();
+        }
     }
 
     @Test
@@ -588,13 +602,13 @@ class TestDevelopmentGitInspector
                     return remoteResult.orElseThrow();
                 }
                 return super.run(directory, timeout, environment, arguments.stream()
-                        .map(value -> value.equals(ORIGIN) ? bareRemote.toString() : value)
+                        .map(this::localRemote)
                         .collect(ImmutableList.toImmutableList()));
             }
             if (!arguments.isEmpty() && arguments.getFirst().equals("fetch")) {
                 fetches.add(ImmutableList.copyOf(arguments));
                 Result result = fetchResult.orElseGet(() -> super.run(directory, timeout, environment, arguments.stream()
-                        .map(value -> value.equals(ORIGIN) ? bareRemote.toString() : value).collect(ImmutableList.toImmutableList())));
+                        .map(this::localRemote).collect(ImmutableList.toImmutableList())));
                 afterFetch.run();
                 return result;
             }
@@ -605,6 +619,15 @@ class TestDevelopmentGitInspector
                 return result;
             }
             return super.run(directory, timeout, environment, arguments);
+        }
+
+        private String localRemote(String value)
+        {
+            return switch (value) {
+                case ORIGIN -> bareRemote.toString();
+                case UPSTREAM -> temporaryDirectory.resolve("upstream.git").toString();
+                default -> value;
+            };
         }
     }
 }

@@ -27,6 +27,7 @@ import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +43,22 @@ class TestCiAutofixRun
     private static final Instant NOW = Instant.parse("2026-08-17T00:00:00Z");
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
+
+    @Test
+    void reservesTheHeadRepositoryBranchAcrossBaseRepositories()
+    {
+        RepoRef fork = RepoRef.of("AUTHOR", "Sample");
+        Scope first = new Scope(PullRequestRef.of("upstream", "sample", 1), fork, "workspace-1", Optional.empty(),
+                "author", "feature", "main", "codex", Optional.empty());
+        Scope second = new Scope(PullRequestRef.of("another-upstream", "sample", 2), fork, "workspace-2", Optional.empty(),
+                "author", "feature", "main", "codex", Optional.empty());
+
+        assertThat(first.activeBranchSlot()).isEqualTo("author/sample:feature").isEqualTo(second.activeBranchSlot());
+        Scope direct = new Scope(PullRequestRef.of("author", "sample", 3), fork, "workspace-3", Optional.empty(),
+                "author", "feature", "main", "codex", Optional.empty());
+        assertThat(direct.headRepository()).isEqualTo(RepoRef.of("author", "sample"));
+        assertThat(direct.activeBranchSlot()).isEqualTo(first.activeBranchSlot());
+    }
 
     @Test
     void supportsTheThreeStatusLifecycle()
@@ -258,6 +275,7 @@ class TestCiAutofixRun
                 key,
                 new Scope(
                         PullRequestRef.of("bytequay", "sample", 7),
+                        RepoRef.of("bytequay", "sample"),
                         "workspace-1",
                         Optional.empty(),
                         "author",

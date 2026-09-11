@@ -72,10 +72,10 @@ final class InMemoryCiAutofixStore
     }
 
     @Override
-    public Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef)
+    public Optional<CiAutofixRun> findByActiveBranch(String headRepositoryFullName, String headRef)
     {
         return Optional.ofNullable(run).filter(value -> value.status() != Status.FINISHED
-                && value.scope().pullRequest().repoFullName().equalsIgnoreCase(repositoryFullName) && value.scope().headRef().equals(headRef));
+                && value.scope().headRepository().fullName().equalsIgnoreCase(headRepositoryFullName) && value.scope().headRef().equals(headRef));
     }
 
     @Override

@@ -186,14 +186,14 @@ final class CiAutofixE2eHarness
         agent.bind(fixture.repository().pullRequest());
     }
 
-    void scriptUnauthorizedCi(Fixture fixture, String author, boolean sameRepository)
+    void scriptUnauthorizedCi(Fixture fixture, String author, RepoRef headRepository)
     {
         CiHeadSnapshot snapshot = failingSnapshot(fixture);
         gitHub.setSnapshot(new CiHeadSnapshot(
                 snapshot.pullRequest(),
                 snapshot.open(),
                 author,
-                sameRepository,
+                headRepository,
                 snapshot.headRef(),
                 snapshot.headSha(),
                 snapshot.baseRef(),
@@ -256,7 +256,7 @@ final class CiAutofixE2eHarness
 
     private static CiHeadSnapshot withHeadRef(CiHeadSnapshot snapshot, String headRef)
     {
-        return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.sameRepository(), headRef, snapshot.headSha(),
+        return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.headRepository(), headRef, snapshot.headSha(),
                 snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
     }
 
@@ -611,7 +611,7 @@ final class CiAutofixE2eHarness
                 repository.pullRequest(),
                 true,
                 "author",
-                true,
+                RepoRef.of(repository.pullRequest().owner(), repository.pullRequest().repo()),
                 E2eGitRepository.HEAD_REF,
                 headSha,
                 E2eGitRepository.BASE_REF,
@@ -649,7 +649,7 @@ final class CiAutofixE2eHarness
                 repository.pullRequest(),
                 true,
                 "author",
-                true,
+                RepoRef.of(repository.pullRequest().owner(), repository.pullRequest().repo()),
                 E2eGitRepository.HEAD_REF,
                 headSha,
                 E2eGitRepository.BASE_REF,
@@ -687,7 +687,7 @@ final class CiAutofixE2eHarness
                 repository.pullRequest(),
                 true,
                 "author",
-                true,
+                RepoRef.of(repository.pullRequest().owner(), repository.pullRequest().repo()),
                 E2eGitRepository.HEAD_REF,
                 repository.initialHeadSha(),
                 E2eGitRepository.BASE_REF,

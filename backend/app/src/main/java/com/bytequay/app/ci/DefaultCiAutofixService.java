@@ -185,8 +185,7 @@ public class DefaultCiAutofixService
         checkArgument(command.maxAttempts() == CiAutofixRun.MAX_FIX_ATTEMPTS, "Development CI allows exactly three fix attempts");
         checkArgument(!activatedAt.isAfter(clock.instant()) && clock.instant().isBefore(activatedAt.plus(AUTHORIZATION_PERIOD)),
                 "Development CI authorization is expired or invalid");
-        checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN && expectedPr.headRepository().equals(expectedPr.baseRepository()),
-                "Development CI requires an open same-repository pull request");
+        checkArgument(expectedPr.state() == GitHubPullRequestIdentity.State.OPEN, "Development CI requires an open pull request");
         ownership.requireParent(parentTaskId, sourceTurnId);
         return start(command, Optional.of(new DevelopmentStart(parentTaskId, sourceTurnId, expectedPr, activatedAt)));
     }
@@ -216,12 +215,13 @@ public class DefaultCiAutofixService
         CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(pullRequest));
         String currentUser = currentUser();
         validatePullRequest(snapshot, pullRequest, currentUser);
+        validateStartWorkspace(workspace, snapshot);
         development.ifPresent(value -> requireExpectedPullRequest(snapshot, value.expectedPr()));
 
         WorkspaceCodeSyncResult sync = provisioning.synchronizeCode(command.workspaceId());
         checkArgument(sync.successful(), "Workspace repository could not be synchronized");
         workspace = workspaces.requireReadyRepository(command.workspaceId());
-        validateStartWorkspace(workspace, pullRequest);
+        validateStartWorkspace(workspace, snapshot);
         Instant now = Instant.now(clock);
         TaskId taskId = TaskId.random();
         CiAutofixRun run = CiAutofixRun.create(
@@ -229,6 +229,7 @@ public class DefaultCiAutofixService
                 command.idempotencyKey(),
                 new Scope(
                         pullRequest,
+                        snapshot.headRepository(),
                         command.workspaceId(),
                         Optional.of(RepoRef.of(
                                 workspace.selectedRepository().owner(),
@@ -487,9 +488,11 @@ public class DefaultCiAutofixService
 
         CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
         validatePullRequest(snapshot, run.scope().pullRequest(), currentUser());
-        if (!snapshot.headRef().equals(run.scope().headRef())
+        if (!snapshot.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
+                || !snapshot.headRef().equals(run.scope().headRef())
+                || !snapshot.baseRef().equals(run.scope().baseRef())
                 || !snapshot.headSha().equals(run.expectedRemoteHead())) {
-            throw new CiAutofixConflictException("Pull request head changed outside this CI Autofix run");
+            throw new CiAutofixConflictException("Pull request head or base branch changed outside this CI Autofix run");
         }
         requireWorkspace(run);
         AgentTask task = requireOpenTask(run);
@@ -854,6 +857,11 @@ public class DefaultCiAutofixService
         if (latest.version() != run.version() || latest.status() != Status.ACTIVE) {
             return latest;
         }
+        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
+        if (rejected.isPresent()) {
+            return rejected.orElseThrow();
+        }
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         requireWriteAuthority(run);
@@ -861,8 +869,8 @@ public class DefaultCiAutofixService
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
                 worktree.worktree().generatedBranch(),
-                workspace.sourceRemote(),
-                repository(run.scope().pullRequest()),
+                run.scope().headRepository().fullName().equalsIgnoreCase(run.scope().pullRequest().repoFullName()) ? workspace.sourceRemote() : workspace.targetRemote(),
+                new RepositoryIdentity(run.scope().headRepository().owner(), run.scope().headRepository().repo()),
                 run.scope().headRef(),
                 run.authorization(),
                 run.pushJournal().orElseThrow()));
@@ -1394,9 +1402,10 @@ public class DefaultCiAutofixService
             Instant now)
     {
         if (!snapshot.pullRequest().equals(run.scope().pullRequest())
-                || !snapshot.sameRepository()
+                || !snapshot.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
                 || !snapshot.author().equalsIgnoreCase(run.scope().author())
-                || !snapshot.headRef().equals(run.scope().headRef())) {
+                || !snapshot.headRef().equals(run.scope().headRef())
+                || !snapshot.baseRef().equals(run.scope().baseRef())) {
             return Optional.of(finishRun(run,
                     FinishReason.STALE_HEAD,
                     "Pull request no longer matches the authorized CI Autofix scope",
@@ -1545,7 +1554,9 @@ public class DefaultCiAutofixService
         if (!workspace.monitoredRepository().owner().equalsIgnoreCase(run.scope().pullRequest().owner())
                 || !workspace.monitoredRepository().repo().equalsIgnoreCase(run.scope().pullRequest().repo())
                 || !workspace.selectedRepository().owner().equalsIgnoreCase(worktree.physicalRepository().owner())
-                || !workspace.selectedRepository().repo().equalsIgnoreCase(worktree.physicalRepository().name())) {
+                || !workspace.selectedRepository().repo().equalsIgnoreCase(worktree.physicalRepository().name())
+                || (!run.scope().headRepository().fullName().equalsIgnoreCase(run.scope().pullRequest().repoFullName())
+                        && !run.scope().headRepository().fullName().equalsIgnoreCase(workspace.selectedRepository().fullName()))) {
             throw new CiAutofixConflictException("Workspace repository routing no longer matches the CI Autofix run");
         }
         return workspace;
@@ -1616,6 +1627,7 @@ public class DefaultCiAutofixService
             ownership.requireParent(value.parentTaskId(), value.sourceTurnId());
             ownership.require(run);
             checkArgument(run.scope().pullRequest().equals(value.expectedPr().pullRequest())
+                            && run.scope().headRepository().fullName().equalsIgnoreCase(value.expectedPr().headRepository().fullName())
                             && run.scope().headRef().equals(value.expectedPr().headBranch())
                             && run.scope().baseRef().equals(value.expectedPr().baseBranch())
                             && run.taskStartCommit().filter(value.expectedPr().headSha()::equals).isPresent(),
@@ -1627,6 +1639,7 @@ public class DefaultCiAutofixService
     {
         checkArgument(snapshot.pullRequest().equals(expected.pullRequest())
                         && snapshot.pullRequest().repoFullName().equalsIgnoreCase(expected.baseRepository().fullName())
+                        && snapshot.headRepository().fullName().equalsIgnoreCase(expected.headRepository().fullName())
                         && snapshot.headRef().equals(expected.headBranch()) && snapshot.headSha().equals(expected.headSha())
                         && snapshot.baseRef().equals(expected.baseBranch()) && snapshot.baseSha().equals(expected.baseSha()),
                 "The published pull request changed before CI attachment");
@@ -1646,17 +1659,20 @@ public class DefaultCiAutofixService
     {
         checkArgument(snapshot.pullRequest().equals(expectedPullRequest), "GitHub returned another pull request");
         checkArgument(snapshot.open(), "Pull request is not open");
-        checkArgument(snapshot.sameRepository(), "Pull request is from a fork");
         checkArgument(snapshot.author().equalsIgnoreCase(currentUser), "CI Autofix is available only to the pull request author");
     }
 
     private static void validateStartWorkspace(
             WorkspaceRepositoryContext workspace,
-            PullRequestRef pullRequest)
+            CiHeadSnapshot snapshot)
     {
+        PullRequestRef pullRequest = snapshot.pullRequest();
         checkArgument(workspace.monitoredRepository().owner().equalsIgnoreCase(pullRequest.owner())
                         && workspace.monitoredRepository().repo().equalsIgnoreCase(pullRequest.repo()),
                 "Workspace repository does not match the pull request");
+        checkArgument(snapshot.headRepository().fullName().equalsIgnoreCase(pullRequest.repoFullName())
+                        || snapshot.headRepository().fullName().equalsIgnoreCase(workspace.selectedRepository().fullName()),
+                "Pull request fork does not match the workspace's selected repository");
     }
 
     private static RepositoryIdentity repository(PullRequestRef pullRequest)

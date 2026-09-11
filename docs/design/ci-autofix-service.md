@@ -65,8 +65,9 @@ or fails visibly as specified in the delivery design.
 
 ## 1. Decision
 
-CI Autofix is available only for an open, same-repository pull request authored
-by the authenticated GitHub user. Nothing starts until that user explicitly
+CI Autofix is available for an open pull request authored by the authenticated
+GitHub user, with its head repository matching the workspace selected repository
+or its monitored upstream repository. Nothing starts until that user explicitly
 enables CI Autofix for the PR and allows ByteQuay to update its head branch.
 Creating a direct cherry-pick delivery PR is one enable path: its confirmation
 discloses failed-job reruns, history rewrites, and exact-lease pushes. The run
@@ -83,6 +84,18 @@ and Branch Rebase use that generated branch and never assume it equals
 `headRef`.
 Push explicitly maps the verified local HEAD to
 `refs/heads/<authorized-headRef>` with the existing exact lease.
+
+The run freezes the exact head repository separately from the base PR and the
+physical clone repository. Branch ownership uses head repository plus head ref.
+Every later GitHub observation must retain that head identity and base branch.
+Repairs push to
+the matching workspace target remote for a selected fork, or the source remote
+for a head in the monitored repository. Base fetches, workflow inspection, logs,
+and reruns continue to use the monitored upstream repository. A missing upstream
+rerun permission pauses with the existing `RERUN_UNAVAILABLE` reason; it never
+switches to fork Actions or reports green. Missing workflow evidence keeps waiting.
+SQLite stores fork head coordinates only when head and base differ; absent fork
+coordinates represent a same-repository run for both new and existing records.
 
 The agent owns the local fix:
 
@@ -129,7 +142,7 @@ states. Finish results include `GREEN`, `CANCELLED`, `STALE_HEAD`,
 
 The initial limits are:
 
-- authored, same-repository PRs only;
+- authored PRs with a verified workspace remote for the exact head repository;
 - one active run per PR head branch;
 - one agent task and one active turn per run;
 - an agent lane that advertises and enforces `CI_AUTOFIX`; both Codex and
@@ -197,7 +210,8 @@ public interface CiAutofixService
      * Starts CI Autofix after direct user consent.
      *
      * <p>Verifies the authenticated user is the PR author, the PR is open and
-     * same-repository, the workspace matches the PR repository, the exact PR
+     * its head has a verified workspace remote, the workspace monitors the PR
+     * repository, the exact PR
      * head is available locally, and the commit/push and failed-job-rerun
      * permissions are explicit. Creates one durable run, one managed task
      * worktree, and one agent task. Does not write to GitHub.
@@ -1109,7 +1123,7 @@ does not reproduce MCP or CLI protocols.
 
 | Journey | Required proof |
 | --- | --- |
-| Authorization guard | A non-author, fork, or missing consent is rejected through HTTP before task creation, rerun, or push |
+| Authorization guard | A non-author, unknown fork head remote, or missing consent is rejected through HTTP before task creation, rerun, or push |
 | Managed worktree boundary | Start accepts a workspace ID, provisions a fresh task worktree at the verified PR head, never reuses the cherry-pick checkout, and removes only a quiescent verified clean worktree without deleting its branch |
 | Early actionable failure | A failed compile job starts fixing while an unrelated slow job remains pending |
 | Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |

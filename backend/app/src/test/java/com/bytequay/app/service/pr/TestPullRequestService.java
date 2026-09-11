@@ -472,7 +472,7 @@ class TestPullRequestService
                 101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
         when(actions.inspect(new InspectCiHeadQuery(ref))).thenReturn(new CiHeadSnapshot(
-                ref, true, "alice", true, "feature", headSha, "main",
+                ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222",
                 "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));
         when(actions.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));

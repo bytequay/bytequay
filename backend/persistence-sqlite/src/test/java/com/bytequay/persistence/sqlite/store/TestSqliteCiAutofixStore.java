@@ -236,6 +236,45 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
+    void preservesForkRoutingAndReservesTheHeadBranchIndependentlyOfTheBase()
+    {
+        RepoRef fork = RepoRef.of("author", "sample");
+        PullRequestRef base = PullRequestRef.of("upstream", "sample", 1);
+        CiAutofixRun first = newRun("fork-head", "feature", base, fork, NOW);
+        CiAutofixRun anotherFork = newRun("another-fork", "feature", base, RepoRef.of("another-author", "sample"), NOW);
+        store.insert(first);
+        store.insert(anotherFork);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.find(first.id())).contains(first);
+        assertThat(store.find(anotherFork.id())).contains(anotherFork);
+        assertThat(store.findByActiveBranch("AUTHOR/SAMPLE", "feature")).contains(first);
+        assertThat(store.findByActiveBranch("upstream/sample", "feature")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT fork_repository_owner FROM ci_autofix_run WHERE id = ?", String.class, first.id().toString())).isEqualTo("author");
+        assertThat(first.scope().physicalRepository()).contains(RepoRef.of("bytequay", "physical"));
+        assertThatThrownBy(() -> store.insert(newRun("same-fork-head", "feature", PullRequestRef.of("another-upstream", "sample", 2), fork, NOW)))
+                .isInstanceOf(CiAutofixConflictException.class);
+    }
+
+    @Test
+    void representsSameRepositoryHeadsWithoutForkColumnsAndRejectsPartialForkIdentity()
+    {
+        CiAutofixRun run = newRun("same-repository-head", "feature", NOW);
+        store.insert(run);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(jdbc.queryForMap("SELECT fork_repository_owner, fork_repository_name FROM ci_autofix_run WHERE id = ?", run.id().toString()))
+                .containsEntry("fork_repository_owner", null).containsEntry("fork_repository_name", null);
+        assertThat(store.find(run.id())).contains(run);
+        jdbc.update("UPDATE ci_autofix_run SET fork_repository_owner = 'author' WHERE id = ?", run.id().toString());
+        entityManager.clear();
+
+        assertThatThrownBy(() -> store.find(run.id())).isInstanceOf(CiAutofixStorageException.class)
+                .hasRootCauseInstanceOf(AgentStorageException.class).hasStackTraceContaining("head repository is incomplete");
+    }
+
+    @Test
     void allowsSamePullRequestNumberAndBranchInDifferentRepositories()
     {
         CiAutofixRun first = newRun(
@@ -338,8 +377,9 @@ class TestSqliteCiAutofixStore
         CiAutofixRun prototype = newRun("owned", "owned-feature", NOW);
         Scope scope = prototype.scope();
         CiAutofixRun owned = CiAutofixRun.create(prototype.id(), prototype.startIdempotencyKey(),
-                new Scope(scope.pullRequest(), scope.workspaceId(), scope.physicalRepository(), scope.author(), scope.headRef(), scope.baseRef(), scope.laneId(),
-                        Optional.of("parent-task")), HEAD, HEAD, BASE, prototype.authorization(), NOW).assignAgentTask("owned-child", NOW);
+                new Scope(scope.pullRequest(), scope.headRepository(), scope.workspaceId(), scope.physicalRepository(), scope.author(),
+                        scope.headRef(), scope.baseRef(), scope.laneId(), Optional.of("parent-task")), HEAD, HEAD, BASE, prototype.authorization(), NOW)
+                .assignAgentTask("owned-child", NOW);
         store.insert(owned);
         CiAutofixRun standalone = newRun("standalone", "standalone-feature", NOW.plusSeconds(1));
         store.insert(standalone);
@@ -369,11 +409,17 @@ class TestSqliteCiAutofixStore
             PullRequestRef pullRequest,
             Instant now)
     {
+        return newRun(key, headRef, pullRequest, RepoRef.of(pullRequest.owner(), pullRequest.repo()), now);
+    }
+
+    private static CiAutofixRun newRun(String key, String headRef, PullRequestRef pullRequest, RepoRef headRepository, Instant now)
+    {
         return CiAutofixRun.create(
                 CiAutofixRunId.random(),
                 key,
                 new Scope(
                         pullRequest,
+                        headRepository,
                         "workspace-" + key,
                         Optional.of(RepoRef.of("bytequay", "physical")),
                         "author",

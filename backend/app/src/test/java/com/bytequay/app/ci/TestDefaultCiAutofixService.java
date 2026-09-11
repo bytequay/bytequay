@@ -90,6 +90,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.ObjectProvider;
@@ -135,6 +137,7 @@ class TestDefaultCiAutofixService
     private static final Instant NOW = Instant.parse("2026-08-18T00:00:00Z");
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("bytequay", "sample", 2234);
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
+    private static final RepoRef FORK = RepoRef.of("author", "sample");
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
     private static final String FIXED_HEAD = "c".repeat(40);
@@ -600,7 +603,7 @@ class TestDefaultCiAutofixService
     }
 
     @Test
-    void rejectsClosedForkAndUnauthoredPullRequests()
+    void rejectsClosedUnroutableForkAndUnauthoredPullRequests()
     {
         when(gitHub.inspect(any())).thenReturn(snapshot(false, "author", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("closed"))).hasMessageContaining("not open");
@@ -611,6 +614,78 @@ class TestDefaultCiAutofixService
         when(gitHub.inspect(any())).thenReturn(snapshot(true, "another-user", true, HEAD, true));
         assertThatThrownBy(() -> service.start(startCommand("not-author"))).hasMessageContaining("author");
         verify(taskService, never()).create(any());
+        verify(provisioning, never()).synchronizeCode(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void pushesToTheVerifiedHeadRepositoryAndKeepsBaseSynchronizationUpstream(boolean forkHead)
+    {
+        useForkWorkspace(forkHead);
+        CiAutofixRun run = service.start(startCommand("fork-routing"));
+        assertThat(run.scope().headRepository()).isEqualTo(snapshot.headRepository());
+        assertThat(run.scope().physicalRepository()).contains(FORK);
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
+                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        run = service.advance(run.id());
+        when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
+
+        run = service.advance(run.id());
+
+        assertThat(run.expectedRemoteHead()).isEqualTo(FIXED_HEAD);
+        ArgumentCaptor<PushCiHeadCommand> push = ArgumentCaptor.forClass(PushCiHeadCommand.class);
+        verify(gitService).push(push.capture());
+        assertThat(push.getValue().remote()).isEqualTo(forkHead ? "origin" : "upstream");
+        assertThat(push.getValue().remoteRepository()).isEqualTo(forkHead ? new RepositoryIdentity(FORK.owner(), FORK.repo()) : REPOSITORY);
+        assertThat(push.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity(FORK.owner(), FORK.repo()));
+        assertThat(push.getValue().remoteHeadRef()).isEqualTo(snapshot.headRef());
+        assertThat(push.getValue().journal().expectedRemoteSha()).isEqualTo(HEAD);
+        ArgumentCaptor<SynchronizeCiBaseCommand> synchronize = ArgumentCaptor.forClass(SynchronizeCiBaseCommand.class);
+        verify(gitService, times(2)).synchronizeBase(synchronize.capture());
+        assertThat(synchronize.getAllValues()).allSatisfy(command -> {
+            assertThat(command.sourceRemote()).isEqualTo("upstream");
+            assertThat(command.remoteRepository()).isEqualTo(REPOSITORY);
+        });
+        ArgumentCaptor<InspectCiHeadQuery> inspect = ArgumentCaptor.forClass(InspectCiHeadQuery.class);
+        verify(gitHub, times(4)).inspect(inspect.capture());
+        assertThat(inspect.getAllValues()).extracting(InspectCiHeadQuery::pullRequest).containsOnly(PULL_REQUEST);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rejectsChangedPullRequestScopeBeforeAJournaledPush(boolean baseRetarget)
+    {
+        useForkWorkspace(true);
+        CiAutofixRun run = service.start(startCommand("fork-changed-before-push"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
+                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        run = service.advance(run.id());
+        assertThat(run.pushJournal()).isPresent();
+        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
+
+        CiAutofixRun rejected = service.advance(run.id());
+
+        assertThat(rejected.finishReason()).contains(FinishReason.STALE_HEAD);
+        verify(gitService, never()).push(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rejectsChangedPullRequestScopeBeforeResumingARepair(boolean baseRetarget)
+    {
+        useForkWorkspace(true);
+        CiAutofixRun run = service.start(startCommand("fork-changed-before-message"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("repair failed")));
+        CiAutofixRun paused = service.advance(run.id());
+        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
+
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry", "fork-resume")))
+                .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("head or base branch changed");
+        verify(turnService, times(1)).start(any());
     }
 
     @Test
@@ -1493,7 +1568,7 @@ class TestDefaultCiAutofixService
                 "retry",
                 "stale-key")))
                 .isInstanceOf(CiAutofixConflictException.class)
-                .hasMessageContaining("head changed");
+                .hasMessageContaining("head or base branch changed");
 
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
                 paused.id(),
@@ -1839,6 +1914,10 @@ class TestDefaultCiAutofixService
                 FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
         assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), source, moved, NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
+        GitHubPullRequestIdentity differentFork = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), FORK, expected.headBranch(),
+                expected.headSha(), expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("fork-owned"), parent.id(), source, differentFork, NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
         verify(taskService, never()).create(any());
         verify(provisioning, never()).synchronizeCode(any());
     }
@@ -1859,7 +1938,7 @@ class TestDefaultCiAutofixService
     {
         TaskId parent = TaskId.random();
         String branch = "bytequay/task/" + parent;
-        snapshot = new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.sameRepository(), branch, snapshot.headSha(),
+        snapshot = new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.headRepository(), branch, snapshot.headSha(),
                 snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
         when(gitHub.inspect(any())).thenReturn(snapshot);
         TaskWorktree source = new TaskWorktree(parent, "workspace-1", REPOSITORY, temporaryDirectory.resolve(parent.toString()), branch, HEAD);
@@ -1984,6 +2063,30 @@ class TestDefaultCiAutofixService
     private WorkspaceRepositoryContext workspaceContext()
     {
         return workspaceContext(REPOSITORY);
+    }
+
+    private void useForkWorkspace(boolean forkHead)
+    {
+        if (forkHead) {
+            snapshot = withHeadRepository(snapshot, FORK);
+        }
+        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(new WorkspaceRepositoryContext(
+                "workspace-1", temporaryDirectory, 1, FORK, OptionalLong.of(2), RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo()),
+                "upstream", "origin", "main", ImmutableList.of()));
+    }
+
+    private static CiHeadSnapshot withHeadRepository(CiHeadSnapshot snapshot, RepoRef repository)
+    {
+        return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), repository, snapshot.headRef(), snapshot.headSha(),
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+    }
+
+    private CiHeadSnapshot changedScopeSnapshot(boolean baseRetarget)
+    {
+        return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(),
+                baseRetarget ? snapshot.headRepository() : RepoRef.of("another-owner", "sample"), snapshot.headRef(), snapshot.headSha(),
+                baseRetarget ? "release" : snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
     }
 
     private WorkspaceRepositoryContext workspaceContext(RepositoryIdentity selectedRepository)
@@ -2129,7 +2232,7 @@ class TestDefaultCiAutofixService
                 PULL_REQUEST,
                 open,
                 author,
-                sameRepository,
+                sameRepository ? RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo()) : FORK,
                 "feature",
                 head,
                 "main",
@@ -2186,7 +2289,7 @@ class TestDefaultCiAutofixService
                 PULL_REQUEST,
                 true,
                 "author",
-                true,
+                RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo()),
                 "feature",
                 head,
                 "main",

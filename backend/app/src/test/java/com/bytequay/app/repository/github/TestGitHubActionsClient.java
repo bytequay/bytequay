@@ -26,6 +26,7 @@ import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -107,7 +108,7 @@ class TestGitHubActionsClient
 
         assertThat(snapshot.open()).isTrue();
         assertThat(snapshot.author()).isEqualTo("author");
-        assertThat(snapshot.sameRepository()).isTrue();
+        assertThat(snapshot.headRepository()).isEqualTo(RepoRef.of("owner", "repo"));
         assertThat(snapshot.headRef()).isEqualTo("feature");
         assertThat(snapshot.baseRef()).isEqualTo("main");
         assertThat(snapshot.workflowRuns()).singleElement().satisfies(run -> {
@@ -118,6 +119,39 @@ class TestGitHubActionsClient
         assertThat(snapshot.actionableFailures()).extracting(CiJob::id).containsExactly(902L);
         assertThat(snapshot.pending()).isTrue();
         assertThat(snapshot.green()).isFalse();
+        fixture.verify();
+    }
+
+    @Test
+    void readsForkIdentityAndChecksFromTheBaseRepository()
+    {
+        Fixture fixture = fixture();
+        expectPullRequest(fixture, "author/fork");
+        fixture.apiServer.expect(requestTo(runsUrl(1)))
+                .andRespond(withSuccess("{\"total_count\":0,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
+
+        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+
+        assertThat(snapshot.pullRequest()).isEqualTo(PULL_REQUEST);
+        assertThat(snapshot.headRepository()).isEqualTo(RepoRef.of("author", "fork"));
+        assertThat(snapshot.green()).isFalse();
+        fixture.verify();
+    }
+
+    @Test
+    void refusesDeletedForkWithoutReadingWorkflowRuns()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7"))
+                .andRespond(withSuccess("""
+                        {"state":"open","user":{"login":"author"},
+                         "head":{"ref":"feature","sha":"%s","repo":null},
+                         "base":{"ref":"main","sha":"%s","repo":{"full_name":"owner/repo"}},
+                         "html_url":"https://github.com/owner/repo/pull/7"}
+                        """.formatted(HEAD_SHA, BASE_SHA), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST)))
+                .hasMessageContaining("incomplete pull-request head facts");
         fixture.verify();
     }
 
@@ -524,13 +558,18 @@ class TestGitHubActionsClient
 
     private static void expectPullRequest(Fixture fixture)
     {
+        expectPullRequest(fixture, "owner/repo");
+    }
+
+    private static void expectPullRequest(Fixture fixture, String headRepository)
+    {
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7"))
                 .andRespond(withSuccess("""
                         {"state":"open","user":{"login":"author"},
-                         "head":{"ref":"feature","sha":"%s","repo":{"full_name":"owner/repo"}},
+                         "head":{"ref":"feature","sha":"%s","repo":{"full_name":"%s"}},
                          "base":{"ref":"main","sha":"%s","repo":{"full_name":"owner/repo"}},
                          "html_url":"https://github.com/owner/repo/pull/7"}
-                        """.formatted(HEAD_SHA, BASE_SHA), MediaType.APPLICATION_JSON));
+                        """.formatted(HEAD_SHA, headRepository, BASE_SHA), MediaType.APPLICATION_JSON));
     }
 
     private static void expectFailedWorkflow(Fixture fixture)

@@ -562,12 +562,13 @@ class TestCiAutofixEndToEnd
         int tasksBefore = tasks.list(200).size();
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("unauthorized");
         int branchWrites = fixture.repository().headRefUpdates();
+        RepoRef repository = RepoRef.of(fixture.repository().pullRequest().owner(), fixture.repository().pullRequest().repo());
 
-        harness.scriptUnauthorizedCi(fixture, "another-author", true);
+        harness.scriptUnauthorizedCi(fixture, "another-author", repository);
         assertThat(harness.startStatus(fixture, "non-author-start", true, true, true)).isEqualTo(400);
-        harness.scriptUnauthorizedCi(fixture, "author", false);
-        assertThat(harness.startStatus(fixture, "fork-start", true, true, true)).isEqualTo(400);
-        harness.scriptUnauthorizedCi(fixture, "author", true);
+        harness.scriptUnauthorizedCi(fixture, "author", RepoRef.of("unknown-fork", repository.repo()));
+        assertThat(harness.startStatus(fixture, "unknown-fork-route", true, true, true)).isEqualTo(400);
+        harness.scriptUnauthorizedCi(fixture, "author", repository);
         assertThat(harness.startStatus(fixture, "rerun-consent", false, true, true)).isEqualTo(400);
         assertThat(harness.startStatus(fixture, "history-consent", true, false, true)).isEqualTo(400);
         assertThat(harness.startStatus(fixture, "push-consent", true, true, false)).isEqualTo(400);
@@ -838,6 +839,30 @@ class TestCiAutofixEndToEnd
                 .isEqualTo(localFix);
         assertThat(repository.remoteHead()).isEqualTo(externalHead);
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
+        assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
+    }
+
+    @Test
+    void rejectsHeadRepositoryDriftBeforePublishingToTheOriginalBranch()
+            throws Exception
+    {
+        CiAutofixE2eHarness.Fixture fixture = harness.createFixture("changed-fork");
+        E2eGitRepository repository = fixture.repository();
+        harness.scriptFailingCi(fixture, false);
+        agent.enqueueCompleted(repository.pullRequest(), "The fixup is ready.",
+                worktree -> repository.createPositionedFixup(worktree, "fork-fix.txt", "fixed\n"));
+        int branchWrites = repository.headRefUpdates();
+        CiAutofixE2eHarness.StartResult started = harness.start(fixture, "changed-fork-start");
+        harness.driveUntil(started.runId(), run -> run.pushJournal().isPresent(), 6);
+
+        harness.scriptUnauthorizedCi(fixture, "author", RepoRef.of("another-fork", repository.pullRequest().repo()));
+        harness.tick();
+
+        CiAutofixRun finished = harness.run(started.runId());
+        assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.STALE_HEAD);
+        assertThat(finished.attempts().getFirst().pushedSha()).isEmpty();
+        assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
+        assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
     }
 

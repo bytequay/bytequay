@@ -28,6 +28,7 @@ import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -201,6 +202,7 @@ class TestDefaultCiMemoryService
                 "memory-run",
                 new Scope(
                         new PullRequestRef("bytequay", "bytequay", 123),
+                        RepoRef.of("bytequay", "bytequay"),
                         "workspace-1",
                         Optional.empty(),
                         "author",

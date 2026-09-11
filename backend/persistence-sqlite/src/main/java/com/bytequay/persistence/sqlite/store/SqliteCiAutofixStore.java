@@ -133,12 +133,12 @@ public class SqliteCiAutofixStore
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef)
+    public Optional<CiAutofixRun> findByActiveBranch(String headRepositoryFullName, String headRef)
     {
-        requireNonNull(repositoryFullName, "repositoryFullName is null");
+        requireNonNull(headRepositoryFullName, "headRepositoryFullName is null");
         requireNonNull(headRef, "headRef is null");
         return read("Cannot read CI Autofix branch reservation",
-                () -> runRepository.findByActiveBranchSlot(repositoryFullName.toLowerCase(Locale.ROOT) + ":" + headRef).map(this::toProjection),
+                () -> runRepository.findByActiveBranchSlot(headRepositoryFullName.toLowerCase(Locale.ROOT) + ":" + headRef).map(this::toProjection),
                 CiAutofixStorageException::new);
     }
 

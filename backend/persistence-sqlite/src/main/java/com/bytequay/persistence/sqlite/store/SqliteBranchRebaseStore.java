@@ -15,15 +15,12 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.Status;
-import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseNotFoundException;
 import com.bytequay.core.rebase.BranchRebaseStorageException;
 import com.bytequay.core.rebase.BranchRebaseStore;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.BRANCH_REBASE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -53,23 +51,14 @@ public class SqliteBranchRebaseStore
     {
         requireNonNull(rebase, "rebase is null");
         checkArgument(rebase.version() == 0, "new rebase version must be zero");
-        Optional<BranchRebaseEntity> existing =
-                repository.findByStartIdempotencyKey(rebase.startIdempotencyKey());
-        if (existing.isPresent()) {
-            return existing.orElseThrow().toRebase();
-        }
-        if (repository.existsById(rebase.id().toString())) {
-            throw new BranchRebaseException("Branch rebase already exists: " + rebase.id());
-        }
-        try {
-            return repository.saveAndFlush(BranchRebaseEntity.fromDomain(rebase)).toRebase();
-        }
-        catch (DataAccessException e) {
-            return repository.findByStartIdempotencyKey(rebase.startIdempotencyKey())
-                    .map(BranchRebaseEntity::toRebase)
-                    .orElseThrow(() -> new BranchRebaseException(
-                            "Branch rebase conflicts with durable state: " + rebase.id(), e));
-        }
+        return StoreWrites.createOrGet(
+                repository,
+                rebase.id().toString(),
+                "Branch rebase",
+                () -> repository.findByStartIdempotencyKey(rebase.startIdempotencyKey()),
+                () -> BranchRebaseEntity.fromDomain(rebase),
+                BRANCH_REBASE)
+                .toRebase();
     }
 
     @Override
@@ -122,20 +111,9 @@ public class SqliteBranchRebaseStore
     public BranchRebase save(BranchRebase rebase)
     {
         requireNonNull(rebase, "rebase is null");
-        BranchRebaseEntity entity = repository.findById(rebase.id().toString())
-                .orElseThrow(() -> new BranchRebaseNotFoundException(rebase.id()));
-        if (entity.getVersion() != rebase.version()) {
-            throw new BranchRebaseException("Branch rebase version changed: " + rebase.id());
-        }
-        entity.updateFrom(rebase);
-        try {
-            return repository.saveAndFlush(entity).toRebase();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new BranchRebaseException("Branch rebase version changed: " + rebase.id(), e);
-        }
-        catch (DataAccessException e) {
-            throw new BranchRebaseStorageException("Cannot save branch rebase " + rebase.id(), e);
-        }
+        return StoreWrites.update(
+                repository, rebase.id().toString(), "Branch rebase", rebase.version(), BranchRebaseEntity::getVersion, entity -> entity.updateFrom(rebase),
+                () -> new BranchRebaseNotFoundException(rebase.id()), BRANCH_REBASE)
+                .toRebase();
     }
 }

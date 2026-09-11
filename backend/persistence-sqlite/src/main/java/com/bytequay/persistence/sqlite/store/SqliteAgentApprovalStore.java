@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentApproval;
-import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -31,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -52,15 +51,7 @@ public class SqliteAgentApprovalStore
     public void insert(AgentApproval approval)
     {
         requireNonNull(approval, "approval is null");
-        if (repository.existsById(approval.request().id().toString())) {
-            throw new AgentConflictException("Approval already exists: " + approval.request().id());
-        }
-        try {
-            repository.saveAndFlush(AgentApprovalEntity.fromDomain(approval));
-        }
-        catch (DataAccessException e) {
-            throw mapConstraint("Approval conflicts with durable state: " + approval.request().id(), e);
-        }
+        StoreWrites.insert(repository, approval.request().id().toString(), "Approval", () -> AgentApprovalEntity.fromDomain(approval), AGENT);
     }
 
     @Override

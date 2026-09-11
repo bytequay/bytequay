@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.CleanupState;
@@ -32,8 +31,6 @@ import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
 import com.google.common.collect.ImmutableList;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -44,7 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -93,15 +90,7 @@ public class SqliteAgentTaskStore
     public void insert(AgentTask task)
     {
         requireNonNull(task, "task is null");
-        if (repository.existsById(task.id().toString())) {
-            throw new AgentConflictException("Task already exists: " + task.id());
-        }
-        try {
-            repository.saveAndFlush(AgentTaskEntity.fromDomain(task));
-        }
-        catch (DataAccessException e) {
-            throw mapConstraint("Task already exists: " + task.id(), e);
-        }
+        StoreWrites.insert(repository, task.id().toString(), "Task", () -> AgentTaskEntity.fromDomain(task), AGENT);
     }
 
     @Override
@@ -117,22 +106,10 @@ public class SqliteAgentTaskStore
     public AgentTask update(AgentTask task)
     {
         requireNonNull(task, "task is null");
-        AgentTaskEntity entity = repository.findById(task.id().toString())
-                .orElseThrow(() -> new AgentTaskNotFoundException(task.id()));
-        if (entity.getVersion() != task.version()) {
-            throw new AgentConflictException("Task version changed: " + task.id());
-        }
-        entity.updateFrom(task);
-        try {
-            repository.saveAndFlush(entity);
-            return entity.toDomain();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new AgentConflictException("Task version changed: " + task.id(), e);
-        }
-        catch (DataAccessException e) {
-            throw new AgentStorageException("Cannot update task " + task.id(), e);
-        }
+        return StoreWrites.update(
+                repository, task.id().toString(), "Task", task.version(), AgentTaskEntity::getVersion, entity -> entity.updateFrom(task),
+                () -> new AgentTaskNotFoundException(task.id()), AGENT)
+                .toDomain();
     }
 
     @Override

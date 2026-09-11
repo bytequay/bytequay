@@ -13,8 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.QueuedInputNotFoundException;
@@ -22,8 +20,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.persistence.sqlite.entity.AgentQueuedInputEntity;
 import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +27,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -51,15 +47,7 @@ public class SqliteQueuedInputStore
     public void insert(QueuedAgentInput input)
     {
         requireNonNull(input, "input is null");
-        if (repository.existsById(input.id().toString())) {
-            throw new AgentConflictException("Queued input already exists: " + input.id());
-        }
-        try {
-            repository.saveAndFlush(AgentQueuedInputEntity.fromDomain(input));
-        }
-        catch (DataAccessException e) {
-            throw mapConstraint("Queued input conflicts with an existing request: " + input.id(), e);
-        }
+        StoreWrites.insert(repository, input.id().toString(), "Queued input", () -> AgentQueuedInputEntity.fromDomain(input), AGENT);
     }
 
     @Override
@@ -95,21 +83,9 @@ public class SqliteQueuedInputStore
     public QueuedAgentInput update(QueuedAgentInput input)
     {
         requireNonNull(input, "input is null");
-        AgentQueuedInputEntity entity = repository.findById(input.id().toString())
-                .orElseThrow(() -> new QueuedInputNotFoundException(input.id()));
-        if (entity.getVersion() != input.version()) {
-            throw new AgentConflictException("Queued input version changed: " + input.id());
-        }
-        entity.updateFrom(input);
-        try {
-            repository.saveAndFlush(entity);
-            return entity.toDomain();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new AgentConflictException("Queued input version changed: " + input.id(), e);
-        }
-        catch (DataAccessException e) {
-            throw new AgentStorageException("Cannot update queued input " + input.id(), e);
-        }
+        return StoreWrites.update(
+                repository, input.id().toString(), "Queued input", input.version(), AgentQueuedInputEntity::getVersion, entity -> entity.updateFrom(input),
+                () -> new QueuedInputNotFoundException(input.id()), AGENT)
+                .toDomain();
     }
 }

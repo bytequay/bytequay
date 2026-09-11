@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.TaskId;
@@ -21,8 +20,6 @@ import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.persistence.sqlite.entity.AgentInputDeliveryEntity;
 import com.bytequay.persistence.sqlite.repository.AgentInputDeliveryJpaRepository;
 import com.google.common.collect.ImmutableList;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +27,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -54,15 +51,7 @@ public class SqliteSteerDeliveryStore
     public void insert(AgentInputDelivery delivery)
     {
         requireNonNull(delivery, "delivery is null");
-        if (repository.existsById(delivery.id().toString())) {
-            throw new AgentConflictException("Steer delivery already exists: " + delivery.id());
-        }
-        try {
-            repository.saveAndFlush(AgentInputDeliveryEntity.fromDomain(delivery));
-        }
-        catch (DataAccessException e) {
-            throw mapConstraint("Steer delivery conflicts with an existing request: " + delivery.id(), e);
-        }
+        StoreWrites.insert(repository, delivery.id().toString(), "Steer delivery", () -> AgentInputDeliveryEntity.fromDomain(delivery), AGENT);
     }
 
     @Override
@@ -80,22 +69,10 @@ public class SqliteSteerDeliveryStore
     public AgentInputDelivery update(AgentInputDelivery delivery)
     {
         requireNonNull(delivery, "delivery is null");
-        AgentInputDeliveryEntity entity = repository.findById(delivery.id().toString())
-                .orElseThrow(() -> new AgentStorageException("Steer delivery is absent: " + delivery.id()));
-        if (entity.getVersion() != delivery.version()) {
-            throw new AgentConflictException("Steer delivery version changed: " + delivery.id());
-        }
-        entity.updateFrom(delivery);
-        try {
-            repository.saveAndFlush(entity);
-            return entity.toDomain();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new AgentConflictException("Steer delivery version changed: " + delivery.id(), e);
-        }
-        catch (DataAccessException e) {
-            throw new AgentStorageException("Cannot update steer delivery " + delivery.id(), e);
-        }
+        return StoreWrites.update(
+                repository, delivery.id().toString(), "Steer delivery", delivery.version(), AgentInputDeliveryEntity::getVersion, entity -> entity.updateFrom(delivery),
+                () -> new AgentStorageException("Steer delivery is absent: " + delivery.id()), AGENT)
+                .toDomain();
     }
 
     @Override

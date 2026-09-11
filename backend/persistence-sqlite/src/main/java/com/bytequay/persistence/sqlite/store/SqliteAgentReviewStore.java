@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
@@ -28,8 +27,6 @@ import com.bytequay.persistence.sqlite.repository.AgentReviewFindingJpaRepositor
 import com.bytequay.persistence.sqlite.repository.AgentReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewMessageJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewRunJpaRepository;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,9 +36,10 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.function.ToLongFunction;
 
+import static com.bytequay.persistence.sqlite.store.StoreWrites.REVIEW;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -77,7 +75,7 @@ public class SqliteAgentReviewStore
     @Transactional
     public AgentReview updateReview(AgentReview review)
     {
-        return update(reviews, review.id(), "Review", review::version, entity -> entity.updateFrom(review), AgentReviewEntity::getVersion, AgentReviewEntity::toDomain);
+        return update(reviews, review.id(), "Review", review.version(), AgentReviewEntity::getVersion, entity -> entity.updateFrom(review), AgentReviewEntity::toDomain);
     }
 
     @Override
@@ -127,7 +125,7 @@ public class SqliteAgentReviewStore
     @Transactional
     public ReviewRun updateRun(ReviewRun run)
     {
-        return update(runs, run.id(), "Review run", run::version, entity -> entity.updateFrom(run), AgentReviewRunEntity::getVersion, AgentReviewRunEntity::toDomain);
+        return update(runs, run.id(), "Review run", run.version(), AgentReviewRunEntity::getVersion, entity -> entity.updateFrom(run), AgentReviewRunEntity::toDomain);
     }
 
     @Override
@@ -185,9 +183,9 @@ public class SqliteAgentReviewStore
                 findings,
                 finding.id(),
                 "Review finding",
-                finding::version,
-                entity -> entity.updateFrom(finding),
+                finding.version(),
                 AgentReviewFindingEntity::getVersion,
+                entity -> entity.updateFrom(finding),
                 AgentReviewFindingEntity::toDomain);
     }
 
@@ -220,9 +218,9 @@ public class SqliteAgentReviewStore
                 messages,
                 message.id(),
                 "Review message",
-                message::version,
-                entity -> entity.updateFrom(message),
+                message.version(),
                 AgentReviewMessageEntity::getVersion,
+                entity -> entity.updateFrom(message),
                 AgentReviewMessageEntity::toDomain);
     }
 
@@ -235,39 +233,19 @@ public class SqliteAgentReviewStore
 
     private static <E, D> D insert(JpaRepository<E, String> repository, String id, String label, Supplier<E> entity, Function<E, D> toDomain)
     {
-        if (repository.existsById(id)) {
-            throw new ReviewConflictException(label + " already exists: " + id);
-        }
-        try {
-            return toDomain.apply(repository.saveAndFlush(entity.get()));
-        }
-        catch (DataAccessException e) {
-            throw new ReviewConflictException(label + " conflicts with an existing row: " + id, e);
-        }
+        return toDomain.apply(StoreWrites.insert(repository, id, label, entity, REVIEW));
     }
 
     private static <E, D> D update(
             JpaRepository<E, String> repository,
             String id,
             String label,
-            LongSupplier expectedVersion,
+            long expectedVersion,
+            ToLongFunction<E> storedVersion,
             Consumer<E> apply,
-            Function<E, Long> storedVersion,
             Function<E, D> toDomain)
     {
-        E entity = repository.findById(id).orElseThrow(() -> new ReviewNotFoundException(label + " is absent: " + id));
-        if (storedVersion.apply(entity) != expectedVersion.getAsLong()) {
-            throw new ReviewConflictException(label + " version changed: " + id);
-        }
-        apply.accept(entity);
-        try {
-            return toDomain.apply(repository.saveAndFlush(entity));
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new ReviewConflictException(label + " version changed: " + id, e);
-        }
-        catch (DataAccessException e) {
-            throw new ReviewConflictException("Cannot update " + label.toLowerCase(Locale.ROOT) + " " + id, e);
-        }
+        Supplier<RuntimeException> absent = () -> new ReviewNotFoundException(label + " is absent: " + id);
+        return toDomain.apply(StoreWrites.update(repository, id, label, expectedVersion, storedVersion, apply, absent, REVIEW));
     }
 }

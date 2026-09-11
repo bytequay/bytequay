@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
@@ -22,8 +21,6 @@ import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.cherrypick.CherryPickStorageException;
 import com.bytequay.persistence.sqlite.entity.CherryPickExecutionEntity;
 import com.bytequay.persistence.sqlite.repository.CherryPickExecutionJpaRepository;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.read;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.CHERRY_PICK;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -53,24 +51,14 @@ public class SqliteCherryPickExecutionStore
     {
         requireNonNull(execution, "execution is null");
         checkArgument(execution.version() == 0, "new execution version must be zero");
-        Optional<CherryPickExecutionEntity> existing =
-                repository.findByStartIdempotencyKey(execution.startIdempotencyKey());
-        if (existing.isPresent()) {
-            return existing.orElseThrow().toExecution();
-        }
-        if (repository.existsById(execution.id().toString())) {
-            throw new CherryPickConflictException("Cherry-pick execution already exists: " + execution.id());
-        }
-        try {
-            return repository.saveAndFlush(CherryPickExecutionEntity.fromDomain(execution)).toExecution();
-        }
-        catch (DataAccessException e) {
-            // A concurrent caller may have inserted the same key between the read and this write.
-            return repository.findByStartIdempotencyKey(execution.startIdempotencyKey())
-                    .map(CherryPickExecutionEntity::toExecution)
-                    .orElseThrow(() -> new CherryPickConflictException(
-                            "Cherry-pick execution conflicts with durable state: " + execution.id(), e));
-        }
+        return StoreWrites.createOrGet(
+                repository,
+                execution.id().toString(),
+                "Cherry-pick execution",
+                () -> repository.findByStartIdempotencyKey(execution.startIdempotencyKey()),
+                () -> CherryPickExecutionEntity.fromDomain(execution),
+                CHERRY_PICK)
+                .toExecution();
     }
 
     @Override
@@ -132,21 +120,10 @@ public class SqliteCherryPickExecutionStore
     public CherryPickExecution save(CherryPickExecution execution)
     {
         requireNonNull(execution, "execution is null");
-        CherryPickExecutionEntity entity = repository.findById(execution.id().toString())
-                .orElseThrow(() -> new CherryPickNotFoundException(execution.id()));
-        if (entity.getVersion() != execution.version()) {
-            throw new CherryPickConflictException("Cherry-pick execution version changed: " + execution.id());
-        }
-        entity.updateFrom(execution);
-        try {
-            return repository.saveAndFlush(entity).toExecution();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new CherryPickConflictException("Cherry-pick execution version changed: " + execution.id(), e);
-        }
-        catch (DataAccessException e) {
-            throw new CherryPickStorageException("Cannot save cherry-pick execution " + execution.id(), e);
-        }
+        return StoreWrites.update(
+                repository, execution.id().toString(), "Cherry-pick execution", execution.version(), CherryPickExecutionEntity::getVersion, entity -> entity.updateFrom(execution),
+                () -> new CherryPickNotFoundException(execution.id()), CHERRY_PICK)
+                .toExecution();
     }
 
     private static void checkLimit(int limit)

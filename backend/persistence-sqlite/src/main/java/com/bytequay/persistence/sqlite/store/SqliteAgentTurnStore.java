@@ -32,6 +32,7 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
+import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -51,15 +52,7 @@ public class SqliteAgentTurnStore
     public void insert(AgentTurn turn)
     {
         requireNonNull(turn, "turn is null");
-        if (repository.existsById(turn.id().toString())) {
-            throw new AgentConflictException("Turn already exists: " + turn.id());
-        }
-        try {
-            repository.saveAndFlush(AgentTurnEntity.fromDomain(turn));
-        }
-        catch (DataAccessException e) {
-            throw mapConstraint("Turn conflicts with an existing request: " + turn.id(), e);
-        }
+        StoreWrites.insert(repository, turn.id().toString(), "Turn", () -> AgentTurnEntity.fromDomain(turn), AGENT);
     }
 
     @Override

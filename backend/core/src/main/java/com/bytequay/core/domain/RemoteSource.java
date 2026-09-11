@@ -15,6 +15,7 @@ package com.bytequay.core.domain;
 
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -32,12 +33,9 @@ public record RemoteSource(
 {
     public RemoteSource
     {
-        requireNonNull(workspaceId, "workspaceId is null");
-        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
-        requireNonNull(name, "name is null");
-        checkArgument(!name.isBlank(), "name is blank");
-        requireNonNull(url, "url is null");
-        checkArgument(!url.isBlank(), "url is blank");
+        checkText(workspaceId, "workspaceId");
+        checkText(name, "name");
+        checkText(url, "url");
         requireNonNull(repositoryId, "repositoryId is null");
         requireNonNull(repository, "repository is null");
         checkArgument(repositoryId.isPresent() == repository.isPresent(),

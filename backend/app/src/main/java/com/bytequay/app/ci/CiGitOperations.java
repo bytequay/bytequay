@@ -19,6 +19,7 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -27,13 +28,10 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -429,7 +427,7 @@ public final class CiGitOperations
     {
         String tree = requiredOutput(worktree, "rev-parse", "HEAD^{tree}");
         String status = requiredOutput(worktree, "status", "--porcelain=v1", "--untracked-files=all");
-        return sha256(headRef + "\u0000" + head + "\u0000" + tree + "\u0000" + status);
+        return Hashing.sha256().hashString(headRef + "\u0000" + head + "\u0000" + tree + "\u0000" + status, StandardCharsets.UTF_8).toString();
     }
 
     private Optional<String> remoteHead(Path worktree, String remote, String headRef)
@@ -588,17 +586,6 @@ public final class CiGitOperations
         }
         catch (IllegalArgumentException e) {
             throw problem("Origin URL does not identify one GitHub repository");
-        }
-    }
-
-    private static String sha256(String value)
-    {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        }
-        catch (NoSuchAlgorithmException e) {
-            throw new AssertionError("SHA-256 is unavailable", e);
         }
     }
 

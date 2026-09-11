@@ -109,6 +109,21 @@ class TestAgentSpiValues
     }
 
     @Test
+    void replacingAnItemPreservesProviderRoutingAndValidatesTheNewIdentifier()
+    {
+        ProviderAgentEventSource source = new ProviderAgentEventSource(
+                Optional.of("child"), Optional.of("parent"), Optional.of("agent/path"), Optional.of("turn"), Optional.of("original"));
+
+        assertThat(source.withItem(Optional.of("replacement"))).isEqualTo(new ProviderAgentEventSource(
+                Optional.of("child"), Optional.of("parent"), Optional.of("agent/path"), Optional.of("turn"), Optional.of("replacement")));
+        assertThat(source.withItem(Optional.empty())).isEqualTo(new ProviderAgentEventSource(
+                Optional.of("child"), Optional.of("parent"), Optional.of("agent/path"), Optional.of("turn"), Optional.empty()));
+        assertThat(source.providerItemId()).contains("original");
+        assertThatThrownBy(() -> source.withItem(null)).isInstanceOf(NullPointerException.class).hasMessage("providerItemId is null");
+        assertThatThrownBy(() -> source.withItem(Optional.of(" "))).isInstanceOf(IllegalArgumentException.class).hasMessage("providerItemId is blank");
+    }
+
+    @Test
     void failedProviderResultsRequireAReason()
     {
         assertThatThrownBy(() -> new AgentTurnResult(

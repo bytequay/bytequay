@@ -23,6 +23,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -33,11 +34,9 @@ import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -48,6 +47,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -529,13 +529,7 @@ public class DefaultWorkspaceRepositoryService
 
     private static String fingerprint(String material)
     {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(material.getBytes(StandardCharsets.UTF_8)));
-        }
-        catch (NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 is unavailable", impossible);
-        }
+        return Hashing.sha256().hashString(material, StandardCharsets.UTF_8).toString();
     }
 
     private static boolean sameFingerprint(String current, String confirmed)
@@ -573,11 +567,7 @@ public class DefaultWorkspaceRepositoryService
         }
         try {
             URI uri = URI.create(value);
-            return "https".equalsIgnoreCase(uri.getScheme())
-                    && !isBlank(uri.getHost())
-                    && uri.getUserInfo() == null
-                    && uri.getQuery() == null
-                    && uri.getFragment() == null;
+            return isPlainHttps(uri);
         }
         catch (IllegalArgumentException ignored) {
             return false;

@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -152,6 +153,14 @@ public class GitCommandRunner
         return reported.stream()
                 .map(line -> worktree.resolve(line).normalize())
                 .collect(toImmutableList());
+    }
+
+    Optional<String> markerCommit(Path worktree, String marker)
+    {
+        Result result = run(worktree, "rev-parse", "--verify", "--quiet", marker);
+        return result.successful() && !result.output().isBlank()
+                ? Optional.of(result.output().strip())
+                : Optional.empty();
     }
 
     List<ConflictedPath> conflicts(Path worktree)

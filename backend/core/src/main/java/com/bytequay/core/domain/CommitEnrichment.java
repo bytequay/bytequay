@@ -16,6 +16,7 @@ package com.bytequay.core.domain;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -37,8 +38,7 @@ public record CommitEnrichment(
     public CommitEnrichment
     {
         checkArgument(repositoryId > 0, "repositoryId must be positive");
-        requireNonNull(sha, "sha is null");
-        checkArgument(!sha.isBlank(), "sha is blank");
+        checkText(sha, "sha");
         requireNonNull(authorLogin, "authorLogin is null");
         requireNonNull(avatarKey, "avatarKey is null");
         requireNonNull(committerLogin, "committerLogin is null");

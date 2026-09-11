@@ -25,6 +25,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -131,12 +132,7 @@ public class DefaultWorkspaceRemoteSourceService
         String trimmed = url == null ? "" : url.trim();
         try {
             URI uri = URI.create(trimmed);
-            if (!"https".equalsIgnoreCase(uri.getScheme())
-                    || uri.getHost() == null
-                    || uri.getHost().isBlank()
-                    || uri.getUserInfo() != null
-                    || uri.getQuery() != null
-                    || uri.getFragment() != null) {
+            if (!isPlainHttps(uri)) {
                 throw new IllegalArgumentException("unsafe remote URL");
             }
         }

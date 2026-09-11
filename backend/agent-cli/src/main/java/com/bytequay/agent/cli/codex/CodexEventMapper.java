@@ -432,7 +432,7 @@ final class CodexEventMapper
                         relativePath.orElseThrow(),
                         kind.orElseThrow(),
                         optionalText(redactor.redact(change.diff())),
-                        withItem(source, item.id() + ":" + index)));
+                        source.withItem(Optional.of(item.id() + ":" + index))));
             }
         }
         return events.build();
@@ -546,16 +546,6 @@ final class CodexEventMapper
                 lineage.labelOf(threadId),
                 notification.turnId(),
                 providerItemId);
-    }
-
-    private static ProviderAgentEventSource withItem(ProviderAgentEventSource source, String providerItemId)
-    {
-        return new ProviderAgentEventSource(
-                source.providerThreadId(),
-                source.parentProviderThreadId(),
-                source.logicalAgentPath(),
-                source.providerTurnId(),
-                Optional.of(providerItemId));
     }
 
     private static ProviderAgentEvent.ActivityState activityState(CodexProtocol.ActivityStatus status)

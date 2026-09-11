@@ -13,10 +13,9 @@
  */
 package com.bytequay.app.ci;
 
+import com.google.common.hash.Hashing;
+
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Locale;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -47,21 +46,6 @@ public final class CiFailureSignature
                     .append(step.conclusion().orElse("")).append('\n');
         }
         log.terminalErrorLines().forEach(line -> canonical.append(line.toLowerCase(Locale.ROOT)).append('\n'));
-        return "ci-" + hex(sha256(canonical.toString().getBytes(StandardCharsets.UTF_8)));
-    }
-
-    private static byte[] sha256(byte[] value)
-    {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value);
-        }
-        catch (NoSuchAlgorithmException e) {
-            throw new AssertionError("SHA-256 is unavailable", e);
-        }
-    }
-
-    private static String hex(byte[] value)
-    {
-        return HexFormat.of().formatHex(value);
+        return "ci-" + Hashing.sha256().hashString(canonical.toString(), StandardCharsets.UTF_8);
     }
 }

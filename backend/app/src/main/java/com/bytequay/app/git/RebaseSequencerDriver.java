@@ -130,7 +130,7 @@ public final class RebaseSequencerDriver
         }
         boolean oneRebaseMarker = openMarkers.equals(ImmutableSet.of("rebase-merge"))
                 || openMarkers.equals(ImmutableSet.of("rebase-apply"));
-        Optional<String> rebaseHead = markerCommit(worktree, "REBASE_HEAD");
+        Optional<String> rebaseHead = git.markerCommit(worktree, "REBASE_HEAD");
         if (!oneRebaseMarker || rebaseHead.isEmpty()) {
             return unsafe(head, "Unexpected Git operation in progress: " + String.join(", ", openMarkers));
         }
@@ -172,14 +172,6 @@ public final class RebaseSequencerDriver
             }
         }
         return open;
-    }
-
-    private Optional<String> markerCommit(Path worktree, String marker)
-    {
-        Result result = git.run(worktree, "rev-parse", "--verify", "--quiet", marker);
-        return result.successful() && !result.output().isBlank()
-                ? Optional.of(result.output().strip())
-                : Optional.empty();
     }
 
     private static boolean unsafeWorktreeChanges(String status)

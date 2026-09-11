@@ -16,6 +16,7 @@ package com.bytequay.core.domain;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -28,8 +29,7 @@ public record CommitRefreshMetadata(
 {
     public CommitRefreshMetadata
     {
-        requireNonNull(workspaceId, "workspaceId is null");
-        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        checkText(workspaceId, "workspaceId");
         requireNonNull(lastAttemptAt, "lastAttemptAt is null");
         requireNonNull(lastSucceededAt, "lastSucceededAt is null");
         requireNonNull(error, "error is null");

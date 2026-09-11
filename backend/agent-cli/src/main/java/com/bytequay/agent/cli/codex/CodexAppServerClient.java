@@ -32,7 +32,6 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
@@ -531,15 +530,6 @@ final class CodexAppServerClient
             return number.longValue();
         }
         throw new AgentUnavailableException("Codex response id is not numeric");
-    }
-
-    interface Listener
-    {
-        void onNotification(CodexProtocol.Notification notification);
-
-        CompletionStage<?> onRequest(CodexProtocol.ServerRequest request);
-
-        void onDisconnect(Throwable failure);
     }
 
     /**

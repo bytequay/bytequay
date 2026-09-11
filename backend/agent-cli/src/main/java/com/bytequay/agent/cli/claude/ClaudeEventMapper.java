@@ -470,7 +470,7 @@ final class ClaudeEventMapper
                 ProviderAgentEvent.MessagePhase.FINAL,
                 bounded(prompt),
                 Optional.of(toolId),
-                withItem(child, Optional.of(toolId + ":prompt")))));
+                child.withItem(Optional.of(toolId + ":prompt")))));
     }
 
     private void completeInvocation(
@@ -540,7 +540,7 @@ final class ClaudeEventMapper
                 ProviderAgentEvent.MessagePhase.FINAL,
                 text.text(),
                 Optional.of(toolId),
-                withItem(agents.get(toolId).source(), Optional.of(text.itemId())))));
+                agents.get(toolId).source().withItem(Optional.of(text.itemId())))));
         events.add(new ProviderAgentEvent.Lifecycle(
                 eventId.map(value -> value + ":agent-end:" + toolId),
                 Optional.empty(),
@@ -554,17 +554,12 @@ final class ClaudeEventMapper
         if (parentToolUseId.isPresent()) {
             AgentCall parent = agents.get(parentToolUseId.orElseThrow());
             if (parent != null) {
-                return withItem(parent.source(), itemId);
+                return parent.source().withItem(itemId);
             }
             activityUncertain = true;
-            return withItem(ProviderAgentEventSource.root(), itemId);
+            return ProviderAgentEventSource.root().withItem(itemId);
         }
         return new ProviderAgentEventSource(sessionId, Optional.empty(), Optional.empty(), Optional.empty(), itemId);
-    }
-
-    private static ProviderAgentEventSource withItem(ProviderAgentEventSource source, Optional<String> itemId)
-    {
-        return new ProviderAgentEventSource(source.providerThreadId(), source.parentProviderThreadId(), source.logicalAgentPath(), source.providerTurnId(), itemId);
     }
 
     private Optional<String> metadataText(Optional<JsonNode> metadata, String name)
@@ -616,7 +611,7 @@ final class ClaudeEventMapper
                 .or(() -> message.prompt())
                 .or(() -> message.status())
                 .orElse("Claude task");
-        ProviderAgentEventSource eventSource = agent.map(value -> withItem(value.source(), Optional.of(id)))
+        ProviderAgentEventSource eventSource = agent.map(value -> value.source().withItem(Optional.of(id)))
                 .orElseGet(() -> toolId.map(tools::get)
                         .map(call -> source(call.parentToolUseId(), Optional.of(id)))
                         .orElseGet(() -> ProviderAgentEventSource.item(id)));

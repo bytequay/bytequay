@@ -1291,7 +1291,7 @@ public class GitHubPullRequestReadClient
     }
 
     public PullRequestFetch getPullRequest(String pat, PullRequestRef pr, Optional<String> etag) {
-        String fullName = pr.owner() + "/" + pr.repo();
+        String fullName = pr.repoFullName();
         requireNonNull(etag, "etag is null");
         RestClient.RequestHeadersSpec<?> request = gitHubRestClient
                 .get()

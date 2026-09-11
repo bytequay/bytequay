@@ -42,8 +42,10 @@ class TestCiFailureSignature
                 log(ImmutableList.of("error: incompatible types", "build failed")));
 
         assertThat(first).isEqualTo(second);
-        assertThat(first).matches("ci-[0-9a-f]{64}");
+        assertThat(first).isEqualTo("ci-d92f27942a14baa8c53c3021492e7eb7ab62d7ed5d69d24e7d0671fe99a0a06b");
         assertThat(changed).isNotEqualTo(first);
+        assertThat(CiFailureSignature.compute(workflow, job, log(ImmutableList.of("错误: café 😀"))))
+                .isEqualTo("ci-b23706f0dba15d1f83dab5c3f8978948bb92e07ef60a99afe00c3f87cde14a46");
     }
 
     private static CiWorkflowRun failedWorkflow(CiJob job)

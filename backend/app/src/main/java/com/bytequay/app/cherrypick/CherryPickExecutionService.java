@@ -79,6 +79,7 @@ import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
+import static com.bytequay.app.cherrypick.MavenModules.findModule;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -896,23 +897,11 @@ public class CherryPickExecutionService
                             case MODIFY_DELETE -> ConflictType.MODIFY_DELETE;
                             case SUBMODULE -> ConflictType.SUBMODULE;
                         },
-                        module(worktree, conflict.path()),
+                        findModule(worktree, conflict.path()),
                         conflict.stages().stream()
                                 .map(stage -> new IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
                                 .collect(toImmutableList())))
                 .collect(toImmutableList());
-    }
-
-    private static Optional<String> module(Path worktree, String path)
-    {
-        Path directory = worktree.resolve(path).getParent();
-        while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {
-            if (java.nio.file.Files.isRegularFile(directory.resolve("pom.xml"))) {
-                return Optional.of(worktree.relativize(directory).toString());
-            }
-            directory = directory.getParent();
-        }
-        return Optional.empty();
     }
 
     private static void validate(Path worktree, String targetSha)

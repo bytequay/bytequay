@@ -14,6 +14,7 @@
 package com.bytequay.app.git;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,15 +31,13 @@ import java.net.http.HttpResponse;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Objects.requireNonNull;
@@ -80,7 +79,7 @@ public class AvatarCache
     public Optional<String> cache(String sourceUrl)
     {
         URI source = source(sourceUrl);
-        String key = key(source.toString());
+        String key = Hashing.sha256().hashString(source.toString(), UTF_8).toString();
         if (find(key).isPresent()) {
             return Optional.of(key);
         }
@@ -164,16 +163,6 @@ public class AvatarCache
         }
         catch (IllegalArgumentException ignored) {
             return Optional.empty();
-        }
-    }
-
-    private static String key(String sourceUrl)
-    {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(sourceUrl.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-        }
-        catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
 

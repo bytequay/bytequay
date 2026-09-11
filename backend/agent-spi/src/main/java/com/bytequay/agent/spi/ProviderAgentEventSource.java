@@ -34,6 +34,11 @@ public record ProviderAgentEventSource(
         checkOptionalText(providerItemId, "providerItemId");
     }
 
+    public ProviderAgentEventSource withItem(Optional<String> providerItemId)
+    {
+        return new ProviderAgentEventSource(providerThreadId, parentProviderThreadId, logicalAgentPath, providerTurnId, providerItemId);
+    }
+
     public static ProviderAgentEventSource root()
     {
         return new ProviderAgentEventSource(

@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -398,12 +399,7 @@ class ManagedWorkspaceGit
     {
         try {
             URI uri = URI.create(requireNonNull(cloneUrl, "cloneUrl is null"));
-            if (!"https".equalsIgnoreCase(uri.getScheme())
-                    || uri.getHost() == null
-                    || uri.getHost().isBlank()
-                    || uri.getUserInfo() != null
-                    || uri.getQuery() != null
-                    || uri.getFragment() != null) {
+            if (!isPlainHttps(uri)) {
                 throw new IllegalArgumentException("unsafe clone URL");
             }
             return uri;

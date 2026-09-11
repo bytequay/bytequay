@@ -179,7 +179,7 @@ public final class GitSequencerDriver
         }
         String head = headResult.output().strip();
 
-        Optional<String> cherryPickHead = markerCommit(worktree, "CHERRY_PICK_HEAD");
+        Optional<String> cherryPickHead = git.markerCommit(worktree, "CHERRY_PICK_HEAD");
         Set<String> openMarkers = openMarkers(worktree);
         List<ConflictedPath> conflicts = git.conflicts(worktree);
         boolean dirty = !git.run(worktree, "status", "--porcelain=v1", "--untracked-files=all")
@@ -336,14 +336,6 @@ public final class GitSequencerDriver
         }
         open.remove("sequencer");
         return open;
-    }
-
-    private Optional<String> markerCommit(Path worktree, String marker)
-    {
-        Result result = git.run(worktree, "rev-parse", "--verify", "--quiet", marker);
-        return result.successful() && !result.output().isBlank()
-                ? Optional.of(result.output().strip())
-                : Optional.empty();
     }
 
     private String parent(Path worktree, String commit)

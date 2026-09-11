@@ -16,6 +16,7 @@ package com.bytequay.core.domain;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -148,11 +149,5 @@ public record Workspace(
     {
         DIRECT,
         FORK
-    }
-
-    private static void checkText(String value, String name)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
     }
 }

@@ -32,10 +32,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import static com.bytequay.app.cherrypick.MavenModules.findModule;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -173,7 +173,7 @@ class CherryPickConflictScout
             files.add(new ConflictFile(
                     path,
                     type,
-                    module(worktree, path),
+                    findModule(worktree, path),
                     type == Type.CONTENT ? sections(worktree.resolve(path)) : ImmutableList.of()));
         }
         return files.build();
@@ -239,18 +239,6 @@ class CherryPickConflictScout
         catch (IOException | RuntimeException e) {
             return ImmutableList.of();
         }
-    }
-
-    private static Optional<String> module(Path worktree, String path)
-    {
-        Path directory = worktree.resolve(path).getParent();
-        while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {
-            if (Files.isRegularFile(directory.resolve("pom.xml"))) {
-                return Optional.of(worktree.relativize(directory).toString());
-            }
-            directory = directory.getParent();
-        }
-        return Optional.empty();
     }
 
     private void cleanUp(Path repository, Path worktree)

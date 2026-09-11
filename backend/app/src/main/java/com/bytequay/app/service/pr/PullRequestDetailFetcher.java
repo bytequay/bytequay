@@ -163,7 +163,7 @@ class PullRequestDetailFetcher
             }
             catch (RuntimeException e) {
                 if (!isRateLimit(e)) {
-                    log.warn("{}({}#{}) unavailable: {}", name, repoFullName(ref), ref.number(), e.toString());
+                    log.warn("{}({}#{}) unavailable: {}", name, ref.repoFullName(), ref.number(), e.toString());
                 }
                 return new SourceItems<>(ImmutableList.of(), section);
             }
@@ -178,7 +178,7 @@ class PullRequestDetailFetcher
             }
             catch (RuntimeException e) {
                 if (!isRateLimit(e)) {
-                    log.warn("{}({}#{}) failed: {}", name, repoFullName(ref), ref.number(), e.toString());
+                    log.warn("{}({}#{}) failed: {}", name, ref.repoFullName(), ref.number(), e.toString());
                 }
                 throw e;
             }
@@ -246,11 +246,6 @@ class PullRequestDetailFetcher
         return event.actor() == null || event.timestamp() == null
                 ? null
                 : event.actor() + "@" + event.timestamp();
-    }
-
-    private static String repoFullName(PullRequestRef ref)
-    {
-        return ref.owner() + "/" + ref.repo();
     }
 
     private record SourceItems<T>(List<T> items, String unavailableSection) {}

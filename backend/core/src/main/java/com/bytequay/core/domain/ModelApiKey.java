@@ -15,7 +15,7 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -30,10 +30,8 @@ public record ModelApiKey(String alias, String provider, String maskedHint, Inst
 {
     public ModelApiKey
     {
-        requireNonNull(alias, "alias is null");
-        checkArgument(!alias.isBlank(), "alias is blank");
-        requireNonNull(provider, "provider is null");
-        checkArgument(!provider.isBlank(), "provider is blank");
+        checkText(alias, "alias");
+        checkText(provider, "provider");
         maskedHint = maskedHint == null ? "" : maskedHint;
         requireNonNull(createdAt, "createdAt is null");
     }

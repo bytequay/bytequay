@@ -52,6 +52,7 @@ class TestAvatarCache
 
         String key = cache.cache(URL).orElseThrow();
 
+        assertThat(key).isEqualTo("a36323bc972a4aa7fcb929653533b2585eb5d63b59f5e9a004643340cf247c0b");
         assertThat(cache.cache(URL)).contains(key);
         assertThat(cache.find(key)).isPresent();
         assertThat(Files.readAllBytes(cache.find(key).orElseThrow().path())).containsExactly(1, 2, 3);

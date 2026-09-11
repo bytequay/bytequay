@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
 import static java.util.Objects.requireNonNull;
 
@@ -255,12 +256,7 @@ public class CredentialService
     private static String authenticationBase(String remoteUrl)
     {
         URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
-        if (!"https".equalsIgnoreCase(uri.getScheme())
-                || uri.getHost() == null
-                || uri.getHost().isBlank()
-                || uri.getUserInfo() != null
-                || uri.getQuery() != null
-                || uri.getFragment() != null) {
+        if (!isPlainHttps(uri)) {
             throw new IllegalArgumentException("unsafe remote URL");
         }
         return uri.getScheme().toLowerCase() + "://" + uri.getAuthority().toLowerCase() + "/";

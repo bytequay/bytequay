@@ -93,228 +93,66 @@ public record ReviewRun(
 
     public ReviewRun withVersion(long updatedVersion)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                summary,
-                coverage,
-                completionRepairUsed,
-                operations,
-                evidence,
-                outcome,
-                updatedVersion,
-                createdAt,
-                updatedAt,
-                endedAt);
+        return copy(turnIds, state, summary, coverage, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
     }
 
     public ReviewRun withTurn(String turnId, Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                ImmutableList.<String>builder().addAll(turnIds).add(turnId).build(),
-                state,
-                summary,
-                coverage,
-                completionRepairUsed,
-                operations,
-                evidence,
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        List<String> nextTurnIds = ImmutableList.<String>builder().addAll(turnIds).add(turnId).build();
+        return copy(nextTurnIds, state, summary, coverage, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withSummary(ReviewSummary updatedSummary, Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                Optional.of(updatedSummary),
-                coverage,
-                completionRepairUsed,
-                operations,
-                evidence,
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        return copy(turnIds, state, Optional.of(updatedSummary), coverage, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCoverage(ReviewCoverage updatedCoverage, Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                summary,
-                Optional.of(updatedCoverage),
-                completionRepairUsed,
-                operations,
-                evidence,
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        return copy(turnIds, state, summary, Optional.of(updatedCoverage), completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withOperation(String key, ReviewOperation operation, Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                summary,
-                coverage,
-                completionRepairUsed,
-                ImmutableMap.<String,
-                ReviewOperation>builder().putAll(operations).put(key, operation).buildOrThrow(),
-                evidence,
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        Map<String, ReviewOperation> nextOperations = ImmutableMap.<String, ReviewOperation>builder().putAll(operations).put(key, operation).buildOrThrow();
+        return copy(turnIds, state, summary, coverage, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withEvidence(String ref, ReviewEvidence item, Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                summary,
-                coverage,
-                completionRepairUsed,
-                operations,
-                ImmutableMap.<String, ReviewEvidence>builder().putAll(evidence).put(ref, item).buildOrThrow(),
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        Map<String, ReviewEvidence> nextEvidence = ImmutableMap.<String, ReviewEvidence>builder().putAll(evidence).put(ref, item).buildOrThrow();
+        return copy(turnIds, state, summary, coverage, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
-        return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                state,
-                summary,
-                coverage,
-                true,
-                operations,
-                evidence,
-                outcome,
-                version,
-                createdAt,
-                now,
-                endedAt);
+        return copy(turnIds, state, summary, coverage, true, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
     {
         checkArgument(terminalState.terminal(), "state is not terminal");
+        return copy(turnIds, terminalState, summary, coverage, completionRepairUsed, operations, evidence, terminalOutcome, version, now, Optional.of(now));
+    }
+
+    /** Carries everything frozen with the head over unchanged; only the progress of the run varies. */
+    private ReviewRun copy(
+            List<String> nextTurnIds,
+            State nextState,
+            Optional<ReviewSummary> nextSummary,
+            Optional<ReviewCoverage> nextCoverage,
+            boolean nextCompletionRepairUsed,
+            Map<String, ReviewOperation> nextOperations,
+            Map<String, ReviewEvidence> nextEvidence,
+            Optional<String> nextOutcome,
+            long nextVersion,
+            Instant now,
+            Optional<Instant> nextEndedAt)
+    {
         return new ReviewRun(
-                id,
-                reviewId,
-                ordinal,
-                scope,
-                baseRef,
-                baseSha,
-                mergeBaseSha,
-                headSha,
-                priorHeadSha,
-                commits,
-                diff,
-                turnIds,
-                terminalState,
-                summary,
-                coverage,
-                completionRepairUsed,
-                operations,
-                evidence,
-                terminalOutcome,
-                version,
-                createdAt,
-                now,
-                Optional.of(now));
+                id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
+                nextTurnIds, nextState, nextSummary, nextCoverage, nextCompletionRepairUsed, nextOperations, nextEvidence,
+                nextOutcome, nextVersion, createdAt, now, nextEndedAt);
     }
 
     public enum Scope

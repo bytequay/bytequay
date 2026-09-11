@@ -766,7 +766,7 @@ live model repairing a real GitHub PR remains separately unverified.
   an immediate writer transaction with a consistent backup. All 762 outbox
   rows, IDs, sequences, and indexes were preserved; integrity/FK checks and a
   rolled-back development-result insert passed. No task/receipt was rewritten.
-- [ ] Integrate and verify the final fix on main, including desktop packaging.
+- [x] Integrate and verify the final fix on main, including desktop packaging.
 
 Hibernate `ddl-auto=update` did not expand the old CHECK. Previous fresh-database
 integration tests therefore passed while the retained development database
@@ -787,3 +787,19 @@ The runtime database backup is
 Copied-database proof is in `/private/tmp/bytequay-event-kind-proof-m2u9u0i0`.
 The outbox content hash before and after is
 `b46a4d0c122b1a32edb8d88abe54b5fc3cb3f86a3fbce4bfc1f5a04ceb4936a9`.
+
+
+Final storage-fix verification on main:
+
+- Fix commit `9a9c22e95` fast-forwarded into clean local main.
+- Full `mvn verify` passed 1,877 tests with zero failures, errors, or skips.
+  Log: `/private/tmp/bytequay-development-event-storage-main-verify.log`.
+  The isolated-worktree run had passed with 14 CodeGraph bundle-dependent
+  skips; this main run used the existing bundle and exercised them all.
+- Frontend lint, TypeScript, and all 770 tests passed. Logs:
+  `/private/tmp/bytequay-event-storage-main-frontend-{lint,tsc,test}.log`.
+- macOS arm64 packaging passed with the fresh backend JAR.
+  Log: `/private/tmp/bytequay-event-storage-main-package.log`.
+- Independent live-database inspection confirms the stale CHECK is absent,
+  762 outbox rows remain, and the interrupted task and unverifiable process
+  receipt were preserved. The failed task was not replayed or published.

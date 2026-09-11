@@ -54,7 +54,8 @@ public record AgentTask(
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
         boolean codegraph,
-        Optional<Instant> archivedAt)
+        Optional<Instant> archivedAt,
+        boolean developmentContinuationUnfinished)
 {
     public AgentTask
     {
@@ -105,6 +106,7 @@ public record AgentTask(
         checkArgument(worktreeRemovedAt.isEmpty() || state.terminal(), "a live task cannot have a removed worktree");
         checkArgument(state.terminal() || cleanupState == CleanupState.RETAINED, "a live task cannot enter cleanup");
         checkArgument(!state.terminal() || worktreeMutationClaim.isEmpty(), "a terminal task cannot retain a worktree mutation claim");
+        checkArgument(!state.terminal() || !developmentContinuationUnfinished, "a terminal task cannot retain a development continuation");
         checkArgument((cleanupState == CleanupState.RETRY_PENDING) == cleanupFailure.isPresent(), "cleanupFailure and cleanupState disagree");
     }
 
@@ -146,7 +148,8 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 false,
-                Optional.empty());
+                Optional.empty(),
+                false);
     }
 
     public static AgentTask created(
@@ -216,7 +219,8 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 codegraph,
-                Optional.empty());
+                Optional.empty(),
+                false);
     }
 
     public static AgentTask created(
@@ -394,6 +398,18 @@ public record AgentTask(
         return copyDetails(title, titleSource, updatedDefaults, now, worktreeRemovedAt, archivedAt);
     }
 
+    /** Records only whether a live continuation must fail if its backend owner is lost. */
+    public AgentTask withDevelopmentContinuation(boolean unfinished, Instant now)
+    {
+        requireNonNull(now, "now is null");
+        requireState(TaskState.OPEN);
+        checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
+        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
+                worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
+                terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
+                cleanupFailure, codegraph, archivedAt, unfinished);
+    }
+
     public AgentTask withVersion(long updatedVersion)
     {
         return copy(state, worktreeMutationClaim, updatedVersion, updatedAt, terminalAt, terminalReason, sessionReference, metrics,
@@ -508,7 +524,8 @@ public record AgentTask(
                 updatedDeleteAfter,
                 updatedCleanupFailure,
                 codegraph,
-                archivedAt);
+                archivedAt,
+                !updatedState.terminal() && developmentContinuationUnfinished);
     }
 
     private AgentTask copyDetails(
@@ -546,7 +563,8 @@ public record AgentTask(
                 deleteAfter,
                 cleanupFailure,
                 codegraph,
-                updatedArchivedAt);
+                updatedArchivedAt,
+                developmentContinuationUnfinished);
     }
 
     private void requireState(TaskState expected)

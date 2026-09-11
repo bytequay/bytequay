@@ -66,8 +66,10 @@ import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -307,7 +309,10 @@ public class AgentConfiguration
             CodeGraphService codeGraph,
             AgentSkillService skills,
             Clock agentClock,
-            AgentProperties properties)
+            AgentProperties properties,
+            AgentReviewStore reviews,
+            ObjectProvider<DevelopmentFollowupCoordinator> development,
+            AgentCompletionService completionService)
     {
         return new DefaultAgentTurnService(
                 taskStore,
@@ -329,7 +334,17 @@ public class AgentConfiguration
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the
                 // provider's own reader; it must not block that thread on a provider call.
-                command -> Thread.ofVirtual().name("bytequay-agent-queue").start(command));
+                command -> Thread.ofVirtual().name("bytequay-agent-queue").start(command),
+                task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
+                outcome -> development.getObject().completed(outcome),
+                completionService);
+    }
+
+    @Bean
+    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, WorktreeService worktrees)
+    {
+        return new DevelopmentFollowupCoordinator(turns, worktrees,
+                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command));
     }
 
     @Bean

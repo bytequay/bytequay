@@ -84,7 +84,7 @@ class TestReviewRuntimeRecovery
     private final AgentProcessLaunchStore launchStore = mock(AgentProcessLaunchStore.class);
     private final AgentStartupRecovery recovery = new AgentStartupRecovery(
             mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(), supervisor,
-            new AgentServingGate(), launchStore, taskStore, turnStore);
+            new AgentServingGate(), launchStore, taskStore, turnStore, mock(AgentTurnService.class));
     private final ReviewController controller = new ReviewController(
             reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery);
 

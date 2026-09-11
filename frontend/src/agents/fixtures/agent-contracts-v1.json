@@ -1,5 +1,6 @@
 {
   "task": {
+    "developmentContinuationUnfinished": false,
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",
@@ -77,6 +78,7 @@
     "deleteAfter": "<timestamp>"
   },
   "finalTask": {
+    "developmentContinuationUnfinished": false,
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
     "title": "Agent HTTP test",

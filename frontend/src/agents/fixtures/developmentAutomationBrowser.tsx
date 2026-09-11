@@ -14,7 +14,7 @@
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
@@ -118,5 +118,64 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission()];
+}
+
+async function continuationAdmission(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a turn');
+  let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, developmentContinuationUnfinished: true };
+  let turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED' };
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.readAgentEvents = async () => [event];
+  let notify: (message: AgentStreamMessage) => void = () => {};
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    notify = listener;
+    listener({ subscriptionId: 'continuation', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null && !input.disabled, 'A reloaded owned task must keep its composer editable');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Use the smaller change');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Reload and Enter must not start competing work');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === true, 'Complete must wait for automation');
+    const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]');
+    assert(stop !== null, 'Owned task must offer Stop automation through the existing stop flow');
+    stop.click();
+    await settle();
+    assert(document.body.textContent?.includes('marks the task failed once its agents have stopped') === true, 'Stop must explain the failure boundary');
+    const cancel = Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Cancel');
+    assert(cancel !== undefined, 'Existing stop confirmation must remain cancellable');
+    cancel.click();
+    await settle();
+    task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
+    turn = { ...turn, version: turn.version + 1, developmentResult: { readyForDelivery: false, message: 'Which change should I use?', stopAfter: null } };
+    notify({ subscriptionId: 'continuation', taskId: task.id, kind: 'events', events: [{ ...event,
+      eventId: 'automation-settled', sequence: event.sequence + 1, turnId: null, type: 'lifecycle',
+      payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for your answer' } }] });
+    await settle();
+    assert(host.textContent?.includes('Waiting for your answer') === true, 'Released ownership must show the durable question');
+    assert(input.value === 'Use the smaller change', 'Ownership changes must preserve the composer draft');
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'The user must be able to answer normally after ownership release');
+    send.click();
+    await settle();
+    assert(bridge.commands.filter(command => command.name === 'startAgentTurn').length === 1, 'An answer must start exactly one ordinary turn');
+    return [{ name: 'Continuation ownership blocks competing work and releases the normal answer composer' }];
+  }
+  catch (error) { return [{ name: 'Continuation admission', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }

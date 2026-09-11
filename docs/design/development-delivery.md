@@ -1,9 +1,10 @@
 # Development task delivery
 
 Status: Approved MVP design; implementation in progress. Settings, accepted-turn
-snapshots, and root readiness reporting are implemented. The live coordinator,
-automatic publication, and CI handoff remain pending. This replaces the larger
-recovery-oriented proposal. Use the current [agent service](agent-service.md)
+snapshots, root readiness reporting, and the live coordinator's gate/admission
+foundation are implemented and verified. Automatic commit/publication dispatch
+and CI handoff remain pending. This replaces the larger recovery-oriented
+proposal. Use the current [agent service](agent-service.md)
 and [CI Autofix](ci-autofix-service.md), with a small in-process coordinator.
 There is no overall workflow state machine, delivery table, phase engine,
 step journal, or restart/resume support for the delivery chain.
@@ -160,9 +161,29 @@ transcript replay, opening the task, a completion retry, or an already-terminal
 callback.
 
 Reserve the in-memory task owner under the existing task lock before ordinary
-queue dispatch, so a simultaneous Send cannot race the checker. Do no long
-Git/provider work while holding that lock. Generated turns use a trusted
-internal start path carrying the owner; other starts respect it.
+queue dispatch, so a simultaneous Send cannot race the checker. Coordinator
+Git inspections and continuation waits run outside that lock. Generated turns
+reuse the existing serialized provider-launch path through a trusted internal
+start carrying the owner; other starts respect it.
+
+The terminal transaction sets the existing task row's
+`developmentContinuationUnfinished` marker before exposing admission to another
+turn. Under the same task lock, the live completion callback reserves the
+in-memory owner before notifying the coordinator. A racing read may store the
+terminal result and marker, but cannot reserve the owner or dispatch work.
+Only the live completion path notifies `DevelopmentFollowupCoordinator`;
+ordinary reads and terminal retries do not create continuations. The app runs
+its readiness/queue gate and read-only managed-worktree inspection outside the
+task lock. Commit/publication dispatch is added in the next checkpoint.
+
+An optional `DevelopmentTurnOrigin` on a generated turn names its bounded
+operation and original user turn. That user-turn ID is the in-memory owner;
+there is no delivery ID or step journal. The internal start path carries the
+source turn's complete accepted settings, including model, effort, permission,
+service tier, attachments, and automation choices. Earlier readiness reports
+in the same continuation can only narrow later actions. Remote PR base and
+push routing are captured with the publication baseline when those operations
+are introduced; they are not inferred from changing task defaults.
 
 The coordinator applies these decisions in order:
 

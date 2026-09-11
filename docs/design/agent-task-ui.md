@@ -13,9 +13,16 @@ in the normal conversation. This survives bounded-history eviction and clears
 when a new answer starts. Active execution/approval and cleanup ownership remain
 separate; the banner never infers a question from arbitrary transcript text.
 
+An unfinished continuation blocks Send, steer, queue start, Complete, and the
+manual draft action while preserving composer text. A quiet continuation shows
+Automation running; active provider/approval and recovery facts take precedence.
+Stop automation uses the existing runtime-stop API and explains that verified
+stop ends this task. Questions disable Resume queue while allowing a normal
+answer after continuation ownership settles. Marker changes refresh the task
+through the existing lifecycle event stream.
+
 The verified commit/push/PR/CI readout, Idle label, generated follow-up labels,
-CI ownership controls, and failed-continuation Delete/start-over presentation
-remain pending with the coordinator. Shared conversation components remain the
+and CI run controls remain pending. Shared conversation components remain the
 implementation boundary; no new stored workflow stages or Resume delivery
 control are planned.
 

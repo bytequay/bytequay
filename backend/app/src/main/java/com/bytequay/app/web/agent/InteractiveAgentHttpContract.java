@@ -80,7 +80,8 @@ final class InteractiveAgentHttpContract
                 task.worktreeRemovedAt(),
                 task.codegraph(),
                 task.archivedAt(),
-                task.interactive());
+                task.interactive(),
+                task.developmentContinuationUnfinished());
     }
 
     /**
@@ -117,7 +118,8 @@ final class InteractiveAgentHttpContract
                 turn.terminalReason(),
                 turn.failureKind(),
                 turn.metrics(),
-                turn.developmentResult());
+                turn.developmentResult(),
+                turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())));
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -315,7 +317,8 @@ final class InteractiveAgentHttpContract
             Optional<Instant> checkoutRemovedAt,
             boolean codegraph,
             Optional<Instant> archivedAt,
-            boolean interactive) {}
+            boolean interactive,
+            boolean developmentContinuationUnfinished) {}
 
     record MutationClaim(
             String kind,
@@ -356,7 +359,10 @@ final class InteractiveAgentHttpContract
             Optional<String> terminalReason,
             Optional<AgentTurnFailureKind> failureKind,
             AgentMetrics metrics,
-            Optional<DevelopmentResultReport> developmentResult) {}
+            Optional<DevelopmentResultReport> developmentResult,
+            Optional<DevelopmentOrigin> developmentOrigin) {}
+
+    record DevelopmentOrigin(String kind, String parentUserTurnId) {}
 
     /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */
     record InputRequest(String message, List<String> attachments, Long expectedVersion, Optional<DevelopmentAutomationDto> developmentAutomation)

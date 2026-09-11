@@ -15,6 +15,7 @@ package com.bytequay.agent.core;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Serializes turns and coordinates execution in a task's provider session.
@@ -38,6 +39,24 @@ public interface AgentTurnService
      * @throws AgentConflictException when another turn is active
      */
     AgentTurn start(StartAgentTurnCommand command);
+
+    /** Starts one bounded internal follow-up using its source user turn's immutable settings. */
+    CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message);
+
+    /** Gives previously accepted FIFO user input the task atomically and ends this continuation. */
+    boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId);
+
+    /** Releases a settled continuation; queued questions remain paused until explicitly resumed. */
+    void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
+
+    /** Revokes live authority, stops known writers, and fails the task only after verified shutdown. */
+    AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason);
+
+    /** Fails an unfinished continuation whose backend was lost; never restarts its work. */
+    AgentTask failLostDevelopmentContinuation(TaskId taskId);
+
+    /** Whether this backend still authorizes the source user turn's continuation. */
+    boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
 
     /** Returns a turn already accepted under the task-scoped request key. */
     Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey);

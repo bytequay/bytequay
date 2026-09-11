@@ -484,7 +484,7 @@ export function runtimeStatus(state: AgentTaskState): AgentRuntimeStatus {
 
 /** Whether the task is idle, which is the only time sending or completing is offered. */
 export function isIdle(state: AgentTaskState): boolean {
-  return runtimeStatus(state) === 'idle';
+  return runtimeStatus(state) === 'idle' && !state.task?.developmentContinuationUnfinished;
 }
 
 /**
@@ -516,6 +516,7 @@ export function canSend(state: AgentTaskState): boolean {
  */
 export function canSteer(state: AgentTaskState): boolean {
   return runtimeStatus(state) === 'running'
+    && !state.task?.developmentContinuationUnfinished
     && state.capabilities?.steering === true
     && state.turn !== null
     && state.turn.state === 'RUNNING'
@@ -527,6 +528,7 @@ export function canSteer(state: AgentTaskState): boolean {
 /** Whether Run next may fire: something to say while a turn is running. */
 export function canQueue(state: AgentTaskState): boolean {
   return runtimeStatus(state) === 'running'
+    && !state.task?.developmentContinuationUnfinished
     && state.task !== null
     && !state.sending
     && state.composer.trim().length > 0

@@ -14,9 +14,11 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentMetrics;
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
@@ -133,6 +135,11 @@ public class AgentTurnEntity
     private DevelopmentResultReport developmentResult;
 
     @Enumerated(EnumType.STRING)
+    private DevelopmentTurnOrigin.Kind developmentOriginKind;
+
+    private String parentUserTurnId;
+
+    @Enumerated(EnumType.STRING)
     private AgentTurnFailureKind failureKind;
 
     @Column(nullable = false)
@@ -205,6 +212,8 @@ public class AgentTurnEntity
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
+        developmentOriginKind = turn.developmentOrigin().map(DevelopmentTurnOrigin::kind).orElse(null);
+        parentUserTurnId = turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
         failureKind = turn.failureKind().orElse(null);
         inputTokens = turn.metrics().inputTokens();
         cachedInputTokens = turn.metrics().cachedInputTokens();
@@ -252,7 +261,19 @@ public class AgentTurnEntity
                         Optional.ofNullable(cost),
                         Duration.ofMillis(elapsedMillis),
                         counters()),
-                Optional.ofNullable(developmentResult));
+                Optional.ofNullable(developmentResult),
+                developmentOrigin());
+    }
+
+    private Optional<DevelopmentTurnOrigin> developmentOrigin()
+    {
+        if (developmentOriginKind == null && parentUserTurnId == null) {
+            return Optional.empty();
+        }
+        if (developmentOriginKind == null || parentUserTurnId == null) {
+            throw new AgentStorageException("Stored generated turn origin is incomplete: " + id);
+        }
+        return Optional.of(new DevelopmentTurnOrigin(developmentOriginKind, TurnId.valueOf(parentUserTurnId)));
     }
 
     @Override

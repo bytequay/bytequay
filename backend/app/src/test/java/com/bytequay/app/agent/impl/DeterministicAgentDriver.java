@@ -25,7 +25,9 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
@@ -54,6 +56,7 @@ public final class DeterministicAgentDriver
     private final AtomicLong probeCount = new AtomicLong();
     private final ArrayDeque<AgentProviderStatus.Readiness> probeReadiness = new ArrayDeque<>();
     private final AtomicReference<HeldTurn> heldTurn = new AtomicReference<>();
+    private final AtomicReference<DevelopmentResultReport> nextDevelopmentResult = new AtomicReference<>();
 
     public DeterministicAgentDriver()
     {
@@ -132,6 +135,11 @@ public final class DeterministicAgentDriver
         checkState(holdNextTurn.compareAndSet(false, true), "a turn is already waiting to be held");
     }
 
+    public void reportNextTurn(DevelopmentResultReport report)
+    {
+        checkState(nextDevelopmentResult.compareAndSet(null, report), "a development report is already pending");
+    }
+
     public void completeHeldTurn()
     {
         HeldTurn held = heldTurn.getAndSet(null);
@@ -142,6 +150,7 @@ public final class DeterministicAgentDriver
     public synchronized void reset()
     {
         holdNextTurn.set(false);
+        nextDevelopmentResult.set(null);
         imageAttachments.set(true);
         openCount.set(0);
         probeCount.set(0);
@@ -198,6 +207,12 @@ public final class DeterministicAgentDriver
                 ProviderAgentEvent.MessagePhase.FINAL,
                 response,
                 Optional.empty()));
+        if (!textOnly) {
+            Optional.ofNullable(nextDevelopmentResult.getAndSet(null)).ifPresent(report -> events.emit(new ProviderAgentEvent.DevelopmentResult(
+                    Optional.of("report-" + command.turnId()), Optional.empty(), report,
+                    new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
+                            Optional.of("deterministic-" + command.turnId()), Optional.of("report-" + command.turnId())))));
+        }
         CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
         if (holdNextTurn.compareAndSet(true, false)) {
             checkState(heldTurn.compareAndSet(null, new HeldTurn(response, completion)), "a turn is already held");

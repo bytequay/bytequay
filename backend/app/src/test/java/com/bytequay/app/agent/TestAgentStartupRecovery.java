@@ -28,6 +28,7 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.LaunchOwnerKind;
@@ -75,6 +76,80 @@ import static org.mockito.Mockito.when;
 class TestAgentStartupRecovery
 {
     @Test
+    void failsLostDevelopmentAfterProcessClassificationBeforeServing()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTurnService turns = mock(AgentTurnService.class);
+        AgentTask task = openTask(TaskId.random()).withDevelopmentContinuation(true, Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
+        when(taskStore.find(task.id())).thenReturn(Optional.of(task));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("old-provider")));
+        AgentServingGate servingGate = new AgentServingGate();
+        when(turns.failLostDevelopmentContinuation(task.id())).thenAnswer(ignored -> {
+            assertThat(servingGate.isReady()).isFalse();
+            return task;
+        });
+
+        new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, servingGate, launchStore(), taskStore, turnStore, turns).afterSingletonsInstantiated();
+
+        InOrder order = inOrder(supervisor, turns);
+        order.verify(supervisor).recoverOwnedProcesses();
+        order.verify(supervisor).acknowledge("old-provider");
+        order.verify(turns).failLostDevelopmentContinuation(task.id());
+        assertThat(servingGate.isReady()).isTrue();
+    }
+
+    @Test
+    void doesNotSettleLostDevelopmentWhenAWriterCannotBeAttributed()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTurnService turns = mock(AgentTurnService.class);
+        AgentTask task = openTask(TaskId.random()).withDevelopmentContinuation(true, Instant.parse("2026-09-01T00:00:00Z"));
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("unknown-writer")));
+        AgentServingGate servingGate = new AgentServingGate();
+
+        new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, servingGate, launchStore(), taskStore, turnStore, turns).afterSingletonsInstantiated();
+
+        verifyNoInteractions(turns);
+        assertThat(servingGate.isReady()).isFalse();
+    }
+
+    @Test
+    void verifiedRecoveredStopFailsUnfinishedDevelopmentInsteadOfResumingIt()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTurnService turns = mock(AgentTurnService.class);
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTask task = openTask(TaskId.random()).withDevelopmentContinuation(true, now)
+                .claimWorktreeMutation(WorktreeMutationClaim.recovery("old-provider", now), now);
+        when(taskStore.find(task.id())).thenReturn(Optional.of(task));
+        when(taskStore.update(any())).thenAnswer(invocation -> ((AgentTask) invocation.getArgument(0)).withVersion(task.version() + 1));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(stopped("old-provider"));
+        AgentTask failed = task.releaseWorktreeMutation(task.worktreeMutationClaim().orElseThrow(), now)
+                .withDevelopmentContinuation(false, now).fail("Automation failed", now, now.plusSeconds(60));
+        when(turns.failLostDevelopmentContinuation(task.id())).thenReturn(failed);
+
+        AgentTask result = new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, new AgentServingGate(), launchStore(), taskStore, turnStore, turns)
+                .stopRecoveredRuntime(task.id(), "task:" + task.version());
+
+        assertThat(result).isEqualTo(failed);
+        InOrder order = inOrder(supervisor, turns);
+        order.verify(supervisor).recoverOwnedProcess("old-provider");
+        order.verify(supervisor).acknowledge("old-provider");
+        order.verify(turns).failLostDevelopmentContinuation(task.id());
+    }
+
+    @Test
     void drainsBeforeAndAfterMaintenanceThenOpensTheGate()
     {
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
@@ -94,7 +169,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
@@ -123,7 +198,7 @@ class TestAgentStartupRecovery
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -145,7 +220,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -167,7 +242,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         // An old process may still be writing to a worktree, so no agent operation may be served.
@@ -193,7 +268,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isTrue();
@@ -226,7 +301,7 @@ class TestAgentStartupRecovery
                         launch("title-helper", LaunchOwnerKind.CLI_PROBE, "task-title"),
                         launch("model-catalog", LaunchOwnerKind.APP_SERVER, "codex-model-catalog")),
                 taskStore,
-                turnStore)
+                turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isTrue();
@@ -250,7 +325,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -284,7 +359,7 @@ class TestAgentStartupRecovery
                         appServerLaunch("control-marker", taskId),
                         launch("task-marker", LaunchOwnerKind.CLI_PROBE, "codex-cli")),
                 taskStore,
-                turnStore)
+                turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -310,7 +385,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         // The launch names one task, so only that task's worktree is held and every other task can
@@ -369,7 +444,7 @@ class TestAgentStartupRecovery
                 servingGate,
                 launchStore(launch),
                 taskStore,
-                turnStore)
+                turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isTrue();
@@ -397,7 +472,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         // A turn that was mid-flight is judged by the process verdict, so it can only be looked at
@@ -424,7 +499,7 @@ class TestAgentStartupRecovery
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("orphan")));
 
         new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         // The stray process could be this task's own, so its turn must not be treated as stopped.
@@ -450,7 +525,7 @@ class TestAgentStartupRecovery
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
-                launchStore(), taskStore, turnStore)
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         // Nothing can be pinned to a worktree, so something may still be writing somewhere nobody
@@ -483,7 +558,7 @@ class TestAgentStartupRecovery
                 new AgentServingGate(),
                 launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
                 taskStore,
-                turnStore);
+                turnStore, mock(AgentTurnService.class));
 
         AgentTask stopped = recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version());
 
@@ -518,7 +593,7 @@ class TestAgentStartupRecovery
                 new AgentServingGate(),
                 launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
                 taskStore,
-                turnStore);
+                turnStore, mock(AgentTurnService.class));
 
         assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
                 .isInstanceOf(AgentUnavailableException.class)
@@ -554,7 +629,7 @@ class TestAgentStartupRecovery
                 new AgentServingGate(),
                 launchStore(appServerLaunch("launch-1", taskId), appServerLaunch("launch-2", taskId)),
                 taskStore,
-                turnStore);
+                turnStore, mock(AgentTurnService.class));
 
         assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
                 .isInstanceOf(AgentConflictException.class)
@@ -588,7 +663,7 @@ class TestAgentStartupRecovery
                 new AgentServingGate(),
                 launchRowPresent ? launchStore(appServerLaunch("launch-1", otherTaskId)) : launchStore(),
                 taskStore,
-                turnStore);
+                turnStore, mock(AgentTurnService.class));
 
         assertThatThrownBy(() -> recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()))
                 .isInstanceOf(AgentConflictException.class)

@@ -7,7 +7,12 @@
     "defaults": {
       "model": "test-model",
       "effort": "high",
-      "permissionPolicy": "AUTO"
+      "permissionPolicy": "AUTO",
+      "developmentAutomation": {
+        "autoCommit": false,
+        "autoDraftPr": false,
+        "autoCiFix": false
+      }
     },
     "idempotencyKey": "request-1"
   },
@@ -23,9 +28,9 @@
       "permissionPolicy": "AUTO",
       "serviceTier": null,
       "developmentAutomation": {
-        "autoCommit": true,
-        "autoDraftPr": true,
-        "autoCiFix": true,
+        "autoCommit": false,
+        "autoDraftPr": false,
+        "autoCiFix": false,
         "ciLaneId": null
       }
     },
@@ -57,7 +62,8 @@
     "checkoutRemovedAt": null,
     "codegraph": false,
     "archivedAt": null,
-    "interactive": true
+    "interactive": true,
+    "developmentContinuationUnfinished": false
   },
   "turns": [
     {
@@ -84,9 +90,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -106,7 +112,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -127,9 +134,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -149,7 +156,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       }
     },
     {
@@ -176,9 +184,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -198,7 +206,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -219,9 +228,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -241,7 +250,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       }
     },
     {
@@ -268,9 +278,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -290,7 +300,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-2>",
@@ -311,9 +322,9 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": true,
-            "autoDraftPr": true,
-            "autoCiFix": true,
+            "autoCommit": false,
+            "autoDraftPr": false,
+            "autoCiFix": false,
             "ciLaneId": null
           }
         },
@@ -333,7 +344,8 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null
+        "developmentResult": null,
+        "developmentOrigin": null
       }
     }
   ],
@@ -719,9 +731,9 @@
       "permissionPolicy": "AUTO",
       "serviceTier": null,
       "developmentAutomation": {
-        "autoCommit": true,
-        "autoDraftPr": true,
-        "autoCiFix": true,
+        "autoCommit": false,
+        "autoDraftPr": false,
+        "autoCiFix": false,
         "ciLaneId": null
       }
     },
@@ -773,6 +785,7 @@
     "checkoutRemovedAt": "<timestamp>",
     "codegraph": false,
     "archivedAt": null,
-    "interactive": true
+    "interactive": true,
+    "developmentContinuationUnfinished": false
   }
 }

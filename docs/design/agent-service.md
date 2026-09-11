@@ -16,10 +16,21 @@ This is an assessment, separate from provider execution completion. A duplicate
 or child result cannot release a user gate. The durable turn projection retains
 questions outside the loaded transcript window.
 
-The in-process after-turn coordinator, automatic Git/PR verification and
-publication, CI handoff, and stop/fail handling are still pending. The approved
-continuation adds no workflow state machine or whole-flow restart recovery;
-successful delivery will retain the open task. Task completion is not its trigger.
+The live stopped-turn hook now reserves one in-memory continuation owner before
+normal FIFO dispatch. Its existing task row carries only an unfinished marker;
+generated turns carry a bounded operation and parent user-turn ID. Trusted starts
+retain that user's entire accepted settings and enforce readiness and narrowing.
+The application coordinator gates questions, hands off preaccepted FIFO work,
+and revalidates managed-worktree ownership. Automatic commit/publication dispatch
+and CI handoff remain pending; no complete delivery result is claimed yet.
+
+A question clears the marker and permits a normal answer while earlier queue
+rows remain paused. Stop/failure revokes continuation authority. Backend startup
+fails lost continuations after provider-process classification, before serving
+new work. An unproven writer retains its existing claim and unfinished marker;
+verified Stop then fails the task, without resuming delivery. This adds no
+workflow state machine or whole-flow restart recovery. Task completion is not
+its trigger.
 
 ## Managed skills
 
@@ -580,6 +591,15 @@ public interface AgentTaskService
 
 `AgentTurnService` serializes turns and coordinates a driver session. It is
 the only core service allowed to start or cancel provider execution.
+
+Its trusted development methods start generated turns and await their live
+terminal outcome, atomically hand admission to a queued user turn, settle or
+fail a continuation, and fail a lost continuation during startup. No HTTP
+request can provide generated origin or an owner token. `get`, replay, and
+terminal retry cannot dispatch them. `DevelopmentTurnCompletion` keeps provider
+quiescence and cleanup failure separate from the stored terminal assessment.
+The ordinary send/queue contracts below remain in use; a development owner
+also blocks competing starts, steering, completion, and deletion.
 
 ```java
 package com.bytequay.agent.core;

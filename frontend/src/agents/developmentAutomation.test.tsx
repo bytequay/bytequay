@@ -16,15 +16,15 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AutomationControl, CiProviderSelect } from './AutomationControl';
-import { automationForSubmission, automationSummary, DEFAULT_DEVELOPMENT_AUTOMATION, developmentQuestion } from './developmentAutomation';
+import { automationForSubmission, automationSummary, DEFAULT_DEVELOPMENT_AUTOMATION, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { parseAgentTask, parseAgentTurn, parseDevelopmentAutomation, parseDevelopmentResult } from './contracts';
 import { parseAgentEventSequence } from './events';
-import { createDraftSubmissionTracker, createTaskCreationTracker, initialAgentTaskState } from './model';
+import { canComplete, canQueue, canSend, canSteer, createDraftSubmissionTracker, createTaskCreationTracker, initialAgentTaskState, runtimeStatus } from './model';
 import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import WorkflowPage from '../settings/WorkflowPage';
 import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } from '../settings/routes';
-import type { AgentTaskDto, AgentTaskDefaultsDto, ModelProviderDto } from '../types';
+import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { AgentTaskBody } from './AgentTaskScreen';
 
@@ -65,6 +65,8 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(() => parseDevelopmentResult({ ...report, stopAfter: 'READY' })).toThrow();
   expect(parseAgentTurn({ ...contracts.turn, developmentResult: report }).developmentResult).toEqual(report);
   expect(parseAgentTask({ ...contracts.task, interactive: false }).interactive).toBe(false);
+  expect(parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: true }).developmentContinuationUnfinished).toBe(true);
+  expect(() => parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: 'false' })).toThrow();
 });
 
 it('decodes root readiness events but rejects child, invalid, and unbound reports', () => {
@@ -94,6 +96,47 @@ describe('waiting for the user', () => {
     expect(html.indexOf(report.message)).toBeLessThan(html.indexOf('agt-compose__input'));
     expect(html).not.toContain('Draft created');
   });
+  it('holds earlier queued work while allowing the user to answer normally', () => {
+    const input: AgentQueuedInputDto = { id: 'queued', taskId: task.id, position: 1, state: 'PAUSED', preview: 'Earlier request',
+      settings: { ...contracts.turn.settings }, turnId: null, pauseReason: 'Waiting for a user answer', createdAt: '', updatedAt: '' };
+    const html = renderToStaticMarkup(<AgentTaskBody state={{ ...state, composer: 'Use the smaller change', queue: [input] }} models={[]}
+      onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}} onDecide={() => {}} onCompose={() => {}}
+      onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} onResumeQueue={() => {}} />);
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Resume queue<\/button>/);
+    expect(html).toContain('Answer the agent’s question before resuming earlier queued messages');
+    expect(html).toMatch(/<button[^>]*aria-label="Send message"(?![^>]*disabled)[^>]*>/);
+  });
+});
+
+it('blocks competing actions during a continuation without inventing a running provider', () => {
+  const owned = { ...state, task: { ...task, developmentContinuationUnfinished: true }, composer: 'Keep this draft' };
+  expect(runtimeStatus(owned)).toBe('idle');
+  expect(canSend(owned)).toBe(false);
+  expect(canComplete(owned)).toBe(false);
+  expect(developmentQuestion(owned)).toBeNull();
+  const executing = { ...owned, turn: { ...turn, state: 'RUNNING' }, capabilities: { ...NO_AGENT_CAPABILITIES, steering: true } };
+  expect(canSteer(executing)).toBe(false);
+  expect(canQueue(executing)).toBe(false);
+  const html = renderToStaticMarkup(<AgentTaskBody state={owned} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
+    onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+  expect(html).toContain('Automation running');
+  expect(html).toContain('aria-label="Stop automation"');
+  expect(html).toContain('Keep this draft</textarea>');
+  expect(html).not.toMatch(/<textarea[^>]*disabled/);
+  expect(html).toMatch(/<button[^>]*aria-label="Mark it complete"[^>]*disabled/);
+  expect(html).not.toContain('Waiting for your answer');
+});
+
+it('explains stop using the matching active turn policy instead of mutable task defaults', () => {
+  const accepted = { ...turn, settings: { ...contracts.turn.settings, developmentAutomation: defaults } };
+  const local = automationForSubmission(defaults, true);
+  const active = { ...state, task: { ...task, defaults: { ...task.defaults, developmentAutomation: local } }, turn: accepted };
+  expect(stoppingEndsDevelopment(active, turn.id)).toBe(true);
+  expect(stoppingEndsDevelopment(active, 'another-turn')).toBe(false);
+  expect(stoppingEndsDevelopment(active, null)).toBe(false);
+  expect(stoppingEndsDevelopment({ ...active, task: { ...task, defaults: { ...task.defaults, developmentAutomation: defaults } },
+    turn: { ...accepted, settings: { ...accepted.settings, developmentAutomation: local } } }, turn.id)).toBe(false);
+  expect(stoppingEndsDevelopment({ ...state, task: { ...task, developmentContinuationUnfinished: true } }, null)).toBe(true);
 });
 
 it('shows all switches and explicit CI provider selection in settings and the composer', () => {

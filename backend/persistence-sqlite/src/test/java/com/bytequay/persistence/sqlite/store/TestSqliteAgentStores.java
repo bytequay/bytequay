@@ -29,6 +29,7 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.LaunchOwnerKind;
@@ -497,6 +498,35 @@ class TestSqliteAgentStores
 
         assertThat(turnStore.find(turn.id())).contains(turn);
         assertThat(taskStore.find(task.id()).orElseThrow().defaults().serviceTier()).contains("priority");
+    }
+
+    @Test
+    void retainsUnfinishedContinuationAndTrustedTurnOriginAcrossReload()
+    {
+        assertThat(jdbc.queryForList("PRAGMA table_info('agent_task')"))
+                .filteredOn(column -> column.get("name").equals("development_continuation_unfinished"))
+                .singleElement().satisfies(column -> assertThat(column.get("dflt_value")).isEqualTo("false"));
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now).withDevelopmentContinuation(true, now);
+        taskStore.insert(task);
+        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random());
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "generated-commit",
+                        new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), now)
+                .withDevelopmentOrigin(origin)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("generated-native-turn"), Optional.of("model"))
+                .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(2));
+        turnStore.insert(turn);
+        entityManager.clear();
+
+        AgentTask restored = taskStore.find(task.id()).orElseThrow();
+        assertThat(restored.developmentContinuationUnfinished()).isTrue();
+        assertThat(restored.withDefaults(restored.defaults(), now.plusSeconds(3)).developmentContinuationUnfinished()).isTrue();
+        assertThat(turnStore.find(turn.id()).orElseThrow().developmentOrigin()).contains(origin);
+        taskStore.update(restored.withDevelopmentContinuation(false, now.plusSeconds(4)));
+        entityManager.clear();
+        assertThat(taskStore.find(task.id()).orElseThrow().developmentContinuationUnfinished()).isFalse();
     }
 
     @Test

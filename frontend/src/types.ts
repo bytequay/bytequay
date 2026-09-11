@@ -591,6 +591,7 @@ export type AgentMutationClaimDto = {
 
 export type AgentTaskDto = {
   interactive?: boolean;
+  developmentContinuationUnfinished: boolean;
   id: string;
   workspaceId: string;
   title: string;

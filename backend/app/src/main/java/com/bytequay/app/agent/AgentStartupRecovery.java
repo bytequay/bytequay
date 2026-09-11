@@ -21,6 +21,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.LaunchOwnerKind;
 import com.bytequay.agent.core.TaskId;
@@ -65,6 +66,7 @@ public final class AgentStartupRecovery
     private final AgentProcessLaunchStore launchStore;
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
+    private final AgentTurnService turns;
 
     public AgentStartupRecovery(
             AgentEventOutboxStore outboxStore,
@@ -74,7 +76,8 @@ public final class AgentStartupRecovery
             AgentServingGate servingGate,
             AgentProcessLaunchStore launchStore,
             AgentTaskStore taskStore,
-            AgentTurnStore turnStore)
+            AgentTurnStore turnStore,
+            AgentTurnService turns)
     {
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
@@ -84,6 +87,7 @@ public final class AgentStartupRecovery
         this.launchStore = requireNonNull(launchStore, "launchStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.turns = requireNonNull(turns, "turns is null");
     }
 
     @Override
@@ -102,6 +106,11 @@ public final class AgentStartupRecovery
                         + "verified stopped, so a worktree may still have a live writer");
                 return;
             }
+            taskStore.listLive().stream()
+                    .filter(AgentTask::developmentContinuationUnfinished)
+                    .map(AgentTask::id)
+                    .forEach(turns::failLostDevelopmentContinuation);
+            drainPendingEvents();
             servingGate.open();
         }
         catch (RuntimeException failure) {
@@ -180,7 +189,7 @@ public final class AgentStartupRecovery
             throw new AgentUnavailableException(
                     "Provider process " + unresolved.launchId() + " could not be verified stopped: " + unresolved.detail());
         }
-        return settled;
+        return settled.developmentContinuationUnfinished() ? turns.failLostDevelopmentContinuation(taskId) : settled;
     }
 
     /**

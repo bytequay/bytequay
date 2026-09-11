@@ -33,9 +33,17 @@ export function automationSummary(settings: DevelopmentAutomationDto): string {
 }
 
 export function developmentQuestion(state: AgentTaskState): string | null {
-  if (state.task?.state !== 'OPEN' || state.task.mutationClaim !== null || state.turn?.state !== 'COMPLETED'
+  if (state.task?.state !== 'OPEN' || state.task.developmentContinuationUnfinished || state.task.mutationClaim !== null || state.turn?.state !== 'COMPLETED'
     || (state.latestTurnId !== null && state.latestTurnId !== state.turn.id)) return null;
   const report = state.turn.developmentResult;
   return report != null && !report.readyForDelivery
     ? report.message ?? 'The agent is waiting for your answer.' : null;
+}
+
+/** Stop follows the active turn's accepted policy even before its continuation marker is set. */
+export function stoppingEndsDevelopment(state: AgentTaskState, activeTurnId: string | null): boolean {
+  if (state.task?.developmentContinuationUnfinished) return true;
+  if (state.task?.interactive !== true || activeTurnId === null || state.turn?.id !== activeTurnId) return false;
+  const accepted = state.turn.settings?.developmentAutomation;
+  return accepted != null && (accepted.autoCommit || accepted.autoDraftPr || accepted.autoCiFix);
 }

@@ -21,7 +21,7 @@ import electron from 'electron';
 import { build } from 'vite';
 import { expect, it } from 'vitest';
 
-it('preserves Local only across creation and authentication retry in Chromium', async () => {
+it('preserves accepted automation and continuation admission in Chromium', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-development-automation-'));
   try {
     await build({
@@ -57,7 +57,7 @@ it('preserves Local only across creation and authentication retry in Chromium', 
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
     const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(2);
+    expect(results).toHaveLength(3);
     expect(results.filter(result => result.error !== undefined)).toEqual([]);
   }
   finally { await rm(directory, { recursive: true, force: true }); }

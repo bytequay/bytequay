@@ -110,6 +110,54 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void unfinishedContinuationBlocksCompletionAndDeletionBetweenTurns()
+    {
+        stores.update(stores.find(taskId).orElseThrow().withDevelopmentContinuation(true, NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Development automation is running");
+        assertThatThrownBy(() -> service.delete(taskId))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Development automation is running");
+        assertThat(worktrees.deleted).isEmpty();
+        assertThat(stores.find(taskId).orElseThrow().developmentContinuationUnfinished()).isTrue();
+    }
+
+    @Test
+    void liveContinuationOwnerAlsoBlocksDestructiveOperations()
+    {
+        runtimeRegistry.reserveDevelopmentOwner(taskId, TurnId.random());
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()))).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.delete(taskId)).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.abandon(taskId, "Stopped automation")).isInstanceOf(AgentConflictException.class);
+        assertThat(worktrees.deleted).isEmpty();
+    }
+
+    @Test
+    void lostContinuationRetainsRecoveryClaimUntilWriterIsProvenStopped()
+    {
+        WorktreeMutationClaim claim = WorktreeMutationClaim.recovery("lost-launch", NOW);
+        stores.update(stores.find(taskId).orElseThrow().withDevelopmentContinuation(true, NOW).claimWorktreeMutation(claim, NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.abandon(taskId, "Lost automation"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("must stop its writers");
+        assertThat(stores.find(taskId).orElseThrow()).satisfies(task -> {
+            assertThat(task.state()).isEqualTo(TaskState.OPEN);
+            assertThat(task.worktreeMutationClaim()).contains(claim);
+            assertThat(task.developmentContinuationUnfinished()).isTrue();
+        });
+        stores.update(stores.find(taskId).orElseThrow().releaseWorktreeMutation(claim, NOW));
+        AgentTask failed = service.abandon(taskId, "Lost automation");
+        assertThat(failed.state()).isEqualTo(TaskState.FAILED);
+        assertThat(failed.developmentContinuationUnfinished()).isFalse();
+        assertThat(failed.worktreeMutationClaim()).isEmpty();
+        assertThat(worktrees.deleted).isEmpty();
+    }
+
+    @Test
     void completesAtomicallyAndIsIdempotent()
     {
         RecordingSession session = new RecordingSession();

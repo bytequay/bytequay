@@ -284,6 +284,6 @@ class TestAgentHttpErrors
                 new AgentServingGate(),
                 mock(AgentProcessLaunchStore.class),
                 taskStore,
-                turnStore);
+                turnStore, mock(AgentTurnService.class));
     }
 }

@@ -577,11 +577,12 @@ const QUEUE_LABELS: Record<string, string> = {
  * offers to resume the queue; an uncertain one, which may or may not have reached the agent, is
  * only ever discarded by hand.
  */
-export function ConversationQueue({ queue, running, idle, resumeBlocked, onRemove, onResume }: {
+export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeBlockedReason, onRemove, onResume }: {
   queue: ConversationQueuedInput[];
   running: boolean;
   idle: boolean;
   resumeBlocked: boolean;
+  resumeBlockedReason?: string;
   onRemove: (queuedInputId: string) => void;
   onResume?: () => void;
 }): React.JSX.Element | null {
@@ -615,7 +616,7 @@ export function ConversationQueue({ queue, running, idle, resumeBlocked, onRemov
                 type="button"
                 className="agt-queue__link"
                 disabled={resumeBlocked}
-                title={resumeBlocked ? 'Check provider readiness before resuming the queue' : undefined}
+                title={resumeBlocked ? resumeBlockedReason ?? 'Check provider readiness before resuming the queue' : undefined}
                 onClick={onResume}
               >
                 Resume queue
@@ -814,6 +815,7 @@ export function ConversationComposer({
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
   composerRef, onPaste, connection, closing = false,
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
+  stopLabel = 'Stop this turn', stopTitle = 'Interrupts the running turn and waits for its work to stop',
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -848,6 +850,8 @@ export function ConversationComposer({
   closing?: boolean;
   steerTitle?: string;
   queueTitle?: string;
+  stopLabel?: string;
+  stopTitle?: string;
 }): React.JSX.Element {
   return (
     <div className="agt-compose-dock is-task">
@@ -894,8 +898,8 @@ export function ConversationComposer({
             <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
           </>}
           {running
-            ? <button type="button" className="agt-send is-stop" aria-label="Stop this turn"
-                title="Interrupts the running turn and waits for its work to stop" onClick={onStop}>
+            ? <button type="button" className="agt-send is-stop" aria-label={stopLabel}
+                title={stopTitle} onClick={onStop}>
                 <span className="agt-stop-square" aria-hidden="true" />
               </button>
             : <button type="button" className="agt-send" aria-label="Send message" title="Send" onClick={onSend} disabled={!sendEnabled}>↑</button>}

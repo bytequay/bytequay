@@ -43,7 +43,8 @@ public record AgentTurn(
         Optional<String> terminalReason,
         Optional<AgentTurnFailureKind> failureKind,
         AgentMetrics metrics,
-        Optional<DevelopmentResultReport> developmentResult)
+        Optional<DevelopmentResultReport> developmentResult,
+        Optional<DevelopmentTurnOrigin> developmentOrigin)
 {
     public AgentTurn(
             TurnId id,
@@ -100,12 +101,14 @@ public record AgentTurn(
             AgentMetrics metrics)
     {
         this(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.empty());
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.empty(), Optional.empty());
     }
 
     public AgentTurn
     {
         requireNonNull(developmentResult, "developmentResult is null");
+        requireNonNull(developmentOrigin, "developmentOrigin is null");
+        checkArgument(developmentOrigin.stream().noneMatch(origin -> origin.parentUserTurnId().equals(id)), "generated turn cannot be its own parent");
         requireNonNull(id, "id is null");
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
@@ -262,12 +265,21 @@ public record AgentTurn(
                 providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
     }
 
+    public AgentTurn withDevelopmentOrigin(DevelopmentTurnOrigin origin)
+    {
+        requireNonNull(origin, "origin is null");
+        requireState(TurnState.ACCEPTED);
+        checkState(developmentOrigin.isEmpty(), "generated turn already has an origin");
+        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, Optional.of(origin));
+    }
+
     public AgentTurn withDevelopmentResult(DevelopmentResultReport report)
     {
         requireNonNull(report, "report is null");
         checkState(state.active(), "cannot report development readiness after the turn ended");
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report));
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report), developmentOrigin);
     }
 
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
@@ -313,7 +325,8 @@ public record AgentTurn(
                 updatedTerminalReason,
                 updatedFailureKind,
                 updatedMetrics,
-                developmentResult);
+                developmentResult,
+                developmentOrigin);
     }
 
     private void requireState(TurnState expected)

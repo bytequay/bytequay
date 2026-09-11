@@ -70,6 +70,9 @@ public class AgentTaskEntity
     @Column(nullable = false)
     private boolean codegraph;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean developmentContinuationUnfinished;
+
     @Column(nullable = false)
     private String title;
 
@@ -210,6 +213,7 @@ public class AgentTaskEntity
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
         codegraph = task.codegraph();
+        developmentContinuationUnfinished = task.developmentContinuationUnfinished();
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -298,7 +302,8 @@ public class AgentTaskEntity
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
                 codegraph,
-                Optional.ofNullable(archivedAt));
+                Optional.ofNullable(archivedAt),
+                developmentContinuationUnfinished);
     }
 
     private Optional<WorktreeMutationClaim> worktreeMutationClaim()

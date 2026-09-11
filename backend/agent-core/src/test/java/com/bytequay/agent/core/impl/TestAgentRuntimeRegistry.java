@@ -13,7 +13,10 @@
  */
 package com.bytequay.agent.core.impl;
 
+import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionRef;
@@ -68,6 +71,49 @@ class TestAgentRuntimeRegistry
         assertThatThrownBy(registry::close).hasMessage("provider is wedged");
 
         assertThat(closed).containsExactly("task-2");
+    }
+
+    @Test
+    void closesSessionsRegisteredAfterShutdownAndKeepsFailedClosesTracked()
+    {
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        List<String> closed = new CopyOnWriteArrayList<>();
+        registry.close();
+
+        assertThatThrownBy(() -> registry.registerSession(FIRST, session("late", closed)))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("shutting down");
+        assertThat(closed).containsExactly("late");
+        assertThat(registry.session(FIRST)).isEmpty();
+
+        AgentSession wedged = new StubSession("wedged", closed)
+        {
+            @Override
+            public void close()
+            {
+                throw new IllegalStateException("provider is wedged");
+            }
+        };
+        assertThatThrownBy(() -> registry.registerSession(SECOND, wedged)).hasMessage("provider is wedged");
+        assertThat(registry.session(SECOND)).contains(wedged);
+        assertThat(registry.unverifiedClose(SECOND)).isPresent();
+    }
+
+    @Test
+    void rejectsDevelopmentReservationsAndTurnsAfterShutdown()
+    {
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        TurnId source = TurnId.random();
+        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
+        registry.reserveDevelopmentOwner(FIRST, source);
+        var pending = registry.registerDevelopmentTurn(FIRST, origin);
+
+        registry.close();
+
+        assertThat(pending).isCompletedExceptionally();
+        assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
+        assertThatThrownBy(() -> registry.reserveDevelopmentOwner(FIRST, source)).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> registry.registerDevelopmentTurn(FIRST, origin)).isInstanceOf(AgentConflictException.class);
+        assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
     }
 
     private static AgentSession session(String taskId, List<String> closed)

@@ -59,7 +59,7 @@ import { useResizablePane } from '../useResizablePane';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import type { CommitRange } from '../pulls/PullChanges';
 import { AutomationControl } from './AutomationControl';
-import { automationForSubmission, developmentQuestion } from './developmentAutomation';
+import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -134,7 +134,7 @@ interface AgentTaskScreenProps {
   onOpenSettings?: () => void;
 }
 
-type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto } | { kind: 'fail' };
+type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto; automation: boolean } | { kind: 'fail' };
 
 const CONNECTION_TEXT: Record<string, string> = {
   connecting: 'Connecting — loading task history…',
@@ -224,6 +224,7 @@ const STATUS_LABELS: Record<AgentRuntimeStatus, string> = {
 
 /** Why Complete is unavailable, told on the button rather than left to be guessed. */
 function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): string {
+  if (state.task?.developmentContinuationUnfinished) return 'Available when automation finishes';
   switch (status) {
     case 'idle':
       return canComplete(state)
@@ -1017,14 +1018,16 @@ export function AgentTaskBody({
     if (!panelOpen) onTogglePanel();
   };
   const status = runtimeStatus(state);
+  const automationActive = state.task?.developmentContinuationUnfinished === true;
   const terminal = status === 'completed' || status === 'failed';
   const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
   const question = developmentQuestion(state);
-  const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval' : STATUS_LABELS[status];
+  const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
+    : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
   const statusText = state.turn === null
-    ? STATUS_LABELS[status]
-    : `${STATUS_LABELS[status]} · turn ${state.turn.state.toLowerCase()}`;
+    ? statusLabel
+    : `${statusLabel} · turn ${state.turn.state.toLowerCase()}`;
   const plan = status === 'running' && after === null && state.capabilities?.structuredPlans === true
     ? currentPlan(state.historyPages.length === 0 ? turns : turns.filter((turn) => turn.turnId === state.turn?.id)) : null;
   const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model, state.capabilities);
@@ -1042,7 +1045,7 @@ export function AgentTaskBody({
   const queueImageBlocked = hasDraftImages && !nextImagesAccepted;
   const authenticationFailure = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED';
   const providerBlocked = providerStatus !== null && !providerAvailable(providerStatus.readiness);
-  const providerRecoveryRequired = status === 'idle' && (authenticationFailure || providerBlocked);
+  const providerRecoveryRequired = status === 'idle' && !automationActive && (authenticationFailure || providerBlocked);
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
   return (
@@ -1055,7 +1058,7 @@ export function AgentTaskBody({
           onRename={state.task === null ? undefined : onRename}
         />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
-          {status === 'running' && !waiting && <Spinner />}
+          {((status === 'running' && !waiting) || (status === 'idle' && automationActive)) && <Spinner />}
           {(status === 'recovery' || status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
@@ -1137,6 +1140,10 @@ export function AgentTaskBody({
 
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
 
+      {!terminal && automationActive && status !== 'recovery' && <div className="agt-barrier" role="status">
+        Automation is running. Your next message stays in the composer until it finishes.
+      </div>}
+
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
       {!terminal && (
@@ -1148,7 +1155,9 @@ export function AgentTaskBody({
           }))}
           running={status === 'running'}
           idle={status === 'idle'}
-          resumeBlocked={providerStartBlocked}
+          resumeBlocked={providerStartBlocked || automationActive || question !== null}
+          resumeBlockedReason={question !== null ? 'Answer the agent’s question before resuming earlier queued messages'
+            : automationActive ? 'Available when automation finishes' : undefined}
           onRemove={onRemoveQueued}
           onResume={onResumeQueue}
         />
@@ -1177,8 +1186,10 @@ export function AgentTaskBody({
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
-          value={state.composer} onChange={onCompose} onSend={onSend} onStop={onCancel} onSteer={onSteer} onQueue={onQueue}
-          running={status === 'running'} sending={state.sending}
+          value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
+          running={status === 'running' || automationActive} sending={state.sending}
+          stopLabel={automationActive ? 'Stop automation' : undefined}
+          stopTitle={automationActive ? 'Stops automation and ends this task after its agents stop' : undefined}
           disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
           sendEnabled={canSend(state) && !submissionBlocked} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked && !submissionBlocked}
           connection={state.connection} closing={status === 'closing'}
@@ -1238,7 +1249,7 @@ export function AgentTaskBody({
             onHide={onTogglePanel}
             onOpenPullRequest={onOpenPullRequest}
             onCreatePullRequest={onCreatePullRequest}
-            createPullRequestBlocked={status !== 'idle' || state.sending || state.connection === 'failed'
+            createPullRequestBlocked={automationActive ? 'Available when automation finishes' : status !== 'idle' || state.sending || state.connection === 'failed'
               ? 'Available once the agent is idle'
               : null}
             width={sidePanel.width}
@@ -1727,7 +1738,7 @@ export default function AgentTaskScreen({
   }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current || automationBlocked) return;
+    if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
@@ -1744,14 +1755,14 @@ export default function AgentTaskScreen({
   const createPullRequest = useCallback(() => run(async () => {
     const current = stateRef.current;
     const task = current.task;
-    if (task === null || workspace === undefined || runtimeStatus(current) !== 'idle' || current.sending) return;
+    if (task === null || workspace === undefined || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
     const message = draftPullRequestPrompt(workspace);
     const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, [], task.defaults);
     await startTurn(message, [], idempotencyKey, task.version);
   }), [run, startTurn, submissions, taskId, workspace]);
 
   const steer = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current) return;
+    if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
@@ -1783,7 +1794,7 @@ export default function AgentTaskScreen({
   }), [live, run, state.attachments, state.composer, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current || automationBlocked) return;
+    if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
     const task = state.task;
     if (message.length === 0 || task === null) return;
@@ -1820,6 +1831,8 @@ export default function AgentTaskScreen({
   }), [live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
 
   const resumeQueue = useCallback(() => run(async () => {
+    const current = stateRef.current;
+    if (runtimeStatus(current) !== 'idle' || current.task?.developmentContinuationUnfinished || developmentQuestion(current) !== null) return;
     try {
       const turn = await live().resumeAgentQueue(taskId, workspaceId);
       applyTurn(turn);
@@ -1976,7 +1989,9 @@ export default function AgentTaskScreen({
     const request = ++confirmationRequestRef.current;
     return run(async () => {
       const impact = await live().getAgentRuntimeStopImpact(taskId, workspaceId);
-      if (mountedRef.current && request === confirmationRequestRef.current) setConfirmation({ kind: 'stop', impact });
+      if (mountedRef.current && request === confirmationRequestRef.current) {
+        setConfirmation({ kind: 'stop', impact, automation: stoppingEndsDevelopment(stateRef.current, impact.activeTurnId) });
+      }
     });
   }, [live, run, taskId, workspaceId]);
 
@@ -2051,7 +2066,7 @@ export default function AgentTaskScreen({
       state={state}
       submissionBlocked={automationBlocked}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
-        disabled={state.sending || automationSaving} futureTurns={running} localOnly={localOnly}
+        disabled={state.sending || automationSaving} futureTurns={running || state.task?.developmentContinuationUnfinished} localOnly={localOnly}
         onChange={value => { void selectAutomation(value); }} onLocalOnlyChange={setLocalOnly} /> : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
@@ -2127,9 +2142,9 @@ export default function AgentTaskScreen({
     />
     {confirmation !== null && (
       <ConfirmDialog
-        title={confirmation.kind === 'stop' ? 'Stop this task’s agent?' : 'Mark task as failed?'}
+        title={confirmation.kind === 'stop' ? confirmation.automation ? 'Stop automation?' : 'Stop this task’s agent?' : 'Mark task as failed?'}
         confirmLabel={confirmation.kind === 'stop'
-          ? confirming ? 'Stopping…' : 'Stop agent'
+          ? confirming ? 'Stopping…' : confirmation.automation ? 'Stop automation' : 'Stop agent'
           : confirming ? 'Marking failed…' : 'Mark as failed'}
         busy={confirming}
         destructive={confirmation.kind === 'fail'}
@@ -2141,7 +2156,9 @@ export default function AgentTaskScreen({
           <p>{confirmation.impact.activeTurnId === null
             ? 'The last response is finished. This stops any remaining agent activity.'
             : 'The current response will be interrupted and pending approvals declined.'}</p>
-          <p>You can continue once ByteQuay confirms the agent has stopped.</p>
+          <p>{confirmation.automation
+            ? 'This ends automation and marks the task failed once its agents have stopped. Delete the task and start again to continue development.'
+            : 'You can continue once ByteQuay confirms the agent has stopped.'}</p>
         </> : <>
           <p>This ends the task. You won’t be able to send more messages here.</p>
           <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>

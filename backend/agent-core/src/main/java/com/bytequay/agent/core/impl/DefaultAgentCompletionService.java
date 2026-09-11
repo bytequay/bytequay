@@ -144,6 +144,7 @@ public final class DefaultAgentCompletionService
             if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
+            requireNoDevelopmentContinuation(task);
             turnStore.findActive(task.id()).ifPresent(turn -> {
                 throw new AgentConflictException("Task has an active turn: " + turn.id());
             });
@@ -270,6 +271,10 @@ public final class DefaultAgentCompletionService
         if (task.state().terminal()) {
             throw new AgentConflictException("Task is already terminal: " + taskId);
         }
+        if (runtimeRegistry.hasDevelopmentOwner(taskId)
+                || task.developmentContinuationUnfinished() && task.worktreeMutationClaim().isPresent()) {
+            throw new AgentConflictException("Development automation must stop its writers before marking the task failed: " + taskId);
+        }
         turnStore.findActive(taskId).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn; stop it before marking the task failed: " + turn.id());
         });
@@ -395,6 +400,7 @@ public final class DefaultAgentCompletionService
         if (found.isEmpty()) {
             return false;
         }
+        requireNoDevelopmentContinuation(found.orElseThrow());
         turnStore.findActive(taskId).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn; stop it before deleting: " + turn.id());
         });
@@ -402,6 +408,13 @@ public final class DefaultAgentCompletionService
             throw new AgentConflictException("Task worktree is claimed by " + claim.kind() + "; it cannot be deleted yet");
         });
         return true;
+    }
+
+    private void requireNoDevelopmentContinuation(AgentTask task)
+    {
+        if (task.developmentContinuationUnfinished() || runtimeRegistry.hasDevelopmentOwner(task.id())) {
+            throw new AgentConflictException("Development automation is running; stop it before completing or deleting the task: " + task.id());
+        }
     }
 
     private AgentTask removeWorktree(AgentTask task)

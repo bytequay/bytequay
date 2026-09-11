@@ -28,6 +28,8 @@ import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentTurnCompletion;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -51,6 +53,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 
 import static java.util.Objects.requireNonNull;
 
@@ -285,6 +288,42 @@ final class ScriptedCherryPickAgent
     public AgentTurn resumeQueued(TaskId taskId)
     {
         throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
+    public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
+    public void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
+    public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
+    public AgentTask failLostDevelopmentContinuation(TaskId taskId)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
+    public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
+    {
+        return false;
     }
 
     @Override

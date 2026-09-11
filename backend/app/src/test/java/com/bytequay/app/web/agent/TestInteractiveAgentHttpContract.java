@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -105,7 +106,8 @@ class TestInteractiveAgentHttpContract
                         "checkoutRemovedAt",
                         "codegraph",
                         "archivedAt",
-                        "interactive");
+                        "interactive",
+                        "developmentContinuationUnfinished");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");
@@ -126,7 +128,8 @@ class TestInteractiveAgentHttpContract
                         "terminalReason",
                         "failureKind",
                         "metrics",
-                        "developmentResult");
+                        "developmentResult",
+                        "developmentOrigin");
         assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(
@@ -314,6 +317,7 @@ class TestInteractiveAgentHttpContract
                         new AgentTurnSettings(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO,
                                 Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)),
                         Instant.parse("2026-09-01T00:00:00Z"))
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random()))
                 .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Choose the expected behavior."), Optional.of(DevelopmentStopAfter.COMMITS)));
         JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
@@ -321,5 +325,7 @@ class TestInteractiveAgentHttpContract
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
         assertThat(json.path("developmentResult").path("stopAfter").asText()).isEqualTo("COMMITS");
+        assertThat(json.path("developmentOrigin").path("kind").asText()).isEqualTo("AUTO_COMMIT");
+        assertThat(json.path("developmentOrigin").path("parentUserTurnId").asText()).isEqualTo(turn.developmentOrigin().orElseThrow().parentUserTurnId().toString());
     }
 }

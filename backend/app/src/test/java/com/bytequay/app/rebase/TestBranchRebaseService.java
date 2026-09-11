@@ -22,6 +22,8 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.DevelopmentTurnCompletion;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -68,6 +70,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -652,6 +655,42 @@ class TestBranchRebaseService
         private TurnId current;
         private String lastPrompt;
         private boolean failAfterStarting;
+
+        @Override
+        public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not generate development follow-ups");
+        }
+
+        @Override
+        public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
+        }
+
+        @Override
+        public void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
+        }
+
+        @Override
+        public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
+        }
+
+        @Override
+        public AgentTask failLostDevelopmentContinuation(TaskId taskId)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
+        }
+
+        @Override
+        public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
+        {
+            return false;
+        }
 
         @Override
         public AgentTurnSettings effectiveSettings(TaskId taskId)

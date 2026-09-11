@@ -28,6 +28,7 @@ import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -38,6 +39,7 @@ import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -839,6 +841,78 @@ class TestAgentHttpApi
     }
 
     @Test
+    void enabledAutomationFailsWhenTheLiveTurnOmitsItsReadinessReport()
+            throws Exception
+    {
+        Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
+        request.put("developmentAutomation", ImmutableMap.of("autoCommit", true, "autoDraftPr", true, "autoCiFix", true));
+        JsonNode created = post("/agent/tasks", request, null).getBody();
+        String taskPath = "/agent/tasks/" + created.required("id").asText() + "?workspaceId=" + workspaceId;
+        awaitCondition(() -> get(taskPath).getBody().path("state").asText().equals("FAILED"));
+        JsonNode failed = get(taskPath).getBody();
+        assertThat(failed.required("developmentContinuationUnfinished").asBoolean()).isFalse();
+        assertThat(failed.required("terminalReason").asText()).contains("did not report a valid development result");
+        assertThat(failed.path("mutationClaim").isNull()).isTrue();
+    }
+
+    @Test
+    void enabledQuestionKeepsTaskOpenAndPausesPreviouslyQueuedWork()
+            throws Exception
+    {
+        driver.reportNextTurn(new DevelopmentResultReport(false, Optional.of("Which implementation?"), Optional.empty()));
+        driver.holdNextTurn();
+        Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
+        request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
+                "developmentAutomation", ImmutableMap.of("autoCommit", true, "autoDraftPr", true, "autoCiFix", true)));
+        JsonNode created = post("/agent/tasks", request, null).getBody();
+        String taskId = created.required("id").asText();
+        String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
+        String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
+        assertThat(post(queuePath, ImmutableMap.of("message", "Previously queued work", "expectedVersion", taskVersion(taskId)), "queued-before-question")
+                .getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        driver.completeHeldTurn();
+        awaitCondition(() -> get(queuePath).getBody().get(0).path("state").asText().equals("PAUSED"));
+        JsonNode waiting = get(taskPath).getBody();
+        assertThat(waiting.required("state").asText()).isEqualTo("OPEN");
+        assertThat(waiting.required("developmentContinuationUnfinished").asBoolean()).isFalse();
+        assertThat(waiting.path("mutationClaim").isNull()).isTrue();
+        assertThat(post("/agent/tasks/" + taskId + "/queue/resume?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        JsonNode history = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
+        assertThat(history).anySatisfy(event -> {
+            assertThat(event.path("type").asText()).isEqualTo("development_result");
+            assertThat(event.path("payload").path("message").asText()).isEqualTo("Which implementation?");
+        });
+
+        Path worktree = tasks.get(TaskId.valueOf(taskId)).worktree();
+        String unchangedHead = run("git", "-C", worktree.toString(), "rev-parse", "HEAD");
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        startTurn(taskId, "Use the first implementation", "answer-question");
+        awaitCondition(() -> {
+            JsonNode current = get(taskPath).getBody();
+            return current.path("mutationClaim").isNull() && !current.required("developmentContinuationUnfinished").asBoolean();
+        });
+        assertThat(run("git", "-C", worktree.toString(), "rev-parse", "HEAD")).isEqualTo(unchangedHead);
+        assertThat(get(taskPath).getBody().required("state").asText()).isEqualTo("OPEN");
+        assertThat(get(queuePath).getBody()).singleElement().satisfies(input -> assertThat(input.path("state").asText()).isEqualTo("PAUSED"));
+
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        assertThat(post("/agent/tasks/" + taskId + "/queue/resume?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.ACCEPTED);
+        awaitCondition(() -> {
+            JsonNode current = get(taskPath).getBody();
+            return get(queuePath).getBody().isEmpty() && current.path("mutationClaim").isNull()
+                    && !current.required("developmentContinuationUnfinished").asBoolean();
+        });
+        assertThat(post("/agent/tasks/" + taskId + "/queue/resume?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=100").getBody())
+                .filteredOn(event -> event.path("type").asText().equals("user_message")
+                        && event.path("payload").path("text").asText().equals("Previously queued work"))
+                .hasSize(1);
+    }
+
+    @Test
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {
@@ -1118,7 +1192,8 @@ class TestAgentHttpApi
                 workspaceId,
                 "Agent HTTP test",
                 AgentLaneId.CODEX_CLI,
-                new AgentTaskDefaults(Optional.of("test-model"), Optional.of("high"), AgentPermissionPolicy.AUTO),
+                new AgentTaskDefaults(Optional.of("test-model"), Optional.of("high"), AgentPermissionPolicy.AUTO)
+                        .withDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY),
                 idempotencyKey);
         TaskResources existingResources = resources.require(taskId);
         long runtimeEntries = entryCount(existingResources.runtimeDirectory());
@@ -1228,7 +1303,8 @@ class TestAgentHttpApi
                 "defaults", ImmutableMap.of(
                         "model", model,
                         "effort", "high",
-                        "permissionPolicy", "AUTO"));
+                        "permissionPolicy", "AUTO",
+                        "developmentAutomation", ImmutableMap.of("autoCommit", false, "autoDraftPr", false, "autoCiFix", false)));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

@@ -36,7 +36,7 @@ verification are still pending, even where reusable infrastructure exists.
 ## Checkpoint overview
 
 - [x] CP1 — Settings, root readiness reporting, and question presentation.
-- [ ] CP2 — Live coordinator, admission, and failure foundation.
+- [x] CP2 — Live coordinator, admission, and failure foundation.
 - [ ] CP3 — Verified commit and draft-PR follow-ups.
 - [ ] CP4 — Existing CI integration, child ownership, and deletion.
 - [ ] CP5 — Green gate, source synchronization, promotion, and final checks.
@@ -114,62 +114,92 @@ Starting points: `DefaultAgentTurnService`, existing queue/task admission,
 `DefaultAgentCompletionService`, `AgentStartupRecovery`, and a small
 `DevelopmentFollowupCoordinator` implementation in `app`.
 
-- [ ] Add a live terminal-outcome notification, including failure. Advance only
+- [x] Add a live terminal-outcome notification, including failure. Advance only
   after success and verified provider/descendant shutdown. Cleanup uncertainty
   must fail the continuation without releasing an unproven writer.
-- [ ] Reserve one in-memory task owner under the existing task lock before
-  normal queue dispatch. Do no long Git/provider work while holding that lock.
-  Send, queue start, Complete, and manual attachment must respect admission.
-- [ ] Run the canonical algorithm as one asynchronous continuation. Internal
-  generated turns carry trusted origin/ownership metadata and resolve its wait;
-  they cannot recursively launch another coordinator.
-- [ ] Carry the original accepted settings and branch/repository/base scope
-  into follow-ups, including the selected supported CI provider. Verify that
-  later task-default edits cannot change a generated turn's model, permission,
-  or automation selection. Check CI readiness at attachment, without fallback.
-- [ ] Exclude CI, cherry-pick, review-owned tasks, helpers, and child agents.
+- [x] Reserve one in-memory task owner under the existing task lock before
+  normal queue dispatch. Keep coordinator Git inspection and continuation waits
+  outside that lock; reuse the existing serialized provider-launch path.
+  Send, queue start, and Complete must respect admission. Manual CI attachment
+  shares branch ownership in CP4, where published PR identity is available.
+- [x] Run the readiness/queue/ownership gate as one asynchronous continuation.
+  Internal generated turns carry trusted origin/ownership metadata and resolve
+  its wait; they cannot recursively launch another coordinator. Commit and
+  publication dispatch from that function is implemented in CP3.
+- [x] Carry the original accepted settings and immutable task-worktree scope
+  into follow-ups, including repository, branch, starting commit, and selected
+  CI provider. Verify that later task-default edits cannot change a generated
+  turn's model, permission, or automation selection. PR base/push routing is
+  captured with the accepted Git baseline in CP3; CI readiness at attachment
+  is checked in CP4 without fallback.
+- [x] Exclude CI, cherry-pick, review-owned tasks, helpers, and child agents.
   Replay, page load, terminal retry, and duplicate callbacks must not dispatch
   follow-ups; reuse existing request identifiers where applicable.
-- [ ] Check readiness before every automatic mutation. On a question, release
+- [x] Check readiness before every automatic mutation. On a question, release
   stopped execution ownership, clear the unfinished marker, and wait normally.
   Pause previously queued instructions rather than treating them as an answer.
-- [ ] Start answers as ordinary user turns. Their fresh report can release the
+- [x] Start answers as ordinary user turns. Their fresh report can release the
   hold without additional file edits; inspect earlier pending work again.
-- [ ] When preaccepted user work takes precedence, atomically hand admission
+- [x] When preaccepted user work takes precedence, atomically hand admission
   to its FIFO turn and end this continuation. Do not retain an owner that
   prevents the queued turn being awaited from starting.
-- [ ] Add only the task-level unfinished-continuation marker needed to detect
+- [x] Add only the task-level unfinished-continuation marker needed to detect
   lost execution, with existing failure text. Set before dispatch; clear on
   settlement or normal input wait. Store no phase, next action, or resume point.
-- [ ] On backend restart, fail lost continuations before serving new work.
+- [x] On backend restart, fail lost continuations before serving new work.
   On stop/failure, revoke authority and stop writers; reuse existing process
   cleanup and task failure handling. Expose no delivery resume/retry action.
 
 Acceptance checks:
 
-- [ ] Verify completed-but-questioning turns never advance with either dirty
+- [x] Verify completed-but-questioning turns never advance with either dirty
   files or commits, and an explicit answered turn can deliver unchanged pending work.
-- [ ] Verify pending approvals, missing reports, provider failure, and cleanup
+- [x] Verify pending approvals, missing reports, provider failure, and cleanup
   failure cannot start follow-ups. Waiting for an answer is not task failure.
-- [ ] Verify `stopAfter` only narrows the accepted next action; no report can
+- [x] Verify `stopAfter` only narrows the accepted next action; no report can
   enable a disabled setting or expand the original authorization.
-- [ ] Verify simultaneous Send, queue, and Complete; atomic FIFO handoff;
+- [x] Verify simultaneous Send, queue, and Complete; atomic FIFO handoff;
   duplicate terminal notifications; and generated-turn non-recursion.
-- [ ] Verify a renderer reload leaves the backend continuation running, while
+- [x] Verify a renderer reload leaves the backend continuation running, while
   backend loss fails it without replay. A settled question remains answerable.
 
 Exit: the backend owns progression exactly once, user input wins over Git
 facts, and lost execution cannot restart the delivery chain.
 
-Evidence: Pending.
+Evidence:
+
+- `mvn verify` passed across all backend modules: 1,627 tests, no failures,
+  errors, or skipped cases, including Checkstyle and the application build.
+- After adding the disabled-setting regression, `mvn -pl agent-core -am
+  -Dtest=TestDefaultAgentTurnService -Dsurefire.failIfNoSpecifiedTests=false
+  test` passed all 93 turn-service tests. No production code changed after
+  the full verification run.
+- Core and app regressions cover completion/read ordering, trusted generated
+  settings, narrowing, FIFO launch failure, question/answer gating, cleanup
+  failure, cancellation races, shutdown, and failure after backend loss.
+  Relevant tests: `TestDefaultAgentTurnService`, `TestAgentRuntimeRegistry`,
+  `TestDefaultAgentCompletionService`, `TestDevelopmentFollowupCoordinator`,
+  `TestAgentStartupRecovery`, and `TestAgentHttpApi`.
+- `TestSqliteAgentStores` verifies unfinished-marker and generated-origin
+  persistence. The new non-null marker also has a false schema default;
+  adding it to an existing populated SQLite table preserves existing tasks.
+- `npm run lint`, `npx tsc --noEmit`, and `npm test` passed; 755 frontend tests
+  passed in 64 files. The Chromium bridge test covers reload, blocked Send and
+  Complete, Stop automation, and marker release through lifecycle refresh.
+- `npm run package` produced the macOS arm64 package with the verified backend
+  jar. No live-model or GitHub-write smoke was performed.
+- Canonical design claims match this foundation. `git diff --check` and all
+  49 relative documentation-link checks passed. Commit/publication dispatch,
+  exact remote routing, and CI ownership remain explicit later checkpoints.
 
 ## CP3 — Commit and draft publication
 
 Starting points: coordinator, existing Git/worktree and GitHub services, and
 the manual draft-PR prompt and turn rendering in `AgentTaskScreen`.
 
-- [ ] Capture the accepted user turn's starting Git facts. Inspect actual
-  ownership, branch/HEAD, staged/unstaged/untracked files, open Git operations,
+- [ ] Capture the accepted user turn's starting Git facts and exact target
+  PR base/push routing before any delivery write. Inspect actual ownership,
+  branch/HEAD, staged/unstaged/untracked files, open Git operations,
   deliverable commits/diff, remote ref, and exact matching PR.
 - [ ] Compare against the turn baseline and observed published revision.
   Distinguish an unchanged read-only turn from earlier work explicitly released
@@ -220,7 +250,8 @@ Starting points: `DefaultCiAutofixService`, CI/rebase monitor jobs,
 
 - [ ] Start or reuse existing CI Autofix for the verified PR/head. Preserve
   current eligibility: open authored same-repository PR and a ready CI-capable
-  provider. Show the draft and reason when CI is unsupported or unavailable.
+  provider. Recheck the accepted CI provider's readiness without fallback at
+  attachment. Show the draft and reason when CI is unsupported or unavailable.
 - [ ] Preserve three repair attempts, three reruns per unchanged head, and
   the eight-hour window beginning at continuation activation. Follow-ups never
   renew it; an unchanged request cannot restart an exhausted run.
@@ -318,11 +349,11 @@ Evidence: Pending.
 
 ## Evidence and remaining work
 
-The settings/readiness foundation is implemented and its required build and
-verification gates pass. The automatic coordinator, publication, and CI chain
-are not enabled. Follow-up-specific scope, inheritance, question gating, and
-`stopAfter` enforcement remain in CP2–CP5 beside their callers. These checks
-are not satisfied by reporting-tool or presentation tests. CP2 is next.
+CP1 and CP2 are verified. The live coordinator, admission, stop/failure,
+and trusted generated-turn foundation are implemented.
+The automatic commit/publication and CI chain remain pending in CP3–CP5.
+Concrete PR base/push routing and manual CI branch attachment are checked beside
+those callers, rather than claiming integration before publication exists.
 Replace each Pending evidence entry with focused commands/results and relevant
 test or artifact paths when verified. Record an unresolved blocker beside its
 unchecked item; do not add a runtime recovery design to this tracker.

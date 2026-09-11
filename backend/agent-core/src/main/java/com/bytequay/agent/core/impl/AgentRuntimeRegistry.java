@@ -14,13 +14,21 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.DevelopmentTurnCompletion;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.RunningTurn;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -42,6 +50,84 @@ public final class AgentRuntimeRegistry
     private final Striped<Lock> taskLocks = Striped.lock(64);
     private final Striped<Lock> steerLocks = Striped.lock(64);
     private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, DevelopmentOwner> developmentOwners = new ConcurrentHashMap<>();
+    private final Set<TaskId> stoppedDevelopmentTasks = ConcurrentHashMap.newKeySet();
+    private volatile boolean closing;
+
+    boolean closing()
+    {
+        return closing;
+    }
+
+    void stopDevelopment(TaskId taskId)
+    {
+        stoppedDevelopmentTasks.add(taskId);
+    }
+
+    boolean developmentStopped(TaskId taskId)
+    {
+        return stoppedDevelopmentTasks.contains(taskId);
+    }
+
+    public boolean hasDevelopmentOwner(TaskId taskId)
+    {
+        return developmentOwners.containsKey(requireNonNull(taskId, "taskId is null"));
+    }
+
+    public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
+    {
+        DevelopmentOwner owner = developmentOwners.get(requireNonNull(taskId, "taskId is null"));
+        return owner != null && owner.sourceTurnId().equals(requireNonNull(sourceTurnId, "sourceTurnId is null"));
+    }
+
+    void reserveDevelopmentOwner(TaskId taskId, TurnId sourceTurnId)
+    {
+        if (closing) {
+            throw new AgentConflictException("Backend is shutting down");
+        }
+        DevelopmentOwner owner = new DevelopmentOwner(sourceTurnId, new EnumMap<>(DevelopmentTurnOrigin.Kind.class));
+        if (developmentOwners.putIfAbsent(taskId, owner) != null) {
+            throw new AgentConflictException("Task already has a development continuation: " + taskId);
+        }
+        if (closing) {
+            developmentOwners.remove(taskId, owner);
+            throw new AgentConflictException("Backend is shutting down");
+        }
+    }
+
+    Optional<CompletableFuture<DevelopmentTurnCompletion>> developmentTurn(TaskId taskId, DevelopmentTurnOrigin origin)
+    {
+        DevelopmentOwner owner = developmentOwners.get(taskId);
+        return owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId())
+                ? Optional.empty()
+                : Optional.ofNullable(owner.turns().get(origin.kind()));
+    }
+
+    CompletableFuture<DevelopmentTurnCompletion> registerDevelopmentTurn(TaskId taskId, DevelopmentTurnOrigin origin)
+    {
+        synchronized (taskLock(taskId)) {
+            DevelopmentOwner owner = developmentOwners.get(taskId);
+            if (closing || owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId())) {
+                throw new AgentConflictException("Development continuation is no longer active: " + taskId);
+            }
+            return owner.turns().computeIfAbsent(origin.kind(), ignored -> new CompletableFuture<>());
+        }
+    }
+
+    List<CompletableFuture<DevelopmentTurnCompletion>> releaseDevelopmentOwner(TaskId taskId, TurnId sourceTurnId)
+    {
+        DevelopmentOwner owner = developmentOwners.get(taskId);
+        if (owner == null || !owner.sourceTurnId().equals(sourceTurnId)) {
+            return ImmutableList.of();
+        }
+        developmentOwners.remove(taskId, owner);
+        return ImmutableList.copyOf(owner.turns().values());
+    }
+
+    Optional<TurnId> developmentOwner(TaskId taskId)
+    {
+        return Optional.ofNullable(developmentOwners.get(taskId)).map(DevelopmentOwner::sourceTurnId);
+    }
 
     Object taskLock(TaskId taskId)
     {
@@ -69,7 +155,16 @@ public final class AgentRuntimeRegistry
         AgentSession existing = sessions.putIfAbsent(taskId, session);
         if (existing != null) {
             session.close();
+            if (closing) {
+                throw new AgentConflictException("Backend is shutting down");
+            }
             return existing;
+        }
+        // Registration may race the shutdown iterator. Keep the session tracked until its
+        // process is verified stopped, including when this late close fails.
+        if (closing) {
+            closeSession(taskId);
+            throw new AgentConflictException("Backend is shutting down");
         }
         return session;
     }
@@ -117,6 +212,14 @@ public final class AgentRuntimeRegistry
     @Override
     public void close()
     {
+        closing = true;
+        for (TaskId taskId : developmentOwners.keySet()) {
+            List<CompletableFuture<DevelopmentTurnCompletion>> pending;
+            synchronized (taskLock(taskId)) {
+                pending = developmentOwner(taskId).map(owner -> releaseDevelopmentOwner(taskId, owner)).orElseGet(ImmutableList::of);
+            }
+            pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Backend shut down during development automation")));
+        }
         RuntimeException firstFailure = null;
         for (TaskId taskId : sessions.keySet()) {
             try {
@@ -156,4 +259,6 @@ public final class AgentRuntimeRegistry
         requireNonNull(runningTurn, "runningTurn is null");
         runningTurns.remove(turnId, runningTurn);
     }
+
+    private record DevelopmentOwner(TurnId sourceTurnId, Map<DevelopmentTurnOrigin.Kind, CompletableFuture<DevelopmentTurnCompletion>> turns) {}
 }

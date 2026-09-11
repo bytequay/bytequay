@@ -65,7 +65,7 @@ describe('agent event contract', () => {
     expect(parsed.type === 'assistant_message' && parsed.payload.messageKind).toBe('COMMENTARY');
   });
 
-  it.each(['QUEUE_CHANGED', 'QUEUED_INPUT_STARTED', 'QUEUED_INPUT_PAUSED'])('accepts the queued-input lifecycle signal %s', (phase) => {
+  it.each(['QUEUE_CHANGED', 'QUEUED_INPUT_STARTED', 'QUEUED_INPUT_PAUSED', 'DEVELOPMENT_AUTOMATION_UPDATED'])('accepts the task-update lifecycle signal %s', (phase) => {
     const acknowledged = structuredClone(fixture.events[1]);
     acknowledged.sequence = 1;
     acknowledged.payload.phase = phase;

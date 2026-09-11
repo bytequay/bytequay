@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
@@ -98,6 +99,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
+import static com.bytequay.agent.core.AgentEventSource.root;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -559,6 +561,30 @@ class TestSqliteAgentStores
             assertThat(restored.withVersion(restored.version() + 1).developmentResult()).contains(question);
         });
         assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings);
+    }
+
+    @Test
+    void persistsDevelopmentResultsWithoutAnEnumCheckConstraint()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentEventOutboxEntry lifecycle = pendingLifecycle(
+                EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
+        AgentEventOutboxEntry development = AgentEventOutboxEntry.pendingInline(
+                EventId.random(), task.id(), Optional.empty(), root(),
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS)), now);
+
+        outboxStore.insert(lifecycle);
+        outboxStore.insert(development);
+        entityManager.clear();
+
+        assertThat(outboxStore.find(lifecycle.eventId())).contains(lifecycle);
+        assertThat(outboxStore.find(development.eventId())).contains(development);
+        assertThat(jdbc.queryForObject("SELECT payload_kind FROM agent_event_outbox WHERE event_id = ?", String.class, development.eventId().toString()))
+                .isEqualTo("DEVELOPMENT_RESULT");
+        assertThat(jdbc.queryForObject("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'agent_event_outbox'", String.class))
+                .doesNotContainPattern("(?i)check\\s*\\([^)]*\\bpayload_kind\\b");
     }
 
     @Test

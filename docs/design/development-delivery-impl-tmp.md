@@ -752,3 +752,38 @@ Merged-main verification passed:
 
 These checks verify the merged implementation and local native contract. A
 live model repairing a real GitHub PR remains separately unverified.
+
+
+## Existing development database event constraint
+
+- [x] Reproduce the rejected `DEVELOPMENT_RESULT` against the existing SQLite
+  schema; the old outbox CHECK list lacks this event kind.
+- [x] Store the extensible outbox discriminator as text with enum validation
+  at the domain boundary, preventing Hibernate from creating a fixed list.
+- [x] Add a SQLite regression for old/new event round-trips and the generated
+  schema. Existing core tests retain atomic readiness/outbox failure checks.
+- [x] Validate a one-time repair on a full database copy, then apply it under
+  an immediate writer transaction with a consistent backup. All 762 outbox
+  rows, IDs, sequences, and indexes were preserved; integrity/FK checks and a
+  rolled-back development-result insert passed. No task/receipt was rewritten.
+- [ ] Integrate and verify the final fix on main, including desktop packaging.
+
+Hibernate `ddl-auto=update` did not expand the old CHECK. Previous fresh-database
+integration tests therefore passed while the retained development database
+rejected the new readiness event. The mapping fix alone cannot update an
+existing CHECK, so the operational repair remains separate from product code;
+no migration framework or automatic reset was added.
+
+The affected task already committed `ac14761d084ad358451b6d1104721c0e99a6f8a3`
+and has a clean worktree. Its storage failure closed the native provider before
+finished-work proof could be recorded. The launch receipt preserves a missing
+descendant observation and `workFinished:false`. This old claim cannot be
+cleared by ignoring the receipt or observing absent PIDs; the existing verified
+OS-restart recovery remains the safe path. No automatic PR publication or
+resumption of the interrupted turn was attempted.
+
+The runtime database backup is
+`~/Library/Application Support/ByteQuay/database-backup-development-result/bytequay-1.0.db`.
+Copied-database proof is in `/private/tmp/bytequay-event-kind-proof-m2u9u0i0`.
+The outbox content hash before and after is
+`b46a4d0c122b1a32edb8d88abe54b5fc3cb3f86a3fbce4bfc1f5a04ceb4936a9`.

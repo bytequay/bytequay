@@ -3752,6 +3752,15 @@ directly to App Server or localhost.
 
 ### 10.1 SQLite
 
+The event outbox stores its extensible payload discriminator as text, converting
+through `AgentEventPayload.Kind` at the domain boundary. Do not map that column
+with `@Enumerated`: Hibernate generates a closed SQLite `CHECK` list and
+`ddl-auto=update` does not expand it when new event kinds are added. A fresh
+schema must round-trip development results without a payload-kind enum check.
+An already-created stale constraint needs an explicit data-preserving local
+repair; changing the mapping alone does not rewrite that table. This does not
+introduce a shipped migration framework or automatic development-data reset.
+
 `agent_task` stores:
 
 - task ID, owning workspace ID, title, lane ID, repository identity, canonical

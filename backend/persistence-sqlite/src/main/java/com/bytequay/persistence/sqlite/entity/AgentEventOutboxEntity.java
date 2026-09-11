@@ -25,8 +25,6 @@ import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -59,9 +57,9 @@ public class AgentEventOutboxEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     private String sourceJson;
 
+    // Hibernate schema update cannot expand an existing SQLite enum CHECK when an event kind is added.
     @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private AgentEventPayload.Kind payloadKind;
+    private String payloadKind;
 
     @Column(nullable = false)
     private boolean blobBacked;
@@ -84,7 +82,7 @@ public class AgentEventOutboxEntity
         entity.taskId = entry.taskId().toString();
         entity.turnId = entry.turnId().map(TurnId::toString).orElse(null);
         entity.sourceJson = AgentEventOutboxJson.encodeSource(entry.source());
-        entity.payloadKind = entry.payload().kind();
+        entity.payloadKind = entry.payload().kind().name();
         entity.blobBacked = entry.payload() instanceof AgentEventOutboxPayload.UserMessageBlob;
         entity.payloadJson = AgentEventOutboxJson.encodePayload(entry.payload());
         checkEventBound(entry.payload(), entity.sourceJson, entity.payloadJson);
@@ -126,7 +124,7 @@ public class AgentEventOutboxEntity
                 TaskId.valueOf(taskId),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 AgentEventOutboxJson.decodeSource(sourceJson),
-                AgentEventOutboxJson.decodePayload(payloadKind, blobBacked, payloadJson),
+                AgentEventOutboxJson.decodePayload(AgentEventPayload.Kind.valueOf(payloadKind), blobBacked, payloadJson),
                 occurredAt,
                 Optional.ofNullable(eventSequence));
     }

@@ -326,6 +326,27 @@ public class GitHubPullRequestWriteClient
                 .toBodilessEntity());
     }
 
+    public void updateIssueComment(String pat, PullRequestRef pr, long commentId, String body)
+    {
+        translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("body", body),
+                "/repos/{owner}/{repo}/issues/comments/{commentId}", pr.owner(), pr.repo(), commentId)
+                .toBodilessEntity());
+    }
+
+    public void updateReviewComment(String pat, PullRequestRef pr, long commentId, String body)
+    {
+        translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("body", body),
+                "/repos/{owner}/{repo}/pulls/comments/{commentId}", pr.owner(), pr.repo(), commentId)
+                .toBodilessEntity());
+    }
+
+    public void updateReviewBody(String pat, PullRequestRef pr, long reviewId, String body)
+    {
+        translating(() -> send(gitHubRestClient, HttpMethod.PUT, pat, ImmutableMap.of("body", body),
+                "/repos/{owner}/{repo}/pulls/{number}/reviews/{reviewId}", pr.owner(), pr.repo(), pr.number(), reviewId)
+                .toBodilessEntity());
+    }
+
     public void setReviewThreadResolved(String pat, String threadId, boolean resolved)
     {
         String mutation = resolved

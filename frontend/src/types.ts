@@ -205,6 +205,7 @@ export type PullRequestDetailRefreshDto =
     };
 
 export type PullReactionTarget = 'pull_request' | 'issue_comment' | 'review_comment';
+export type PullCommentTarget = 'issue_comment' | 'review_comment' | 'review';
 export type PullReactionContent = '+1' | '-1' | 'laugh' | 'hooray' | 'confused' | 'heart' | 'rocket' | 'eyes';
 export type PullReactionDto = {
   content: PullReactionContent;
@@ -1338,6 +1339,7 @@ export type Bridge = {
     content: PullReactionContent,
     viewerHasReacted: boolean | null,
   ) => Promise<{ viewerHasReacted: boolean }>;
+  editPrComment: (repo: string, number: number, target: PullCommentTarget, commentId: number, body: string) => Promise<PullRequestDetailDto>;
   closePr: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;

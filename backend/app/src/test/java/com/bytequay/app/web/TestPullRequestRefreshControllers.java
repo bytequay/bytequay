@@ -227,6 +227,38 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void forwardsCommentEditsAndRejectsAMissingCommentIdBeforeTheService()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
+        when(pullRequests.editComment("owner/repo", 7, "review_comment", 41L, "Edited")).thenReturn(detail());
+        var mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+
+        mvc.perform(patch("/prs/comments")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"target":"review_comment","commentId":41,"body":"Edited"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.number").value(7));
+        mvc.perform(patch("/prs/comments")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"target":"review_comment","body":"Edited"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("commentId is required"));
+
+        verify(pullRequests).editComment("owner/repo", 7, "review_comment", 41L, "Edited");
+        verifyNoMoreInteractions(pullRequests);
+    }
+
+    @Test
     void returnsTheDetailProducedByCommentWrites()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);

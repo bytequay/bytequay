@@ -226,6 +226,8 @@ public class PullRequestController
 
     public record ReactionResponse(boolean viewerHasReacted) {}
 
+    public record CommentEditRequest(String target, Long commentId, String body) {}
+
     @PatchMapping("/prs/description")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void updateDescription(
@@ -263,6 +265,16 @@ public class PullRequestController
             @RequestBody CommentRequest request)
     {
         return pullRequests.commentOnPullRequest(repo, number, request.body());
+    }
+
+    @PatchMapping("/prs/comments")
+    public PullRequestDetail editComment(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody CommentEditRequest request)
+    {
+        checkArgument(request.commentId() != null, "commentId is required");
+        return pullRequests.editComment(repo, number, request.target(), request.commentId(), request.body());
     }
 
     @PostMapping("/prs/reactions")

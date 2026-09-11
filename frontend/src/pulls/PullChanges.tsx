@@ -158,7 +158,7 @@ export function DiffViewer({
   agentReview,
   loadFileContent,
 }: DiffViewerProps) {
-  const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length));
+  const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length || reviewThreads));
   const [treeOpen, setTreeOpen] = useState(false);
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
@@ -333,6 +333,7 @@ export function DiffViewer({
           ))}
           {reviewThreads && <UnplacedReviewThreads
             reviewThreads={reviewThreads}
+            viewerLogin={viewer?.login}
             activities={reviewThreads.activities.filter(activity => activity.eventType === 'review_thread'
               && !files.some(file => file.filename === activity.payload.path))}
             label="Review comments on files outside this diff"
@@ -1026,7 +1027,7 @@ function DiffFileCard({
         ))}
         {reviewThreads && rowThreads.map(activity => (
           <tr className={`is-review-thread is-${displayRow.kind}`} key={`thread:${activity.githubId}`}><td colSpan={3}>
-            <ReviewThread {...reviewThreads} activity={activity} showCode={false} />
+            <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewer?.login} showCode={false} />
           </td></tr>
         ))}
         {review && rowComments.map((comment, index) => (
@@ -1204,6 +1205,7 @@ function DiffFileCard({
       )}
       {open && reviewThreads && <UnplacedReviewThreads
         reviewThreads={reviewThreads}
+        viewerLogin={viewer?.login}
         activities={fileThreads.filter(activity => !placedThreads.has(activity))}
         label={fullDiff ? 'Review comments outside the visible lines' : 'Review comments on the full pull request'}
       />}
@@ -1211,15 +1213,16 @@ function DiffFileCard({
   );
 }
 
-function UnplacedReviewThreads({ reviewThreads, activities, label }: {
+function UnplacedReviewThreads({ reviewThreads, viewerLogin, activities, label }: {
   reviewThreads: ReviewThreads;
+  viewerLogin?: string;
   activities: PullRequestDetailDto['recentActivity'];
   label: string;
 }) {
   if (activities.length === 0) return null;
   return <section className="pull-diff-threads" aria-label={label}>
     <p>{label}</p>
-    {activities.map(activity => <ReviewThread {...reviewThreads} activity={activity} key={activity.githubId} />)}
+    {activities.map(activity => <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewerLogin} key={activity.githubId} />)}
   </section>;
 }
 

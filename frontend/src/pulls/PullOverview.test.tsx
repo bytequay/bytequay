@@ -16,7 +16,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, displayedMetadataPickerOptions, groupTimelineActivities, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
@@ -641,6 +641,56 @@ describe('PullOverview', () => {
     expect(html).toContain('<div class="md-suggestion__header">Suggested change</div>');
     expect(html).toContain('<span>−</span>        .<mark>collect(toImmutableSet()</mark>)</td>');
     expect(html).toContain('<span>+</span>        .<mark>distinct(</mark>)</td>');
+  });
+
+  it('matches a comment author to the signed-in viewer case-insensitively', () => {
+    expect(isViewerComment('Bob', 'bob')).toBe(true);
+    expect(isViewerComment('bob', 'carol')).toBe(false);
+    expect(isViewerComment(null, 'bob')).toBe(false);
+    expect(isViewerComment('bob', undefined)).toBe(false);
+    expect(isViewerComment('', '')).toBe(false);
+  });
+
+  it('offers Edit only on the viewer\'s own review comments', () => {
+    const comment = (githubId: number, actor: string): PullTimelinePayloadDto['comments'][number] => ({
+      githubId, actor, actorAvatarUrl: null, actorBot: false, timestamp: '2026-08-20T09:35:00Z',
+      body: `Comment by ${actor}`, htmlUrl: null, reviewId: 9, inReplyToId: githubId === 99 ? null : 99, reactions: [],
+    });
+    const html = renderToStaticMarkup(<ReviewThread pr={pullRequest()} showCode={false} viewerLogin="Bob"
+      onRefresh={async () => {}} onDetailUpdate={() => {}} activity={{
+        actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+        payload: { ...emptyPayload, path: 'src/Example.java', side: 'RIGHT', line: 12, comments: [comment(99, 'bob'), comment(100, 'carol')] },
+      }} />);
+    const [own, other] = html.split('class="pr-thread-comment"').slice(1);
+
+    expect(own).toContain('>Edit</button>');
+    expect(other).toContain('Comment by carol');
+    expect(other).not.toContain('>Edit</button>');
+  });
+
+  it('keeps the description edit label and offers no comment edit before the viewer is known', () => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'alice', eventType: 'commented', timestamp: '2026-08-20T09:40:00Z', body: 'Looks good', githubId: 71,
+      payload: emptyPayload,
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('>Edit description</button>');
+    expect(html).not.toContain('>Edit</button>');
+  });
+
+  it('enables a comment update only for a non-blank change beyond line endings', () => {
+    expect(canUpdateComment('First\nSecond', 'First\r\nSecond')).toBe(false);
+    expect(canUpdateComment('First\nThird', 'First\r\nSecond')).toBe(true);
+    expect(canUpdateComment('  \n', 'First')).toBe(false);
+
+    const html = renderToStaticMarkup(<CommentEditor pr={pullRequest()} target="review_comment" commentId={99}
+      body="First draft" draft="First draft" onDraftChange={() => {}} onDetailUpdate={() => {}} onClose={() => {}} />);
+
+    expect(html).toContain('aria-label="Edit comment" rows="4">First draft</textarea>');
+    expect(html).toContain('<button class="is-primary" type="button" disabled="">Update comment</button>');
   });
 
   it('parses the markdown blocks used by GitHub descriptions', () => {

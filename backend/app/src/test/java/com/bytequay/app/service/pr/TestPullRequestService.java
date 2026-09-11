@@ -45,13 +45,16 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -67,10 +70,12 @@ import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -84,6 +89,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -1102,6 +1108,84 @@ class TestPullRequestService
         assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "commit", 41L, "heart", null))
                 .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(writes);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"issue_comment, COMMENT, comment:41", "review_comment, COMMENT, review-comment:41", "review, REVIEW_BODY, review:41"})
+    void editsACommentOnGitHubBeforePatchingOnlyThatTargetsCachedCopy(String target, RecentTextKind kind, String textKey)
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        // Every cached copy shares id 41, so a patch that ignored the target type would change another body too.
+        StoredPrDetail expected = switch (target) {
+            case "issue_comment" -> editableDetail("edited", "old reply", "old review");
+            case "review_comment" -> editableDetail("old comment", "edited", "old review");
+            default -> editableDetail("old comment", "old reply", "edited");
+        };
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(editableDetail("old comment", "old reply", "old review")));
+
+        PullRequestDetail detail = service.editComment("owner/repo", 7, " " + target.toUpperCase(Locale.ROOT) + " ", 41L, "edited");
+
+        var order = inOrder(writes, detailStore);
+        switch (target) {
+            case "issue_comment" -> order.verify(writes).updateIssueComment("pat", ref, 41L, "edited");
+            case "review_comment" -> order.verify(writes).updateReviewComment("pat", ref, 41L, "edited");
+            default -> order.verify(writes).updateReviewBody("pat", ref, 41L, "edited");
+        }
+        order.verify(detailStore).save(12L, expected);
+        assertThat(detail).isEqualTo(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, expected, true));
+        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(recent).wroteOnPullRequest("owner/repo", 7, kind, textKey, "edited");
+        verifyNoMoreInteractions(writes);
+        verifyNoInteractions(gitHub, diffStore);
+    }
+
+    @Test
+    void failedCommentEditLeavesTheCachedDetailAndRecentUntouched()
+    {
+        ResponseStatusException failure = new ResponseStatusException(HttpStatus.FORBIDDEN, "Must be the comment author");
+        doThrow(failure).when(writes).updateReviewComment("pat", PullRequestRef.of("owner", "repo", 7), 41L, "edited");
+
+        assertThatThrownBy(() -> service.editComment("owner/repo", 7, "review_comment", 41L, "edited")).isSameAs(failure);
+
+        verifyNoInteractions(store, detailStore, diffStore, recent);
+    }
+
+    @Test
+    void rejectsInvalidCommentEditsBeforeWriting()
+    {
+        for (ThrowingCallable edit : ImmutableList.<ThrowingCallable>of(
+                () -> service.editComment("owner/repo", 7, null, 41L, "edited"),
+                () -> service.editComment("owner/repo", 7, "pull_request", 41L, "edited"),
+                () -> service.editComment("owner/repo", 7, "issue_comment", 0L, "edited"),
+                () -> service.editComment("owner/repo", 7, "review", -1L, "edited"),
+                () -> service.editComment("owner/repo", 7, "review_comment", 41L, " "),
+                () -> service.editComment("owner/repo", 7, "review_comment", 41L, null))) {
+            assertThatThrownBy(edit).isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+        verifyNoInteractions(credentialService, writes, store, detailStore, recent);
+    }
+
+    private static StoredPrDetail editableDetail(String commentBody, String replyBody, String reviewBody)
+    {
+        PrTimelinePayload thread = PrTimelinePayload.builder()
+                .path("a.txt")
+                .line(4)
+                .side("RIGHT")
+                .comments(ImmutableList.of(
+                        new PrTimelineComment(40L, "me", null, false, REVIEWED_AT, "root", null, 41L, null, ImmutableList.of()),
+                        new PrTimelineComment(41L, "me", null, false, REVIEWED_AT, replyBody, null, 41L, 40L, ImmutableList.of())))
+                .build();
+        return new StoredPrDetail(
+                raw(),
+                ImmutableList.of(new PrReviewState("alice", "APPROVED"), review(41L, "COMMENTED", reviewBody)),
+                ImmutableList.of(
+                        new PrTimelineEvent(41L, "commented", "me", REVIEWED_AT, commentBody, Optional.empty()),
+                        new PrTimelineEvent(41L, "reviewed", "me", REVIEWED_AT, reviewBody, PrTimelinePayload.builder().state("COMMENTED").build(), Optional.empty()),
+                        new PrTimelineEvent(40L, "review_thread", "me", REVIEWED_AT, null, thread, Optional.empty())),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                true);
     }
 
     @Test

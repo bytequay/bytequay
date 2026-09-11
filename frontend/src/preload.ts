@@ -76,6 +76,8 @@ const bridge: Bridge = {
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
   setPrReaction: (repo, number, target, commentId, content, viewerHasReacted) =>
     ipcRenderer.invoke('prs:reaction:set', repo, number, target, commentId, content, viewerHasReacted),
+  editPrComment: (repo, number, target, commentId, body) =>
+    ipcRenderer.invoke('prs:comment:edit', repo, number, target, commentId, body),
   closePr: (repo, number) => ipcRenderer.invoke('prs:close', repo, number),
   replyToReviewComment: (repo, number, commentId, body) =>
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),

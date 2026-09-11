@@ -964,6 +964,7 @@
 .pr-thread-reply__actions button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #24292f; padding: 6px 11px; }
 .pr-thread-reply__actions button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
 .pr-thread-reply__actions button:disabled { opacity: 0.45; }
+.pr-comment-editor { padding: 10px 16px 14px; }
 .pull-diff-review footer button.pr-better-words,
 .pr-thread-reply__actions button.pr-better-words,
 .pr-composer > footer button.pr-better-words {

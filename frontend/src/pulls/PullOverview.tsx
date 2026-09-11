@@ -20,6 +20,7 @@ import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
 import type {
   Bridge,
+  PullCommentTarget,
   PullReactionContent,
   PullReactionDto,
   PullReactionTarget,
@@ -82,7 +83,7 @@ export type PullDetailUpdater = (
   update: (detail: PullRequestDetailDto) => PullRequestDetailDto,
 ) => void;
 
-/** The signed-in account, for review composers and local pending comments. */
+/** The signed-in account, for review composers, local pending comments, and editing your own comments. */
 export function useViewer(enabled: boolean): UserProfileDto | null {
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
   useEffect(() => {
@@ -96,6 +97,10 @@ export function useViewer(enabled: boolean): UserProfileDto | null {
   return viewer;
 }
 
+export function isViewerComment(actor: string | null | undefined, viewerLogin: string | null | undefined) {
+  return Boolean(actor && viewerLogin && actor.toLowerCase() === viewerLogin.toLowerCase());
+}
+
 export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
@@ -105,6 +110,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
   onDetailChange?: (detail: PullRequestDetailDto) => void;
 }) {
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
+  const viewerLogin = useViewer(true)?.login;
   const [repoOwner, repoName = ''] = detail.repo.split('/');
   const title = detail.title ?? pr.title;
   const state = detail.state ?? pr.state;
@@ -165,7 +171,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
           // activity without changing the timeline's own layout.
           <div className="pr-timeline__slot" key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
             id={activities[0].githubId === null ? undefined : `pr-activity-${activities[0].githubId}`}>
-            <TimelineItem activities={activities}
+            <TimelineItem activities={activities} viewerLogin={viewerLogin}
               pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
@@ -656,6 +662,7 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
           link: detail.htmlUrl ?? fallbackUrl,
           markdown: body,
           onQuote: () => onQuote(body),
+          editLabel: 'Edit description',
           onEdit: canEdit ? () => {
             setDraft(body);
             setEditBase(body);
@@ -695,8 +702,9 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
   );
 }
 
-function TimelineItem({ activities, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
+function TimelineItem({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
+  viewerLogin?: string;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -705,15 +713,15 @@ function TimelineItem({ activities, pr, workspaceId, onRefresh, onDetailUpdate, 
 }) {
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
-    return <ReviewGroup activities={activities} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
+    return <ReviewGroup activities={activities} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
       onDetailUpdate={onDetailUpdate} />;
   }
   if (activity.eventType === 'review_thread') {
-    return <ReviewThread activity={activity} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
+    return <ReviewThread activity={activity} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
       onDetailUpdate={onDetailUpdate} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
-    return <CommentCard activity={activity} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
+    return <CommentCard activity={activity} viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
   return <CompactEvent activities={activities} />;
@@ -795,8 +803,9 @@ function CommitEvent({ activity }: { activity: Activity }) {
   );
 }
 
-function CommentCard({ activity, pr, onDetailUpdate, onQuote }: {
+function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
   activity: Activity;
+  viewerLogin?: string;
   pr: PullRequestDto;
   onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
@@ -804,6 +813,9 @@ function CommentCard({ activity, pr, onDetailUpdate, onQuote }: {
   const state = activity.payload.state?.toUpperCase();
   const actor = displayActor(activity.actor || 'github');
   const body = activity.body?.trim() ? activity.body : null;
+  const [editDraft, setEditDraft] = useState<string | null>(null);
+  const commentId = activity.githubId;
+  const canEdit = body !== null && commentId !== null && isViewerComment(activity.actor, viewerLogin);
   const reaction = useReactionAction(
     pr.repo,
     pr.number,
@@ -826,6 +838,7 @@ function CommentCard({ activity, pr, onDetailUpdate, onQuote }: {
         link: activity.payload.htmlUrl ?? pr.htmlUrl,
         markdown: body,
         onQuote: () => onQuote(body),
+        onEdit: canEdit ? () => setEditDraft(body) : undefined,
       } : undefined}
     />
   );
@@ -835,14 +848,18 @@ function CommentCard({ activity, pr, onDetailUpdate, onQuote }: {
   return (
     <article className="pr-card pr-comment-card">
       {header}
-      <MarkdownBody body={body} repository={pr.repo} />
+      {editDraft !== null && commentId !== null
+        ? <CommentEditor pr={pr} target={activity.eventType === 'reviewed' ? 'review' : 'issue_comment'} commentId={commentId}
+          body={body} draft={editDraft} onDraftChange={setEditDraft} onDetailUpdate={onDetailUpdate} onClose={() => setEditDraft(null)} />
+        : <MarkdownBody body={body} repository={pr.repo} />}
       <Reactions reactions={reaction?.reactions ?? activity.payload.reactions} reaction={reaction} />
     </article>
   );
 }
 
-function ReviewGroup({ activities, pr, workspaceId, onRefresh, onDetailUpdate }: {
+function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate }: {
   activities: Activity[];
+  viewerLogin?: string;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -863,7 +880,7 @@ function ReviewGroup({ activities, pr, workspaceId, onRefresh, onDetailUpdate }:
       </div>
       {activities.slice(1).map(thread => (
         <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread}
-          pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
+          viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
       ))}
     </section>
   );
@@ -891,8 +908,9 @@ export function updateReviewThreadResolution(
   };
 }
 
-export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
+export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
   activity: Activity;
+  viewerLogin?: string;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -906,6 +924,8 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
+  // Held here rather than in ThreadComment: resolving re-parents the comments, which remounts them.
+  const [edit, setEdit] = useState<{ commentId: number; draft: string } | null>(null);
   const [error, setError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resolutionInFlight = useRef(false);
@@ -1026,7 +1046,8 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
         </summary>
         <div className="pr-thread-row__comments">
           {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
-            pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+            viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
+            key={comment.githubId ?? comment.timestamp} />)}
           {controls}
         </div>
       </details>
@@ -1041,20 +1062,27 @@ export function ReviewThread({ activity, pr, workspaceId, onRefresh, onDetailUpd
       </summary>
       {commentedLine && <CommentedCodeLine line={commentedLine} />}
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
-        pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} key={comment.githubId ?? comment.timestamp} />)}
+        viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
+        key={comment.githubId ?? comment.timestamp} />)}
       {controls}
     </details>
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, suggestion, pr, onDetailUpdate, onQuote }: {
+function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange }: {
   comment: PullTimelineCommentDto;
   fallbackUrl: string;
   suggestion?: SuggestionBase;
+  viewerLogin?: string;
   pr: PullRequestDto;
   onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
+  edit: { commentId: number; draft: string } | null;
+  onEditChange: (edit: { commentId: number; draft: string } | null) => void;
 }) {
+  const commentId = comment.githubId;
+  const canEdit = Boolean(comment.body) && commentId !== null && isViewerComment(comment.actor, viewerLogin);
+  const editDraft = commentId !== null && edit?.commentId === commentId ? edit.draft : null;
   const reaction = useReactionAction(
     pr.repo,
     pr.number,
@@ -1075,10 +1103,84 @@ function ThreadComment({ comment, fallbackUrl, suggestion, pr, onDetailUpdate, o
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,
           onQuote: () => onQuote(comment.body ?? ''),
+          onEdit: canEdit && commentId !== null ? () => onEditChange({ commentId, draft: comment.body ?? '' }) : undefined,
         }} />}</div>
       </div>
-      {comment.body && <MarkdownBody body={comment.body} repository={pr.repo} suggestion={suggestion} />}
+      {comment.body && (editDraft !== null && commentId !== null
+        ? <CommentEditor pr={pr} target="review_comment" commentId={commentId} body={comment.body} suggestion={suggestion}
+          draft={editDraft} onDraftChange={draft => onEditChange({ commentId, draft })}
+          onDetailUpdate={onDetailUpdate} onClose={() => onEditChange(null)} />
+        : <MarkdownBody body={comment.body} repository={pr.repo} suggestion={suggestion} />)}
       <Reactions reactions={reaction?.reactions ?? comment.reactions} reaction={reaction} />
+    </div>
+  );
+}
+
+/** GitHub stores web-typed comments with CRLF, but a textarea only ever yields LF. */
+export function canUpdateComment(draft: string, body: string) {
+  return draft.trim() !== '' && draft.replaceAll('\r\n', '\n') !== body.replaceAll('\r\n', '\n');
+}
+
+/**
+ * Edits a posted comment in place. The owner seeds `draft` from the body once, when Edit is chosen, so a
+ * refresh that changes the body never clobbers it.
+ */
+export function CommentEditor({ pr, target, commentId, body, draft, suggestion, onDraftChange, onDetailUpdate, onClose }: {
+  pr: PullRequestDto;
+  target: PullCommentTarget;
+  commentId: number;
+  body: string;
+  draft: string;
+  suggestion?: SuggestionBase;
+  onDraftChange: (draft: string) => void;
+  onDetailUpdate: PullDetailUpdater;
+  onClose: () => void;
+}) {
+  const [preview, setPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const canSave = !saving && canUpdateComment(draft, body);
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await window.bridge.editPrComment(pr.repo, pr.number, target, commentId, draft);
+      onDetailUpdate(pr.repo, pr.number, current => mergePullRequestWriteDetail(current, response));
+      onClose();
+    }
+    catch (failure) {
+      setError(`Could not update comment. ${remoteErrorMessage(failure)}`);
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="pr-thread-reply pr-comment-editor">
+      <div className="pr-thread-reply__tabs" role="group" aria-label="Comment editor mode">
+        <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
+          onClick={() => {
+            setPreview(false);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}>Write</button>
+        <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
+          onClick={() => setPreview(true)}>Preview</button>
+      </div>
+      {preview && <MarkdownBody body={draft || 'Nothing to preview.'} repository={pr.repo} suggestion={suggestion} />}
+      <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Edit comment" value={draft} rows={4}
+        onChange={event => onDraftChange(event.target.value)}
+        onKeyDown={event => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            void save();
+          }
+        }} />
+      {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+      <div className="pr-thread-reply__actions">
+        <button type="button" disabled={saving} onClick={onClose}>Cancel</button>
+        <button className="is-primary" type="button" disabled={!canSave}
+          onClick={() => { void save(); }}>{saving ? 'Updating…' : 'Update comment'}</button>
+      </div>
     </div>
   );
 }
@@ -1222,6 +1324,7 @@ type CardActions = {
   link: string;
   markdown: string;
   onQuote: () => void;
+  editLabel?: string;
   onEdit?: () => void;
 };
 
@@ -1281,7 +1384,7 @@ function CardActionsMenu({ actions }: { actions: CardActions }) {
         {actions.onEdit && <button type="button" role="menuitem" onClick={() => {
           actions.onEdit?.();
           setOpen(false);
-        }}><Pencil size={16} strokeWidth={1.4} aria-hidden="true" />Edit description</button>}
+        }}><Pencil size={16} strokeWidth={1.4} aria-hidden="true" />{actions.editLabel ?? 'Edit'}</button>}
         <button type="button" role="menuitem" onClick={() => { void copy(actions.link); }}><Link size={16} strokeWidth={1.4} aria-hidden="true" />Copy link</button>
         <button type="button" role="menuitem" onClick={() => { void copy(actions.markdown); }}><CopyIcon />Copy Markdown</button>
         <button type="button" role="menuitem" onClick={() => { actions.onQuote(); setOpen(false); }}><Quote size={16} strokeWidth={1.4} aria-hidden="true" />Quote reply</button>

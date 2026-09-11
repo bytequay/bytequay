@@ -528,6 +528,38 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void editsIssueCommentsReviewCommentsAndReviewBodies()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(),
+                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"body\":\"Edited comment\"}", true))
+                .andRespond(withSuccess("{\"id\":41}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/comments/42"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"body\":\"Edited inline comment\"}", true))
+                .andRespond(withSuccess("{\"id\":42}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/reviews/501"))
+                .andExpect(method(HttpMethod.PUT))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"body\":\"Edited review\"}", true))
+                .andRespond(withSuccess("{\"id\":501}", MediaType.APPLICATION_JSON));
+
+        PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
+        client.updateIssueComment("pat", pullRequest, 41, "Edited comment");
+        client.updateReviewComment("pat", pullRequest, 42, "Edited inline comment");
+        client.updateReviewBody("pat", pullRequest, 501, "Edited review");
+
+        server.verify();
+    }
+
+    @Test
     void resolvesAndUnresolvesReviewThreadsWithGraphQl()
     {
         RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");

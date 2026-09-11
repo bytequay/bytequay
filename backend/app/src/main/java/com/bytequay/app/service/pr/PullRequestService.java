@@ -36,6 +36,7 @@ import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PrViewState;
@@ -673,6 +674,87 @@ public class PullRequestService
         recent.pullRequestAction(repo, number, RecentReason.COMMENTED, 0);
         recent.wroteOnPullRequest(repo, number, RecentTextKind.COMMENT, "reply:" + commentId, body);
         invalidatePullRequestCaches(repo, number);
+    }
+
+    /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
+    public PullRequestDetail editComment(String repo, int number, String target, long commentId, String body)
+    {
+        requireNotBlank(target, "comment target must not be blank");
+        String normalizedTarget = target.trim().toLowerCase(Locale.ROOT);
+        // The keys the create paths index, so an edit replaces the written text instead of adding a copy.
+        String textKey = switch (normalizedTarget) {
+            case "issue_comment" -> "comment:" + commentId;
+            case "review_comment" -> "review-comment:" + commentId;
+            case "review" -> "review:" + commentId;
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported comment target");
+        };
+        if (commentId <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment edit requires a positive comment id");
+        }
+        requireNotBlank(body, "comment body must not be blank");
+
+        String pat = credentialService.resolveGitHubToken();
+        PullRequestRef ref = parseRef(repo, number);
+        switch (normalizedTarget) {
+            case "issue_comment" -> pullRequestWrites.updateIssueComment(pat, ref, commentId, body);
+            case "review_comment" -> pullRequestWrites.updateReviewComment(pat, ref, commentId, body);
+            case "review" -> pullRequestWrites.updateReviewBody(pat, ref, commentId, body);
+            default -> throw new IllegalStateException("unsupported comment target: " + normalizedTarget);
+        }
+        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+        PullRequestDetail detail = prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, normalizedTarget, commentId, body)))
+                .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId.orElseThrow(), repo, number, stored, stored.viewerCanWrite()))
+                .orElseGet(() -> getPullRequestDetail(repo, number));
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+        recent.wroteOnPullRequest(repo, number, "review".equals(normalizedTarget) ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
+        return detail;
+    }
+
+    /** GitHub ids are unique only within one resource type, so each target patches only its own kind of copy. */
+    private static StoredPrDetail withEditedBody(StoredPrDetail cached, String target, Long commentId, String body)
+    {
+        List<PrReviewState> reviews = cached.reviews().stream()
+                .map(review -> "review".equals(target) && commentId.equals(review.githubId()) ? withBody(review, body) : review)
+                .collect(toImmutableList());
+        List<PrTimelineEvent> timeline = cached.timeline().stream()
+                .map(event -> switch (target) {
+                    case "issue_comment" -> "commented".equals(event.event()) && commentId.equals(event.githubId()) ? withBody(event, body) : event;
+                    case "review" -> "reviewed".equals(event.event()) && commentId.equals(event.githubId()) ? withBody(event, body) : event;
+                    case "review_comment" -> "review_thread".equals(event.event()) ? withThreadCommentBody(event, commentId, body) : event;
+                    default -> throw new IllegalStateException("unsupported comment target: " + target);
+                })
+                .collect(toImmutableList());
+        return new StoredPrDetail(cached.raw(), reviews, timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());
+    }
+
+    private static PrReviewState withBody(PrReviewState review, String body)
+    {
+        return new PrReviewState(
+                review.githubId(), review.login(), review.avatarUrl(), review.bot(), review.state(), review.submittedAt(), body, review.htmlUrl(), review.commitId());
+    }
+
+    private static PrTimelineEvent withBody(PrTimelineEvent event, String body)
+    {
+        return new PrTimelineEvent(event.githubId(), event.event(), event.actor(), event.timestamp(), body, event.payload(), event.localEventKey());
+    }
+
+    private static PrTimelineEvent withThreadCommentBody(PrTimelineEvent thread, Long commentId, String body)
+    {
+        List<PrTimelineComment> comments = thread.payload().comments().stream()
+                .map(comment -> commentId.equals(comment.githubId())
+                        ? new PrTimelineComment(
+                                comment.githubId(), comment.actor(), comment.actorAvatarUrl(), comment.actorBot(), comment.timestamp(),
+                                body, comment.htmlUrl(), comment.reviewId(), comment.inReplyToId(), comment.reactions())
+                        : comment)
+                .collect(toImmutableList());
+        return new PrTimelineEvent(
+                thread.githubId(),
+                thread.event(),
+                thread.actor(),
+                thread.timestamp(),
+                thread.body(),
+                PrTimelinePayload.builder(thread.payload()).comments(comments).build(),
+                thread.localEventKey());
     }
 
     public void setReviewThreadResolved(String repo, int number, long rootCommentId, boolean resolved)

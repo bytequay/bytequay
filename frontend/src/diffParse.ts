@@ -37,7 +37,8 @@ export function parseUnifiedDiff(patch: string | null | undefined): DiffHunk[] {
   let oldLine = 0;
   let newLine = 0;
 
-  for (const line of patch.split('\n')) {
+  // GitHub keeps a CRLF file's CR in its patch; dropping it keeps rows equal to the normalized file content.
+  for (const line of patch.split(/\r?\n/)) {
     const match = HUNK_HEADER.exec(line);
     if (match) {
       current = {

@@ -41,6 +41,14 @@ describe('parseUnifiedDiff', () => {
     });
   });
 
+  it('drops the carriage returns of a CRLF file', () => {
+    expect(parseUnifiedDiff('@@ -1,2 +1,2 @@\r\n keep\r\n-old\r\n+new\r\n')[0].rows.slice(0, 3)).toEqual([
+      { kind: 'context', oldLine: 1, newLine: 1, content: 'keep' },
+      { kind: 'del', oldLine: 2, newLine: null, content: 'old' },
+      { kind: 'add', oldLine: null, newLine: 2, content: 'new' },
+    ]);
+  });
+
   it('ignores missing patches and no-newline markers', () => {
     expect(parseUnifiedDiff(null)).toEqual([]);
     expect(parseUnifiedDiff('')).toEqual([]);

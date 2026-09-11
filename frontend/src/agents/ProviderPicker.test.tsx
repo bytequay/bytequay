@@ -57,4 +57,15 @@ describe('provider picker accessibility', () => {
       .toBeLessThan(source.indexOf('[data-provider-focus="remedy"]'));
     expect(source).toContain('triggerRef.current?.focus()');
   });
+
+  it('shows readiness as a named yes/no icon and the current lane as a filled row', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/agents/ProviderPicker.tsx'), 'utf8');
+    expect(source).toContain('available ? CircleCheck : CircleX');
+    expect(source).toContain("available ? ' is-ok' : ' is-danger'");
+    expect(source).toContain('aria-label={status.label}');
+    expect(source).not.toContain('agt-picker__check');
+
+    const css = readFileSync(resolve(process.cwd(), 'src/css/agents.css'), 'utf8');
+    expect(css).toMatch(/\.agt-provider-picker__card \.agt-picker__row\.is-current \{\s*background: #ddf4ff;/);
+  });
 });

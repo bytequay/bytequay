@@ -13,6 +13,7 @@
  */
 
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { CircleCheck, CircleX } from 'lucide-react';
 import { Chevron } from '../Chevron';
 import { laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
 import type { ModelProviderDto } from '../types';
@@ -94,6 +95,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
           {providers.map((provider) => {
             const available = providerAvailable(provider.readiness);
             const status = providerStatusLabel(provider.readiness, false);
+            const StatusIcon = available ? CircleCheck : CircleX;
             const remedy = providerRemedy(provider.readiness, provider.id);
             return (
               <div className={`agt-provider-picker__row${available ? '' : ' is-unavailable'}`} key={provider.id}>
@@ -109,8 +111,9 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
                   }}
                 >
                   <span>{provider.label || laneLabel(provider.id)}</span>
-                  <span className={`agt-provider-picker__status ${status.tone}`}>{status.label}</span>
-                  {provider.id === selectedId && <span className="agt-picker__check" aria-hidden="true">✓</span>}
+                  <StatusIcon className={`agt-provider-picker__status${available ? ' is-ok' : ' is-danger'}`} size={16} role="img" aria-label={status.label}>
+                    <title>{status.label}</title>
+                  </StatusIcon>
                 </button>
                 {!available && (
                   <div className="agt-provider-picker__remedy">

@@ -623,22 +623,29 @@
   width: 340px;
 }
 
+/* The gap keeps the current row's fill off the divider. */
 .agt-provider-picker__row + .agt-provider-picker__row {
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px solid #eceff2;
 }
 
+.agt-provider-picker__card .agt-picker__row {
+  gap: 10px;
+}
+
+/* Same selected tint as the task list, so it never reads as the gray hover. */
+.agt-provider-picker__card .agt-picker__row.is-current {
+  background: #ddf4ff;
+}
+
 .agt-provider-picker__status {
+  flex: none;
   margin-left: auto;
-  padding-left: 10px;
-  font-size: 10.5px;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .agt-provider-picker__status.is-ok { color: #1a7f37; }
-.agt-provider-picker__status.is-warn { color: #9a6700; }
 .agt-provider-picker__status.is-danger { color: #cf222e; }
-.agt-provider-picker__status.is-neutral { color: #57606a; }
 
 .agt-provider-picker__remedy {
   display: flex;

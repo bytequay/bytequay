@@ -473,7 +473,8 @@ Evidence:
   `TestCiAutofixEndToEnd#fixesTwoFailuresAndCompletesGreen`, proving no interaction
   with the ready/publication write client. Log:
   `/private/tmp/bytequay-cp5-standalone-green.log`.
-- No live-provider or live-PR smoke was run: no target was authorized. GitHub
+- At this checkpoint, no live-provider or live-PR smoke had been run because
+  no target was authorized. GitHub
   responses and provider behavior above are fixtures, and all Git writes use
   disposable local repositories. This is not evidence of a live account run.
 - Canonical delivery, agent, CI, architecture, task UI, and design index now
@@ -662,3 +663,16 @@ Fresh Claude smoke and final integration evidence:
   run after the already recorded Codex development/publication validation.
 - [ ] Integrate the final verified adapter fixes into local main after the
   approval block is resolved. Do not push the divergent remote main history.
+
+
+Final prepared integration:
+
+- Rebased both adapter fixes onto pinned local main `d5a4594e1` without
+  conflicts. Range-diff confirms the heartbeat (`ac5b4a04f`) and approval
+  timeout (`1b458c91c`) patches are unchanged. Main was not updated.
+- Full backend verification passed all 1,833 tests with zero failures,
+  errors, or skips against that integrated tree. Log:
+  `/private/tmp/bytequay-delivery-ready-integration-verify.log`.
+- macOS arm64 packaging passed with the fresh integrated backend JAR. The
+  temporary dependency symlink was removed afterward. Log:
+  `/private/tmp/bytequay-delivery-approval-timeout-package.log`.

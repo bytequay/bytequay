@@ -21,13 +21,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,7 +32,7 @@ import java.util.List;
 @Entity
 @Table(name = "pr_review_draft")
 public class PrReviewDraftEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     private static final TypeReference<List<ReviewDraftItem>> ITEMS = new TypeReference<>() {};
 
@@ -67,9 +63,6 @@ public class PrReviewDraftEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public PrReviewDraftEntity() {}
 
     public static PrReviewDraftEntity fromDomain(ReviewDraft draft)
@@ -94,18 +87,5 @@ public class PrReviewDraftEntity
     public ReviewDraft toDomain()
     {
         return new ReviewDraft(id, repo, number, body, event, AgentReviewJson.decode(itemsJson, ITEMS), version, updatedAt);
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

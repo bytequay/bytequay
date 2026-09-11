@@ -22,13 +22,9 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -36,7 +32,7 @@ import java.util.Optional;
 @Entity
 @Table(name = "agent_review_message", indexes = @Index(name = "idx_agent_review_message_review", columnList = "review_id"))
 public class AgentReviewMessageEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -74,9 +70,6 @@ public class AgentReviewMessageEntity
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
-
-    @Transient
-    private boolean newEntity = true;
 
     public AgentReviewMessageEntity() {}
 
@@ -116,18 +109,5 @@ public class AgentReviewMessageEntity
                 Optional.ofNullable(queuedInputId),
                 version,
                 createdAt);
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

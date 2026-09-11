@@ -24,13 +24,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -38,7 +34,7 @@ import java.util.Optional;
 @Entity
 @Table(name = "agent_input_delivery")
 public class AgentInputDeliveryEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -73,9 +69,6 @@ public class AgentInputDeliveryEntity
     private Instant updatedAt;
 
     private String failure;
-
-    @Transient
-    private boolean newEntity = true;
 
     public AgentInputDeliveryEntity() {}
 
@@ -112,18 +105,5 @@ public class AgentInputDeliveryEntity
                 updatedAt,
                 Optional.ofNullable(failure),
                 version);
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

@@ -25,13 +25,9 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +36,7 @@ import java.util.Optional;
 @Entity
 @Table(name = "agent_review_finding", indexes = @Index(name = "idx_agent_review_finding_review", columnList = "review_id"))
 public class AgentReviewFindingEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     private static final TypeReference<List<ReviewEvidence>> EVIDENCE = new TypeReference<>() {};
 
@@ -99,9 +95,6 @@ public class AgentReviewFindingEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public AgentReviewFindingEntity() {}
 
     public static AgentReviewFindingEntity fromDomain(ReviewFinding finding)
@@ -152,18 +145,5 @@ public class AgentReviewFindingEntity
                 version,
                 createdAt,
                 updatedAt);
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

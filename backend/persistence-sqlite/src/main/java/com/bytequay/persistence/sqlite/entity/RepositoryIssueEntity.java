@@ -22,12 +22,8 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.List;
@@ -37,7 +33,7 @@ import java.util.List;
         name = "repository_issue_rows",
         indexes = @Index(name = "idx_repository_issue_updated", columnList = "repository_id,updated_at"))
 public class RepositoryIssueEntity
-        implements Persistable<Long>
+        extends AssignedIdEntity<Long>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -89,9 +85,6 @@ public class RepositoryIssueEntity
     @Column(name = "sync_marker")
     private String syncMarker;
 
-    @Transient
-    private boolean newEntity = true;
-
     protected RepositoryIssueEntity() {}
 
     public RepositoryIssueEntity(long repositoryId, RepositoryIssue issue, String syncMarker)
@@ -140,11 +133,4 @@ public class RepositoryIssueEntity
         this.labels = ImmutableList.copyOf(labels);
         this.updatedAt = updatedAt;
     }
-
-    @Override
-    public boolean isNew() { return newEntity; }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted() { newEntity = false; }
 }

@@ -33,13 +33,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -50,7 +46,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 @Entity
 @Table(name = "cherry_pick_execution")
 public class CherryPickExecutionEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -170,9 +166,6 @@ public class CherryPickExecutionEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public CherryPickExecutionEntity() {}
 
     public static CherryPickExecutionEntity fromDomain(CherryPickExecution execution)
@@ -283,18 +276,5 @@ public class CherryPickExecutionEntity
             throw new AgentStorageException("Stored cherry-pick physical repository is incomplete: " + id);
         }
         return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

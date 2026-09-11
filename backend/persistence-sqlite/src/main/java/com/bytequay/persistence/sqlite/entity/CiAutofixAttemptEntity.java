@@ -31,12 +31,8 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.List;
@@ -47,7 +43,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 @Entity
 @Table(name = "ci_autofix_attempt")
 public class CiAutofixAttemptEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -116,9 +112,6 @@ public class CiAutofixAttemptEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public CiAutofixAttemptEntity() {}
 
     public static CiAutofixAttemptEntity fromDomain(CiAutofixAttempt attempt)
@@ -179,18 +172,5 @@ public class CiAutofixAttemptEntity
                 Optional.ofNullable(timelineEventKey),
                 createdAt,
                 updatedAt);
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

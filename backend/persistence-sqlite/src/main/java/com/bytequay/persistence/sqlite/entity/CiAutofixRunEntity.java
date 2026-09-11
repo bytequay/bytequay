@@ -38,13 +38,9 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.List;
@@ -55,7 +51,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 @Entity
 @Table(name = "ci_autofix_run", indexes = @Index(name = "idx_ci_autofix_parent_task", columnList = "parent_task_id"))
 public class CiAutofixRunEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -220,9 +216,6 @@ public class CiAutofixRunEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public CiAutofixRunEntity() {}
 
     public static CiAutofixRunEntity fromDomain(CiAutofixRun run)
@@ -250,7 +243,7 @@ public class CiAutofixRunEntity
         headRef = scope.headRef();
         baseRef = scope.baseRef();
         laneId = scope.laneId();
-        if (!newEntity) {
+        if (!isNew()) {
             checkArgument(Optional.ofNullable(parentTaskId).equals(scope.parentTaskId()), "CI parent task identity changed");
         }
         parentTaskId = scope.parentTaskId().orElse(null);
@@ -407,18 +400,5 @@ public class CiAutofixRunEntity
                         rerunPreviousAttempt,
                         rerunStartedAt,
                         Optional.ofNullable(rerunObservedAttempt)));
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

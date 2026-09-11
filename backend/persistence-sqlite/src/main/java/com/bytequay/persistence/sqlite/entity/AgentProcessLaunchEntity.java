@@ -22,18 +22,14 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 
 @Entity
 @Table(name = "agent_process_launch")
 public class AgentProcessLaunchEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     private String id;
@@ -57,9 +53,6 @@ public class AgentProcessLaunchEntity
     @Column(name = "updated_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
-
-    @Transient
-    private boolean newEntity = true;
 
     public AgentProcessLaunchEntity() {}
 
@@ -98,18 +91,5 @@ public class AgentProcessLaunchEntity
     public String getId()
     {
         return id;
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostPersist
-    @PostLoad
-    void markPersisted()
-    {
-        newEntity = false;
     }
 }

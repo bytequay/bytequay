@@ -24,11 +24,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
-import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -36,7 +32,7 @@ import java.util.Optional;
 @Entity
 @Table(name = "agent_approval")
 public class AgentApprovalEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     private String id;
@@ -68,9 +64,6 @@ public class AgentApprovalEntity
 
     @Enumerated(EnumType.STRING)
     private AgentEventPayload.ApprovalOutcome outcome;
-
-    @Transient
-    private boolean newEntity = true;
 
     public AgentApprovalEntity() {}
 
@@ -112,18 +105,5 @@ public class AgentApprovalEntity
     public String getId()
     {
         return id;
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

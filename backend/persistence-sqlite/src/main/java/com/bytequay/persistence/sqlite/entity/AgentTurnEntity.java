@@ -40,13 +40,9 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -56,7 +52,7 @@ import java.util.Optional;
 @Entity
 @Table(name = "agent_turn")
 public class AgentTurnEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -172,9 +168,6 @@ public class AgentTurnEntity
     @Column(name = "codegraph_failures")
     private Long codegraphFailures;
 
-    @Transient
-    private boolean newEntity = true;
-
     public AgentTurnEntity() {}
 
     public static AgentTurnEntity fromDomain(AgentTurn turn)
@@ -274,19 +267,6 @@ public class AgentTurnEntity
             throw new AgentStorageException("Stored generated turn origin is incomplete: " + id);
         }
         return Optional.of(new DevelopmentTurnOrigin(developmentOriginKind, TurnId.valueOf(parentUserTurnId)));
-    }
-
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 
     private ToolCounters counters()

@@ -29,13 +29,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PostLoad;
-import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
-import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import lombok.Getter;
-import org.springframework.data.domain.Persistable;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -46,7 +42,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 @Entity
 @Table(name = "branch_rebase")
 public class BranchRebaseEntity
-        implements Persistable<String>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
@@ -133,9 +129,6 @@ public class BranchRebaseEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant terminalAt;
 
-    @Transient
-    private boolean newEntity = true;
-
     public BranchRebaseEntity() {}
 
     public static BranchRebaseEntity fromDomain(BranchRebase rebase)
@@ -202,12 +195,6 @@ public class BranchRebaseEntity
                 Optional.ofNullable(terminalAt));
     }
 
-    @Override
-    public boolean isNew()
-    {
-        return newEntity;
-    }
-
     private void writeJournal(Optional<ActionJournal> journal)
     {
         actionType = journal.map(ActionJournal::type).orElse(null);
@@ -230,12 +217,5 @@ public class BranchRebaseEntity
                 actionAttempt,
                 actionIdempotencyKey,
                 actionStartedAt));
-    }
-
-    @PostLoad
-    @PostPersist
-    private void markPersisted()
-    {
-        newEntity = false;
     }
 }

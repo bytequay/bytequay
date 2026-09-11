@@ -594,7 +594,8 @@ Separate Claude development evidence:
 
 - [x] Correct native Claude heartbeat correlation with strict unknown-work
   handling and verify it.
-- [ ] Rerun the separate Claude live smoke with the corrected adapter.
+- [x] Rerun the separate Claude live smoke with the corrected adapter and
+  record the publication boundary; full live CI repair remains unverified.
 
 
 Heartbeat verification:
@@ -611,3 +612,53 @@ Heartbeat verification:
 
 - Updated macOS arm64 packaging passed. Log:
   `/private/tmp/bytequay-delivery-heartbeat-package.log`.
+
+
+Fresh Claude smoke and final integration evidence:
+
+- Claude `opus` committed exactly the two fixture files as
+  `268a96813d4f672c058877cbb889298f9c82eb09`, with a clean worktree. Its
+  initial turn completed with a typed ready report. ByteQuay automatically
+  started a `CREATE_DRAFT_PR` turn without another user message.
+- Dependency installation was excluded from this run. Local tests remained
+  unavailable. The native harness blocked the requested foreground delay;
+  no workaround was attempted. This run therefore does not independently
+  exercise a long-running native heartbeat; the supervisor regressions above
+  provide that verification.
+- The generated publication turn verified the exact branch/head, clean tree,
+  GitHub authentication, and absence of a remote branch or existing PR.
+  Automatic approval review rejected allowing its push, citing insufficient
+  explicit authorization for the external publication. The push did not run.
+  Native Claude observed an approval timeout and returned
+  `readyForDelivery:false`, withholding PR creation after the uncertain tool
+  result. Independent GitHub reads confirmed no remote branch or PR.
+- Both turns ended `COMPLETED`; runtime stop succeeded and the isolated
+  backend exited. The local commit and receipts remain in
+  `/private/tmp/bytequay-delivery-live-claude-20260911-c`. No historical proof
+  or delivery result was rewritten. Full live repair, repush, synchronization,
+  and ready promotion remain unverified.
+- Live approvals also exposed a timing mismatch: native Claude's MCP calls
+  timed out after one minute while ByteQuay's approval window was five minutes.
+  A late UI approval could be accepted after the native caller had left.
+  The generated MCP server config now sets a supported 330-second timeout,
+  allowing the existing 300-second approval wait plus a response margin.
+  The regression checks that the serialized native deadline exceeds the
+  actual approval wait. All seven focused broker tests passed. Early native
+  cancellation can still leave a card until its deadline or turn termination;
+  no new cancellation or workflow state mechanism was introduced.
+  Full backend verification also passed all 1,833 tests. Log:
+  `/private/tmp/bytequay-delivery-approval-timeout-verify.log`.
+- The heartbeat patch rebased unchanged onto concurrent local main
+  `0036fb93b`, producing `5eac087b1`. Full `mvn verify` passed all 1,833 tests
+  with zero failures, errors, or skips. Log:
+  `/private/tmp/bytequay-delivery-final-integration.log`.
+- Automatic approval review rejected the subsequent local-main fast-forward,
+  citing insufficient explicit authorization in the delegated context. Main's
+  unrelated pending SQLite edits were preserved. The earlier delivery,
+  inherited-scope, and completed-failure fixes are already integrated; the
+  heartbeat and subsequent approval-timeout fixes still need integration.
+
+- [ ] Obtain publication approval and complete a live Claude repair-to-ready
+  run after the already recorded Codex development/publication validation.
+- [ ] Integrate the final verified adapter fixes into local main after the
+  approval block is resolved. Do not push the divergent remote main history.

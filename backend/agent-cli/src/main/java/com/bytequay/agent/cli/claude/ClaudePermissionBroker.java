@@ -175,12 +175,14 @@ public final class ClaudePermissionBroker
                 development));
         try {
             Files.createDirectories(providerDirectory);
+            // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
                     "bytequay",
                     new McpServer(
                             "http",
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
-                            ImmutableMap.of("Authorization", "Bearer " + token)))));
+                            ImmutableMap.of("Authorization", "Bearer " + token),
+                            APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath()));
             return new Registration(configFile, settingsFile, token, codeGraph, review, development);
@@ -818,7 +820,7 @@ public final class ClaudePermissionBroker
         }
     }
 
-    private record McpServer(String type, String url, Map<String, String> headers)
+    private record McpServer(String type, String url, Map<String, String> headers, long timeout)
     {
         private McpServer
         {

@@ -32,6 +32,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -202,6 +203,7 @@ class TestClaudePermissionBroker
                 objectMapper,
                 (taskId, query) -> "memory");
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        AtomicReference<Duration> approvalTimeout = new AtomicReference<>();
         ClaudePermissionBroker.Registration registration = broker.register(
                 "task-1",
                 temporaryDirectory,
@@ -210,6 +212,7 @@ class TestClaudePermissionBroker
                 AgentPermissionPolicy.AUTO,
                 (request, timeout) -> {
                     approval.set(request);
+                    approvalTimeout.set(timeout);
                     return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
                 },
                 SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
@@ -246,6 +249,10 @@ class TestClaudePermissionBroker
         assertThat(permission.get("behavior").asText()).isEqualTo("allow");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
         assertThat(approval.get().detail()).contains("[REDACTED]").doesNotContain("known-secret");
+        assertThat(approvalTimeout.get()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(config.at("/mcpServers/bytequay/timeout").asLong())
+                .isGreaterThan(approvalTimeout.get().toMillis())
+                .isLessThanOrEqualTo(approvalTimeout.get().plusSeconds(30).toMillis());
 
         assertThat(broker.handle("wrong", objectMapper.createObjectNode()).status()).isEqualTo(401);
         registration.close();

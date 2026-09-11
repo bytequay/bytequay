@@ -3470,6 +3470,12 @@ task's provider directory and points `--permission-prompt-tool` at a
 returns allow or deny to Claude. The task-scoped MCP endpoint uses an ephemeral
 capability token stored in the owner-only config file. ByteQuay does not pass
 the token on the command line.
+The ByteQuay MCP server's native `timeout` is five minutes plus a 30-second
+response margin, keeping Claude's HTTP and tool-call deadlines longer than the
+five-minute approval window. Otherwise Claude abandons the request after one
+minute while its approval card remains actionable. Native request cancellation
+is not yet propagated to an individual approval; turn termination and the
+approval deadline still deny pending requests.
 
 The attended `AUTO` policy runs `--permission-mode manual`. Its generated
 sandbox keeps `autoAllowBashIfSandboxed: true`, so ordinary sandboxed commands

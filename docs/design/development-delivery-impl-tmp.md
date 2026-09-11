@@ -3,8 +3,8 @@
 Approved behavior is defined in [Development task delivery](development-delivery.md).
 This is a temporary implementation tracker, not a second design. Checkpoints
 organize engineering work; they are not runtime phases or persisted states.
-Implementation is in progress. An unchecked box means its behavior and
-verification are still pending, even where reusable infrastructure exists.
+All five checkpoints are implemented and locally verified. Evidence distinguishes
+fixture coverage from live-provider/live-GitHub testing, which was not requested.
 
 ## Scope and working rules
 
@@ -39,7 +39,7 @@ verification are still pending, even where reusable infrastructure exists.
 - [x] CP2 — Live coordinator, admission, and failure foundation.
 - [x] CP3 — Verified commit and draft-PR follow-ups.
 - [x] CP4 — Existing CI integration, child ownership, and deletion.
-- [ ] CP5 — Green gate, source synchronization, promotion, and final checks.
+- [x] CP5 — Green gate, source synchronization, promotion, and final checks.
 
 Complete these in order. Focused tests and UI accompany each checkpoint.
 CP5 is the release gate for the complete default-on behavior.
@@ -377,68 +377,124 @@ Evidence:
 Starting points: `CiHeadSnapshot`, GitHub checks/status and ready-for-review
 integration, coordinator, managed Git operations, and task result rendering.
 
-- [ ] Correct the shared green predicate: passing observed jobs cannot hide
+- [x] Correct the shared green predicate: passing observed jobs cannot hide
   pending workflows with no jobs. Require completed, nonempty relevant CI evidence.
-- [ ] Before promotion, verify required checks/statuses, current PR/head/base,
+- [x] Before promotion, verify required checks/statuses, current PR/head/base,
   and accepted scope. Missing or unknown evidence waits. Report unsupported
   external-check failures and workflows that cannot run while draft.
-- [ ] Keep ready promotion owned by the development coordinator, never a
+- [x] Keep ready promotion owned by the development coordinator, never a
   generic CI-green callback. Honor Auto CI fix and narrowed `stopAfter` intent;
   leave-draft requests retain draft status even after CI repairs succeed.
-- [ ] Add ready-for-review mutation with fresh before/after observations.
+- [x] Add ready-for-review mutation with fresh before/after observations.
   External-head races and uncertain responses fail visibly without promotion
   retry or automatic draft-status reversal.
-- [ ] Once CI writers stop, synchronize the source to the exact verified
+- [x] Once CI writers stop, synchronize the source to the exact verified
   published head. Require expected old HEAD, a completely clean worktree, and
   no active Git operation; fetch the exact object and perform the approved
   checked clean-worktree transition. Verify the result; never hard-reset dirt.
-- [ ] Fail source synchronization visibly without private checkpoint refs,
+- [x] Fail source synchronization visibly without private checkpoint refs,
   replay machinery, or automatic repair. Preserve the published CI result.
-- [ ] Finish with actual local/remote/CI facts and retain the open task/worktree
+- [x] Finish with actual local/remote/CI facts and retain the open task/worktree
   for later development. Questions take display precedence; failures show the
   failed action and Delete task and start again, with no Resume delivery control.
 
 Acceptance checks:
 
-- [ ] Regression: a passing workflow plus a queued workflow with no jobs
+- [x] Regression: a passing workflow plus a queued workflow with no jobs
   remains waiting. Cover stale head, pending/failed/missing required checks,
   and unknown or third-party status results.
-- [ ] Verify promotion authorization, leave-draft behavior, head/base races,
+- [x] Verify promotion authorization, leave-draft behavior, head/base races,
   uncertain mutation outcomes, and no promotion from standalone CI success.
-- [ ] Use real Git to verify source synchronization after rewritten CI history,
+- [x] Use real Git to verify source synchronization after rewritten CI history,
   dirty/moved-source refusal, and synchronization failure with remote work retained.
-- [ ] Exercise the complete default-on path: edit → commit → push/draft →
+- [x] Exercise the complete default-on path: edit → commit → push/draft →
   CI failure → repair/push → green → ready, with synchronized open source task.
-- [ ] Exercise question → answer without new edits → pending delivery,
+- [x] Exercise question → answer without new edits → pending delivery,
   questions in generated turns, all toggles off and mixed settings,
   unavailable/exhausted CI, stop, backend restart, and Delete/start-over.
-- [ ] Verify settings, question precedence, generated-turn labels, result
+- [x] Verify settings, question precedence, generated-turn labels, result
   facts, CI busy controls, and renderer reconnect through the actual UI bridge.
-- [ ] Run `mvn verify` in `backend/`.
-- [ ] Run `npm run lint`, `npx tsc --noEmit`, `npm test`, and
+- [x] Run `mvn verify` in `backend/`.
+- [x] Run `npm run lint`, `npx tsc --noEmit`, `npm test`, and
   `npm run package` in `frontend/`.
-- [ ] Record any opt-in real-provider/live-PR smoke separately from fixture
+- [x] Record any opt-in real-provider/live-PR smoke separately from fixture
   evidence, with its exact authorized target. Missing credentials are not a pass.
-- [ ] Update canonical design implementation claims and relevant module/UI
+- [x] Update canonical design implementation claims and relevant module/UI
   contracts to match the final code. Remove superseded intermediate behavior
   and tests rather than retaining compatibility scaffolding.
-- [ ] Run `git diff --check`; review the final diff for unrelated edits,
+- [x] Run `git diff --check`; review the final diff for unrelated edits,
   accidental recovery/state machinery, and unverified completion claims.
 
 Exit: all checkpoints and required checks pass, default-on delivery is concrete
 and observable, and the agreed question/failure boundaries hold end to end.
 
-Evidence: Pending.
+Evidence:
+
+- `mvn verify` passed all seven reactor entries: 1,783 tests, zero failures,
+  errors, or skips. Native process tests ran with process visibility enabled.
+  Log: `/private/tmp/bytequay-cp5-backend-verify.log`.
+- `TestDevelopmentFollowupCoordinator` now has 66 checks covering ordered
+  verification/synchronization/promotion, full-check waiting and expiry,
+  source/generated delivery limits, failures and unknown remote outcomes,
+  user gates, toggle combinations, original authority, and Stop. The reporting
+  tool's exact contract is enforced: `draft` skips CI; `ci` permits repairs and
+  synchronization but never ready promotion.
+- `TestCiHeadSnapshot`, `TestGitHubActionsClient`, and `TestGitHubDeliveryChecks`
+  cover queued/empty workflows, complete and duplicate-page evidence,
+  required contexts/app identity, unknown/third-party results, and conservative
+  test-merge verification. Write-client tests verify one ready mutation,
+  malformed/error responses, and no retry.
+- `TestDevelopmentGitInspector` passed 26 real-Git tests. Source synchronization
+  fetches the exact object and uses checked same-branch checkout with
+  `--no-overwrite-ignore`, disabled hooks, and no submodule recursion. Rewritten
+  history and noncolliding ignored build output are supported; dirt, moved HEAD,
+  ignored-path collision, routing changes, open Git operations, and lost
+  authority refuse the transition without discarding files or remote results.
+- `TestCiAutofixEndToEnd` passed 14 tests with the production coordinator,
+  core services, SQLite, and managed Git. The new default-on journey edits,
+  auto-commits, pushes/creates a draft, repairs CI by amending history, pushes,
+  verifies green, synchronizes the source, and marks ready exactly once. It
+  verifies the child is completed/claim-free before promotion and the source
+  remains OPEN on its generated branch with the exact remote SHA.
+- `TestAgentRuntimeRegistry` proves Stop and shutdown revoke authority before
+  draining an admitted program action, preserve raw owner exclusion until it
+  returns, and do not hold the task lock while waiting.
+- Frontend lint, TypeScript, and all 770 tests in 66 files passed, including
+  11 Chromium bridge scenarios. The completion journey, intentional draft,
+  sync failure with remote references retained, prior question, reconnect,
+  offscreen history, and later-turn stale-progress regression are covered.
+  Bounded progress uses existing lifecycle events and status-only IPC; no new
+  transport shape or stored workflow phase was added.
+  Logs: `/private/tmp/bytequay-cp5-frontend-full.log` and
+  `/private/tmp/bytequay-cp5-frontend-lint.log`.
+- `npm run package` passed for darwin arm64 against the freshly verified
+  backend JAR. Log: `/private/tmp/bytequay-cp5-package.log`.
+- The final standalone CI-green assertion passed separately in
+  `TestCiAutofixEndToEnd#fixesTwoFailuresAndCompletesGreen`, proving no interaction
+  with the ready/publication write client. Log:
+  `/private/tmp/bytequay-cp5-standalone-green.log`.
+- No live-provider or live-PR smoke was run: no target was authorized. GitHub
+  responses and provider behavior above are fixtures, and all Git writes use
+  disposable local repositories. This is not evidence of a live account run.
+- Canonical delivery, agent, CI, architecture, task UI, and design index now
+  describe the implementation. Review corrected narrowed `stopAfter` handling,
+  stale UI progress, and duplicate CI-page evidence. `git diff --check` passes.
+  No overall state service, new migration, delivery journal, checkpoint refs,
+  or restart/resume recovery was added.
+
 
 ## Evidence and remaining work
 
-CP1–CP3 are implemented and verified through backend, frontend, and packaging
-checks.
-The live coordinator now captures accepted Git/routing facts, dispatches bounded
-commit and draft-publication turns, and verifies the actual local/remote result.
-CI integration, shared branch ownership, synchronization, and promotion remain
-pending in CP4–CP5.
-Do not release the full default-on chain before the CP5 release checks pass.
-Replace each Pending evidence entry with focused commands/results and relevant
-test or artifact paths when verified. Record an unresolved blocker beside its
-unchecked item; do not add a runtime recovery design to this tracker.
+CP1–CP5 are implemented and verified by backend, frontend, and packaging checks.
+No required implementation checkpoint remains. The live coordinator now
+owns commit/publication follow-ups, existing CI watch/repair, complete check
+verification, checked source synchronization, and one permitted ready mutation.
+It releases the OPEN source only after final verification. Questions and narrowed
+intent retain their gates; lost backend authority fails instead of restarting.
+
+Known MVP limits are explicit: same-repository/authored PR and provider admission
+still follow CI Autofix. Separate test-merge checks, app-bound legacy statuses,
+required workflow/code-scanning rules, and other unverified requirements never
+imply green; the draft waits with a reason within the original deadline, then
+fails if unresolved. A live account smoke requires its own authorized target.
+The feature branch has not been merged or pushed by this checkpoint.

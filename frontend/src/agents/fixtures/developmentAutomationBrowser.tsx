@@ -19,6 +19,7 @@ import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
+import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -119,7 +120,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function continuationAdmission(): Promise<{ name: string; error?: string }[]> {
@@ -250,10 +251,13 @@ async function observedResultsRefresh(): Promise<{ name: string; error?: string 
     await settle();
     assert(Number(reads) === 2, 'Settled latest turn must refresh exactly once');
     rejectRead = true;
+    const beforePrReads = bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
     task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
     assert(Number(reads) === 3, 'Settled automation marker must trigger one final observation');
+    assert(bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length > beforePrReads,
+      'Final automation settlement without another turn must refresh the task PR list');
     assert(host.textContent?.includes('Could not refresh results. GitHub temporarily unavailable') === true, 'Failed refresh must be visible');
     assert(host.textContent?.includes('Last checked') === true && host.textContent?.includes('1 local commit') === true, 'Failed refresh must retain its dated local observation');
     assert(input.value === 'Keep this draft', 'Fact updates must preserve the composer draft');

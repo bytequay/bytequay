@@ -16,11 +16,21 @@ package com.bytequay.app.ci.e2e;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
@@ -29,6 +39,10 @@ import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubDeliveryChecks;
+import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
@@ -38,6 +52,7 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
@@ -62,19 +77,30 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.MOCK,
@@ -123,6 +149,18 @@ class TestCiAutofixEndToEnd
 
     @Autowired
     private AgentTurnService turns;
+
+    @Autowired
+    private AgentTurnStore turnStore;
+
+    @MockitoBean
+    private GitHubPullRequestReadClient publicationReads;
+
+    @MockitoBean
+    private GitHubPullRequestWriteClient publicationWrites;
+
+    @MockitoBean
+    private GhCliService gh;
 
     @Autowired
     private AgentEventService events;
@@ -183,6 +221,134 @@ class TestCiAutofixEndToEnd
     void tearDown()
     {
         harness.close();
+    }
+
+    @Test
+    void deliversDevelopmentThroughCommitDraftCiRepairAndReadyWithoutCompletingTheSource()
+            throws Exception
+    {
+        CiAutofixE2eHarness.Fixture fixture = harness.createFixture("development-delivery");
+        E2eGitRepository repository = fixture.repository();
+        PullRequestRef pr = repository.pullRequest();
+        RepoRef repo = RepoRef.of(pr.owner(), pr.repo());
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(ScriptedAgentDriver.LANE));
+        AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
+                TaskId.random(), fixture.workspaceId(), ScriptedAgentDriver.LANE, RepositoryIdentity.valueOf(pr.repoFullName()), repository.baseSha(),
+                "Implement the requested change", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation), "development-e2e"));
+        Path sourceWorktree = source.taskWorktree().orElseThrow().canonicalWorktree();
+        String branch = source.taskWorktree().orElseThrow().generatedBranch();
+        AtomicBoolean published = new AtomicBoolean();
+        AtomicBoolean draft = new AtomicBoolean(true);
+        AtomicReference<String> initialPublishedHead = new AtomicReference<>();
+        Supplier<String> remoteHead = () -> E2eGitRepository.git(repository.worktree(), "--git-dir=" + repository.bareRemote(), "rev-parse", "refs/heads/" + branch);
+        Supplier<GitHubPullRequestIdentity> identity = () -> new GitHubPullRequestIdentity(
+                pr, "https://github.com/" + pr.fullName(), repo, branch, remoteHead.get(), repo, E2eGitRepository.BASE_REF,
+                repository.baseSha(), GitHubPullRequestIdentity.State.OPEN, draft.get(), "author");
+        when(gh.findBinary()).thenReturn(Optional.of("/fixture/gh"));
+        when(gh.readCredential()).thenReturn(new GhCliService.CliCredential("test-token", "author"));
+        when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))
+                .thenAnswer(ignored -> published.get() ? ImmutableList.of(identity.get()) : ImmutableList.of());
+        when(publicationReads.fetchPullRequestIdentity("test-token", pr)).thenAnswer(ignored -> identity.get());
+        when(publicationReads.fetchDeliveryChecks("test-token", pr))
+                .thenAnswer(ignored -> new GitHubDeliveryChecks("development-pr-node", identity.get(), ImmutableList.of(), ImmutableList.of()));
+        doAnswer(ignored -> {
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(remoteHead.get());
+            assertThat(E2eGitRepository.git(sourceWorktree, "status", "--porcelain=v1", "--untracked-files=all")).isEmpty();
+            CiAutofixRun run = service.list(100).stream().filter(value -> value.scope().parentTaskId().filter(source.id().toString()::equals).isPresent())
+                    .findFirst().orElseThrow();
+            assertThat(run.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
+            AgentTask child = tasks.get(TaskId.valueOf(run.agentTaskId().orElseThrow()));
+            assertThat(child.state()).isEqualTo(TaskState.COMPLETED);
+            assertThat(child.worktreeMutationClaim()).isEmpty();
+            assertThat(draft.compareAndSet(true, false)).isTrue();
+            return null;
+        }).when(publicationWrites).markReadyForReview("test-token", "development-pr-node");
+        agent.bind(pr);
+        agent.enqueueCompleted(pr, "The requested code change is ready.", worktree -> writeDevelopmentFile(worktree, "implementation\n"),
+                "development-edit", Optional.empty(), Optional.of("development.txt"));
+        agent.enqueueCompleted(pr, "Committed the implementation.", worktree -> {
+            E2eGitRepository.git(worktree, "add", "development.txt");
+            E2eGitRepository.git(worktree, "commit", "-m", "Implement the requested change", "-m", "Add the requested behavior and keep its intent in the commit.");
+        }, "development-commit", Optional.empty(), Optional.empty());
+        agent.enqueueCompleted(pr, "Created the draft pull request.", worktree -> {
+            E2eGitRepository.routedGit(worktree, "push", "origin", "HEAD:refs/heads/" + branch);
+            initialPublishedHead.set(remoteHead.get());
+            harness.scriptTestFailure(fixture, initialPublishedHead.get(), branch);
+            published.set(true);
+        }, "development-draft", Optional.empty(), Optional.empty());
+        agent.enqueueCompleted(pr, "Root cause: the implementation missed the checked case. Repair applied and local check passed.", worktree -> {
+            writeDevelopmentFile(worktree, "implementation\nCI repair\n");
+            E2eGitRepository.git(worktree, "add", "development.txt");
+            E2eGitRepository.git(worktree, "commit", "--amend", "--no-edit");
+        }, "ci-repair", Optional.empty(), Optional.of("development.txt"));
+
+        try {
+            AgentTurn initial = turns.start(new StartAgentTurnCommand(source.id(), "Implement the requested change", ImmutableList.of(), "development-start"));
+            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+            Optional<CiAutofixRun> owned = Optional.empty();
+            boolean suppliedGreen = false;
+            while (System.nanoTime() < deadline) {
+                AgentTask current = tasks.get(source.id());
+                assertThat(current.state()).as("source task: %s", current.terminalReason()).isEqualTo(TaskState.OPEN);
+                owned = service.list(100).stream().filter(run -> run.scope().parentTaskId().filter(source.id().toString()::equals).isPresent()).findFirst();
+                if (owned.isPresent()) {
+                    CiAutofixRun run = owned.orElseThrow();
+                    Optional<String> repaired = run.attempts().isEmpty() ? Optional.empty() : run.attempts().getLast().pushedSha();
+                    if (!suppliedGreen && repaired.isPresent()) {
+                        assertThat(draft).isTrue();
+                        assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(initialPublishedHead.get());
+                        assertThat(repaired.orElseThrow()).isNotEqualTo(initialPublishedHead.get()).isEqualTo(remoteHead.get());
+                        harness.scriptGreenCi(fixture, repaired.orElseThrow(), branch);
+                        suppliedGreen = true;
+                    }
+                    if (run.status() == CiAutofixRun.Status.FINISHED && !current.developmentContinuationUnfinished()) {
+                        break;
+                    }
+                }
+                Thread.sleep(Duration.ofMillis(100));
+            }
+            assertThat(suppliedGreen).as("the owned CI repair must publish a new exact revision").isTrue();
+            CiAutofixRun finished = owned.orElseThrow();
+            assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
+            AgentTask delivered = tasks.get(source.id());
+            assertThat(delivered.state()).isEqualTo(TaskState.OPEN);
+            assertThat(delivered.developmentContinuationUnfinished()).isFalse();
+            assertThat(delivered.worktreeMutationClaim()).isEmpty();
+            assertThat(turns.ownsDevelopmentContinuation(source.id(), initial.id())).isFalse();
+            assertThat(draft).isFalse();
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(finished.expectedRemoteHead()).isEqualTo(remoteHead.get());
+            assertThat(E2eGitRepository.git(sourceWorktree, "branch", "--show-current")).isEqualTo(branch);
+            assertThat(E2eGitRepository.git(sourceWorktree, "rev-list", "--count", repository.baseSha() + "..HEAD")).isEqualTo("1");
+            assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo("implementation\nCI repair\n");
+            assertThat(E2eGitRepository.git(sourceWorktree, "log", "-1", "--format=%B"))
+                    .isEqualTo("Implement the requested change\n\nAdd the requested behavior and keep its intent in the commit.");
+            List<AgentTurn> sourceTurns = turnStore.list(source.id());
+            assertThat(sourceTurns).hasSize(3).allSatisfy(turn -> {
+                assertThat(turn.state()).isEqualTo(TurnState.COMPLETED);
+                assertThat(turn.developmentResult().orElseThrow().readyForDelivery()).isTrue();
+                assertThat(turn.settings().orElseThrow().developmentAutomation()).contains(automation);
+            });
+            assertThat(sourceTurns.getFirst().developmentOrigin()).isEmpty();
+            assertThat(sourceTurns.get(1).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, initial.id()));
+            assertThat(sourceTurns.get(2).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, initial.id()));
+            assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
+                    .containsExactly("development-edit", "development-commit", "development-draft", "ci-repair");
+            verify(publicationWrites).markReadyForReview("test-token", "development-pr-node");
+            verify(publicationReads, atLeast(3)).fetchDeliveryChecks("test-token", pr);
+        }
+        finally {
+            turns.stopRuntime(source.id(), turns.stopImpact(source.id()).generation());
+        }
+    }
+
+    private static void writeDevelopmentFile(Path worktree, String content)
+    {
+        try {
+            Files.writeString(worktree.resolve("development.txt"), content);
+        }
+        catch (IOException failure) {
+            throw new IllegalStateException("Cannot write the development fixture", failure);
+        }
     }
 
     @Test
@@ -381,6 +547,7 @@ class TestCiAutofixEndToEnd
         harness.tick();
         assertThat(harness.run(started.runId()).finalFixupCheck().orElseThrow().checkedAt())
                 .isEqualTo(checkedAt);
+        verifyNoInteractions(publicationWrites);
     }
 
     @Test

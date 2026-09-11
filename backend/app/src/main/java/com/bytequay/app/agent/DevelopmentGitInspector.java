@@ -44,7 +44,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-/** Read-only Git and GitHub evidence for the live development coordinator. */
+/** Git evidence and checked source synchronization for the live development coordinator. */
 public class DevelopmentGitInspector
 {
     private final WorktreeService worktrees;
@@ -144,6 +144,44 @@ public class DevelopmentGitInspector
                 credentials.resolveGitHubToken(worktree.workspaceId()), route.baseRepository(), route.headRepository(), route.headBranch());
         verify(worktree, route);
         return new DevelopmentPublicationFacts(remoteHead, matches);
+    }
+
+    /** Synchronizes a stopped, clean source to the coordinator's verified published CI revision. */
+    public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String publishedHead, Runnable requireAuthority)
+    {
+        requireNonNull(baseline, "baseline is null");
+        requireNonNull(requireAuthority, "requireAuthority is null");
+        requireSha(expectedSourceHead);
+        requireSha(publishedHead);
+        TaskWorktree worktree = baseline.worktree();
+        requireAuthority.run();
+        requireSyncSource(baseline, expectedSourceHead);
+        if (expectedSourceHead.equals(publishedHead)) {
+            return inspectLocal(worktree, baseline.route());
+        }
+        var environment = credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(baseline.route().pushUrl()));
+        requireAuthority.run();
+        Result fetched = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(60), environment,
+                ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--", baseline.route().pushUrl(), publishedHead));
+        checkState(fetched.successful() && !fetched.truncated(), "Source synchronization could not fetch the exact published revision");
+        checkState(output(worktree, "cat-file", "-t", publishedHead).strip().equals("commit"), "Published revision is not a commit");
+        requireSyncSource(baseline, expectedSourceHead);
+        requireAuthority.run();
+        // Unlike reset --keep, this preserves ignored build output and refuses ignored-path collisions.
+        Result updated = git.run(worktree.canonicalWorktree(), "-c", "core.hooksPath=/dev/null", "checkout",
+                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), publishedHead);
+        checkState(updated.successful() && !updated.truncated(), "Source synchronization failed during the worktree update; inspect local files. Remote results remain unchanged");
+        requireSyncSource(baseline, publishedHead);
+        return inspectLocal(worktree, baseline.route());
+    }
+
+    private void requireSyncSource(DevelopmentBaseline baseline, String expectedHead)
+    {
+        WorktreeSnapshot snapshot = verify(baseline.worktree(), baseline.route());
+        checkState(snapshot.head().equals(expectedHead), "Source HEAD changed before synchronization");
+        checkState(!snapshot.gitOperationInProgress(), "Source has an open Git operation");
+        checkState(output(baseline.worktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none").isEmpty(),
+                "Source has staged, unstaged, or untracked changes");
     }
 
     public boolean isAncestor(TaskWorktree worktree, String ancestor, String descendant)

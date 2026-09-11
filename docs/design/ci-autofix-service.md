@@ -42,9 +42,13 @@ the standalone schedulers, including terminal cleanup; standalone CI retains its
 existing behavior and recovery.
 
 The task UI displays CI activity and attempt counts and opens a scoped CI
-conversation panel. A general existing-PR UI entry remains separate. Full green
-verification, source synchronization, and ready promotion remain pending in the
-final delivery checkpoint. Generic CI `GREEN` still does not change draft state.
+conversation panel. A general existing-PR UI entry remains separate. The shared
+`green()` predicate requires every observed workflow to be completed and passing
+with nonempty passing jobs; a queued workflow cannot hide behind another passing
+job. The development coordinator rechecks Actions and required checks/statuses
+after GREEN, synchronizes the source, and owns any permitted ready promotion.
+Generic CI `GREEN` does not change draft state. Unsupported check evidence waits
+or fails visibly as specified in the delivery design.
 
 ## 1. Decision
 

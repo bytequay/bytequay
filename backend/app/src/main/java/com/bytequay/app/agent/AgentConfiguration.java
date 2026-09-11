@@ -62,9 +62,11 @@ import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
+import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.settings.AgentSkillService;
@@ -359,10 +361,11 @@ public class AgentConfiguration
 
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            GhCliService gh, CiAutofixService ci, Clock agentClock)
+            GhCliService gh, CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
+            GitHubPullRequestWriteClient writes, Clock agentClock)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git, gh,
-                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, agentClock, () -> {
+                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, actions, credentials, pullRequests, writes, agentClock, () -> {
                     try {
                         Thread.sleep(Duration.ofSeconds(5));
                     }

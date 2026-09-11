@@ -21,10 +21,17 @@ stop ends this task. Questions disable Resume queue while allowing a normal
 answer after continuation ownership settles. Marker changes refresh the task
 through the existing lifecycle event stream.
 
-The verified commit/push/PR/CI readout, Idle label, generated follow-up labels,
-and CI run controls remain pending. Shared conversation components remain the
-implementation boundary; no new stored workflow stages or Resume delivery
-control are planned.
+The task now uses an Idle runtime label, generated follow-up labels, dated
+Git/remote/PR observations, and CI run controls. The compact result shows Ready
+for review only for an observed open non-draft PR. CI GREEN keeps the source busy
+until full checks and synchronization finish; the final marker refreshes both
+facts and the PR list. Waiting/synchronization/promotion messages use existing
+task-level lifecycle events, with one bounded latest message retained outside
+the loaded transcript. Status-only subscriptions forward those messages while
+coalescing ordinary transcript activity. New user turns cannot revive older
+progress. Questions retain display precedence. Shared conversation components
+remain the implementation boundary; no stored workflow stages or Resume delivery
+control are introduced.
 
 ## Shared conversation presentation
 

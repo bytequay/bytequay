@@ -26,7 +26,9 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.RunningTurn;
@@ -173,7 +175,7 @@ final class ScriptedAgentDriver
                 false,
                 true,
                 false,
-                ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
+                ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("text/plain"));
     }
 
@@ -358,6 +360,13 @@ final class ScriptedAgentDriver
                         Optional.empty()));
             }
             if (!action.waitsForCancellation()) {
+                if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
+                    events.emit(new ProviderAgentEvent.DevelopmentResult(
+                            Optional.of("report-" + command.turnId()), Optional.empty(),
+                            new DevelopmentResultReport(true, Optional.empty(), Optional.empty()),
+                            new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
+                                    Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
+                }
                 events.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.of("finished-" + command.turnId()),
                         Optional.empty(),

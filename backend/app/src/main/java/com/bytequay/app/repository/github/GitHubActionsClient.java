@@ -52,11 +52,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -395,19 +397,32 @@ public class GitHubActionsClient
     private List<CiWorkflowRun> fetchWorkflowRuns(String pat, PullRequestRef pullRequest, String headSha)
     {
         Map<Long, WorkflowRunResponse> latest = new LinkedHashMap<>();
+        Set<String> observedAttempts = new HashSet<>();
         int collected = 0;
+        boolean complete = false;
         for (int page = 1; page <= MAX_PAGES; page++) {
             WorkflowRunsResponse response = fetchWorkflowRunPage(pat, pullRequest, headSha, page);
-            List<WorkflowRunResponse> rows = Optional.ofNullable(response.workflowRuns()).orElse(ImmutableList.of());
+            List<WorkflowRunResponse> rows = response.workflowRuns();
             for (WorkflowRunResponse row : rows) {
-                if (row.id() > 0 && headSha.equals(row.headSha())) {
-                    latest.merge(row.id(), row, GitHubActionsClient::newerRun);
+                if (row == null || row.id() <= 0 || !headSha.equals(row.headSha())) {
+                    throw badGateway("GitHub returned an invalid current-head workflow run");
                 }
+                if (!observedAttempts.add(row.id() + ":" + positiveOrOne(row.runAttempt()))) {
+                    throw badGateway("GitHub returned duplicate workflow attempts during pagination");
+                }
+                latest.merge(row.id(), row, GitHubActionsClient::newerRun);
             }
             collected += rows.size();
-            if (rows.isEmpty() || collected >= response.totalCount()) {
+            if (collected == response.totalCount()) {
+                complete = true;
                 break;
             }
+            if (rows.isEmpty() || collected > response.totalCount()) {
+                throw badGateway("GitHub returned incomplete workflow-run pages");
+            }
+        }
+        if (!complete) {
+            throw badGateway("GitHub workflow runs exceed the complete inspection limit");
         }
         return latest.values().stream()
                 .map(run -> toWorkflowRun(pat, pullRequest, run))
@@ -431,7 +446,10 @@ public class GitHubActionsClient
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(WorkflowRunsResponse.class);
-            return response == null ? new WorkflowRunsResponse(0, ImmutableList.of()) : response;
+            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.workflowRuns() == null) {
+                throw badGateway("GitHub returned incomplete workflow-run evidence");
+            }
+            return response;
         });
     }
 
@@ -461,19 +479,32 @@ public class GitHubActionsClient
             String workflowUrl)
     {
         Map<String, JobResponse> latest = new LinkedHashMap<>();
+        Set<Long> observedJobs = new HashSet<>();
         int collected = 0;
+        boolean complete = false;
         for (int page = 1; page <= MAX_PAGES; page++) {
             JobsResponse response = fetchJobPage(pat, pullRequest, workflowRunId, page);
-            List<JobResponse> rows = Optional.ofNullable(response.jobs()).orElse(ImmutableList.of());
+            List<JobResponse> rows = response.jobs();
             for (JobResponse row : rows) {
-                if (row.id() > 0 && row.name() != null) {
-                    latest.merge(row.name(), row, GitHubActionsClient::newerJob);
+                if (row == null || row.id() <= 0 || row.name() == null) {
+                    throw badGateway("GitHub returned an invalid workflow job");
                 }
+                if (!observedJobs.add(row.id())) {
+                    throw badGateway("GitHub returned duplicate workflow jobs during pagination");
+                }
+                latest.merge(row.name(), row, GitHubActionsClient::newerJob);
             }
             collected += rows.size();
-            if (rows.isEmpty() || collected >= response.totalCount()) {
+            if (collected == response.totalCount()) {
+                complete = true;
                 break;
             }
+            if (rows.isEmpty() || collected > response.totalCount()) {
+                throw badGateway("GitHub returned incomplete workflow-job pages");
+            }
+        }
+        if (!complete) {
+            throw badGateway("GitHub workflow jobs exceed the complete inspection limit");
         }
         return latest.values().stream()
                 .map(job -> toJob(workflowRunId, workflowAttempt, workflowUrl, job))
@@ -497,7 +528,10 @@ public class GitHubActionsClient
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .body(JobsResponse.class);
-            return response == null ? new JobsResponse(0, ImmutableList.of()) : response;
+            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.jobs() == null) {
+                throw badGateway("GitHub returned incomplete workflow-job evidence");
+            }
+            return response;
         });
     }
 
@@ -740,7 +774,7 @@ public class GitHubActionsClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record WorkflowRunsResponse(
-            @JsonProperty("total_count") int totalCount,
+            @JsonProperty("total_count") Integer totalCount,
             @JsonProperty("workflow_runs") List<WorkflowRunResponse> workflowRuns) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -757,7 +791,7 @@ public class GitHubActionsClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record JobsResponse(
-            @JsonProperty("total_count") int totalCount,
+            @JsonProperty("total_count") Integer totalCount,
             List<JobResponse> jobs) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

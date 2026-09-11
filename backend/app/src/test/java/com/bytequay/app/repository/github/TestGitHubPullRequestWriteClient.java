@@ -39,6 +39,55 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubPullRequestWriteClient
 {
     @Test
+    void marksTheExactPullRequestReadyOnce()
+    {
+        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
+        server.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(method(HttpMethod.POST)).andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("""
+                        {"query":"mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}","variables":{"id":"PR_exact"}}
+                        """))
+                .andRespond(withSuccess("{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":false}}}}", MediaType.APPLICATION_JSON));
+
+        client.markReadyForReview("pat", "PR_exact");
+
+        server.verify();
+    }
+
+    @Test
+    void uncertainReadyResponsesAreNeverRetriedOrReversed()
+    {
+        for (String response : ImmutableList.of("{}", "{\"errors\":[{\"message\":\"uncertain\"}]}",
+                "{\"errors\":{},\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":false}}}}",
+                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_other\",\"isDraft\":false}}}}",
+                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\",\"isDraft\":true}}}}",
+                "{\"data\":{\"markPullRequestReadyForReview\":{\"pullRequest\":{\"id\":\"PR_exact\"}}}}")) {
+            RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+            MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
+            GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
+            server.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+            assertThatThrownBy(() -> client.markReadyForReview("pat", "PR_exact"))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageContaining("will not be retried");
+            server.verify();
+        }
+    }
+
+    @Test
+    void readyTransportFailureDoesNotSendASecondMutation()
+    {
+        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(graph).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(RestClient.create("https://api.github.test"), graph.build());
+        server.expect(requestTo("https://api.github.test/graphql")).andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        assertThatThrownBy(() -> client.markReadyForReview("pat", "PR_exact")).isInstanceOf(ResponseStatusException.class);
+        server.verify();
+    }
+
+    @Test
     void closesPullRequest()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

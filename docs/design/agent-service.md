@@ -30,8 +30,18 @@ history, the pushed SHA, and exact PR identity. It then attaches the verified
 PR to existing CI Autofix with the accepted provider and original eight-hour
 window. The same coordinator polls CI; renderer reads and independent schedulers
 do not drive delivery-owned work. Source Send, queue start, and Complete remain
-excluded while its CI child can write. Green verification, source synchronization,
-and draft-to-ready promotion remain the final release checkpoint.
+excluded while its CI child can write. After CI proves child shutdown, the
+coordinator verifies fresh Actions and required-check evidence, synchronizes the
+clean source to the exact published revision, and rechecks before one permitted
+ready mutation. Missing evidence waits within the original CI deadline. A `ci`
+stop limit permits repairs but retains draft status; `draft` prevents CI.
+Successful delivery releases ownership while retaining the OPEN source task.
+
+`executeDevelopmentAction` uses the existing owner monitor for final program
+work. Stop revokes authority before draining that monitor outside the task lock;
+shutdown also drains it before releasing ownership. `reportDevelopmentProgress`
+appends an existing task-level lifecycle event for visible check waiting and
+finalization, without adding a task phase or recovery record.
 
 A question clears the marker and permits a normal answer while earlier queue
 rows remain paused. Stop/failure revokes continuation authority. Backend startup

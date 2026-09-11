@@ -35,8 +35,16 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.ci.CiHeadSnapshot;
+import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiWorkflowRun;
+import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.StartCiAutofixCommand;
+import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -69,9 +77,12 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -87,11 +98,18 @@ class TestDevelopmentFollowupCoordinator
     private final DevelopmentGitInspector git = mock(DevelopmentGitInspector.class);
     private final GhCliService gh = mock(GhCliService.class);
     private final CiAutofixService ci = mock(CiAutofixService.class);
+    private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
+    private final CredentialService credentials = mock(CredentialService.class);
+    private final GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
+    private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
+    private String deliveredHead = HEAD;
+    private boolean promoted;
     private final Clock clock = mock(Clock.class);
     private final Runnable waitForCi = mock(Runnable.class);
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
-    private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(turns, turnStore, git, gh, pending::add, ci, clock, waitForCi);
+    private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
+            turns, turnStore, git, gh, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -112,7 +130,31 @@ class TestDevelopmentFollowupCoordinator
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         when(git.isAncestor(eq(worktree), anyString(), anyString())).thenReturn(true);
         when(gh.findBinary()).thenReturn(Optional.of("/usr/local/bin/gh"));
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenAnswer(ignored -> ciRun().finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
+        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenAnswer(call -> {
+            GitHubPullRequestIdentity published = call.getArgument(3);
+            deliveredHead = published.headSha();
+            return ciRun().finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW);
+        });
+        when(actions.inspect(any())).thenAnswer(ignored -> actionsSnapshot(deliveredHead, false));
+        when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenAnswer(ignored -> checks(pr(deliveredHead, !promoted)));
+        when(pullRequests.fetchPullRequestIdentity(eq("token"), any())).thenAnswer(ignored -> pr(deliveredHead, !promoted));
+        doAnswer(call -> {
+            Runnable action = call.getArgument(2);
+            action.run();
+            return null;
+        }).when(turns).executeDevelopmentAction(any(), any(), any());
+        doAnswer(ignored -> {
+            promoted = true;
+            return null;
+        }).when(writes).markReadyForReview("token", "node-7");
+        when(git.synchronizeSource(any(), anyString(), anyString(), any())).thenAnswer(call -> {
+            String head = call.getArgument(2);
+            Runnable authority = call.getArgument(3);
+            authority.run();
+            when(git.inspectLocal(worktree, route)).thenReturn(local(head, false));
+            return local(head, false);
+        });
     }
 
     @ParameterizedTest
@@ -460,7 +502,8 @@ class TestDevelopmentFollowupCoordinator
     void rejectedExecutorFailsTheContinuation()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
-        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, gh, ignored -> { throw new RejectedExecutionException("stopped"); }, ci, clock, waitForCi);
+        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, gh, ignored -> { throw new RejectedExecutionException("stopped"); },
+                ci, actions, credentials, pullRequests, writes, clock, waitForCi);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -490,7 +533,7 @@ class TestDevelopmentFollowupCoordinator
     {
         preparePublished(FULL);
         CiAutofixRun run = ciRun();
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(run);
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.advance(run.id())).thenReturn(run, run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
         advance();
         var order = inOrder(ci, waitForCi, turns);
@@ -527,9 +570,10 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void leaveDraftLimitStillAllowsCiRepairs()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.of(DevelopmentStopAfter.DRAFT));
+        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.of(DevelopmentStopAfter.CI));
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         advance();
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
         verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
     }
 
@@ -576,7 +620,7 @@ class TestDevelopmentFollowupCoordinator
     {
         preparePublished(FULL);
         CiAutofixRun paused = ciRun().pause(CiAutofixRun.PauseReason.INVALID_GIT_RESULT, "How should this failure be fixed?", NOW);
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(paused);
+        doReturn(paused).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.canMessage(paused)).thenReturn(true);
         when(ci.advance(paused.id())).thenReturn(paused, paused.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
         doAnswer(ignored -> {
@@ -594,7 +638,7 @@ class TestDevelopmentFollowupCoordinator
     {
         preparePublished(FULL);
         CiAutofixRun run = ciRun().pause(CiAutofixRun.PauseReason.TURN_FAILED, "Provider failed", NOW);
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(run);
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.get(run.id())).thenReturn(run);
         advance();
         verify(ci, never()).advance(any());
@@ -607,7 +651,7 @@ class TestDevelopmentFollowupCoordinator
         preparePublished(FULL);
         CiAutofixRun paused = ciRun().pause(CiAutofixRun.PauseReason.INVALID_GIT_RESULT, "Choose a repair", NOW);
         CiAutofixRun resumed = paused.resume(NOW).withVersion(paused.version() + 1);
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(paused);
+        doReturn(paused).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.canMessage(paused)).thenReturn(false);
         when(ci.get(paused.id())).thenReturn(resumed);
         when(ci.advance(paused.id())).thenReturn(resumed.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
@@ -621,7 +665,7 @@ class TestDevelopmentFollowupCoordinator
     void exhaustedCiFailsTheParent()
     {
         preparePublished(FULL);
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(ciRun().finish(CiAutofixRun.FinishReason.MAX_ATTEMPTS, "Three repairs failed", NOW));
+        doReturn(ciRun().finish(CiAutofixRun.FinishReason.MAX_ATTEMPTS, "Three repairs failed", NOW)).when(ci).startDevelopment(any(), any(), any(), any(), any());
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Three repairs failed"));
         verify(turns, never()).finishDevelopmentContinuation(any(), any());
@@ -632,7 +676,7 @@ class TestDevelopmentFollowupCoordinator
     {
         preparePublished(FULL);
         CiAutofixRun run = ciRun();
-        when(ci.startDevelopment(any(), any(), any(), any(), any())).thenReturn(run);
+        doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.advance(run.id())).thenReturn(run);
         doAnswer(ignored -> {
             when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
@@ -644,10 +688,214 @@ class TestDevelopmentFollowupCoordinator
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
+    @Test
+    void greenRepairSynchronizesExactPublishedHeadBeforeReadyAndRelease()
+    {
+        preparePublished(FULL);
+        doAnswer(ignored -> {
+            deliveredHead = NEXT;
+            when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+            return ciRun().finish(CiAutofixRun.FinishReason.GREEN, "Repaired checks passed", NOW);
+        }).when(ci).startDevelopment(any(), any(), any(), any(), any());
+        advance();
+        var ordered = inOrder(pullRequests, git, writes, turns);
+        ordered.verify(pullRequests).fetchDeliveryChecks("token", pr(HEAD, true).pullRequest());
+        ordered.verify(git).synchronizeSource(any(), eq(HEAD), eq(NEXT), any());
+        ordered.verify(pullRequests).fetchDeliveryChecks("token", pr(HEAD, true).pullRequest());
+        ordered.verify(writes).markReadyForReview("token", "node-7");
+        ordered.verify(pullRequests).fetchPullRequestIdentity("token", pr(HEAD, true).pullRequest());
+        ordered.verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void fullCheckGateWaitsForMissingChecksOrNewQueuedWorkflow(boolean missing)
+    {
+        preparePublished(FULL);
+        if (missing) {
+            when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(
+                    new GitHubDeliveryChecks("node-7", pr(HEAD, true), ImmutableList.of("Required check build has not reported"), ImmutableList.of()));
+        }
+        else {
+            when(actions.inspect(any())).thenReturn(actionsSnapshot(HEAD, true));
+        }
+        doAnswer(ignored -> {
+            verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+            verify(writes, never()).markReadyForReview(anyString(), anyString());
+            verify(turns, never()).finishDevelopmentContinuation(any(), any());
+            when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenAnswer(call -> checks(pr(HEAD, !promoted)));
+            when(actions.inspect(any())).thenReturn(actionsSnapshot(HEAD, false));
+            return null;
+        }).when(waitForCi).run();
+        advance();
+        verify(turns).reportDevelopmentProgress(eq(taskId), eq(source.id()), contains("Waiting for PR checks:"));
+        verify(writes).markReadyForReview("token", "node-7");
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void missingChecksExpireWithoutPromotionOrSourceMutation()
+    {
+        preparePublished(FULL);
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(
+                new GitHubDeliveryChecks("node-7", pr(HEAD, true), ImmutableList.of("Required workflow excludes draft PRs"), ImmutableList.of()));
+        doAnswer(ignored -> {
+            when(clock.instant()).thenReturn(NOW.plus(Duration.ofHours(8)));
+            return null;
+        }).when(waitForCi).run();
+        advance();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Required workflow excludes draft PRs"));
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+    }
+
+    @Test
+    void thirdPartyFailureLeavesDraftAndExplainsRequiredAction()
+    {
+        preparePublished(FULL);
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(
+                new GitHubDeliveryChecks("node-7", pr(HEAD, true), ImmutableList.of(), ImmutableList.of("External security check failed")));
+        advance();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("External security check failed"));
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void changedHeadOrBaseCannotUseEarlierGreenEvidence(boolean headChanged)
+    {
+        preparePublished(FULL);
+        GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(pr(HEAD, true).pullRequest(), pr(HEAD, true).url(), route.headRepository(), route.headBranch(),
+                headChanged ? NEXT : HEAD, route.baseRepository(), "main", headChanged ? BASE : NEXT, GitHubPullRequestIdentity.State.OPEN, true, "owner");
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(checks(moved));
+        advance();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("head or base changed"));
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+    }
+
+    @Test
+    void sourceSynchronizationFailureLeavesDraftAndFailsTask()
+    {
+        preparePublished(FULL);
+        doThrow(new IllegalStateException("Source worktree has uncommitted files"))
+                .when(git).synchronizeSource(any(), anyString(), anyString(), any());
+        advance();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Source worktree has uncommitted files"));
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+    }
+
+    @Test
+    void finalChecksRevalidateAfterSynchronization()
+    {
+        preparePublished(FULL);
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(checks(pr(HEAD, true)), checks(pr(NEXT, true)));
+        advance();
+        verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("head or base changed"));
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+    }
+
+    @Test
+    void narrowedGeneratedCiLimitStillSynchronizesButNeverPromotes()
+    {
+        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(
+                publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        generated(CREATE_DRAFT_PR, true, Optional.of(DevelopmentStopAfter.CI));
+        advance();
+        verify(ci).startDevelopment(any(), any(), any(), any(), any());
+        verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void sourceOrGeneratedDraftLimitStopsBeforeCi(boolean sourceLimit)
+    {
+        prepare(local(BASE, false), local(HEAD, false), FULL, true, sourceLimit ? Optional.of(DevelopmentStopAfter.DRAFT) : Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(
+                publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        generated(CREATE_DRAFT_PR, true, sourceLimit ? Optional.empty() : Optional.of(DevelopmentStopAfter.DRAFT));
+        advance();
+        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void existingReadyPrNeedsNoReadyMutation()
+    {
+        preparePublished(FULL);
+        promoted = true;
+        advance();
+        verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void uncertainPromotionIsNeverRetriedOrRolledBack()
+    {
+        preparePublished(FULL);
+        doThrow(new IllegalStateException("Connection closed after request")).when(writes).markReadyForReview(anyString(), anyString());
+        advance();
+        verify(writes, times(1)).markReadyForReview("token", "node-7");
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Ready-for-review result may have changed"));
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+    }
+
+    @Test
+    void promotionRaceSurfacesRemoteUncertaintyWithoutRetry()
+    {
+        preparePublished(FULL);
+        when(pullRequests.fetchPullRequestIdentity(eq("token"), any())).thenReturn(pr(NEXT, false));
+        advance();
+        verify(writes, times(1)).markReadyForReview("token", "node-7");
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Ready-for-review result may have changed"));
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+    }
+
+    @Test
+    void stopWhileWaitingForFullChecksPreventsAllLaterActions()
+    {
+        preparePublished(FULL);
+        when(pullRequests.fetchDeliveryChecks(eq("token"), any())).thenReturn(
+                new GitHubDeliveryChecks("node-7", pr(HEAD, true), ImmutableList.of("build pending"), ImmutableList.of()));
+        doAnswer(ignored -> {
+            when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
+            return null;
+        }).when(waitForCi).run();
+        advance();
+        verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
     private void preparePublished(DevelopmentAutomation automation)
     {
         prepare(local(BASE, false), local(HEAD, false), automation, true, Optional.empty());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+    }
+
+    private CiHeadSnapshot actionsSnapshot(String head, boolean queued)
+    {
+        CiJob job = new CiJob(1, 1, "build", 1, "completed", Optional.of("success"), "https://github.com/job/1", ImmutableList.of());
+        CiWorkflowRun workflow = new CiWorkflowRun(1, 1, "build", 1, "completed", Optional.of("success"), head, "https://github.com/run/1", ImmutableList.of(job));
+        List<CiWorkflowRun> workflows = queued
+                ? ImmutableList.of(workflow, new CiWorkflowRun(2, 2, "queued", 1, "queued", Optional.empty(), head, "https://github.com/run/2", ImmutableList.of()))
+                : ImmutableList.of(workflow);
+        return new CiHeadSnapshot(pr(head, true).pullRequest(), true, "owner", true, route.headBranch(), head, "main", BASE, pr(head, true).url(), workflows);
+    }
+
+    private GitHubDeliveryChecks checks(GitHubPullRequestIdentity identity)
+    {
+        return new GitHubDeliveryChecks("node-7", identity, ImmutableList.of(), ImmutableList.of());
     }
 
     private CiAutofixRun ciRun()
@@ -655,7 +903,7 @@ class TestDevelopmentFollowupCoordinator
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
                         AgentLaneId.CLAUDE_CLI.value(), Optional.of(taskId.toString())),
-                HEAD, HEAD, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
+                deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 
     private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready, Optional<DevelopmentStopAfter> limit)

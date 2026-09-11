@@ -100,6 +100,32 @@ public final class AgentRuntimeRegistry
         return !closing && !developmentStopped(taskId) && owner != null && owner.sourceTurnId().equals(requireNonNull(sourceTurnId, "sourceTurnId is null"));
     }
 
+    void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
+    {
+        requireNonNull(action, "action is null");
+        DevelopmentOwner owner = developmentOwners.get(taskId);
+        if (owner == null) {
+            throw new AgentConflictException("Development continuation is no longer active: " + taskId);
+        }
+        synchronized (owner) {
+            if (developmentOwners.get(taskId) != owner || !ownsDevelopmentContinuation(taskId, sourceTurnId)) {
+                throw new AgentConflictException("Development continuation is no longer active: " + taskId);
+            }
+            action.run();
+        }
+    }
+
+    /** Must run after revocation and outside the task lock, which the admitted action may need. */
+    void drainDevelopmentActions(TaskId taskId)
+    {
+        DevelopmentOwner owner = developmentOwners.get(taskId);
+        if (owner != null) {
+            synchronized (owner) {
+                // Acquiring this monitor proves any admitted program action has returned.
+            }
+        }
+    }
+
     void reserveDevelopmentOwner(TaskId taskId, TurnId sourceTurnId)
     {
         if (closing) {
@@ -238,6 +264,7 @@ public final class AgentRuntimeRegistry
     {
         closing = true;
         for (TaskId taskId : developmentOwners.keySet()) {
+            drainDevelopmentActions(taskId);
             List<CompletableFuture<DevelopmentTurnCompletion>> pending;
             synchronized (taskLock(taskId)) {
                 pending = developmentOwner(taskId).map(owner -> releaseDevelopmentOwner(taskId, owner)).orElseGet(ImmutableList::of);

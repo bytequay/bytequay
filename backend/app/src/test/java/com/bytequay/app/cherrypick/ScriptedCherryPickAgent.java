@@ -327,6 +327,18 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
+    {
+        throw new UnsupportedOperationException("this test never runs development automation");
+    }
+
+    @Override
+    public void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message)
+    {
+        throw new UnsupportedOperationException("this test never reports development progress");
+    }
+
+    @Override
     public AgentTurn start(StartAgentTurnCommand command)
     {
         prompts.add(command.message());

@@ -27,11 +27,12 @@ function boundedError(error: string): string {
 }
 
 /** A dated observation remains useful during a turn without claiming that its files stopped changing. */
-export function DevelopmentFacts({ facts, loading, error, running }: {
+export function DevelopmentFacts({ facts, loading, error, running, automationActive = false }: {
   facts: AgentDevelopmentFactsDto | null;
   loading: boolean;
   error: string | null;
   running: boolean;
+  automationActive?: boolean;
 }): React.JSX.Element {
   const local = facts?.local ?? null;
   const remote = facts?.remote ?? null;
@@ -40,11 +41,11 @@ export function DevelopmentFacts({ facts, loading, error, running }: {
   return (
     <div className="agt-development-facts" aria-label="Observed development results">
       {facts === null
-        ? <div>{loading ? 'Reading development results…' : running ? 'Results will be checked when the agent stops.' : 'Development results unavailable.'}</div>
+        ? <div>{loading ? 'Reading development results…' : running || automationActive ? 'Results will be checked when the current work stops.' : 'Development results unavailable.'}</div>
         : <>
           <div className="agt-development-facts__observed">
             <time dateTime={facts.observedAt} title={new Date(facts.observedAt).toLocaleString()}>Last checked {new Date(facts.observedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
-            {running ? ' · Agent running; showing previous observations' : loading ? ' · Refreshing…' : ''}
+            {running ? ' · Agent running; showing previous observations' : automationActive ? ' · Automation running; showing previous observations' : loading ? ' · Refreshing…' : ''}
           </div>
           <div className="agt-development-facts__values">
             {local === null ? <span>Local result unknown</span> : <>
@@ -58,7 +59,7 @@ export function DevelopmentFacts({ facts, loading, error, running }: {
               <span title={remote.headSha ?? undefined}>{remote.headSha === null ? 'No remote branch' : <>Pushed <code>{remote.headSha.slice(0, 8)}</code></>}</span>
               {local !== null && remote.headSha !== null && remote.headSha !== local.headSha && <span>Local HEAD differs from remote</span>}
               {pr === null ? <span>No PR</span> : <a href={pr.url} title={`PR head ${pr.headSha}`}>
-                {pr.state.toLowerCase() === 'open' ? pr.draft ? 'Draft PR' : 'PR' : `${pr.state.toLowerCase()} PR`} #{pr.number}
+                {pr.state.toLowerCase() === 'open' ? pr.draft ? 'Draft PR' : 'Ready for review · PR' : `${pr.state.toLowerCase()} PR`} #{pr.number}
               </a>}
             </>}
           </div>

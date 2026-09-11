@@ -43,6 +43,25 @@ function registry(): { subscriptions: AgentSubscriptions; signals: AbortSignal[]
 }
 
 describe('AgentSubscriptions', () => {
+  it('forwards bounded development progress between ordered history watermarks', async () => {
+    const progress = { ...fixture.events[1], eventId: 'progress', sequence: 3, turnId: null as string | null,
+      payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: `Waiting for PR checks: ${'x'.repeat(1000)}` } };
+    const afterProgress = { ...fixture.events[2], eventId: 'later-output', sequence: 4 };
+    const frames = [...fixture.events.slice(0, 2), progress, afterProgress].map(event =>
+      `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+    const subscriptions = new AgentSubscriptions(async () => new Response(frames));
+    const sender = new FakeSender();
+    const subscriptionId = subscriptions.start(sender, fixture.events[0].taskId, 0, true);
+    await vi.waitFor(() => expect(sender.pushed).toContainEqual({ subscriptionId, taskId: progress.taskId,
+      kind: 'changed', sequence: 4, turnId: afterProgress.turnId }));
+    expect(sender.pushed.filter(message => (message as { kind: string }).kind !== 'state')).toEqual([
+      { subscriptionId, taskId: progress.taskId, kind: 'changed', sequence: 2, turnId: fixture.events[1].turnId },
+      { subscriptionId, taskId: progress.taskId, kind: 'events', events: [{ ...progress, payload: { ...progress.payload, message: progress.payload.message.slice(0, 500) } }] },
+      { subscriptionId, taskId: progress.taskId, kind: 'changed', sequence: 4, turnId: afterProgress.turnId },
+    ]);
+    expect(JSON.stringify(sender.pushed)).not.toContain('Review the authentication change');
+  });
+
   it('coalesces live history into a watermark without forwarding transcript payloads', async () => {
     const closing = {
       ...fixture.events[1],

@@ -1163,13 +1163,13 @@ export function AgentTaskBody({
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
 
       {state.task?.interactive === true && state.task.checkoutRemovedAt === null && <DevelopmentFacts
-        facts={developmentFacts} loading={developmentFactsLoading} error={developmentFactsError} running={status === 'running'} />}
+        facts={developmentFacts} loading={developmentFactsLoading} error={developmentFactsError} running={status === 'running'} automationActive={automationActive && !terminal} />}
 
       {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
         error={ciPollingError} onOpen={onOpenDevelopmentCi} />}
 
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
-        Automation is running. Your next message stays in the composer until it finishes.
+        {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
       </div>}
 
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
@@ -1678,7 +1678,7 @@ export default function AgentTaskScreen({
         if (active) setPullRequestLoading(false);
       });
     return () => { active = false; };
-  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, pullRequestRefresh, taskId, workspaceId]);
+  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.

@@ -106,6 +106,8 @@ export interface AgentTaskState {
   latestTurnSettled: boolean;
   /** Bumped by every lifecycle event, so the screen re-reads the turn and task facts it changed. */
   lifecycleEpoch: number;
+  /** Latest coordinator observation, independent of the transcript page being inspected. */
+  developmentProgress: { sequence: number; message: string } | null;
   /** The last failed command, shown until the next one; never a transcript row. */
   notice: string | null;
   /** What waits behind the current turn, read from the server whenever the task's lifecycle moves. */
@@ -154,6 +156,7 @@ export function initialAgentTaskState(): AgentTaskState {
     latestTurnId: null,
     latestTurnSettled: true,
     lifecycleEpoch: 0,
+    developmentProgress: null,
     notice: null,
     queue: [],
     capabilities: null,
@@ -165,7 +168,8 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
     case 'task/loaded':
       // Every task response carries a fresh version; holding a stale one conflicts on the next write.
       if (state.task?.id === action.task.id && action.task.version < state.task.version) return state;
-      return { ...state, task: action.task };
+      return { ...state, task: action.task, developmentProgress: !action.task.developmentContinuationUnfinished && state.developmentProgress !== null
+        ? { sequence: Math.max(state.lastSequence, state.developmentProgress.sequence), message: '' } : state.developmentProgress };
     case 'settings/loaded':
       return { ...state, effective: action.settings };
     case 'turn/changed':
@@ -213,7 +217,9 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
     case 'events/observed':
       return observeEvents(state, action.events);
     case 'live/changed':
-      return action.sequence <= state.lastSequence ? state : { ...state, lastSequence: action.sequence, latestTurnId: action.turnId ?? state.latestTurnId, latestTurnSettled: action.turnId !== null && action.turnId !== state.latestTurnId ? false : state.latestTurnSettled, lifecycleEpoch: state.lifecycleEpoch + 1 };
+      return action.sequence <= state.lastSequence ? state : { ...state, lastSequence: action.sequence, latestTurnId: action.turnId ?? state.latestTurnId,
+        latestTurnSettled: action.turnId !== null && action.turnId !== state.latestTurnId ? false : state.latestTurnSettled, lifecycleEpoch: state.lifecycleEpoch + 1,
+        developmentProgress: action.turnId !== null && action.turnId !== state.latestTurnId ? { sequence: action.sequence, message: '' } : state.developmentProgress };
     case 'history/loaded':
       return applyHistoryPage(state, action.page, action.direction, action.earlier);
     default:
@@ -236,7 +242,21 @@ function observeEvents(state: AgentTaskState, events: AgentEventEnvelope[]): Age
       if (event.turnId === latestTurnId && ['TURN_COMPLETED', 'INTERRUPTED'].includes(event.payload.phase)) latestTurnSettled = true;
     }
   }
-  return { ...state, lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch };
+  return { ...state, lastSequence, latestTurnId, latestTurnSettled, lifecycleEpoch,
+    developmentProgress: latestDevelopmentProgress(state.developmentProgress, events) };
+}
+
+function latestDevelopmentProgress(current: AgentTaskState['developmentProgress'], events: AgentEventEnvelope[]): AgentTaskState['developmentProgress'] {
+  for (const event of events) {
+    if (event.type !== 'lifecycle' || event.sequence <= (current?.sequence ?? 0)) continue;
+    if (event.turnId !== null && event.source.parentProviderThreadId === null && event.payload.phase === 'TURN_STARTED') {
+      current = { sequence: event.sequence, message: '' };
+    } else if (event.turnId === null && event.payload.phase === 'DEVELOPMENT_AUTOMATION_UPDATED') {
+      const message = event.payload.message.replace(/\s+/g, ' ').trim().slice(0, 500);
+      current = { sequence: event.sequence, message: message === 'Development automation settled' ? '' : message };
+    }
+  }
+  return current;
 }
 
 /** Compact repeated output before applying the 3,000-event / 36 MiB retained-window limit. */
@@ -249,7 +269,8 @@ function applyHistoryPage(state: AgentTaskState, page: AgentHistoryPageDto, dire
   const retainedTurns = new Set(events.flatMap((event) => event.turnId === null ? [] : [event.turnId]));
   if (state.turn !== null) retainedTurns.add(state.turn.id);
   const turns = Object.fromEntries(Object.entries(state.turns).filter(([id]) => retainedTurns.has(id)));
-  const next: AgentTaskState = { ...state, historyPages: pages, events, turns, pending: [], gap: false };
+  const next: AgentTaskState = { ...state, historyPages: pages, events, turns, pending: [], gap: false,
+    developmentProgress: latestDevelopmentProgress(state.developmentProgress, events) };
   if (direction !== 'latest') return next;
   // A fresh slice may start in the middle of a turn; its first sequence is not a missing event.
   const observed = observeEvents(next, events);
@@ -319,6 +340,7 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
     latestTurnId,
     latestTurnSettled,
     lifecycleEpoch,
+    developmentProgress: latestDevelopmentProgress(state.developmentProgress, applied),
   };
 }
 

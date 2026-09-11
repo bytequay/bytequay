@@ -48,6 +48,7 @@ import static com.bytequay.app.ci.CiRerunResult.Outcome.OBSOLETE;
 import static com.bytequay.app.ci.CiRerunResult.Outcome.REJECTED;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -146,6 +147,73 @@ class TestGitHubActionsClient
         assertThat(snapshot.pending()).isFalse();
         assertThat(snapshot.green()).isTrue();
         fixture.verify();
+    }
+
+    @Test
+    void refusesIncompleteWorkflowPagesInsteadOfReturningPartialGreen()
+    {
+        Fixture fixture = fixture();
+        expectPullRequest(fixture);
+        fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess("{\"total_count\":1,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("incomplete workflow-run pages");
+        fixture.verify();
+    }
+
+    @Test
+    void duplicateWorkflowAttemptsCannotFillTheReportedCountAndHideAnotherRun()
+    {
+        Fixture fixture = fixture();
+        expectPullRequest(fixture);
+        String response = """
+                {"total_count":2,"workflow_runs":[{
+                  "id":900,"workflow_id":80,"name":"Build","run_attempt":1,
+                  "status":"completed","conclusion":"success","head_sha":"%s",
+                  "html_url":"https://github.com/owner/repo/actions/runs/900"
+                }]}
+                """.formatted(HEAD_SHA);
+        fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(runsUrl(2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("duplicate workflow attempts");
+        fixture.verify();
+    }
+
+    @Test
+    void duplicateJobIdsCannotFillTheReportedCountAndHideAnotherJob()
+    {
+        Fixture fixture = fixture();
+        expectPullRequest(fixture);
+        fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess("""
+                {"total_count":1,"workflow_runs":[{
+                  "id":900,"workflow_id":80,"name":"Build","run_attempt":1,
+                  "status":"completed","conclusion":"success","head_sha":"%s",
+                  "html_url":"https://github.com/owner/repo/actions/runs/900"
+                }]}
+                """.formatted(HEAD_SHA), MediaType.APPLICATION_JSON));
+        String response = """
+                {"total_count":2,"jobs":[{
+                  "id":902,"name":"Compile","run_attempt":1,"status":"completed",
+                  "conclusion":"success","html_url":"https://github.com/job/902","steps":[]
+                }]}
+                """;
+        fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+        fixture.apiServer.expect(requestTo(jobsUrl(900, 2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("duplicate workflow jobs");
+        fixture.verify();
+    }
+
+    @Test
+    void refusesMissingWorkflowEvidenceInsteadOfAssumingNoOtherRuns()
+    {
+        for (String response : ImmutableList.of("{}", "{\"total_count\":0}", "{\"workflow_runs\":[]}")) {
+            Fixture fixture = fixture();
+            expectPullRequest(fixture);
+            fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+            assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("incomplete workflow-run evidence");
+            fixture.verify();
+        }
     }
 
     @Test

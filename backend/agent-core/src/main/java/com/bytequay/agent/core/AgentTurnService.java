@@ -58,6 +58,12 @@ public interface AgentTurnService
     /** Whether this backend still authorizes the source user turn's continuation. */
     boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
 
+    /** Runs a program action under live continuation ownership; Stop drains admitted actions before cleanup. */
+    void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action);
+
+    /** Appends an observed progress message to the existing task lifecycle history while this source owns delivery. */
+    void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message);
+
     /** Returns a turn already accepted under the task-scoped request key. */
     Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey);
 

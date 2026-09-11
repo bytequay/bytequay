@@ -41,6 +41,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
@@ -398,6 +399,29 @@ public class GitHubPullRequestWriteClient
                     HttpStatusCode.valueOf(502),
                     "GitHub review thread update failed: " + response.errors().getFirst().message());
         }
+    }
+
+    /** One mutation only; the coordinator must verify its authorized PR revision before and after this call. */
+    public void markReadyForReview(String pat, String nodeId)
+    {
+        requirePat(pat);
+        checkText(nodeId, "nodeId", 255);
+        String mutation = "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}";
+        translating(() -> {
+            JsonNode response = graphQlRestClient.post()
+                    .header("Authorization", authorization(pat))
+                    .body(ImmutableMap.of("query", mutation, "variables", ImmutableMap.of("id", nodeId)))
+                    .retrieve()
+                    .body(JsonNode.class);
+            if (response == null || (response.has("errors") && (!response.path("errors").isArray() || !response.path("errors").isEmpty()))) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review response is uncertain; the mutation will not be retried");
+            }
+            JsonNode result = response.path("data").path("markPullRequestReadyForReview").path("pullRequest");
+            if (!nodeId.equals(result.path("id").asText()) || !result.path("isDraft").isBoolean() || result.path("isDraft").booleanValue()) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review result could not be verified; the mutation will not be retried");
+            }
+            return result;
+        });
     }
 
     /** Creates a pull request using the same authenticated write client as existing PR actions. */

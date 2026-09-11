@@ -82,9 +82,14 @@ export class AgentSubscriptions {
       onEvents: (events) => {
         if (!statusOnly) { push({ kind: 'events', events }); return; }
         for (const event of events) {
+          if (event.type === 'lifecycle' && event.turnId === null && event.payload.phase === 'DEVELOPMENT_AUTOMATION_UPDATED') {
+            flush();
+            push({ kind: 'events', events: [{ ...event, payload: { ...event.payload, message: event.payload.message.slice(0, 500) } }] });
+            continue;
+          }
           changed = { kind: 'changed', sequence: event.sequence, turnId: event.turnId ?? changed?.turnId ?? null };
         }
-        // History windows refresh bounded pages. Never enqueue transcript payloads in renderer IPC.
+        // Only bounded task progress bypasses watermarks; transcript payloads stay in history pages.
         if (flushTimer === null && changed !== null) flushTimer = setTimeout(flush, 100);
       },
     }).finally(() => { flush(); this.subscriptions.delete(subscriptionId); });

@@ -221,14 +221,19 @@ final class CiAutofixE2eHarness
 
     void scriptTestFailure(Fixture fixture, String headSha)
     {
-        gitHub.setSnapshot(failingSnapshot(
+        scriptTestFailure(fixture, headSha, E2eGitRepository.HEAD_REF);
+    }
+
+    void scriptTestFailure(Fixture fixture, String headSha, String headRef)
+    {
+        gitHub.setSnapshot(withHeadRef(failingSnapshot(
                 fixture,
                 headSha,
                 fixture.workflowRunId() + 100,
                 fixture.jobId() + 100,
                 "Backend tests",
                 "Unit tests",
-                false));
+                false), headRef));
         gitHub.setLog(
                 fixture.repository().pullRequest(),
                 fixture.workflowRunId() + 100,
@@ -241,7 +246,18 @@ final class CiAutofixE2eHarness
 
     void scriptGreenCi(Fixture fixture, String headSha)
     {
-        gitHub.setSnapshot(greenSnapshot(fixture, headSha));
+        scriptGreenCi(fixture, headSha, E2eGitRepository.HEAD_REF);
+    }
+
+    void scriptGreenCi(Fixture fixture, String headSha, String headRef)
+    {
+        gitHub.setSnapshot(withHeadRef(greenSnapshot(fixture, headSha), headRef));
+    }
+
+    private static CiHeadSnapshot withHeadRef(CiHeadSnapshot snapshot, String headRef)
+    {
+        return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.sameRepository(), headRef, snapshot.headSha(),
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
     }
 
     StartResult start(Fixture fixture, String idempotencyKey)

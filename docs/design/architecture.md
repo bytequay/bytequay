@@ -19,6 +19,14 @@ with GitHub, stores durable local state in SQLite, and hosts the implemented
 worktree-scoped agent service. Its implemented rich task surface is specified
 in [Agent Task UI Design](agent-task-ui.md).
 
+[Development delivery](development-delivery.md) extends the current agent core
+through one application coordinator. Core reserves its source owner after a
+verified stopped turn, and the coordinator drives generated commit/publication
+turns, existing CI work, final checks, source synchronization, and ready promotion.
+The existing owner also drains admitted program actions before Stop/shutdown
+cleanup. Existing turn reports and task lifecycle events carry gates and progress;
+there is no overall delivery state machine or restart recovery.
+
 ## 1. Architecture decision
 
 The backend is a small six-module Maven reactor. Every listed module contains

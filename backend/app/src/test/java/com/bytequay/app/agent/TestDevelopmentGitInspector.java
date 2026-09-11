@@ -39,15 +39,19 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -322,6 +326,223 @@ class TestDevelopmentGitInspector
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(later);
     }
 
+    @Test
+    void synchronizesTheExactRewrittenCiCommitAndPreservesIgnoredBuildOutput()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        Path ci = ciRepository();
+        String published = publishCi(ci, "rewritten CI repair");
+        String later = publishCi(ci, "later remote revision");
+        assertThat(git.run(worktree.canonicalWorktree(), "cat-file", "-e", published).successful()).isFalse();
+        Files.createDirectory(worktree.canonicalWorktree().resolve("build"));
+        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "local build output");
+        Path hook = git.gitPaths(worktree.canonicalWorktree(), ImmutableList.of("hooks/post-checkout")).getFirst();
+        Files.createDirectories(hook.getParent());
+        Path hookOutput = temporaryDirectory.resolve("unexpected-hook");
+        Files.writeString(hook, "#!/bin/sh\ntouch '" + hookOutput + "'\n");
+        assertThat(hook.toFile().setExecutable(true)).isTrue();
+
+        DevelopmentLocalFacts synchronizedFacts = inspector.synchronizeSource(baseline, source, published, () -> {});
+
+        assertThat(synchronizedFacts.headSha()).isEqualTo(published);
+        assertThat(synchronizedFacts.uncommittedFileCount()).isZero();
+        assertThat(inspector.isAncestor(worktree, source, published)).isFalse();
+        assertThat(run(worktree.canonicalWorktree(), "symbolic-ref", "--short", "HEAD")).isEqualTo(worktree.generatedBranch());
+        assertThat(Files.readString(worktree.canonicalWorktree().resolve("README.md"))).isEqualTo("rewritten CI repair\n");
+        assertThat(Files.readString(worktree.canonicalWorktree().resolve("build/output"))).isEqualTo("local build output");
+        assertThat(hookOutput).doesNotExist();
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + worktree.generatedBranch())).isEqualTo(later);
+        assertThat(run(worktree.canonicalWorktree(), "for-each-ref", "--format=%(refname)", "refs/bytequay")).isEmpty();
+        assertThat(git.fetches).hasSize(1);
+        assertThat(git.fetches.getFirst()).containsExactly("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--", ORIGIN, published);
+        assertThat(git.transitions).containsExactly(ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout",
+                "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), published));
+    }
+
+    @Test
+    void ignoredCollisionRefusesSynchronizationWithoutChangingHeadOrFiles()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        Path ci = ciRepository();
+        Files.createDirectory(ci.resolve("build"));
+        Files.writeString(ci.resolve("build/output"), "published output");
+        run(ci, "add", "--force", "build/output");
+        String published = publishCi(ci, "CI change");
+        Files.createDirectory(worktree.canonicalWorktree().resolve("build"));
+        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "local output");
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining("worktree update");
+
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
+        assertThat(Files.readString(worktree.canonicalWorktree().resolve("README.md"))).isEqualTo("source development\n");
+        assertThat(Files.readString(worktree.canonicalWorktree().resolve("build/output"))).isEqualTo("local output");
+        assertThat(git.transitions).hasSize(1);
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + worktree.generatedBranch())).isEqualTo(published);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"staged", "unstaged", "untracked", "moved", "branch", "operation"})
+    void changedSourceRefusesSynchronizationBeforeFetching(String change)
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        switch (change) {
+            case "staged" -> {
+                Files.writeString(worktree.canonicalWorktree().resolve("README.md"), "local edit");
+                run(worktree.canonicalWorktree(), "add", "README.md");
+            }
+            case "unstaged" -> Files.writeString(worktree.canonicalWorktree().resolve("README.md"), "local edit");
+            case "untracked" -> Files.writeString(worktree.canonicalWorktree().resolve("new.txt"), "local edit");
+            case "moved" -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "Later user work");
+            case "branch" -> run(worktree.canonicalWorktree(), "checkout", "-b", "another-branch");
+            case "operation" -> Files.writeString(git.gitPaths(worktree.canonicalWorktree(), ImmutableList.of("MERGE_HEAD")).getFirst(), baseSha);
+            default -> throw new AssertionError(change);
+        }
+        String before = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+        String status = run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all");
+
+        String expectedFailure = switch (change) {
+            case "staged", "unstaged", "untracked" -> "Source has staged, unstaged, or untracked changes";
+            case "moved" -> "Source HEAD changed";
+            case "branch" -> "another branch";
+            case "operation" -> "Source has an open Git operation";
+            default -> throw new AssertionError(change);
+        };
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining(expectedFailure);
+
+        assertThat(git.fetches).isEmpty();
+        assertThat(git.transitions).isEmpty();
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(before);
+        assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all")).isEqualTo(status);
+    }
+
+    @Test
+    void sourceMovementDuringFetchRefusesTheTransition()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        git.afterFetch = () -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "Racing user work");
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining("Source HEAD changed");
+
+        assertThat(git.fetches).hasSize(1);
+        assertThat(git.transitions).isEmpty();
+        assertThat(run(worktree.canonicalWorktree(), "log", "-1", "--format=%s")).isEqualTo("Racing user work");
+    }
+
+    @Test
+    void indexChangesDuringFetchRefuseTheTransition()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        String blob = run(worktree.canonicalWorktree(), "rev-parse", "HEAD:README.md");
+        git.afterFetch = () -> run(worktree.canonicalWorktree(), "update-index", "--add", "--cacheinfo", "100644", blob, "new.txt");
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining("Source has staged");
+
+        assertThat(git.fetches).hasSize(1);
+        assertThat(git.transitions).isEmpty();
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
+        assertThat(run(worktree.canonicalWorktree(), "diff", "--cached", "--name-only")).isEqualTo("new.txt");
+    }
+
+    @Test
+    void authorityLostDuringFetchCannotUpdateTheSource()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        AtomicBoolean active = new AtomicBoolean(true);
+        git.afterFetch = () -> active.set(false);
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {
+            if (!active.get()) {
+                throw new IllegalStateException("Development automation stopped");
+            }
+        })).hasMessageContaining("automation stopped");
+
+        assertThat(git.fetches).hasSize(1);
+        assertThat(git.transitions).isEmpty();
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
+    }
+
+    @Test
+    void fetchFailurePreservesTheSourceWithoutAnAutomaticRetry()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        git.fetchResult = Optional.of(new Result(128, "unavailable", false));
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining("could not fetch");
+
+        assertThat(git.fetches).hasSize(1);
+        assertThat(git.transitions).isEmpty();
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(source);
+    }
+
+    @Test
+    void verifiesTheSourceAfterTheNativeTransitionWithoutRepairingAChangedResult()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String source = commit("source development");
+        String published = publishCi(ciRepository(), "CI change");
+        git.afterTransition = () -> run(worktree.canonicalWorktree(), "commit", "--allow-empty", "-m", "After synchronization");
+
+        assertThatThrownBy(() -> inspector.synchronizeSource(baseline, source, published, () -> {})).hasMessageContaining("Source HEAD changed");
+
+        assertThat(git.transitions).hasSize(1);
+        assertThat(run(worktree.canonicalWorktree(), "log", "-1", "--format=%s")).isEqualTo("After synchronization");
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + worktree.generatedBranch())).isEqualTo(published);
+    }
+
+    @Test
+    void alreadySynchronizedSourceNeedsNoFetchOrTransition()
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+
+        assertThat(inspector.synchronizeSource(baseline, baseSha, baseSha, () -> {}).headSha()).isEqualTo(baseSha);
+
+        assertThat(git.fetches).isEmpty();
+        assertThat(git.transitions).isEmpty();
+        verifyNoInteractions(credentials, pullRequests);
+    }
+
+    private Path ciRepository()
+    {
+        run(repository, "push", "--", bareRemote.toString(), baseSha + ":refs/heads/main");
+        Path ci = temporaryDirectory.resolve("ci");
+        run(repository, "clone", "--branch", "main", bareRemote.toString(), ci.toString());
+        run(ci, "config", "user.name", "CI Test");
+        run(ci, "config", "user.email", "ci@example.invalid");
+        run(ci, "checkout", "-b", worktree.generatedBranch());
+        return ci;
+    }
+
+    private String publishCi(Path ci, String contents)
+            throws IOException
+    {
+        Files.writeString(ci.resolve("README.md"), contents + "\n");
+        run(ci, "add", "README.md");
+        run(ci, "commit", "-m", "CI repair");
+        String sha = run(ci, "rev-parse", "HEAD");
+        run(ci, "push", "--", bareRemote.toString(), sha + ":refs/heads/" + worktree.generatedBranch());
+        return sha;
+    }
+
     private String commit(String contents)
             throws IOException
     {
@@ -352,6 +573,11 @@ class TestDevelopmentGitInspector
     {
         private Optional<Result> remoteResult = Optional.empty();
         private int remoteReads;
+        private final List<List<String>> fetches = new ArrayList<>();
+        private final List<List<String>> transitions = new ArrayList<>();
+        private Optional<Result> fetchResult = Optional.empty();
+        private Runnable afterFetch = () -> {};
+        private Runnable afterTransition = () -> {};
 
         @Override
         public Result run(Path directory, Duration timeout, Map<String, String> environment, List<String> arguments)
@@ -364,6 +590,19 @@ class TestDevelopmentGitInspector
                 return super.run(directory, timeout, environment, arguments.stream()
                         .map(value -> value.equals(ORIGIN) ? bareRemote.toString() : value)
                         .collect(ImmutableList.toImmutableList()));
+            }
+            if (!arguments.isEmpty() && arguments.getFirst().equals("fetch")) {
+                fetches.add(ImmutableList.copyOf(arguments));
+                Result result = fetchResult.orElseGet(() -> super.run(directory, timeout, environment, arguments.stream()
+                        .map(value -> value.equals(ORIGIN) ? bareRemote.toString() : value).collect(ImmutableList.toImmutableList())));
+                afterFetch.run();
+                return result;
+            }
+            if (arguments.contains("--no-overwrite-ignore")) {
+                transitions.add(ImmutableList.copyOf(arguments));
+                Result result = super.run(directory, timeout, environment, arguments);
+                afterTransition.run();
+                return result;
             }
             return super.run(directory, timeout, environment, arguments);
         }

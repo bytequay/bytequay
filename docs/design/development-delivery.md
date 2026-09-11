@@ -1,13 +1,13 @@
 # Development task delivery
 
-Status: Approved MVP design; implementation in progress. Settings, accepted-turn
-snapshots, root readiness reporting, live continuation ownership, bounded commit
-and draft-publication turns, and observed result presentation are implemented.
-CI attachment, green verification, synchronization, and promotion remain pending. This replaces the larger recovery-oriented
-proposal. Use the current [agent service](agent-service.md)
-and [CI Autofix](ci-autofix-service.md), with a small in-process coordinator.
-There is no overall workflow state machine, delivery table, phase engine,
-step journal, or restart/resume support for the delivery chain.
+Status: Approved MVP implemented with fixture and local verification. Settings,
+accepted-turn snapshots, root readiness, live continuation ownership, agent commit
+and draft publication, existing CI attachment, full check gates, source
+synchronization, and ready promotion use the current [agent service](agent-service.md)
+and [CI Autofix](ci-autofix-service.md). The small in-process coordinator adds no
+overall workflow state machine, delivery table, phase engine, step journal, or
+restart/resume support. Unsupported CI evidence retains the draft as described
+below; no live-provider/live-PR smoke is claimed.
 
 Track implementation and verification in the temporary
 [implementation checklist](development-delivery-impl-tmp.md).
@@ -105,8 +105,10 @@ why the agent stopped. A missing/invalid report never implies true: stop the
 MVP continuation with a clear failure instead of guessing from final prose.
 
 The same report may narrow delivery with `stopAfter` (`local_changes`,
-`commits`, `draft`, or `ci`). For example, "leave it draft" allows repairs but
-stops before ready. It cannot enable a disabled setting, add authority, choose
+`commits`, `draft`, or `ci`). `draft` stops after publication, before CI.
+`ci` allows CI repairs and source synchronization but stops before ready; a
+"leave it draft" request uses `ci` unless it also asks to skip CI. Promotion
+requires no `stopAfter` limit on the source or any generated turn. It cannot enable a disabled setting, add authority, choose
 a destination, or perform a remote write. This single report replaces the
 previous proposal's separate `restrict_delivery` tool. The provider binding
 must accept only the current root turn's report, not a child agent's claim.
@@ -227,14 +229,16 @@ after a stopped user development turn:
         verify actual remote SHA and PR identity; if wrong/unknown: fail
 
     if no matching published PR: show local result; finish
-    if auto CI fix off: show PR; finish
+    if auto CI fix off or stopAfter is draft: show PR; finish
     if selected CI provider unavailable/unsupported: fail with PR and reason
 
     start/reuse the existing CI run for this verified revision
     drive its existing watch/fix/push loop within its limits
-    on green: check current PR/head/checks and permitted ready promotion
+    on green: wait for complete current PR/head/base/check evidence
     synchronize published CI repairs back into the clean source worktree
-    show the result; release ownership
+    recheck current PR/head/base/checks and clean synchronized source
+    if no stopAfter limit and PR is draft: mark ready once; verify afterward
+    show the result; release ownership; keep the source task open
 ```
 
 This is ordinary control flow, not saved `COMMITTING → PUBLISHING → WATCHING`
@@ -324,29 +328,74 @@ CI pause/message controls may resolve a repair question in that same CI run;
 source development cannot compete with it. Stop or an unrecoverable CI result
 fails this MVP continuation rather than creating a recovery journey.
 
-Before returning a successful task to the user, bring the source to the exact
-verified published CI head. Under ownership, require the source at its expected
-HEAD, completely clean, no active Git operation, and stopped CI writers. Fetch
-that exact object and use a checked clean-worktree transition such as
-`git reset --keep --no-recurse-submodules <verified-sha>`. Verify afterward.
-CI's retained result branch contains the published work. If synchronization
-fails or the process stops, fail; add no private checkpoint refs or sync-replay
-protocol. Never hard-reset dirty work to make continuation succeed.
+Before releasing a successful continuation, bring the source to the exact
+verified published CI head, including when CI rewrote history. Require its
+managed worktree and generated branch, expected source HEAD, no staged,
+unstaged, or untracked changes, no active Git operation, and stopped CI writers.
+Retain live ownership while fetching that exact commit from the accepted push
+URL without updating refs or `FETCH_HEAD`. Recheck source ownership, routing,
+HEAD, and cleanliness after the fetch, then check authority immediately before
+updating the same generated branch:
 
-The current green predicate must be corrected: a passed job plus a queued
-workflow exposing no jobs can currently report green. Require complete,
-nonempty CI evidence with no pending/failing relevant workflows/jobs. Ready
-promotion additionally checks the current PR revision and required check/status
-results. Unknown or missing checks remain waiting; draft-excluding workflows
-can block the desired order. CI Autofix remains an Actions repair service;
-third-party failures are reported, not assigned an invented repair adapter.
-A failed/expired/exhausted run keeps the actual draft and error visible.
+```sh
+git -c core.hooksPath=/dev/null checkout --no-overwrite-ignore \
+  --no-recurse-submodules -B <generated-branch> <verified-sha>
+```
 
-Ready promotion belongs to this coordinator, not a generic CI `GREEN` callback.
-Honor stopAfter/Auto CI fix and recheck current head/base/PR before and after
-the mutation. An external-head race or uncertain response fails visibly;
-GitHub's mutation has no expected-head precondition. Do not retry promotion or
-flip draft status automatically to repair uncertainty.
+This permits noncolliding ignored build output and makes Git refuse ignored
+files that the published revision would overwrite. `reset --keep` does not
+provide that ignored-file protection. Verify the exact resulting HEAD, branch,
+ownership, routing, and cleanliness afterward. Stop drains the admitted native
+action before child/source cleanup or Delete can proceed.
+
+Successful synchronization keeps the source task `OPEN` for another user turn.
+CI's retained result branch and the remote branch/PR preserve the published
+work. A synchronization failure ends the continuation visibly; it does not
+undo remote results or retry the local transition. Inspect local files after a
+failed native update. Add no private checkpoint refs or sync-replay protocol,
+and never hard-reset dirty work to make continuation succeed.
+
+The shared `CiHeadSnapshot.green` predicate now requires nonempty jobs in every
+observed workflow, completed workflows with passing conclusions, and passing
+jobs. A passed job cannot hide a queued or empty workflow. Actions inspection
+rejects incomplete or truncated workflow/job pages instead of accepting a
+partial success. After CI records green, the coordinator reads Actions again
+while checking delivery and around promotion; a newly queued workflow with no
+jobs still blocks completion.
+
+`GitHubPullRequestReadClient.fetchDeliveryChecks` reads the exact current
+PR/head/base and all pages of check runs and commit statuses. It combines
+classic branch protection with active repository/organization ruleset
+requirements. Every observed check must pass, and each required context must
+be present from its required source. Completed check runs accept `success`,
+`neutral`, or `skipped`; commit statuses require `success`. Missing, pending,
+unknown, malformed, or incomplete evidence never implies green. Denied reads
+fail visibly rather than implying that the repository has no requirements.
+
+This gate deliberately has bounded support. Required app-bound check runs
+must match the app ID; an app-bound legacy commit status lacks the origin
+proof needed here and remains waiting. Required-workflow rules, code-scanning
+rules, and unknown rule types also wait with an explicit limitation. GitHub
+can require checks on its test merge commit instead of the head: while that
+commit is unknown, or it has separate checks whose full requirements are not
+verified by this implementation, head success cannot promote the PR. A failed
+test-merge rollup or other external check is reported as a failure. CI Autofix
+remains an Actions repair service and does not attempt to repair unsupported
+external checks. Draft-excluding workflows can therefore prevent this order
+from completing. Waiting uses the original CI run's deadline and fails when
+it expires; it does not renew authority or restart a finished CI run.
+
+Ready promotion belongs to the development coordinator, never a generic CI
+`GREEN` callback or a standalone CI run. It honors Auto CI fix and narrowed
+`stopAfter` intent, synchronizes the source, then rereads current PR identity,
+head/base, remote publication, and checks before issuing exactly one
+`markPullRequestReadyForReview` mutation. The write client verifies its returned
+PR node and draft flag; the coordinator separately verifies fresh PR/check/
+Actions/remote/local observations afterward. GitHub has no expected-head
+precondition for this mutation. An external-head race, changed checks, or an
+uncertain response fails visibly with the existing remote result preserved.
+Never retry promotion or automatically reverse the draft flag to repair
+uncertainty. Failed or expired delivery keeps its actual PR and error visible.
 
 ## 6. Failure, restart, and deletion
 
@@ -376,8 +425,11 @@ Exclude it from independent CI scheduling; the coordinator drives the existing
 CI service. Apply the same guard to linked rebase scheduling. Standalone CI
 runs keep their existing behavior; do not remove their built-in recovery.
 
-On source failure, revoke that live authority first, then stop its CI/rebase
-children and provider processes. On startup, before the serving gate and
+On source failure, revoke that live authority first, then drain admitted
+source program actions and stop its CI/rebase children and provider processes.
+The existing live owner monitor protects final inspection, synchronization, and
+promotion. Stop and shutdown drain it outside the task lock before releasing
+source exclusion; no new operation registry or recovery state is added. On startup, before the serving gate and
 schedulers can write: clean up known processes using existing infrastructure,
 fail unfinished parents, and stop their owned children. This is stop/fail
 handling only; never resume or replay an uncertain push journal for a lost
@@ -433,14 +485,20 @@ continuation-marker change, and does not launch work. During active execution
 it retains clearly dated earlier observations. A failed remote lookup produces
 an unknown result, never inferred "Not pushed" or "No PR"; confirmed absence
 is represented separately. Known PR references remain in the existing panel.
-Local validation limitations remain in the agent transcript.
+Local validation limitations remain in the agent transcript. An open non-draft
+PR is labeled **Ready for review**. The existing task-level lifecycle event
+carries bounded messages for full-check waiting, source synchronization, and
+promotion. Only changed waiting reasons are emitted; the renderer retains the
+latest message outside loaded history, hides it on settlement, and cannot
+resurrect it for a newer continuation. The task PR list refreshes when the
+continuation settles.
 
-## 8. Implementation gaps and checks
+## 8. Implemented scope and checks
 
-Implement in this order:
+The implementation covers:
 
 1. Three settings, accepted-turn snapshots, root readiness reporting, and
-   question-first gating. Current native success is insufficient.
+   question-first gating. Native success alone cannot authorize delivery.
 2. One live after-turn coordinator, task ownership at admission, normal
    generated turns, actual Git/PR checks, and clear task result presentation.
 3. Existing CI integration, parent-owned writer guard, clean source sync,

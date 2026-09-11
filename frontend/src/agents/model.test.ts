@@ -43,6 +43,49 @@ import type { AgentHistoryPageDto, AgentQueuedInputDto, AgentTaskDto, AgentTurnD
 
 const all = parseAgentEventSequence(fixture.events);
 
+it('retains the newest development progress across offscreen history, watermarks and replay', () => {
+  const progress: AgentEventEnvelope = { ...all[0], type: 'lifecycle', turnId: null, sequence: 50,
+    payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for PR checks: required external build is pending' } };
+  let state = agentTaskReducer({ ...initialAgentTaskState(), latestTurnId: 'source-turn' }, { type: 'live/changed', sequence: 100, turnId: 'source-turn' });
+  state = agentTaskReducer(state, { type: 'history/loaded', direction: 'latest', page: {
+    events: [progress], beforeCursor: '40', afterCursor: null, latestSequence: 100,
+  } });
+  expect(state.developmentProgress).toEqual({ sequence: 50, message: progress.payload.message });
+  const newest = { ...progress, sequence: 101, payload: { ...progress.payload, message: 'Synchronizing source worktree' } };
+  state = agentTaskReducer(state, { type: 'events/observed', events: [newest] });
+  expect(state.events).not.toContainEqual(newest);
+  expect(state.developmentProgress).toEqual({ sequence: 101, message: 'Synchronizing source worktree' });
+  state = agentTaskReducer(state, { type: 'history/loaded', direction: 'older', page: {
+    events: [{ ...progress, sequence: 10 }], beforeCursor: null, afterCursor: '40', latestSequence: 100,
+  } });
+  state = agentTaskReducer(state, { type: 'events/observed', events: [progress] });
+  expect(state.developmentProgress?.message).toBe('Synchronizing source worktree');
+  state = agentTaskReducer(state, { type: 'events/observed', events: [{ ...newest, sequence: 102, payload: { ...newest.payload, message: 'x'.repeat(1000) } }] });
+  expect(state.developmentProgress?.message).toHaveLength(500);
+});
+
+it('new root turns and released markers prevent historical delivery progress from resurfacing', () => {
+  const progress: AgentEventEnvelope = { ...all[0], type: 'lifecycle', turnId: null, sequence: 10,
+    payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for PR checks: old build' } };
+  let state = agentTaskReducer(initialAgentTaskState(), { type: 'events/observed', events: [progress] });
+  const started: AgentEventEnvelope = { ...progress, sequence: 11, turnId: 'next-turn', payload: { phase: 'TURN_STARTED', message: 'Started' } };
+  state = agentTaskReducer(state, { type: 'events/observed', events: [started] });
+  expect(state.developmentProgress).toEqual({ sequence: 11, message: '' });
+  state = agentTaskReducer(state, { type: 'history/loaded', direction: 'older', page: {
+    events: [progress], beforeCursor: null, afterCursor: '11', latestSequence: 11,
+  } });
+  expect(state.developmentProgress?.message).toBe('');
+  state = agentTaskReducer(state, { type: 'events/observed', events: [{ ...progress, sequence: 12 }] });
+  state = agentTaskReducer(state, { type: 'live/changed', sequence: 13, turnId: 'another-turn' });
+  expect(state.developmentProgress).toEqual({ sequence: 13, message: '' });
+  state = agentTaskReducer(state, { type: 'events/observed', events: [{ ...progress, sequence: 14,
+    payload: { ...progress.payload, message: 'Development automation settled' } }] });
+  expect(state.developmentProgress).toEqual({ sequence: 14, message: '' });
+  state = agentTaskReducer(state, { type: 'events/observed', events: [{ ...progress, sequence: 15 }] });
+  state = agentTaskReducer(state, { type: 'task/loaded', task: { ...openTask(), developmentContinuationUnfinished: false } });
+  expect(state.developmentProgress).toEqual({ sequence: 15, message: '' });
+});
+
 function apply(state: AgentTaskState, events: AgentEventEnvelope[]): AgentTaskState {
   return agentTaskReducer(state, { type: 'events/applied', events });
 }

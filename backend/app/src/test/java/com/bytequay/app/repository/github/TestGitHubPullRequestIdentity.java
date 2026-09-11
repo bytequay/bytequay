@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -37,6 +38,19 @@ class TestGitHubPullRequestIdentity
     private static final String BRANCH = "bytequay/task/test";
     private static final String SHA = "a".repeat(40);
     private static final String FIRST_PAGE = "https://api.github.test/repos/acme/project/pulls?state=all&head=alice%3Abytequay%2Ftask%2Ftest&per_page=100&page=1";
+
+    @Test
+    void readsTheExactPullRequestAgainAfterReadyMutation()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/acme/project/pulls/7"))
+                .andRespond(withSuccess(row(7, "open", "null", "main").replace("\"draft\":true", "\"draft\":false"), MediaType.APPLICATION_JSON));
+        GitHubPullRequestIdentity identity = fixture.client().fetchPullRequestIdentity("token", PullRequestRef.of("acme", "project", 7));
+        assertThat(identity.draft()).isFalse();
+        assertThat(identity.headSha()).isEqualTo(SHA);
+        assertThat(identity.baseRepository()).isEqualTo(BASE);
+        fixture.server().verify();
+    }
 
     @Test
     void retainsOpenClosedMergedAndWrongBaseFactsWithExactForkIdentity()

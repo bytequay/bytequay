@@ -100,6 +100,10 @@ public class GitHubPullRequestReadClient
             "(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
     private static final Set<String> ATTENTION_REASONS =
             ImmutableSet.of("review_requested", "mention");
+    private static final Set<String> NON_CI_RULES = ImmutableSet.of(
+            "creation", "update", "deletion", "required_linear_history", "merge_queue", "required_deployments", "required_signatures", "pull_request", "non_fast_forward",
+            "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
+            "file_path_restriction", "max_file_path_length", "file_extension_restriction", "max_file_size");
 
     public List<FetchedPullRequest> searchPullRequests(String pat, String query) {
         return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
@@ -171,6 +175,270 @@ public class GitHubPullRequestReadClient
         }
         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Pull-request identity results exceeded the pagination limit");
     }
+
+    public GitHubPullRequestIdentity fetchPullRequestIdentity(String pat, PullRequestRef pullRequest)
+    {
+        requirePat(pat);
+        requireNonNull(pullRequest, "pullRequest is null");
+        PublicationPullRequest response = translating(() -> gitHubRestClient.get()
+                .uri("/repos/{owner}/{repo}/pulls/{number}", pullRequest.owner(), pullRequest.repo(), pullRequest.number())
+                .header("Authorization", authorization(pat))
+                .retrieve()
+                .body(PublicationPullRequest.class));
+        GitHubPullRequestIdentity identity = publicationIdentity(response, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
+        checkState(identity.pullRequest().equals(pullRequest), "GitHub returned another pull request");
+        return identity;
+    }
+
+    /** Reads complete current-head checks and both classic and ruleset requirements without a cached success fallback. */
+    public GitHubDeliveryChecks fetchDeliveryChecks(String pat, PullRequestRef pullRequest)
+    {
+        requirePat(pat);
+        requireNonNull(pullRequest, "pullRequest is null");
+        JsonNode first = fetchDeliveryCheckPage(pat, pullRequest, Optional.empty());
+        GitHubPullRequestIdentity identity = deliveryIdentity(first, pullRequest);
+        String nodeId = deliveryText(first, "id");
+        List<String> waiting = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+        try {
+            List<RequiredDeliveryCheck> required = new ArrayList<>();
+            readClassicRequirements(first.path("baseRef"), required);
+            readRulesetRequirements(pat, identity, required, waiting);
+            inspectMergeChecks(first, waiting, failures);
+            List<JsonNode> checks = new ArrayList<>();
+            Map<String, JsonNode> unique = new LinkedHashMap<>();
+            JsonNode page = first;
+            Optional<String> cursor = Optional.empty();
+            for (int pageNumber = 1; pageNumber <= 10; pageNumber++) {
+                checkState(identity.equals(deliveryIdentity(page, pullRequest)), "The pull-request revision changed while checks were being read");
+                checkState(first.path("baseRef").equals(page.path("baseRef")), "The base branch or its required checks changed while being read");
+                checkState(first.path("potentialMergeCommit").equals(page.path("potentialMergeCommit")), "Test merge commit checks changed while being read");
+                JsonNode rollup = page.path("statusCheckRollup");
+                checkState(identity.headSha().equals(deliveryText(rollup.path("commit"), "oid")), "Current-head CI evidence is missing or belongs to another revision");
+                JsonNode contexts = rollup.path("contexts");
+                checkState(contexts.path("nodes").isArray() && contexts.path("totalCount").isIntegralNumber() && contexts.path("totalCount").canConvertToInt(),
+                        "GitHub check results are incomplete");
+                checkState(first.path("statusCheckRollup").path("state").equals(rollup.path("state")), "GitHub check results changed during pagination");
+                for (JsonNode check : contexts.path("nodes")) {
+                    checkState(unique.putIfAbsent(deliveryText(check, "id"), check) == null, "GitHub returned duplicate check results during pagination");
+                    checks.add(check);
+                }
+                JsonNode pageInfo = contexts.path("pageInfo");
+                checkState(pageInfo.path("hasNextPage").isBoolean(), "GitHub check pagination is incomplete");
+                if (!pageInfo.path("hasNextPage").booleanValue()) {
+                    checkState(checks.size() == contexts.path("totalCount").intValue(), "GitHub check results are incomplete");
+                    evaluateDeliveryChecks(checks, required, waiting, failures);
+                    String state = deliveryText(rollup, "state");
+                    if (!"SUCCESS".equals(state)) {
+                        waiting.add("GitHub's current-head check rollup is " + state);
+                    }
+                    return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+                }
+                String nextCursor = deliveryText(pageInfo, "endCursor");
+                checkState(!cursor.filter(nextCursor::equals).isPresent(), "GitHub check pagination did not advance");
+                checkState(pageNumber < 10, "GitHub checks exceed the complete inspection limit");
+                cursor = Optional.of(nextCursor);
+                page = fetchDeliveryCheckPage(pat, pullRequest, cursor);
+            }
+        }
+        catch (IllegalArgumentException | IllegalStateException invalid) {
+            waiting.add(invalid.getMessage());
+        }
+        return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+    }
+
+    private JsonNode fetchDeliveryCheckPage(String pat, PullRequestRef pullRequest, Optional<String> cursor)
+    {
+        String query = """
+                query($owner:String!,$name:String!,$number:Int!,$cursor:String){
+                  repository(owner:$owner,name:$name){pullRequest(number:$number){
+                    id number url state isDraft author{login} headRefName headRefOid baseRefName baseRefOid
+                    headRepository{nameWithOwner} baseRepository{nameWithOwner}
+                    headRef{target{oid}}
+                    baseRef{target{oid} branchProtectionRule{requiresStatusChecks requiredStatusChecks{context app{databaseId}}}}
+                    potentialMergeCommit{oid statusCheckRollup{commit{oid} state contexts(first:1){totalCount}}}
+                    statusCheckRollup{commit{oid} state contexts(first:100,after:$cursor){totalCount pageInfo{hasNextPage endCursor} nodes{
+                      __typename ... on CheckRun{id name status conclusion isRequired(pullRequestNumber:$number) checkSuite{app{databaseId slug}}}
+                      ... on StatusContext{id context state isRequired(pullRequestNumber:$number)}
+                    }}}
+                  }}
+                }
+                """;
+        Map<String, Object> variables = new LinkedHashMap<>(ImmutableMap.of(
+                "owner", pullRequest.owner(), "name", pullRequest.repo(), "number", pullRequest.number()));
+        cursor.ifPresent(value -> variables.put("cursor", value));
+        JsonNode response = translating(() -> graphQlRestClient.post()
+                .header("Authorization", authorization(pat))
+                .body(ImmutableMap.of("query", query, "variables", variables))
+                .retrieve()
+                .body(JsonNode.class));
+        if (response == null || (response.has("errors") && (!response.path("errors").isArray() || !response.path("errors").isEmpty()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub could not verify current PR checks and branch protection");
+        }
+        return response.path("data").path("repository").path("pullRequest");
+    }
+
+    private static GitHubPullRequestIdentity deliveryIdentity(JsonNode row, PullRequestRef pullRequest)
+    {
+        checkState(row.path("number").isIntegralNumber() && row.path("number").intValue() == pullRequest.number(), "GitHub returned another pull request");
+        checkState(row.path("isDraft").isBoolean(), "GitHub omitted draft status");
+        RepoRef headRepository = deliveryRepository(row.path("headRepository"));
+        RepoRef baseRepository = deliveryRepository(row.path("baseRepository"));
+        checkState(baseRepository.equals(RepoRef.of(pullRequest.owner(), pullRequest.repo())), "GitHub returned another base repository");
+        String head = deliveryText(row, "headRefOid");
+        String base = deliveryText(row, "baseRefOid");
+        checkState(head.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})") && base.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid PR revision");
+        checkState(head.equals(deliveryText(row.path("headRef").path("target"), "oid")), "The pull-request head branch changed or is missing");
+        checkState(base.equals(deliveryText(row.path("baseRef").path("target"), "oid")), "The pull-request base branch changed or is missing");
+        return new GitHubPullRequestIdentity(pullRequest, deliveryText(row, "url"), headRepository, deliveryText(row, "headRefName"), head,
+                baseRepository, deliveryText(row, "baseRefName"), base, GitHubPullRequestIdentity.State.valueOf(deliveryText(row, "state")),
+                row.path("isDraft").booleanValue(), deliveryText(row.path("author"), "login"));
+    }
+
+    private static RepoRef deliveryRepository(JsonNode repository)
+    {
+        String[] parts = deliveryText(repository, "nameWithOwner").split("/", -1);
+        checkState(parts.length == 2, "GitHub returned an invalid repository identity");
+        return RepoRef.of(parts[0], parts[1]);
+    }
+
+    private static String deliveryText(JsonNode node, String field)
+    {
+        checkState(node.path(field).isTextual() && !node.path(field).textValue().isBlank(), "GitHub omitted " + field + " evidence");
+        return node.path(field).textValue();
+    }
+
+    private static void readClassicRequirements(JsonNode baseRef, List<RequiredDeliveryCheck> required)
+    {
+        checkState(baseRef.has("branchProtectionRule"), "GitHub omitted branch-protection evidence");
+        JsonNode rule = baseRef.path("branchProtectionRule");
+        if (rule.isNull()) {
+            return;
+        }
+        checkState(rule.path("requiresStatusChecks").isBoolean(), "GitHub omitted required-check policy");
+        if (!rule.path("requiresStatusChecks").booleanValue()) {
+            return;
+        }
+        checkState(rule.path("requiredStatusChecks").isArray(), "GitHub omitted required checks");
+        for (JsonNode check : rule.path("requiredStatusChecks")) {
+            checkState(check.has("app"), "GitHub omitted required-check app identity");
+            Optional<Long> app = check.path("app").isNull() ? Optional.empty() : Optional.of(deliveryAppId(check.path("app").path("databaseId")));
+            required.add(new RequiredDeliveryCheck(deliveryText(check, "context"), app));
+        }
+    }
+
+    private void readRulesetRequirements(String pat, GitHubPullRequestIdentity identity, List<RequiredDeliveryCheck> required, List<String> waiting)
+    {
+        for (int page = 1; page <= 10; page++) {
+            int currentPage = page;
+            JsonNode rows = translating(() -> gitHubRestClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/rules/branches/{branch}").queryParam("per_page", 100).queryParam("page", currentPage)
+                            .build(identity.baseRepository().owner(), identity.baseRepository().repo(), identity.baseBranch()))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(JsonNode.class));
+            checkState(rows != null && rows.isArray(), "GitHub omitted active branch rules");
+            for (JsonNode rule : rows) {
+                String type = deliveryText(rule, "type");
+                if ("required_status_checks".equals(type)) {
+                    JsonNode checks = rule.path("parameters").path("required_status_checks");
+                    checkState(checks.isArray(), "GitHub omitted ruleset required checks");
+                    for (JsonNode check : checks) {
+                        JsonNode integration = check.path("integration_id");
+                        Optional<Long> app = integration.isMissingNode() || integration.isNull() ? Optional.empty() : Optional.of(deliveryAppId(integration));
+                        required.add(new RequiredDeliveryCheck(deliveryText(check, "context"), app));
+                    }
+                }
+                else if ("workflows".equals(type) || "code_scanning".equals(type)) {
+                    waiting.add("Required " + type.replace('_', ' ') + " evidence is not supported by this CI check gate");
+                }
+                else if (!NON_CI_RULES.contains(type)) {
+                    waiting.add("Unknown branch rule " + type + " prevents complete required-check verification");
+                }
+            }
+            if (rows.size() < 100) {
+                return;
+            }
+        }
+        throw new IllegalStateException("GitHub active branch rules exceed the complete inspection limit");
+    }
+
+    private static long deliveryAppId(JsonNode value)
+    {
+        checkState(value.isIntegralNumber() && value.canConvertToLong() && value.longValue() > 0, "GitHub omitted required-check app identity");
+        return value.longValue();
+    }
+
+    private static void inspectMergeChecks(JsonNode pullRequest, List<String> waiting, List<String> failures)
+    {
+        checkState(pullRequest.has("potentialMergeCommit"), "GitHub omitted test merge commit evidence");
+        JsonNode merge = pullRequest.path("potentialMergeCommit");
+        if (merge.isNull()) {
+            waiting.add("Waiting for GitHub to produce the current test merge commit");
+            return;
+        }
+        String mergeSha = deliveryText(merge, "oid");
+        checkState(mergeSha.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid test merge commit");
+        checkState(merge.has("statusCheckRollup"), "GitHub omitted test merge checks");
+        JsonNode rollup = merge.path("statusCheckRollup");
+        if (rollup.isNull()) {
+            return;
+        }
+        checkState(mergeSha.equals(deliveryText(rollup.path("commit"), "oid")), "Test merge checks belong to another revision");
+        JsonNode count = rollup.path("contexts").path("totalCount");
+        checkState(count.isIntegralNumber() && count.canConvertToInt() && count.intValue() >= 0, "GitHub omitted the test merge check count");
+        if (count.intValue() > 0) {
+            String state = deliveryText(rollup, "state");
+            // GitHub uses merge-commit requirements when that commit has checks; head checks cannot substitute for them.
+            if ("FAILURE".equals(state) || "ERROR".equals(state)) {
+                failures.add("Test merge commit checks reported " + state + "; Actions Autofix cannot repair this separate check result");
+            }
+            else {
+                waiting.add("Test merge commit has separate checks (" + state + "); complete required-check verification for that commit is not supported");
+            }
+        }
+        else {
+            waiting.add("Test merge commit check evidence is empty");
+        }
+    }
+
+    private static void evaluateDeliveryChecks(List<JsonNode> checks, List<RequiredDeliveryCheck> required, List<String> waiting, List<String> failures)
+    {
+        if (checks.isEmpty()) {
+            waiting.add("No current-head CI checks have been reported; required workflows may not run while the PR is draft");
+        }
+        for (JsonNode check : checks) {
+            boolean checkRun = "CheckRun".equals(deliveryText(check, "__typename"));
+            checkState(checkRun || "StatusContext".equals(deliveryText(check, "__typename")), "GitHub returned an unknown check type");
+            String name = deliveryText(check, checkRun ? "name" : "context");
+            checkState(check.path("isRequired").isBoolean(), "GitHub omitted required-check applicability");
+            String state = deliveryText(check, checkRun ? "status" : "state");
+            String result = checkRun && "COMPLETED".equals(state) ? deliveryText(check, "conclusion") : state;
+            boolean passing = checkRun ? "COMPLETED".equals(state) && ImmutableSet.of("SUCCESS", "NEUTRAL", "SKIPPED").contains(result) : "SUCCESS".equals(result);
+            if (passing) {
+                continue;
+            }
+            if (ImmutableSet.of("FAILURE", "ERROR", "ACTION_REQUIRED", "CANCELLED", "STALE", "STARTUP_FAILURE", "TIMED_OUT").contains(result)) {
+                String origin = checkRun && "github-actions".equals(check.path("checkSuite").path("app").path("slug").asText()) ? "CI check" : "External CI check";
+                failures.add(origin + " " + name + " reported " + result + ("External CI check".equals(origin) ? "; Actions Autofix cannot repair this external check" : ""));
+            }
+            else {
+                waiting.add("Waiting for CI check " + name + " (" + result + ")");
+            }
+        }
+        for (RequiredDeliveryCheck requirement : required) {
+            boolean present = checks.stream().anyMatch(check -> {
+                boolean checkRun = "CheckRun".equals(check.path("__typename").asText());
+                return requirement.context().equals(check.path(checkRun ? "name" : "context").asText()) && check.path("isRequired").asBoolean(false)
+                        && requirement.appId().map(app -> checkRun && check.path("checkSuite").path("app").path("databaseId").asLong(-1) == app).orElse(true);
+            });
+            if (!present) {
+                waiting.add("Required CI check " + requirement.context() + " has not reported from its required source; it may not run while the PR is draft");
+            }
+        }
+    }
+
+    private record RequiredDeliveryCheck(String context, Optional<Long> appId) {}
 
     private static GitHubPullRequestIdentity publicationIdentity(PublicationPullRequest row, RepoRef expectedBase)
     {

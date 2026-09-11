@@ -20,6 +20,7 @@ import java.util.List;
 
 import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
 import static com.bytequay.app.ci.CiActionsChecks.checkUrl;
+import static com.bytequay.app.ci.CiActionsChecks.isPassingConclusion;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -76,6 +77,8 @@ public record CiHeadSnapshot(
     public boolean green()
     {
         List<CiJob> jobs = jobs();
-        return !jobs.isEmpty() && jobs.stream().allMatch(CiJob::passing);
+        return !jobs.isEmpty()
+                && workflowRuns.stream().allMatch(run -> "completed".equals(run.status()) && isPassingConclusion(run.conclusion()) && !run.jobs().isEmpty())
+                && jobs.stream().allMatch(CiJob::passing);
     }
 }

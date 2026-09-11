@@ -497,6 +497,7 @@ public final class DefaultAgentTurnService
 
     private void stopDevelopmentRuntimes(TaskId taskId, Optional<AgentTurn> active)
     {
+        runtimeRegistry.drainDevelopmentActions(taskId);
         try {
             stopChildren.accept(taskId);
         }
@@ -537,6 +538,32 @@ public final class DefaultAgentTurnService
     public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
     {
         return runtimeRegistry.ownsDevelopmentContinuation(taskId, sourceTurnId) && !runtimeRegistry.closing();
+    }
+
+    @Override
+    public void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
+    {
+        runtimeRegistry.executeDevelopmentAction(taskId, sourceTurnId, () -> {
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                requireDevelopmentOwner(taskId, sourceTurnId);
+                requireContinuationReady(taskId, sourceTurnId);
+                requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId));
+            }
+            action.run();
+        });
+    }
+
+    @Override
+    public void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message)
+    {
+        checkNotBlank(message, "message");
+        checkArgument(message.length() <= 8 * 1024, "Development progress message is too long");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            requireDevelopmentOwner(taskId, sourceTurnId);
+            outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(),
+                    AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, Instant.now(clock)));
+        }
+        drainPending(outboxStore, eventService, taskId);
     }
 
     private void requireDevelopmentOwner(TaskId taskId, TurnId sourceTurnId)

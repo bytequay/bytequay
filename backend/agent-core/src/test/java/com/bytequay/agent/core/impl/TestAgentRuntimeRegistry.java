@@ -25,7 +25,10 @@ import com.bytequay.agent.spi.RunningTurn;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -133,6 +136,84 @@ class TestAgentRuntimeRegistry
         registry.releaseDevelopmentOwner(FIRST, source);
         assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
         assertThatThrownBy(() -> registry.reserveDevelopmentOwner(FIRST, source)).isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void stopRevokesBeforeDrainingAdmittedDevelopmentAction()
+            throws Exception
+    {
+        assertDrainsDevelopmentAction(false);
+    }
+
+    @Test
+    void shutdownRevokesBeforeDrainingAdmittedDevelopmentAction()
+            throws Exception
+    {
+        assertDrainsDevelopmentAction(true);
+    }
+
+    private static void assertDrainsDevelopmentAction(boolean shutdown)
+            throws Exception
+    {
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        TurnId source = TurnId.random();
+        List<String> closed = new CopyOnWriteArrayList<>();
+        registry.reserveDevelopmentOwner(FIRST, source);
+        registry.registerSession(FIRST, session("source", closed));
+        CompletableFuture<Void> entered = new CompletableFuture<>();
+        CompletableFuture<Void> release = new CompletableFuture<>();
+        CompletableFuture<Void> action = CompletableFuture.runAsync(() -> registry.executeDevelopmentAction(FIRST, source, () -> {
+            entered.complete(null);
+            release.orTimeout(5, TimeUnit.SECONDS).join();
+            synchronized (registry.taskLock(FIRST)) {
+                // Stop must not retain this lock while draining synchronization or promotion.
+                assertThat(registry.ownsDevelopmentContinuation(FIRST, source)).isFalse();
+                assertThat(registry.hasDevelopmentOwner(FIRST)).isTrue();
+            }
+        }));
+        CompletableFuture<Void> stopping = null;
+        try {
+            entered.get(5, TimeUnit.SECONDS);
+            stopping = CompletableFuture.runAsync(() -> {
+                if (shutdown) {
+                    registry.close();
+                    return;
+                }
+                synchronized (registry.taskLock(FIRST)) {
+                    registry.stopDevelopment(FIRST);
+                }
+                registry.drainDevelopmentActions(FIRST);
+                registry.closeSession(FIRST);
+                synchronized (registry.taskLock(FIRST)) {
+                    registry.releaseDevelopmentOwner(FIRST, source);
+                }
+            });
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (registry.ownsDevelopmentContinuation(FIRST, source) && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertThat(registry.ownsDevelopmentContinuation(FIRST, source)).isFalse();
+            assertThat(registry.hasDevelopmentOwner(FIRST)).isTrue();
+            CompletableFuture<Void> stopped = stopping;
+            assertThatThrownBy(() -> stopped.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            assertThat(closed).isEmpty();
+
+            release.complete(null);
+            action.get(5, TimeUnit.SECONDS);
+            stopping.get(5, TimeUnit.SECONDS);
+            assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
+            assertThat(closed).containsExactly("source");
+            assertThatThrownBy(() -> registry.executeDevelopmentAction(FIRST, source, () -> {
+                throw new AssertionError("A revoked continuation must not admit another action");
+            })).isInstanceOf(AgentConflictException.class);
+        }
+        finally {
+            release.complete(null);
+            action.get(5, TimeUnit.SECONDS);
+            if (stopping != null) {
+                stopping.get(5, TimeUnit.SECONDS);
+            }
+        }
     }
 
     private static AgentSession session(String taskId, List<String> closed)

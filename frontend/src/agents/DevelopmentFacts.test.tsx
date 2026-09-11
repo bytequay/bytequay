@@ -55,6 +55,18 @@ describe('verified development observations', () => {
     expect(html).not.toContain('Not pushed');
     expect(html).not.toContain('No PR');
   });
+  it('shows readiness only from an observed open non-draft PR, retaining dated facts while automation runs', () => {
+    const pr = {
+      number: 17, url: 'https://github.com/acme/demo/pull/17', state: 'OPEN', draft: true, headSha: '1234567890',
+    };
+    const draft: AgentDevelopmentFactsDto = { ...facts, remote: { headSha: '1234567890', pullRequest: pr } };
+    const pending = renderToStaticMarkup(<DevelopmentFacts facts={draft} loading={false} error={null} running={false} automationActive />);
+    expect(pending).toContain('Automation running; showing previous observations');
+    expect(pending).toContain('Draft PR #17');
+    expect(pending).not.toContain('Ready for review');
+    expect(renderFacts({ ...draft, remote: { headSha: '1234567890', pullRequest: { ...pr, draft: false } } }))
+      .toContain('Ready for review · PR #17');
+  });
   it('shows unique dirty files and distinct local and remote revisions without implying checks passed', () => {
     const html = renderFacts({ ...facts, remote: { headSha: 'abcdefghij', pullRequest: { number: 17, url: 'https://github.com/acme/demo/pull/17', state: 'OPEN', draft: true, headSha: 'abcdefghij' } } }, true);
     expect(html).toContain('2 uncommitted files');

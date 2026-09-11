@@ -569,3 +569,45 @@ Live-test fixes and verification:
 
 - macOS arm64 packaging passed against the updated backend JAR. Log:
   `/private/tmp/bytequay-delivery-live-fixes-package.log`.
+
+
+Separate Claude development evidence:
+
+- Claude `opus` created the same two fixtures and committed
+  `bf29852603fb67abbb16b144946e899a9dc075a9`, then submitted a typed ready
+  report for ByteQuay's publication follow-up. Local Git independently showed
+  one commit and a clean worktree. No remote branch or PR was created.
+- The harness resolved normal native write approvals; several timed out
+  before resolution and the agent retried. A sandboxed npm install received
+  HTTP 403 responses. The harness stopped only that verified blocked npm
+  process, and Claude honestly reported local tests unavailable.
+- The source turn was interrupted by shutdown verification: synthetic
+  `heartbeat:true` progress IDs were incorrectly recorded as independent
+  active tools. The actual background task and Bash command had both
+  completed, but the synthetic IDs prevented finished-work proof. Publication
+  was correctly withheld while that proof was missing.
+- The isolated backend was stopped and its local commit/receipts retained.
+  Data: `/private/tmp/bytequay-delivery-live-claude-20260911-b`. A fresh task,
+  not recovery of this one, will validate heartbeat handling and continue
+  the Claude smoke. That task will skip dependency installation in both
+  development and repair, using the real GitHub workflow for validation.
+
+- [x] Correct native Claude heartbeat correlation with strict unknown-work
+  handling and verify it.
+- [ ] Rerun the separate Claude live smoke with the corrected adapter.
+
+
+Heartbeat verification:
+
+- Claude's explicit `heartbeat:true` frames with numeric synthetic suffixes
+  correlate only to an existing tool with the same name and parent. Active
+  heartbeats update the real tool; late known heartbeats emit no event. Unknown
+  or mismatched progress remains blocking. Native source confirmed this
+  protocol shape; no receipt or recovered task was rewritten.
+- Full `mvn verify` passed all 1,833 backend tests with zero failures, errors,
+  or skips. This includes real supervisor/EOF receipt tests, nested heartbeat
+  scope, six negative correlations, and all CI delivery E2E tests.
+  Log: `/private/tmp/bytequay-delivery-heartbeat-verify.log`.
+
+- Updated macOS arm64 packaging passed. Log:
+  `/private/tmp/bytequay-delivery-heartbeat-package.log`.

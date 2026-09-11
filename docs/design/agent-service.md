@@ -1999,6 +1999,10 @@ The same proof applies to a failed terminal result with a nonzero process exit,
 including a session limit: failure does not imply unfinished work. Missing or
 uncertain stream evidence and active tools still block the proof, and known
 processes must still be verified stopped before releasing the claim.
+Claude's typed heartbeat progress uses synthetic `<tool-id>-heartbeat-<n>`
+identities. Correlate these only to a known tool with matching name and parent;
+they neither create independent running work nor reopen a completed tool.
+Unknown or mismatched progress still prevents completion proof.
 
 #### One recursive completion rule
 

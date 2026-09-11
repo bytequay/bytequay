@@ -197,6 +197,7 @@ final class ClaudeProtocol
             @JsonProperty("elapsed_time_seconds") double elapsedTimeSeconds,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") String sessionIdValue,
+            Optional<Boolean> heartbeat,
             Optional<String> uuid)
             implements Message
     {
@@ -207,6 +208,7 @@ final class ClaudeProtocol
             requireNonNull(taskId, "taskId is null");
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
+            requireNonNull(heartbeat, "heartbeat is null");
             requireNonNull(uuid, "uuid is null");
         }
 

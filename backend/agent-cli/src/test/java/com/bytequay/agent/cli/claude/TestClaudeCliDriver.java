@@ -114,9 +114,13 @@ class TestClaudeCliDriver
                 printf '"name":"Bash","input":{"command":"true"}}]},"session_id":"%s","uuid":"bash-start"}\\n' "$session_id"
                 printf '{"type":"tool_progress","tool_use_id":"bash","tool_name":"Bash","elapsed_time_seconds":0.1,'
                 printf '"session_id":"%s","uuid":"bash-progress"}\\n' "$session_id"
+                printf '{"type":"tool_progress","tool_use_id":"bash-heartbeat-0","tool_name":"Bash","heartbeat":true,"elapsed_time_seconds":30,'
+                printf '"session_id":"%s","uuid":"bash-heartbeat"}\\n' "$session_id"
                 /usr/bin/true
                 printf '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash","content":"done"}]},'
                 printf '"session_id":"%s","uuid":"bash-end"}\\n' "$session_id"
+                printf '{"type":"tool_progress","tool_use_id":"bash-heartbeat-1","tool_name":"Bash","heartbeat":true,"elapsed_time_seconds":60,'
+                printf '"session_id":"%s","uuid":"bash-late-heartbeat"}\\n' "$session_id"
                 printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"mcp",'
                 printf '"name":"mcp__bytequay__review_get_context","input":{}}]},"session_id":"%s","uuid":"mcp-start"}\\n' "$session_id"
                 printf '{"type":"tool_progress","tool_use_id":"mcp","tool_name":"mcp__bytequay__review_get_context","elapsed_time_seconds":0.1,'

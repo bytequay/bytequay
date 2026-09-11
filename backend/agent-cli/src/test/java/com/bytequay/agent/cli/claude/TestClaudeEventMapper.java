@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.BufferedReader;
@@ -471,6 +472,84 @@ class TestClaudeEventMapper
         assertThat(mapper.hasFinishedWork()).isFalse();
         result();
         assertThat(mapper.hasFinishedWork()).isTrue();
+    }
+
+    @Test
+    void correlatesHeartbeatProgressWithoutCreatingOrRevivingToolWork()
+    {
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-1","name":"Bash","input":{"command":"npm ci"}}]},
+                "session_id":"session-1","uuid":"bash-start"}
+                """);
+        for (int heartbeat = 0; heartbeat < 2; heartbeat++) {
+            ProviderAgentEvent.Command progress = only("""
+                    {"type":"tool_progress","tool_use_id":"bash-1-heartbeat-%s","tool_name":"Bash","heartbeat":true,
+                    "elapsed_time_seconds":30,"parent_tool_use_id":null,"session_id":"session-1","uuid":"heartbeat-%s"}
+                    """.formatted(heartbeat, heartbeat), ProviderAgentEvent.Command.class);
+            assertThat(progress.source().providerItemId()).contains("bash-1");
+            assertThat(progress.state()).isEqualTo(ProviderAgentEvent.ActivityState.PROGRESS);
+        }
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+        map("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash-1","content":"done"}]},
+                "session_id":"session-1","uuid":"bash-end"}
+                """);
+        result();
+        assertThat(mapper.hasFinishedWork()).isTrue();
+        assertThat(map("""
+                {"type":"tool_progress","tool_use_id":"bash-1-heartbeat-2","tool_name":"Bash","heartbeat":true,
+                "elapsed_time_seconds":90,"parent_tool_use_id":null,"session_id":"session-1","uuid":"late-heartbeat"}
+                """)).isEmpty();
+        assertThat(mapper.hasFinishedWork()).isTrue();
+    }
+
+    @Test
+    void keepsNestedHeartbeatProgressOnItsKnownChildTool()
+    {
+        startAgent("Agent", false);
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-1","name":"Bash","input":{"command":"sleep 30"}}]},
+                "parent_tool_use_id":"spawn-1","session_id":"session-1","uuid":"bash-start"}
+                """);
+        ProviderAgentEvent.Command progress = only("""
+                {"type":"tool_progress","tool_use_id":"bash-1-heartbeat-0","tool_name":"Bash","heartbeat":true,
+                "elapsed_time_seconds":30,"parent_tool_use_id":"spawn-1","session_id":"session-1","uuid":"heartbeat"}
+                """, ProviderAgentEvent.Command.class);
+
+        assertThat(progress.source().providerItemId()).contains("bash-1");
+        assertThat(progress.source().providerThreadId()).contains("claude-agent:spawn-1");
+        assertThat(progress.source().parentProviderThreadId()).contains("session-1");
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "missing-heartbeat-0, Bash, null, true",
+            "bash-1-heartbeat-invalid, Bash, null, true",
+            "bash-1-heartbeat-0, Bash, null, false",
+            "bash-1-heartbeat-0, Bash, null, null",
+            "bash-1-heartbeat-0, Read, null, true",
+            "bash-1-heartbeat-0, Bash, \"other-agent\", true",
+    })
+    void unrecognizedHeartbeatProgressStillBlocksCompletion(String toolId, String toolName, String parent, String heartbeat)
+    {
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-1","name":"Bash","input":{"command":"npm ci"}}]},
+                "session_id":"session-1","uuid":"bash-start"}
+                """);
+        ProviderAgentEvent.Tool progress = only("""
+                {"type":"tool_progress","tool_use_id":"%s","tool_name":"%s","heartbeat":%s,
+                "elapsed_time_seconds":30,"parent_tool_use_id":%s,"session_id":"session-1","uuid":"heartbeat"}
+                """.formatted(toolId, toolName, heartbeat, parent), ProviderAgentEvent.Tool.class);
+        assertThat(progress.source().providerItemId()).contains(toolId);
+        map("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"bash-1","content":"done"}]},
+                "session_id":"session-1","uuid":"bash-end"}
+                """);
+        result();
+        assertThat(mapper.hasFinishedWork()).isFalse();
     }
 
     private List<ProviderAgentEvent> replay(String name)

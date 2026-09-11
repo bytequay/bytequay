@@ -343,8 +343,21 @@ final class ClaudeEventMapper
 
     private List<ProviderAgentEvent> mapProgress(ClaudeProtocol.ToolProgressMessage progress)
     {
-        ToolCall call = tools.get(progress.toolUseId());
-        activeTools.add(progress.toolUseId());
+        String toolUseId = progress.toolUseId();
+        if (progress.heartbeat().orElse(false)) {
+            // Claude's synthetic heartbeat IDs name observations of an existing tool, not new tools.
+            String originalId = toolUseId.replaceFirst("-heartbeat-[0-9]+$", "");
+            ToolCall original = tools.get(originalId);
+            if (!originalId.equals(toolUseId) && original != null && original.name().equals(progress.toolName())
+                    && original.parentToolUseId().equals(progress.parentToolUseId())) {
+                if (!activeTools.contains(originalId)) {
+                    return ImmutableList.of();
+                }
+                toolUseId = originalId;
+            }
+        }
+        ToolCall call = tools.get(toolUseId);
+        activeTools.add(toolUseId);
         if (call == null && (progress.toolName().equals("Agent") || progress.toolName().equals("Task"))) {
             activityUncertain = true;
         }
@@ -353,13 +366,13 @@ final class ClaudeEventMapper
             return ImmutableList.of(new ProviderAgentEvent.Command(
                     progress.uuid(),
                     Optional.empty(),
-                    progress.toolUseId(),
+                    toolUseId,
                     ProviderAgentEvent.ActivityState.PROGRESS,
                     call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.empty(),
                     Optional.empty(),
                     false,
-                    source(call.parentToolUseId(), Optional.of(progress.toolUseId())),
+                    source(call.parentToolUseId(), Optional.of(toolUseId)),
                     Optional.empty(),
                     Optional.of(Duration.ofMillis(Math.max(0, Math.round(progress.elapsedTimeSeconds() * 1000)))),
                     ImmutableList.of()));
@@ -367,12 +380,12 @@ final class ClaudeEventMapper
         return ImmutableList.of(new ProviderAgentEvent.Tool(
                 progress.uuid(),
                 Optional.empty(),
-                progress.toolUseId(),
+                toolUseId,
                 progress.toolName(),
                 ProviderAgentEvent.ActivityState.PROGRESS,
                 "Running for %.1f seconds".formatted(progress.elapsedTimeSeconds()),
                 parentToolId,
-                source(parentToolId, Optional.of(progress.toolUseId()))));
+                source(parentToolId, Optional.of(toolUseId))));
     }
 
     private ProviderAgentEvent startedTool(

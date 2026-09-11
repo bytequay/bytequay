@@ -6,9 +6,6 @@
 .home-page {
   height: 100%;
   overflow: hidden;
-  /* Keep the drag strip outside both scrollports so content cannot scroll beneath it. */
-  padding-top: var(--space-4);
-  -webkit-app-region: drag;
   background: var(--bg);
   color: var(--text-1);
   font-family: var(--font-body);
@@ -20,7 +17,6 @@
   min-width: 0;
   overflow-y: auto;
   padding: var(--space-1) var(--space-6) var(--space-5);
-  -webkit-app-region: no-drag;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -41,7 +37,6 @@
   border-left: 1px solid var(--border);
   background: var(--bg-elev);
   padding: 0 var(--space-3) var(--space-4);
-  -webkit-app-region: no-drag;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);

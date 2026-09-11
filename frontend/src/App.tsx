@@ -315,9 +315,14 @@ export default function App() {
     );
   }, [settingsWorkspace, settingsWorkspaceId]);
 
-  if (status === 'checking') return <LogoLoading />;
-  if (status === 'needs-pat') {
-    return <OnboardingScreen onSaved={() => setStatus('ready')} />;
+  if (status !== 'ready') {
+    return (
+      <div className="app-shell">
+        <main className="app-content">
+          {status === 'checking' ? <LogoLoading /> : <OnboardingScreen onSaved={() => setStatus('ready')} />}
+        </main>
+      </div>
+    );
   }
 
   const openPr = (owner: string, repo: string, number?: number) => {

@@ -511,7 +511,7 @@ samp {
 /* Centred branded card with the animated logo, welcome copy, and
    GitHub connection controls. */
 .onboarding {
-  min-height: 100vh;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -675,36 +675,6 @@ samp {
   overflow: hidden;
 }
 
-.app-shell :is(
-  .agt-screen-head,
-  .agt-panel__head,
-  .agt-tasks-head,
-  .rc-head,
-  .ws-head,
-  .pulls-list__toolbar,
-  .cmt-tab-bar,
-  .setw-page > h1
-) {
-  -webkit-app-region: drag;
-}
-
-/* Controls can also overlap a draggable header without being its descendants. */
-.app-shell :is(
-  button,
-  a,
-  input,
-  select,
-  textarea,
-  label,
-  [title],
-  [role="separator"],
-  [role="menu"],
-  [role="dialog"],
-  .cmt-menu
-) {
-  -webkit-app-region: no-drag;
-}
-
 .app-sidebar {
   position: relative;
   display: flex;
@@ -755,13 +725,11 @@ samp {
   height: 40px;
   flex: 0 0 40px;
   padding: 0 14px;
-  -webkit-app-region: drag;
 }
 
 .app-sidebar__lights {
   display: flex;
   gap: 6px;
-  -webkit-app-region: no-drag;
 }
 
 .app-sidebar__lights button {
@@ -785,7 +753,6 @@ samp {
   border: 0;
   background: transparent;
   color: var(--text-3);
-  -webkit-app-region: no-drag;
 }
 
 .app-sidebar__toggle:hover { color: var(--text-2); }
@@ -797,7 +764,6 @@ samp {
   align-items: center;
   gap: 0;
   padding: 0 8px 4px;
-  -webkit-app-region: no-drag;
 }
 
 .app-sidebar__traffic .app-sidebar__history {
@@ -881,7 +847,6 @@ samp {
   color: var(--text-3);
   font-size: 14px;
   cursor: pointer;
-  -webkit-app-region: no-drag;
 }
 
 .app-sidebar__traffic-btn:hover { background: var(--left-nav-hover-bg); }
@@ -984,7 +949,6 @@ samp {
 
 .find-bar {
   position: fixed;
-  -webkit-app-region: no-drag;
   /* Above the zoomed pull-request pane (70) and the Home overlays (110),
      below modals (200), which trap focus and should cover the bar. */
   z-index: 150;

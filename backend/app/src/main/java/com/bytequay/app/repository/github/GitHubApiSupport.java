@@ -25,9 +25,8 @@ import java.io.IOException;
 import java.util.function.Supplier;
 
 /**
- * Shared GitHub client mechanics that should stay identical across REST and
- * GraphQL call groups: auth header formatting, PAT guards, and readable API
- * error translation.
+ * Shared GitHub client mechanics: auth header formatting, PAT guards,
+ * readable API error translation, and issue-type response decoding.
  */
 final class GitHubApiSupport
 {
@@ -50,6 +49,14 @@ final class GitHubApiSupport
         if (pat == null || pat.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
         }
+    }
+
+    static String issueTypeName(JsonNode type)
+    {
+        if (type == null || type.isNull()) {
+            return null;
+        }
+        return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
     /** Runs one GitHub call, translating API failures into readable exceptions. */

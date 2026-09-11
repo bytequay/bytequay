@@ -86,6 +86,7 @@ import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireSelectedRepository;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -477,7 +478,7 @@ public class DefaultCiAutofixService
         }
         if (attempt.pushedSha().isEmpty()) {
             if (attempt.gitResult().isPresent()) {
-                return restorePushJournal(run, attempt, now);
+                return recordPushJournal(run, attempt, now);
             }
             return inspectCompletedAttempt(run, attempt, snapshot, now);
         }
@@ -545,15 +546,12 @@ public class DefaultCiAutofixService
             CiHeadSnapshot snapshot,
             Instant now)
     {
-        String inspectionBaseline = attempt.inputSha().equals(run.expectedRemoteHead())
-                ? attempt.inputSha()
-                : run.expectedRemoteHead();
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         CiGitInspection inspection = gitService.inspectAgentResult(new InspectAgentResultCommand(
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
                 worktree.worktree().generatedBranch(),
-                inspectionBaseline,
+                run.expectedRemoteHead(),
                 snapshot.baseSha()));
         return switch (inspection.outcome()) {
             case READY -> journalPush(run, attempt, inspection, now);
@@ -577,20 +575,11 @@ public class DefaultCiAutofixService
                 inspection.fingerprint().orElseThrow(),
                 inspection.changedPaths(),
                 inspection.commitSubjects());
-        PushJournal journal = new PushJournal(
-                attempt.id(),
-                run.expectedRemoteHead(),
-                gitResult.localHead(),
-                gitResult.fingerprint(),
-                now,
-                0);
-        CiAutofixRun stored = store.update(run
-                .updateAttempt(attempt.withGitResult(gitResult, now), now)
-                .recordPushJournal(journal, now));
-        return refreshMemory(stored);
+        CiAutofixAttempt inspected = attempt.withGitResult(gitResult, now);
+        return recordPushJournal(run.updateAttempt(inspected, now), inspected, now);
     }
 
-    private CiAutofixRun restorePushJournal(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
+    private CiAutofixRun recordPushJournal(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
     {
         GitResult result = attempt.gitResult().orElseThrow();
         CiAutofixRun stored = store.update(run.recordPushJournal(
@@ -817,6 +806,11 @@ public class DefaultCiAutofixService
                     now));
         }
         cleanupSynchronizedBase(run);
+        return completeGreenRun(run, now);
+    }
+
+    private CiAutofixRun completeGreenRun(CiAutofixRun run, Instant now)
+    {
         TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
                 TaskId.valueOf(run.agentTaskId().orElseThrow()),
                 Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
@@ -836,15 +830,7 @@ public class DefaultCiAutofixService
         if (taskService.get(taskId).state() != TaskState.COMPLETED) {
             return Optional.empty();
         }
-        TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
-                taskId,
-                Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
-        CiAutofixRun finished = store.update(run.finish(
-                FinishReason.GREEN,
-                completionSummary(run, completion),
-                now));
-        cleanupFinishedTask(finished);
-        return Optional.of(finished);
+        return Optional.of(completeGreenRun(run, now));
     }
 
     private CiAutofixRun observeCi(
@@ -1395,8 +1381,6 @@ public class DefaultCiAutofixService
     private static void validateStartCommand(StartCiAutofixCommand command)
     {
         requireNonNull(command, "command is null");
-        checkArgument(!command.workspaceId().isBlank(), "workspaceId is blank");
-        checkArgument(command.pullRequestNumber() > 0, "pullRequestNumber must be positive");
         checkArgument(command.maxAttempts() > 0
                         && command.maxAttempts() <= CiAutofixRun.MAX_FIX_ATTEMPTS,
                 "maxAttempts must be between 1 and 3");
@@ -1404,7 +1388,7 @@ public class DefaultCiAutofixService
                         && command.allowHistoryRewrites()
                         && command.allowExactLeasePush(),
                 "All CI Autofix consent flags must be true");
-        validateText(command.idempotencyKey(), "idempotencyKey", 200);
+        checkText(command.idempotencyKey(), "idempotencyKey", 200);
     }
 
     private static void requireStartWorkspace(CiAutofixRun run, String workspaceId)
@@ -1417,8 +1401,8 @@ public class DefaultCiAutofixService
     private static void validateMessageCommand(SendCiAutofixMessageCommand command)
     {
         requireNonNull(command, "command is null");
-        validateText(command.message(), "message", MAXIMUM_MESSAGE_CHARACTERS);
-        validateText(command.idempotencyKey(), "idempotencyKey", 200);
+        checkText(command.message(), "message", MAXIMUM_MESSAGE_CHARACTERS);
+        checkText(command.idempotencyKey(), "idempotencyKey", 200);
     }
 
     private static void validatePullRequest(
@@ -1460,13 +1444,6 @@ public class DefaultCiAutofixService
     private static String failureSummary(RuntimeException failure)
     {
         return failureSummary("Task completion failed", failure);
-    }
-
-    private static void validateText(String value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
-        checkArgument(value.length() <= maximumLength, name + " exceeds " + maximumLength + " characters");
     }
 
     private record RebaseGate(CiAutofixRun run, boolean ready)

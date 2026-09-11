@@ -21,13 +21,9 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentProviderStatus;
-import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
@@ -46,6 +42,8 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
+import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
 import static java.util.Objects.requireNonNull;
 
 /** Resolves trusted workspace Git facts before core creates an interactive task. */
@@ -130,11 +128,11 @@ public final class InteractiveAgentTaskCreator
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
             if (turns.findTurnByIdempotencyKey(taskId, idempotencyKey).isEmpty()) {
-                requireReady(laneId, defaults);
+                requireReady(drivers, laneId, defaults.permissionPolicy());
             }
             return task;
         }
-        requireReady(laneId, defaults);
+        requireReady(drivers, laneId, defaults.permissionPolicy());
         models.validateSelection(
                 laneId.value(),
                 defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
@@ -155,9 +153,7 @@ public final class InteractiveAgentTaskCreator
                     taskId,
                     workspace.workspaceId(),
                     laneId,
-                    new RepositoryIdentity(
-                            workspace.selectedRepository().owner(),
-                            workspace.selectedRepository().repo()),
+                    repositoryIdentity(workspace.selectedRepository()),
                     head.output().strip(),
                     message,
                     defaults,
@@ -223,17 +219,5 @@ public final class InteractiveAgentTaskCreator
         digest.update((byte) (bytes.length >>> 8));
         digest.update((byte) bytes.length);
         digest.update(bytes);
-    }
-
-    private void requireReady(AgentLaneId laneId, AgentTaskDefaults defaults)
-    {
-        AgentDriver driver = drivers.require(laneId);
-        if (!driver.capabilities().permissionPolicies().contains(defaults.permissionPolicy())) {
-            throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + defaults.permissionPolicy());
-        }
-        AgentProviderStatus status = driver.probe();
-        if (!status.available()) {
-            throw new AgentProviderUnavailableException(status);
-        }
     }
 }

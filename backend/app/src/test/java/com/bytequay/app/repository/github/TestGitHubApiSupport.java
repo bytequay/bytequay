@@ -13,15 +13,32 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+
+import java.io.IOException;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitHubApiSupport
 {
+    @Test
+    void decodesIssueTypeNamesFromNullableTextOrObjectResponses()
+            throws IOException
+    {
+        ObjectMapper mapper = new ObjectMapper();
+
+        assertThat(GitHubApiSupport.issueTypeName(null)).isNull();
+        assertThat(GitHubApiSupport.issueTypeName(mapper.readTree("null"))).isNull();
+        assertThat(GitHubApiSupport.issueTypeName(mapper.readTree("\"Task\""))).isEqualTo("Task");
+        assertThat(GitHubApiSupport.issueTypeName(mapper.readTree("{\"name\":\"Bug\"}"))).isEqualTo("Bug");
+        assertThat(GitHubApiSupport.issueTypeName(mapper.readTree("{}"))).isNull();
+        assertThat(GitHubApiSupport.issueTypeName(mapper.readTree("{\"name\":42}"))).isNull();
+    }
+
     @Test
     void summarizesAnHtmlErrorPageInsteadOfDumpingIt()
     {

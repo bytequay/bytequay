@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
+import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -258,14 +259,6 @@ public class GitHubRepoClient
                     .distinct()
                     .collect(toImmutableList());
         });
-    }
-
-    private static String issueTypeName(JsonNode type)
-    {
-        if (type == null || type.isNull()) {
-            return null;
-        }
-        return type.isTextual() ? type.asText() : type.path("name").textValue();
     }
 
     private Map<String, Long> fetchLanguages(String pat, RepoRef repo)

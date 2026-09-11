@@ -31,7 +31,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -41,7 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
-import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
+import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
@@ -286,14 +285,6 @@ public class GitHubPullRequestWriteClient
                 .toBodilessEntity());
     }
 
-    private static String issueTypeName(JsonNode type)
-    {
-        if (type == null || type.isNull()) {
-            return null;
-        }
-        return type.isTextual() ? type.asText() : type.path("name").textValue();
-    }
-
     public PrReviewState submitReview(
             String pat,
             PullRequestRef pr,
@@ -391,26 +382,21 @@ public class GitHubPullRequestWriteClient
         String mutation = resolved
                 ? "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}"
                 : "mutation($threadId:ID!){unresolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
-        try {
-            ReviewThreadMutationResponse response = graphQlRestClient.post()
-                    .header("Authorization", authorization(pat))
-                    .body(ImmutableMap.of(
-                            "query", mutation,
-                            "variables", ImmutableMap.of("threadId", threadId)))
-                    .retrieve()
-                    .body(ReviewThreadMutationResponse.class);
-            if (response == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "Empty response from GitHub when updating review thread");
-            }
-            if (response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "GitHub review thread update failed: " + response.errors().getFirst().message());
-            }
+        ReviewThreadMutationResponse response = translating(() -> graphQlRestClient.post()
+                .header("Authorization", authorization(pat))
+                .body(ImmutableMap.of(
+                        "query", mutation,
+                        "variables", ImmutableMap.of("threadId", threadId)))
+                .retrieve()
+                .body(ReviewThreadMutationResponse.class));
+        if (response == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(502), "Empty response from GitHub when updating review thread");
         }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
+        if (response.errors() != null && !response.errors().isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(502),
+                    "GitHub review thread update failed: " + response.errors().getFirst().message());
         }
     }
 

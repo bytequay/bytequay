@@ -16,6 +16,11 @@ package com.bytequay.app.utils;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
+
 public final class StringInputUtil
 {
     private StringInputUtil() {}
@@ -30,5 +35,17 @@ public final class StringInputUtil
         if (!isNotBlank(value)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), message);
         }
+    }
+
+    public static List<String> normalizeNames(List<String> values, String name)
+    {
+        requireNonNull(values, name + " is null");
+        return values.stream()
+                .map(value -> {
+                    requireNotBlank(value, name + " must not contain blanks");
+                    return value.trim();
+                })
+                .distinct()
+                .collect(toImmutableList());
     }
 }

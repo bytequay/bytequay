@@ -34,9 +34,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -198,18 +198,6 @@ public final class DefaultWorkspaceIssueService
         finally {
             lock.unlock();
         }
-    }
-
-    private static List<String> normalizeNames(List<String> values, String name)
-    {
-        requireNonNull(values, name + " is null");
-        return values.stream()
-                .map(value -> {
-                    requireNotBlank(value, name + " must not contain blanks");
-                    return value.trim();
-                })
-                .distinct()
-                .collect(toImmutableList());
     }
 
     private static PullRequestRef issueRef(Workspace workspace, int issueNumber)

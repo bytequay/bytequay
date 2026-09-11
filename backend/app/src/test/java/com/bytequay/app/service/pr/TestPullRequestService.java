@@ -70,6 +70,9 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -987,18 +990,20 @@ class TestPullRequestService
         verifyNoInteractions(diffStore, gitHub);
     }
 
-    @Test
-    void routesEachSupportedReactionTargetThroughTheViewerCredential()
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(booleans = {true, false})
+    void routesEachSupportedReactionTargetThroughTheViewerCredential(Boolean viewerHasReacted)
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
 
-        service.toggleReaction("owner/repo", 7, " pull_request ", null, " HEART ");
-        service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "+1");
-        service.toggleReaction("owner/repo", 7, "review_comment", 42L, "eyes");
+        service.toggleReaction("owner/repo", 7, " pull_request ", null, " HEART ", viewerHasReacted);
+        service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "+1", viewerHasReacted);
+        service.toggleReaction("owner/repo", 7, "review_comment", 42L, "eyes", viewerHasReacted);
 
-        verify(writes).togglePullRequestReaction("pat", ref, "heart");
-        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1");
-        verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes");
+        verify(writes).togglePullRequestReaction("pat", ref, "heart", viewerHasReacted);
+        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "+1", viewerHasReacted);
+        verify(writes).toggleReviewCommentReaction("pat", ref, 42, "eyes", viewerHasReacted);
     }
 
     @Test
@@ -1086,15 +1091,15 @@ class TestPullRequestService
     @Test
     void rejectsInvalidReactionTargetsAndContentBeforeWriting()
     {
-        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", null, "smile"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", null, "smile", null))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", 41L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "pull_request", 41L, "heart", null))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "issue_comment", null, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "issue_comment", null, "heart", null))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "review_comment", 0L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "review_comment", 0L, "heart", null))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "commit", 41L, "heart"))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "commit", 41L, "heart", null))
                 .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(writes);
     }
@@ -1297,6 +1302,11 @@ class TestPullRequestService
         assertThat(PullRequestService.deriveHandledActionFromReviews(
                 ImmutableList.of(new PrReviewState("me", "COMMENTED")), "me"))
                 .isEqualTo(HandledAction.COMMENTED);
+        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
+                new PrReviewState("ME", "APPROVED"),
+                new PrReviewState("me", "DISMISSED"),
+                new PrReviewState("other", "APPROVED")), "me"))
+                .isNull();
     }
 
     @Test

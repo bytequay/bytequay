@@ -216,17 +216,7 @@ public class GitHubPullRequestReadClient
     // ── Pull request detail ───────────────────────────────────────────────────
 
     public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr) {
-        GitHubPullRequestDetailResponse r = translating(() ->
-                gitHubRestClient
-                        .get()
-                        .uri(
-                                "/repos/{owner}/{repo}/pulls/{number}",
-                                pr.owner(),
-                                pr.repo(),
-                                pr.number())
-                        .header("Authorization", authorization(pat))
-                        .retrieve()
-                        .body(GitHubPullRequestDetailResponse.class));
+        GitHubPullRequestDetailResponse r = fetchPullRequestDetailResponse(pat, pr);
         if (r == null) {
             return null;
         }
@@ -294,6 +284,15 @@ public class GitHubPullRequestReadClient
                 headSha,
                 headRef,
                 baseRef);
+    }
+
+    private GitHubPullRequestDetailResponse fetchPullRequestDetailResponse(String pat, PullRequestRef pr)
+    {
+        return translating(() -> gitHubRestClient.get()
+                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                .header("Authorization", authorization(pat))
+                .retrieve()
+                .body(GitHubPullRequestDetailResponse.class));
     }
 
     private String enrichIssueReferences(String pat, PullRequestRef pr, String body)
@@ -574,11 +573,7 @@ public class GitHubPullRequestReadClient
         if (path == null || path.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
         }
-        GitHubPullRequestDetailResponse detail = translating(() -> gitHubRestClient.get()
-                .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                .header("Authorization", authorization(pat))
-                .retrieve()
-                .body(GitHubPullRequestDetailResponse.class));
+        GitHubPullRequestDetailResponse detail = fetchPullRequestDetailResponse(pat, pr);
         if (detail == null) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty pull request response from GitHub");
         }
@@ -1082,7 +1077,7 @@ public class GitHubPullRequestReadClient
         Map<String, Set<String>> viewerReactions = fetchViewerReactions(
                 pat,
                 comments.stream().map(GitHubReviewComment::nodeId).toList());
-        return toReviewThreadEvents(comments, fetchReviewThreadFacts(pat, pr), viewerReactions);
+        return toReviewThreadEvents(comments, fetchReviewThreadsByRoot(pat, pr), viewerReactions);
     }
 
     /**
@@ -1102,19 +1097,13 @@ public class GitHubPullRequestReadClient
                         pr.repo(),
                         pr.number(),
                         reviewId),
+                ImmutableMap.of(),
                 ImmutableMap.of());
     }
 
     private static List<PrTimelineEvent> toReviewThreadEvents(
             List<GitHubReviewComment> comments,
-            Map<Long, ReviewThreadFacts> facts)
-    {
-        return toReviewThreadEvents(comments, facts, ImmutableMap.of());
-    }
-
-    private static List<PrTimelineEvent> toReviewThreadEvents(
-            List<GitHubReviewComment> comments,
-            Map<Long, ReviewThreadFacts> facts,
+            Map<Long, GitHubReviewThreadsResponse.Thread> threadsByRoot,
             Map<String, Set<String>> viewerReactions)
     {
         if (comments.isEmpty()) {
@@ -1134,13 +1123,13 @@ public class GitHubPullRequestReadClient
         return grouped.values().stream()
                 .map(thread -> toReviewThreadEvent(
                         thread,
-                        facts.get(thread.getFirst().id()),
+                        threadsByRoot.get(thread.getFirst().id()),
                         viewerReactions))
                 .sorted(Comparator.comparing(event -> Optional.ofNullable(event.timestamp()).orElse(Instant.EPOCH)))
                 .collect(toImmutableList());
     }
 
-    private Map<Long, ReviewThreadFacts> fetchReviewThreadFacts(String pat, PullRequestRef pr)
+    private Map<Long, GitHubReviewThreadsResponse.Thread> fetchReviewThreadsByRoot(String pat, PullRequestRef pr)
     {
         String query = """
                 query($owner:String!,$repo:String!,$number:Int!,$after:String) {
@@ -1156,10 +1145,15 @@ public class GitHubPullRequestReadClient
                   }
                 }
                 """;
-        Map<Long, ReviewThreadFacts> facts = new LinkedHashMap<>();
-        try {
+        return translating(() -> {
+            Map<Long, GitHubReviewThreadsResponse.Thread> threadsByRoot = new LinkedHashMap<>();
             forEachGraphQlPage(pat, pr, query, GitHubReviewThreadsResponse.class, response -> {
-                GitHubReviewThreadsResponse.ReviewThreads threads = reviewThreads(response);
+                GitHubReviewThreadsResponse.ReviewThreads threads = Optional.ofNullable(response)
+                        .map(GitHubReviewThreadsResponse::data)
+                        .map(GitHubReviewThreadsResponse.Data::repository)
+                        .map(GitHubReviewThreadsResponse.Repository::pullRequest)
+                        .map(GitHubReviewThreadsResponse.PullRequest::reviewThreads)
+                        .orElse(null);
                 if (threads == null) {
                     return null;
                 }
@@ -1172,70 +1166,36 @@ public class GitHubPullRequestReadClient
                             .findFirst()
                             .orElse(null);
                     if (rootId != null) {
-                        facts.put(rootId, new ReviewThreadFacts(
-                                thread.id(),
-                                thread.isResolved(),
-                                thread.isOutdated(),
-                                thread.path(),
-                                thread.line(),
-                                thread.originalLine(),
-                                thread.startLine(),
-                                thread.originalStartLine(),
-                                thread.diffSide()));
+                        threadsByRoot.put(rootId, thread);
                     }
                 }
                 return threads.pageInfo();
             });
-        }
-        catch (RestClientResponseException e) {
-            throw toReadableException(e);
-        }
-        return ImmutableMap.copyOf(facts);
+            return ImmutableMap.copyOf(threadsByRoot);
+        });
     }
 
     public String findReviewThreadId(String pat, PullRequestRef pr, long rootCommentId)
     {
-        ReviewThreadFacts facts = fetchReviewThreadFacts(pat, pr).get(rootCommentId);
-        if (facts == null || facts.id() == null) {
+        GitHubReviewThreadsResponse.Thread thread = fetchReviewThreadsByRoot(pat, pr).get(rootCommentId);
+        if (thread == null || thread.id() == null) {
             throw new ResponseStatusException(
                     HttpStatus.NOT_FOUND, "GitHub review thread was not found");
         }
-        return facts.id();
-    }
-
-    private static GitHubReviewThreadsResponse.ReviewThreads reviewThreads(
-            GitHubReviewThreadsResponse response)
-    {
-        return Optional.ofNullable(response)
-                .map(GitHubReviewThreadsResponse::data)
-                .map(GitHubReviewThreadsResponse.Data::repository)
-                .map(GitHubReviewThreadsResponse.Repository::pullRequest)
-                .map(GitHubReviewThreadsResponse.PullRequest::reviewThreads)
-                .orElse(null);
+        return thread.id();
     }
 
     private static PrTimelineEvent toReviewThreadEvent(
             List<GitHubReviewComment> thread,
-            ReviewThreadFacts facts,
+            GitHubReviewThreadsResponse.Thread details,
             Map<String, Set<String>> viewerReactions)
     {
         GitHubReviewComment root = thread.getFirst();
         GitHubReviewComment.User user = root.user();
-        ReviewThreadFacts effective = facts == null
-                ? new ReviewThreadFacts(
-                        null,
-                        false,
-                        root.line() == null,
-                        root.path(),
-                        root.line(),
-                        root.originalLine(),
-                        root.startLine(),
-                        root.originalStartLine(),
-                        root.side())
-                : facts;
         List<PrTimelineComment> replies = thread.stream()
                 .map(comment -> toTimelineComment(comment, viewerReactions.get(comment.nodeId())))
                 .collect(toImmutableList());
+        // A returned GraphQL thread owns all location fields, including explicit nulls.
         return new PrTimelineEvent(
                 root.id(),
                 "review_thread",
@@ -1246,15 +1206,15 @@ public class GitHubPullRequestReadClient
                         .actorAvatarUrl(user == null ? null : user.avatarUrl())
                         .actorBot(user != null && "Bot".equalsIgnoreCase(user.type()))
                         .htmlUrl(root.htmlUrl())
-                        .path(effective.path())
+                        .path(details == null ? root.path() : details.path())
                         .diffHunk(root.diffHunk())
-                        .line(effective.line())
-                        .originalLine(effective.originalLine())
-                        .startLine(effective.startLine())
-                        .originalStartLine(effective.originalStartLine())
-                        .side(effective.side())
-                        .resolved(effective.resolved())
-                        .outdated(effective.outdated())
+                        .line(details == null ? root.line() : details.line())
+                        .originalLine(details == null ? root.originalLine() : details.originalLine())
+                        .startLine(details == null ? root.startLine() : details.startLine())
+                        .originalStartLine(details == null ? root.originalStartLine() : details.originalStartLine())
+                        .side(details == null ? root.side() : details.diffSide())
+                        .resolved(details != null && details.isResolved())
+                        .outdated(details == null ? root.line() == null : details.isOutdated())
                         .comments(replies)
                         .build(),
                 Optional.empty());
@@ -1312,17 +1272,6 @@ public class GitHubPullRequestReadClient
                         viewerReactions == null ? null : viewerReactions.contains(entry.getKey())))
                 .collect(toImmutableList());
     }
-
-    private record ReviewThreadFacts(
-            String id,
-            boolean resolved,
-            boolean outdated,
-            String path,
-            Integer line,
-            Integer originalLine,
-            Integer startLine,
-            Integer originalStartLine,
-            String side) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record ViewerReactionsResponse(ViewerReactionsData data) {}

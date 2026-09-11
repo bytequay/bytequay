@@ -93,6 +93,7 @@ import java.util.concurrent.Executor;
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
+import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
@@ -172,11 +173,6 @@ public class PullRequestService
         this.applicationContext = requireNonNull(applicationContext, "applicationContext is null");
     }
 
-    public PullRequestPage listPullRequests(int page, int pageSize)
-    {
-        return listPullRequests(page, pageSize, null);
-    }
-
     public PullRequestPage listPullRequests(int page, int pageSize, String search)
     {
         checkPage(page, pageSize);
@@ -228,11 +224,6 @@ public class PullRequestService
     }
 
     /** Returns the existing local PR rows restricted to one repository. */
-    public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize)
-    {
-        return listPullRequests(repository, page, pageSize, null);
-    }
-
     public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize, String search)
     {
         checkPage(page, pageSize);
@@ -291,7 +282,7 @@ public class PullRequestService
                 "is:pr is:open user-review-requested:@me" + qualifier,
                 true);
         reconcileRepositorySearchMisses(pat, repository, currentLogin, syncMarker);
-        deleteDetails(store.completeRepositorySync(
+        snapshots.delete(store.completeRepositorySync(
                 repository.fullName(), Instant.now().minus(CLOSED_RETENTION_DAYS, ChronoUnit.DAYS)));
     }
 
@@ -370,7 +361,7 @@ public class PullRequestService
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String currentLogin = credential.profile().login();
-        String syncMarker = java.util.UUID.randomUUID().toString();
+        String syncMarker = UUID.randomUUID().toString();
         Set<String> seen = new HashSet<>();
         syncDashboardQuery(pat, currentLogin, syncMarker, seen, "is:pr is:open author:@me", AUTHORED, refreshDetails);
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
@@ -396,7 +387,7 @@ public class PullRequestService
         if (refreshDetails) {
             refreshRetainedAttentionCandidates(seen);
         }
-        deleteDetails(store.completeDashboardSync(syncMarker, currentLogin));
+        snapshots.delete(store.completeDashboardSync(syncMarker, currentLogin));
     }
 
     private void refreshRetainedAttentionCandidates(Set<String> seen)
@@ -458,10 +449,8 @@ public class PullRequestService
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
         parseRef(repo, number);
-        Optional<PullRequestDetail> stored = findPullRequestDetail(repo, number);
-        PullRequestDetail detail = stored.isPresent()
-                ? stored.orElseThrow()
-                : refreshPullRequestDetailFromGitHub(repo, number).detail();
+        PullRequestDetail detail = findPullRequestDetail(repo, number)
+                .orElseGet(() -> refreshPullRequestDetailFromGitHub(repo, number).detail());
         // Opening the pull request dates the "since you last looked"
         // comparison. It is deliberately unconditional and separate from the
         // Recent stream, which needs a stronger signal than a triage click.
@@ -594,11 +583,6 @@ public class PullRequestService
         return detail;
     }
 
-    public boolean toggleReaction(String repo, int number, String target, Long commentId, String content)
-    {
-        return toggleReaction(repo, number, target, commentId, content, null);
-    }
-
     public boolean toggleReaction(
             String repo,
             int number,
@@ -632,18 +616,9 @@ public class PullRequestService
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         try {
             return switch (normalizedTarget) {
-                case "pull_request" -> viewerHasReacted == null
-                        ? pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent)
-                        : pullRequestWrites.togglePullRequestReaction(
-                                credential.token(), ref, normalizedContent, viewerHasReacted);
-                case "issue_comment" -> viewerHasReacted == null
-                        ? pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent)
-                        : pullRequestWrites.toggleIssueCommentReaction(
-                                credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
-                case "review_comment" -> viewerHasReacted == null
-                        ? pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent)
-                        : pullRequestWrites.toggleReviewCommentReaction(
-                                credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
+                case "pull_request" -> pullRequestWrites.togglePullRequestReaction(credential.token(), ref, normalizedContent, viewerHasReacted);
+                case "issue_comment" -> pullRequestWrites.toggleIssueCommentReaction(credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
+                case "review_comment" -> pullRequestWrites.toggleReviewCommentReaction(credential.token(), ref, commentId, normalizedContent, viewerHasReacted);
                 default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported reaction target");
             };
         }
@@ -688,18 +663,6 @@ public class PullRequestService
                 credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestDetail(repo, number);
-    }
-
-    private static List<String> normalizeNames(List<String> values, String name)
-    {
-        requireNonNull(values, name + " is null");
-        return values.stream()
-                .map(value -> {
-                    requireNotBlank(value, name + " must not contain blanks");
-                    return value.trim();
-                })
-                .distinct()
-                .collect(toImmutableList());
     }
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
@@ -796,8 +759,8 @@ public class PullRequestService
             }
             return new StoredPrDetail(
                     cached.raw(),
-                    ImmutableList.copyOf(reviews),
-                    ImmutableList.copyOf(timeline),
+                    reviews,
+                    timeline,
                     cached.checkRuns(),
                     cached.unavailableSections(),
                     cached.viewerCanWrite());
@@ -969,7 +932,7 @@ public class PullRequestService
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
             List<FetchedPullRequest> fresh = result.items().stream()
                     .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
-                    .map(pullRequest -> withOrigin(pullRequest, origin))
+                    .map(pullRequest -> pullRequest.withOrigin(origin))
                     .collect(toImmutableList());
             syncDashboardPage(pat, currentLogin, syncMarker, fresh, refreshDetails);
             if (!result.hasMore()) {
@@ -1020,7 +983,7 @@ public class PullRequestService
                     gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
             List<FetchedPullRequest> fresh = result.items().stream()
                     .map(pullRequest -> reviewRequested
-                            ? withOrigin(pullRequest, REVIEW_REQUESTED)
+                            ? pullRequest.withOrigin(REVIEW_REQUESTED)
                             : pullRequest.withViewerOrigin(currentLogin))
                     .collect(toImmutableList());
             if (!fresh.isEmpty()) {
@@ -1041,7 +1004,7 @@ public class PullRequestService
             try {
                 FetchedPullRequest exact = gitHub.getPullRequest(pat, ref).withViewerOrigin(currentLogin);
                 if (stored.origin() == REVIEW_REQUESTED) {
-                    exact = withOrigin(exact, REVIEW_REQUESTED);
+                    exact = exact.withOrigin(REVIEW_REQUESTED);
                 }
                 refreshed.add(exact);
             }
@@ -1077,7 +1040,7 @@ public class PullRequestService
                             currentLogin,
                             syncMarker,
                             ImmutableList.of(attention.reviewRequested()
-                                    ? withOrigin(pullRequest, REVIEW_REQUESTED)
+                                    ? pullRequest.withOrigin(REVIEW_REQUESTED)
                                     : pullRequest.withViewerOrigin(currentLogin)),
                             refreshDetails);
                 }
@@ -1140,11 +1103,6 @@ public class PullRequestService
     }
 
     enum RefreshMode { FULL, STATUS, NONE }
-
-    private void deleteDetails(Set<Long> pullRequestIds)
-    {
-        snapshots.delete(pullRequestIds);
-    }
 
     private static void checkPage(int page, int pageSize)
     {
@@ -1384,13 +1342,9 @@ public class PullRequestService
             if (r == null || !currentLogin.equalsIgnoreCase(r.login())) {
                 continue;
             }
-            if (GithubReviewState.APPROVED.equals(r.state())) {
-                derived = r;
-            }
-            else if (GithubReviewState.CHANGES_REQUESTED.equals(r.state())) {
-                derived = r;
-            }
-            else if (GithubReviewState.COMMENTED.equals(r.state())) {
+            if (GithubReviewState.APPROVED.equals(r.state())
+                    || GithubReviewState.CHANGES_REQUESTED.equals(r.state())
+                    || GithubReviewState.COMMENTED.equals(r.state())) {
                 derived = r;
             }
             else if ("DISMISSED".equals(r.state())) {
@@ -1514,7 +1468,7 @@ public class PullRequestService
             return new StoredPrDetail(
                     cached.raw(),
                     cached.reviews(),
-                    ImmutableList.copyOf(timeline),
+                    timeline,
                     cached.checkRuns(),
                     cached.unavailableSections(),
                     cached.viewerCanWrite());
@@ -1523,11 +1477,6 @@ public class PullRequestService
                 .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
                         prId.orElseThrow(), repo, number, detail, detail.viewerCanWrite()))
                 .orElseGet(() -> getPullRequestDetail(repo, number));
-    }
-
-    private static FetchedPullRequest withOrigin(FetchedPullRequest pr, PullRequest.Origin origin)
-    {
-        return pr.withOrigin(origin);
     }
 
     record DetailRefresh(boolean full, PullRequestDetail detail)

@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
@@ -108,6 +109,25 @@ class TestGitHubPullRequestOverviewClient
         assertThat(detail.labelColors()).containsEntry("docs", "d4c5f9");
         assertThat(detail.assignees()).containsExactly("bob");
         assertThat(detail.milestone()).isEqualTo("v1");
+        fixture.verify();
+    }
+
+    @Test
+    void readsDefaultDiffContentsAtThePullRequestsBaseAndHead()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
+                .andRespond(withSuccess("""
+                        {"body":"See #7","base":{"sha":"base-sha"},"head":{"sha":"head-sha"}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=base-sha"))
+                .andRespond(withSuccess("old content", MediaType.TEXT_PLAIN));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=head-sha"))
+                .andRespond(withSuccess("new content", MediaType.TEXT_PLAIN));
+
+        assertThat(fixture.client().fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java"))
+                .isEqualTo(new DiffFileContent("old content", "new content"));
         fixture.verify();
     }
 
@@ -469,7 +489,8 @@ class TestGitHubPullRequestOverviewClient
         Fixture fixture = fixture();
         String comments = IntStream.rangeClosed(1, 100)
                 .mapToObj(id -> """
-                        {"id":%d,"path":"a.txt","line":%d,"side":"RIGHT","body":"Comment %d",
+                        {"id":%d,"path":"a.txt","line":%d,"original_line":200,"start_line":1,"original_start_line":198,
+                         "side":"RIGHT","body":"Comment %d",
                          "created_at":"2026-08-20T10:00:00Z","user":{"login":"alice","avatar_url":"https://avatars/alice"}}
                         """.formatted(id, id, id))
                 .collect(joining(",", "[", "]"));
@@ -510,16 +531,30 @@ class TestGitHubPullRequestOverviewClient
         assertThat(threads).hasSize(100);
         assertThat(threads.getFirst().payload()).satisfies(payload -> {
             assertThat(payload.line()).isEqualTo(7);
+            assertThat(payload.originalLine()).isEqualTo(1);
+            assertThat(payload.startLine()).isNull();
+            assertThat(payload.originalStartLine()).isNull();
             assertThat(payload.side()).isEqualTo("RIGHT");
             assertThat(payload.actorAvatarUrl()).isEqualTo("https://avatars/alice");
             assertThat(payload.comments()).extracting(comment -> comment.body()).containsExactly("Comment 1", "Reply on the next page");
             assertThat(payload.comments().getLast().actorAvatarUrl()).isEqualTo("https://avatars/bob");
+        });
+        assertThat(threads.get(1).payload()).satisfies(payload -> {
+            assertThat(payload.path()).isEqualTo("a.txt");
+            assertThat(payload.line()).isEqualTo(2);
+            assertThat(payload.originalLine()).isEqualTo(200);
+            assertThat(payload.startLine()).isEqualTo(1);
+            assertThat(payload.originalStartLine()).isEqualTo(198);
+            assertThat(payload.side()).isEqualTo("RIGHT");
+            assertThat(payload.resolved()).isFalse();
+            assertThat(payload.outdated()).isFalse();
         });
         assertThat(threads.getLast().payload()).satisfies(payload -> {
             assertThat(payload.resolved()).isTrue();
             assertThat(payload.outdated()).isTrue();
             assertThat(payload.line()).isNull();
             assertThat(payload.originalLine()).isEqualTo(100);
+            assertThat(payload.startLine()).isNull();
             assertThat(payload.originalStartLine()).isEqualTo(98);
             assertThat(payload.side()).isEqualTo("LEFT");
         });

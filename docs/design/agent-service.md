@@ -1995,6 +1995,10 @@ foreground tools had finished. The adapter must use
 the complete typed stream at EOF to establish finished work, then verify the
 recorded processes and group. An otherwise completed review must not require
 user recovery merely because a short-lived child disappeared during sampling.
+The same proof applies to a failed terminal result with a nonzero process exit,
+including a session limit: failure does not imply unfinished work. Missing or
+uncertain stream evidence and active tools still block the proof, and known
+processes must still be verified stopped before releasing the claim.
 
 #### One recursive completion rule
 

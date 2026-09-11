@@ -47,6 +47,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -81,7 +83,7 @@ class TestClaudeCliDriver
     private Path worktree;
 
     @Test
-    void completedClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
+    void terminalClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
             throws Exception
     {
         Path executable = Files.writeString(worktree.resolve("claude-fixture"), """
@@ -102,6 +104,12 @@ class TestClaudeCliDriver
                 done
                 IFS= read -r prompt
                 printf '{"type":"system","subtype":"init","session_id":"%s","uuid":"init"}\\n' "$session_id"
+                if [ "$prompt" = "failed-real-turn" ]; then
+                  printf '{"type":"result","is_error":true,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"session_id":"%s",' "$session_id"
+                  printf '"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},'
+                  printf '"subtype":"error_during_execution","errors":["Session limit reached"],"uuid":"result"}\\n'
+                  exit 1
+                fi
                 printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash",'
                 printf '"name":"Bash","input":{"command":"true"}}]},"session_id":"%s","uuid":"bash-start"}\\n' "$session_id"
                 printf '{"type":"tool_progress","tool_use_id":"bash","tool_name":"Bash","elapsed_time_seconds":0.1,'
@@ -220,15 +228,23 @@ class TestClaudeCliDriver
                 executable.toString(), objectMapper, permissions, supervisor, ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
             assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
             AgentSession session = driver.open(context(Optional.empty()), events::add);
-            for (String prompt : ImmutableList.of("first-real-turn", "second-real-turn")) {
+            for (String prompt : ImmutableList.of("first-real-turn", "failed-real-turn", "second-real-turn")) {
                 AgentTurnResult result = session.start(command(prompt)).completion().toCompletableFuture().get(15, TimeUnit.SECONDS);
-                assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-                assertThat(result.finalResponse()).contains("Review complete");
+                boolean failed = prompt.equals("failed-real-turn");
+                if (failed) {
+                    assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+                    assertThat(result.terminalReason()).contains("Session limit reached");
+                    assertThat(result.finalResponse()).isEmpty();
+                }
+                else {
+                    assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                    assertThat(result.finalResponse()).contains("Review complete");
+                    assertThat(result.terminalReason()).isEmpty();
+                }
                 assertThat(result.providerQuiescent()).isTrue();
-                assertThat(result.terminalReason()).isEmpty();
                 ManagedProcess process = turnProcesses.getLast();
                 ProcessExit originalExit = process.exit().toCompletableFuture().get(5, TimeUnit.SECONDS);
-                assertThat(originalExit.exitCode()).isZero();
+                assertThat(originalExit.exitCode()).isEqualTo(failed ? 1 : 0);
                 assertThat(originalExit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
                 JsonNode receipt = objectMapper.readTree(launches.resolve(process.launchId() + ".json").toFile());
                 assertThat(receipt.path("descendantTrackingIncomplete").asBoolean()).isTrue();
@@ -874,6 +890,46 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void preservesFailedClaudeWorkWhenKnownProcessCleanupStillFails()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command("failed-live-process")));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.terminalReason()).contains("Session limit reached");
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"failed-active-tool", "failed-malformed-stream"})
+    void doesNotUseAFailedResultToHideUnfinishedOrUncertainWork(String prompt)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty()), event -> {});
+
+        AgentTurnResult result = await(session.start(command(prompt)));
+
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.providerQuiescent()).isFalse();
+        assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
+        supervisor.turns().getFirst().verifyNextStop();
+        session.close();
+        driver.close();
+    }
+
+    @Test
     void retainsTheAnswerWhenTheAsynchronousCompletionReceiptFails()
             throws Exception
     {
@@ -1436,6 +1492,10 @@ class TestClaudeCliDriver
                 exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(5), false, false));
                 return;
             }
+            if (prompt.startsWith("failed-")) {
+                completeFailedTurn();
+                return;
+            }
             String sessionId = sessionId();
             String runtimeSecretSuffix = runtimeSecret.isEmpty() ? "" : " " + runtimeSecret;
             if (!prompt.startsWith("finished-") && !prompt.equals("unfinished-background\n")) {
@@ -1494,6 +1554,25 @@ class TestClaudeCliDriver
                     Duration.ofMillis(10),
                     false,
                     false));
+        }
+
+        private void completeFailedTurn()
+        {
+            if (prompt.equals("failed-active-tool\n")) {
+                emit(ProcessStream.STDOUT, """
+                        {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash",
+                        "name":"Bash","input":{"command":"sleep 10"}}]},"session_id":"%s","uuid":"bash-start"}
+                        """.formatted(sessionId()).replace("\n", "") + "\n");
+            }
+            if (prompt.equals("failed-malformed-stream\n")) {
+                emit(ProcessStream.STDOUT, "not-json\n");
+            }
+            emit(ProcessStream.STDOUT, """
+                    {"type":"result","is_error":true,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"session_id":"%s",
+                    "usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},
+                    "subtype":"error_during_execution","errors":["Session limit reached"],"uuid":"result"}
+                    """.formatted(sessionId()).replace("\n", "") + "\n");
+            exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.UNVERIFIABLE, Duration.ofMillis(1), false, false));
         }
 
         private String sessionId()

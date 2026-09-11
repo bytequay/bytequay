@@ -1030,7 +1030,6 @@ public final class ClaudeCliDriver
                     && exit != null
                     && !exit.stdoutTruncated()
                     && exit.reason() == ProcessExit.Reason.EXITED
-                    && exit.exitCode() == 0
                     && mapper.hasFinishedWork();
             if (finishedWork && exit.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
                 // EOF includes notifications that may follow the root result. Only the complete

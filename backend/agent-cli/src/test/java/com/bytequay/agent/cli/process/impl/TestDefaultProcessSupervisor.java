@@ -602,6 +602,7 @@ class TestDefaultProcessSupervisor
 
             assertThat(process.stopAfterWorkFinished().toCompletableFuture().get(15, TimeUnit.SECONDS))
                     .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
             assertThat(awaitDead(childPid, Duration.ofSeconds(5))).isTrue();
         }
         finally {

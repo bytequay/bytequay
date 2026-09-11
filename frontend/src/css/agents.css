@@ -316,6 +316,18 @@
   white-space: nowrap;
 }
 
+.agt-development-facts {
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.agt-development-facts__observed { color: #6e7781; font-size: 11px; }
+.agt-development-facts__values { display: flex; flex-wrap: wrap; column-gap: 10px; }
+.agt-development-facts__values a { color: #0969da; }
+.agt-development-facts__error { color: #9a6700; overflow-wrap: anywhere; }
+
 .agt-state.is-recovery {
   color: #9a6700;
   background: #fff8c5;

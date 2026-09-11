@@ -20,6 +20,7 @@ import type {
   AgentAttachmentDto,
   AgentCapabilitiesDto,
   AgentCompletionDto,
+  AgentDevelopmentFactsDto,
   AgentInputDeliveryDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
@@ -306,9 +307,14 @@ export function parseDevelopmentResult(value: unknown, path = 'developmentResult
 
 export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
   const source = object(value, path);
+  const origin = source.developmentOrigin === null || source.developmentOrigin === undefined ? null : object(source.developmentOrigin, `${path}.developmentOrigin`);
   return {
     id: text(source.id, `${path}.id`),
     taskId: text(source.taskId, `${path}.taskId`),
+    developmentOrigin: origin === null ? null : {
+      kind: enumText(origin.kind, ['AUTO_COMMIT', 'CREATE_DRAFT_PR'] as const, `${path}.developmentOrigin.kind`),
+      parentUserTurnId: text(origin.parentUserTurnId, `${path}.developmentOrigin.parentUserTurnId`),
+    },
     ...(source.developmentResult === undefined ? {} : { developmentResult: source.developmentResult === null ? null : parseDevelopmentResult(source.developmentResult, `${path}.developmentResult`) }),
     state: text(source.state, `${path}.state`),
     version: count(source.version, `${path}.version`),
@@ -326,6 +332,42 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
       : enumText(source.failureKind, ['AUTHENTICATION_REQUIRED'] as const, `${path}.failureKind`),
     terminalReason: optionalText(source.terminalReason, `${path}.terminalReason`),
     metrics: metrics(source.metrics, `${path}.metrics`),
+  };
+}
+
+export function parseAgentDevelopmentFacts(value: unknown): AgentDevelopmentFactsDto {
+  const source = object(value, 'developmentFacts');
+  const local = source.local === null ? null : object(source.local, 'developmentFacts.local');
+  const remote = source.remote === null ? null : object(source.remote, 'developmentFacts.remote');
+  const pr = remote === null || remote.pullRequest === null ? null : object(remote.pullRequest, 'developmentFacts.remote.pullRequest');
+  const files = (value: unknown, path: string): number => {
+    const result = count(value, path);
+    if (!Number.isSafeInteger(result) || result < 0) throw new Error(`${path} is not a nonnegative integer`);
+    return result;
+  };
+  return {
+    observedAt: text(source.observedAt, 'developmentFacts.observedAt'),
+    local: local === null ? null : {
+      branch: text(local.branch, 'developmentFacts.local.branch'),
+      headSha: text(local.headSha, 'developmentFacts.local.headSha'),
+      stagedFiles: files(local.stagedFiles, 'developmentFacts.local.stagedFiles'),
+      unstagedFiles: files(local.unstagedFiles, 'developmentFacts.local.unstagedFiles'),
+      untrackedFiles: files(local.untrackedFiles, 'developmentFacts.local.untrackedFiles'),
+      uncommittedFileCount: files(local.uncommittedFileCount, 'developmentFacts.local.uncommittedFileCount'),
+      commitCount: files(local.commitCount, 'developmentFacts.local.commitCount'),
+    },
+    localError: optionalText(source.localError, 'developmentFacts.localError'),
+    remote: remote === null ? null : {
+      headSha: remote.headSha === null ? null : text(remote.headSha, 'developmentFacts.remote.headSha'),
+      pullRequest: pr === null ? null : {
+        number: files(pr.number, 'developmentFacts.remote.pullRequest.number'),
+        url: text(pr.url, 'developmentFacts.remote.pullRequest.url'),
+        state: text(pr.state, 'developmentFacts.remote.pullRequest.state'),
+        draft: flag(pr.draft, 'developmentFacts.remote.pullRequest.draft'),
+        headSha: text(pr.headSha, 'developmentFacts.remote.pullRequest.headSha'),
+      },
+    },
+    remoteError: optionalText(source.remoteError, 'developmentFacts.remoteError'),
   };
 }
 

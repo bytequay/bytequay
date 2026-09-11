@@ -41,6 +41,7 @@ import type {
 AgentApprovalDecision,
 AgentCapabilitiesDto,
 AgentChildSummaryDto,
+AgentDevelopmentFactsDto,
 AgentPendingApprovalDto,
 AgentProviderStatus,
 AgentProviderUnavailableDto,
@@ -60,6 +61,7 @@ import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,Co
 import type { CommitRange } from '../pulls/PullChanges';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { DevelopmentFacts } from './DevelopmentFacts';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -214,7 +216,7 @@ function connectionText(state: AgentTaskState): string {
 
 const STATUS_LABELS: Record<AgentRuntimeStatus, string> = {
   loading: 'Connecting',
-  idle: 'Ready',
+  idle: 'Idle',
   running: 'Running',
   closing: 'Closing',
   recovery: 'Recovering',
@@ -855,6 +857,9 @@ export function AgentTaskBody({
   pullRequests = [],
   pullRequestError = null,
   pullRequestLoading = false,
+  developmentFacts = null,
+  developmentFactsLoading = false,
+  developmentFactsError = null,
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
@@ -948,6 +953,9 @@ export function AgentTaskBody({
   pullRequests?: PullRequestDto[];
   pullRequestError?: string | null;
   pullRequestLoading?: boolean;
+  developmentFacts?: AgentDevelopmentFactsDto | null;
+  developmentFactsLoading?: boolean;
+  developmentFactsError?: string | null;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
@@ -1023,7 +1031,10 @@ export function AgentTaskBody({
   const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
   const question = developmentQuestion(state);
+  const generatedActivity = state.turn?.developmentOrigin?.kind === 'AUTO_COMMIT' ? 'Committing'
+    : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR' : null;
   const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
+    : status === 'running' && generatedActivity !== null ? generatedActivity
     : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
   const statusText = state.turn === null
     ? statusLabel
@@ -1139,6 +1150,9 @@ export function AgentTaskBody({
       {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
 
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
+
+      {state.task?.interactive === true && state.task.checkoutRemovedAt === null && <DevelopmentFacts
+        facts={developmentFacts} loading={developmentFactsLoading} error={developmentFactsError} running={status === 'running'} />}
 
       {!terminal && automationActive && status !== 'recovery' && <div className="agt-barrier" role="status">
         Automation is running. Your next message stays in the composer until it finishes.
@@ -1364,6 +1378,9 @@ export default function AgentTaskScreen({
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
   const [pullRequestLoading, setPullRequestLoading] = useState(false);
   const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
+  const [developmentFacts, setDevelopmentFacts] = useState<AgentDevelopmentFactsDto | null>(null);
+  const [developmentFactsLoading, setDevelopmentFactsLoading] = useState(false);
+  const [developmentFactsError, setDevelopmentFactsError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyLoadingRef = useRef(false);
@@ -1576,6 +1593,29 @@ export default function AgentTaskScreen({
   const pullRequestTurnKnown = latestTurnId === null || latestTurnId === pullRequestTurnId;
   const pullRequestPanelVisible = panelOpen && panelTab !== 'agents';
   const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
+  const factsAvailable = state.task?.interactive === true && state.task.checkoutRemovedAt === null;
+  const canReadFacts = factsAvailable && canRefreshPullRequests;
+  const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
+  useEffect(() => {
+    if (!canReadFacts) {
+      setDevelopmentFactsLoading(false);
+      return;
+    }
+    let active = true;
+    setDevelopmentFactsLoading(true);
+    void live().getAgentDevelopmentFacts(taskId, workspaceId)
+      .then((facts) => {
+        if (!active) return;
+        setDevelopmentFacts(facts);
+        setDevelopmentFactsError(null);
+      })
+      .catch((failure: unknown) => {
+        if (active) setDevelopmentFactsError(`Could not refresh results. ${failureText(failure)}`);
+      })
+      .finally(() => { if (active) setDevelopmentFactsLoading(false); });
+    return () => { active = false; };
+  }, [live, taskId, workspaceId, canReadFacts, pullRequestTurnId, pullRequestTurnEndedAt, continuationUnfinished]);
+
   useEffect(() => {
     if (!canRefreshPullRequests) {
       setPullRequestLoading(false);
@@ -2119,6 +2159,9 @@ export default function AgentTaskScreen({
       pullRequests={pullRequests}
       pullRequestError={pullRequestError}
       pullRequestLoading={pullRequestLoading}
+      developmentFacts={developmentFacts}
+      developmentFactsLoading={developmentFactsLoading}
+      developmentFactsError={developmentFactsError}
       onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}

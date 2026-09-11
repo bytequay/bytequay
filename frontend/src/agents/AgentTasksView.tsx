@@ -55,7 +55,7 @@ interface AgentTasksViewProps {
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
 const STATE_LABELS: Record<string, string> = {
-  OPEN: 'Ready',
+  OPEN: 'Idle',
   COMPLETED: 'Completed',
   FAILED: 'Failed',
 };
@@ -71,6 +71,9 @@ export function taskStatePill(task: AgentTaskDto): { label: string; className: s
   }
   if (task.state === 'OPEN' && task.mutationClaim?.kind === 'TURN') {
     return { label: 'Running', className: 'is-running', spinning: true };
+  }
+  if (task.state === 'OPEN' && task.developmentContinuationUnfinished) {
+    return { label: 'Automation running', className: 'is-running', spinning: true };
   }
   switch (task.state) {
     case 'OPEN':

@@ -70,6 +70,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'archiveAgentTask'
   | 'deleteAgentTask'
   | 'listAgentTaskPullRequests'
+  | 'getAgentDevelopmentFacts'
   | 'syncPrs'
   | 'getEffectiveTurnSettings'
   | 'refreshAgentProviderReadiness'>;

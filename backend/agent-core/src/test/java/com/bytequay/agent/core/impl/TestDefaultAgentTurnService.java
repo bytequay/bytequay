@@ -117,6 +117,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
@@ -151,6 +152,7 @@ class TestDefaultAgentTurnService
     private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
     private boolean codeGraphEnabled = true;
     private Optional<Consumer<DevelopmentTurnCompletion>> developmentListener = Optional.empty();
+    private BiConsumer<AgentTask, AgentTurn> developmentAccepted = (acceptedTask, turn) -> {};
 
     @BeforeEach
     void setUp()
@@ -598,6 +600,92 @@ class TestDefaultAgentTurnService
         service.start(command("Local follow-up", "local-only").withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
         driver.complete("Done locally");
         assertThat(completed).hasSize(1);
+    }
+
+    @Test
+    void capturesUserAndQueuedTurnsBeforeProviderStartWithoutRecapturingGeneratedTurns()
+    {
+        List<TurnId> captured = new ArrayList<>();
+        developmentAccepted = (acceptedTask, turn) -> {
+            awaitTaskLock(runtimeRegistry);
+            assertThat(driver.commands()).hasSize(captured.size());
+            assertThat(stores.find(turn.id())).contains(turn);
+            assertThat(acceptedTask.worktreeMutationClaim()).contains(WorktreeMutationClaim.turn(turn.id(), turn.createdAt()));
+            assertThat(acceptedTask.developmentContinuationUnfinished()).isTrue();
+            captured.add(turn.id());
+        };
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("First", "capture-source"));
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isFalse();
+        service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Second", ImmutableList.of(), "capture-queue"));
+        assertThat(captured).containsExactly(source.id());
+        reportReady(source, Optional.empty());
+        driver.complete("First done");
+
+        assertThat(service.handoffDevelopmentContinuationToQueue(task.id(), source.id())).isTrue();
+        AgentTurn queued = stores.findActive(task.id()).orElseThrow();
+        assertThat(captured).containsExactly(source.id(), queued.id());
+        reportReady(queued, Optional.empty());
+        driver.complete("Second done");
+        service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, queued.id()), "Commit");
+        reportReady(stores.findActive(task.id()).orElseThrow(), Optional.empty());
+        driver.complete("Committed");
+
+        assertThat(captured).containsExactly(source.id(), queued.id());
+        assertThat(driver.commands()).hasSize(3);
+        service.finishDevelopmentContinuation(task.id(), queued.id());
+    }
+
+    @Test
+    void baselineCaptureFailureSettlesTheAcceptedTurnWithoutStartingTheProvider()
+    {
+        List<DevelopmentTurnCompletion> completed = new ArrayList<>();
+        developmentAccepted = (acceptedTask, turn) -> {
+            throw new AgentStorageException("Cannot inspect accepted Git baseline");
+        };
+        enableDevelopment(completed::add);
+
+        assertThatThrownBy(() -> service.start(command("Change", "capture-failure")))
+                .isInstanceOf(AgentStorageException.class).hasMessageContaining("Git baseline");
+
+        AgentTurn failed = stores.list(task.id()).getLast();
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.knownUnsent()).isTrue();
+        assertThat(failed.startedAt()).isEmpty();
+        assertThat(driver.commands()).isEmpty();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+        assertThat(completed).hasSize(1);
+        service.failDevelopmentContinuation(task.id(), failed.id(), "Capture failed");
+    }
+
+    @Test
+    void stopDuringBaselineCaptureCannotLaunchTheAcceptedTurnAfterward()
+    {
+        developmentAccepted = (acceptedTask, turn) -> CompletableFuture.runAsync(() ->
+                service.stopRuntime(acceptedTask.id(), "turn:" + turn.id())).orTimeout(5, TimeUnit.SECONDS).join();
+        enableDevelopment(ignored -> {});
+
+        assertThatThrownBy(() -> service.start(command("Change", "capture-stop"))).isInstanceOf(AgentConflictException.class);
+
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(stores.list(task.id()).getLast().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(driver.commands()).isEmpty();
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
+    }
+
+    @Test
+    void shutdownDuringBaselineCapturePreservesTheAcceptedClaimWithoutLaunching()
+    {
+        developmentAccepted = (acceptedTask, turn) -> runtimeRegistry.close();
+        enableDevelopment(ignored -> {});
+
+        assertThatThrownBy(() -> service.start(command("Change", "capture-shutdown")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("shutting down");
+
+        assertThat(stores.list(task.id()).getLast().state()).isEqualTo(TurnState.ACCEPTED);
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isPresent();
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        assertThat(driver.commands()).isEmpty();
     }
 
     @Test
@@ -1518,8 +1606,9 @@ class TestDefaultAgentTurnService
         AgentTask interactive = interactiveTask("Implement the change");
 
         for (AgentTask candidate : ImmutableList.of(task, interactive)) {
-            service.start(new StartAgentTurnCommand(candidate.id(), "first", ImmutableList.of(), "identity"));
-            assertThat(instructionTasks.getLast()).isEqualTo(candidate);
+            AgentTurn running = service.start(new StartAgentTurnCommand(candidate.id(), "first", ImmutableList.of(), "identity"));
+            assertThat(instructionTasks.getLast()).isEqualTo(candidate
+                    .claimWorktreeMutation(WorktreeMutationClaim.turn(running.id(), running.createdAt()), running.createdAt()).withVersion(candidate.version() + 1));
             driver.complete("done");
         }
         assertThat(instructionTasks).extracting(AgentTask::interactive).containsExactly(false, true);
@@ -1530,10 +1619,11 @@ class TestDefaultAgentTurnService
     void refreshesManagedInstructionsForNewResumedAndQueuedTurns()
     {
         managedInstructions.set("Lead with the next action.");
-        service.start(command("first", "key-1"));
+        AgentTurn first = service.start(command("first", "key-1"));
         AgentSessionContext firstContext = driver.openedContexts().getFirst();
         assertThat(firstContext.managedInstructions()).isEqualTo("Lead with the next action.");
-        assertThat(instructionTasks).containsExactly(task);
+        assertThat(instructionTasks).containsExactly(task
+                .claimWorktreeMutation(WorktreeMutationClaim.turn(first.id(), first.createdAt()), first.createdAt()).withVersion(task.version() + 1));
 
         managedInstructions.set("Keep each explanation short.");
         assertThat(firstContext.managedInstructions()).isEqualTo("Lead with the next action.");
@@ -2434,6 +2524,7 @@ class TestDefaultAgentTurnService
                 Duration.ofMinutes(5),
                 queueStarter,
                 ignored -> developmentListener.isPresent(),
+                (acceptedTask, turn) -> developmentAccepted.accept(acceptedTask, turn),
                 completion -> developmentListener.orElseThrow().accept(completion),
                 completionService());
     }

@@ -19,6 +19,7 @@ import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import type { AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
+import { developmentTurnLabel } from './DevelopmentFacts';
 import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
@@ -503,6 +504,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
+  const generatedLabel = developmentTurnLabel(turn.turnId === null ? null : durableTurns[turn.turnId]) ?? (generatedRequest ? 'Review request' : null);
   return (
     <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => (
@@ -510,8 +512,8 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
           <div className="agt-user" data-history-anchor={user.id}>
             <div className="agt-user__bubble">
-              {generatedRequest && index === 0 && user.delivery === 'TURN' && (
-                <div className="agt-user__attribution">ByteQuay · Review request</div>
+              {generatedLabel !== null && index === 0 && user.delivery === 'TURN' && (
+                <div className="agt-user__attribution">ByteQuay · {generatedLabel}</div>
               )}
               {user.attachments.length > 0 && (
                 <div className="agt-user__files">

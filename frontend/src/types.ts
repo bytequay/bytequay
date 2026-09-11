@@ -643,6 +643,7 @@ export type DevelopmentResultDto = {
 
 export type AgentTurnDto = {
   developmentResult?: DevelopmentResultDto | null;
+  developmentOrigin?: { kind: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR'; parentUserTurnId: string } | null;
   id: string;
   taskId: string;
   state: string;
@@ -660,6 +661,26 @@ export type AgentTurnDto = {
   failureKind?: 'AUTHENTICATION_REQUIRED' | null;
   terminalReason: string | null;
   metrics: AgentMetricsDto;
+};
+
+/** Observed Git and GitHub facts; a missing observation is never proof of an absent result. */
+export type AgentDevelopmentFactsDto = {
+  observedAt: string;
+  local: {
+    branch: string;
+    headSha: string;
+    stagedFiles: number;
+    unstagedFiles: number;
+    untrackedFiles: number;
+    uncommittedFileCount: number;
+    commitCount: number;
+  } | null;
+  localError: string | null;
+  remote: {
+    headSha: string | null;
+    pullRequest: { number: number; url: string; state: string; draft: boolean; headSha: string } | null;
+  } | null;
+  remoteError: string | null;
 };
 
 export type CreateAgentTaskRequest = {
@@ -1488,6 +1509,7 @@ export type Bridge = {
   deleteAgentTask: (taskId: string, workspaceId: string) => Promise<void>;
   /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
+  getAgentDevelopmentFacts: (taskId: string, workspaceId: string) => Promise<AgentDevelopmentFactsDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;

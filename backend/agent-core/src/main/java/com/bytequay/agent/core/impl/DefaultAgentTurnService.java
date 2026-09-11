@@ -106,6 +106,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -147,6 +148,7 @@ public final class DefaultAgentTurnService
     /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
     private final Executor queueStarter;
     private final Predicate<AgentTask> developmentEligibility;
+    private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion;
     private final Optional<AgentCompletionService> completionService;
 
@@ -193,6 +195,7 @@ public final class DefaultAgentTurnService
                 maximumTurnRuntime,
                 queueStarter,
                 task -> false,
+                (task, turn) -> {},
                 Optional.empty(),
                 Optional.empty());
     }
@@ -217,6 +220,7 @@ public final class DefaultAgentTurnService
             Duration maximumTurnRuntime,
             Executor queueStarter,
             Predicate<AgentTask> developmentEligibility,
+            BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Consumer<DevelopmentTurnCompletion> developmentCompletion,
             AgentCompletionService completionService)
     {
@@ -240,6 +244,7 @@ public final class DefaultAgentTurnService
                 maximumTurnRuntime,
                 queueStarter,
                 developmentEligibility,
+                developmentAccepted,
                 Optional.of(developmentCompletion),
                 Optional.of(completionService));
     }
@@ -264,6 +269,7 @@ public final class DefaultAgentTurnService
             Duration maximumTurnRuntime,
             Executor queueStarter,
             Predicate<AgentTask> developmentEligibility,
+            BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion,
             Optional<AgentCompletionService> completionService)
     {
@@ -288,6 +294,7 @@ public final class DefaultAgentTurnService
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
         this.queueStarter = requireNonNull(queueStarter, "queueStarter is null");
         this.developmentEligibility = requireNonNull(developmentEligibility, "developmentEligibility is null");
+        this.developmentAccepted = requireNonNull(developmentAccepted, "developmentAccepted is null");
         this.developmentCompletion = requireNonNull(developmentCompletion, "developmentCompletion is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
     }
@@ -297,7 +304,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(command, "command is null");
         retryCompletedTurn(command.taskId());
-        Launch launch;
+        TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPending(outboxStore, eventService, command.taskId());
             Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
@@ -313,9 +320,9 @@ public final class DefaultAgentTurnService
                     throw new AgentConflictException("Task version changed: " + task.id());
                 }
             });
-            launch = launchLocked(task, acceptTurnLocked(task, command), command.message(), command.attachments());
+            acceptance = acceptTurnLocked(task, command);
         }
-        return settleLaunch(launch);
+        return launchAccepted(acceptance);
     }
 
     @Override
@@ -351,8 +358,9 @@ public final class DefaultAgentTurnService
                     .collect(toImmutableList());
             completion = runtimeRegistry.registerDevelopmentTurn(taskId, origin);
             try {
-                TurnAcceptance acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(), message, settings, Optional.of(origin));
-                launch = launchLocked(task, acceptance, message, attachments);
+                TurnAcceptance acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(),
+                        message, attachments, settings, Optional.of(origin));
+                launch = launchLocked(task, acceptance);
             }
             catch (RuntimeException failure) {
                 completion.completeExceptionally(failure);
@@ -371,7 +379,7 @@ public final class DefaultAgentTurnService
     @Override
     public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
     {
-        Launch launch;
+        TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireDevelopmentOwner(taskId, sourceTurnId);
             requireContinuationReady(taskId, sourceTurnId);
@@ -380,15 +388,12 @@ public final class DefaultAgentTurnService
                 return false;
             }
             AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)));
-            // The queued turn's claim and cleared marker are stored together. Send never sees an
-            // unclaimed gap between this owner and the next accepted user turn.
-            launch = launchQueuedLocked(task.withDevelopmentContinuation(false, Instant.now(clock)), head.orElseThrow());
+            // The queued turn's claim is stored before releasing this owner. Send never sees an
+            // unclaimed gap, including while the next turn captures its baseline outside the lock.
+            acceptance = acceptQueuedLocked(task.withDevelopmentContinuation(false, Instant.now(clock)), head.orElseThrow());
             runtimeRegistry.releaseDevelopmentOwner(taskId, sourceTurnId);
-            if (requireTurn(launch.turn().id()).state().terminal()) {
-                reserveDevelopmentContinuation(requireTurn(launch.turn().id()));
-            }
         }
-        settleLaunch(launch);
+        launchAccepted(acceptance);
         return true;
     }
 
@@ -545,13 +550,78 @@ public final class DefaultAgentTurnService
         }
     }
 
+    /** Captures accepted development scope without holding the task lock or starting a provider. */
+    private AgentTurn launchAccepted(TurnAcceptance acceptance)
+    {
+        AgentTurn turn = acceptance.turn();
+        TaskId taskId = turn.taskId();
+        Launch launch;
+        boolean launchAttempted = false;
+        try {
+            AgentTask task;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                task = requireAcceptedLaunch(turn);
+            }
+            if (developmentTurnEligible(task, turn)) {
+                developmentAccepted.accept(task, turn);
+            }
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                task = requireAcceptedLaunch(turn);
+                if (task.developmentContinuationUnfinished()) {
+                    task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
+                }
+                launchAttempted = true;
+                launch = launchLocked(task, acceptance);
+            }
+        }
+        catch (RuntimeException failure) {
+            if (launchAttempted) {
+                throw failure;
+            }
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                if (runtimeRegistry.closing()) {
+                    throw failure;
+                }
+                recordKnownUnsentFailure(turn, failure, runtimeRegistry.unverifiedClose(taskId).isEmpty());
+                if (developmentTurnEligible(requireTask(taskId), turn)) {
+                    reserveDevelopmentContinuation(requireTurn(turn.id()));
+                }
+                launch = new Launch(turn, Optional.empty(), Optional.of(failure));
+            }
+        }
+        return settleLaunch(launch);
+    }
+
+    private AgentTask requireAcceptedLaunch(AgentTurn accepted)
+    {
+        AgentTask task = requireTask(accepted.taskId());
+        AgentTurn turn = requireTurn(accepted.id());
+        if (runtimeRegistry.closing()) {
+            throw new AgentConflictException("Backend is shutting down");
+        }
+        if (runtimeRegistry.hasDevelopmentOwner(task.id())) {
+            throw new AgentConflictException("Development automation owns this task: " + task.id());
+        }
+        if (task.state() != TaskState.OPEN || turn.state() != TurnState.ACCEPTED || turn.cancellationRequestedAt().isPresent()) {
+            throw new AgentConflictException("Accepted turn can no longer start: " + turn.id());
+        }
+        WorktreeMutationClaim claim = WorktreeMutationClaim.turn(turn.id(), turn.createdAt());
+        if (!task.worktreeMutationClaim().equals(Optional.of(claim))) {
+            throw new AgentConflictException("Accepted turn no longer owns its worktree: " + turn.id());
+        }
+        runtimeRegistry.unverifiedClose(task.id()).ifPresent(failure -> {
+            throw new AgentConflictException("Task provider process is not verified stopped: " + failureMessage(failure));
+        });
+        return task;
+    }
+
     /**
      * Sends an accepted turn to the provider.
      *
      * <p>A failure before the send is recorded as a known-unsent failed turn here; a failure after
      * it leaves the turn as it is, because the provider may be running it.
      */
-    private Launch launchLocked(AgentTask task, TurnAcceptance acceptance, String message, List<AgentAttachment> attachments)
+    private Launch launchLocked(AgentTask task, TurnAcceptance acceptance)
     {
         AgentTurn accepted = acceptance.turn();
         boolean deliveryAttempted = false;
@@ -565,8 +635,8 @@ public final class DefaultAgentTurnService
             deliveryAttempted = true;
             RunningTurn runningTurn = session.start(new AgentTurnCommand(
                     accepted.id().toString(),
-                    message,
-                    attachments,
+                    acceptance.message(),
+                    acceptance.attachments(),
                     settings.maximumRuntime(),
                     settings.model(),
                     settings.effort(),
@@ -929,7 +999,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(taskId, "taskId is null");
         retryCompletedTurn(taskId);
-        Launch launch;
+        TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             drainPending(outboxStore, eventService, taskId);
             AgentTask task = requireStartableTask(taskId);
@@ -941,9 +1011,9 @@ public final class DefaultAgentTurnService
             if (head.state() == QueuedAgentInput.State.UNCERTAIN) {
                 throw new AgentConflictException("The next queued input may already have been delivered; discard it first: " + head.id());
             }
-            launch = launchQueuedLocked(task, head);
+            acceptance = acceptQueuedLocked(task, head);
         }
-        return settleLaunch(launch);
+        return launchAccepted(acceptance);
     }
 
     /** The next input that is not history: waiting, paused, or uncertain. */
@@ -963,7 +1033,7 @@ public final class DefaultAgentTurnService
      */
     private void startQueuedHead(TaskId taskId)
     {
-        Launch launch;
+        TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             Optional<QueuedAgentInput> head = queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED);
             if (head.isEmpty()) {
@@ -989,7 +1059,7 @@ public final class DefaultAgentTurnService
                 return;
             }
             try {
-                launch = launchQueuedLocked(task, head.orElseThrow());
+                acceptance = acceptQueuedLocked(task, head.orElseThrow());
             }
             catch (RuntimeException failure) {
                 pauseQueuedHead(requireQueued(head.orElseThrow().id()), "Not started: " + message(failure));
@@ -997,7 +1067,7 @@ public final class DefaultAgentTurnService
             }
         }
         try {
-            settleLaunch(launch);
+            launchAccepted(acceptance);
         }
         catch (RuntimeException failure) {
             // Already on the turn and its input; there is no caller to tell.
@@ -1019,15 +1089,6 @@ public final class DefaultAgentTurnService
                 () -> queueStore.update(input.paused(reason, pausedAt)));
     }
 
-    private Launch launchQueuedLocked(AgentTask task, QueuedAgentInput head)
-    {
-        List<AgentAttachment> attachments = head.settings().attachments().stream()
-                .map(reference -> resourceService.readAttachment(task.id(), reference.id()).input())
-                .collect(toImmutableList());
-        String text = readUtf8(task.id(), head.textBlob());
-        return launchLocked(task, acceptQueuedLocked(task, head), text, attachments);
-    }
-
     /**
      * Claims the queue head for a new turn: the input, the task's worktree, and the turn move
      * together. The one user-message event is emitted on the first claim; a later attempt after a
@@ -1035,6 +1096,10 @@ public final class DefaultAgentTurnService
      */
     private TurnAcceptance acceptQueuedLocked(AgentTask task, QueuedAgentInput head)
     {
+        List<AgentAttachment> attachments = head.settings().attachments().stream()
+                .map(reference -> resourceService.readAttachment(task.id(), reference.id()).input())
+                .collect(toImmutableList());
+        String text = readUtf8(task.id(), head.textBlob());
         TurnId turnId = TurnId.random();
         Instant acceptedAt = Instant.now(clock);
         AgentTurnSettings settings = head.settings();
@@ -1042,7 +1107,7 @@ public final class DefaultAgentTurnService
         EventId messageEventId = head.messageEventId().orElseGet(EventId::random);
         EventId deliveryEventId = head.messageEventId().isPresent() ? EventId.random() : messageEventId;
         unitOfWork.execute(() -> {
-            taskStore.update(task.claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, acceptedAt), acceptedAt));
+            taskStore.update(claimAcceptedTurn(task, turn));
             turnStore.insert(turn);
             queueStore.update(head.starting(turnId, messageEventId, acceptedAt));
             if (head.messageEventId().isEmpty()) {
@@ -1069,7 +1134,7 @@ public final class DefaultAgentTurnService
             }
             return null;
         });
-        return new TurnAcceptance(turn, deliveryEventId);
+        return new TurnAcceptance(turn, deliveryEventId, text, attachments);
     }
 
     private String readUtf8(TaskId taskId, BlobRef blobRef)
@@ -1178,7 +1243,7 @@ public final class DefaultAgentTurnService
 
     private TurnAcceptance acceptTurnLocked(AgentTask task, StartAgentTurnCommand command)
     {
-        return acceptTurnLocked(task, command.idempotencyKey(), command.message(),
+        return acceptTurnLocked(task, command.idempotencyKey(), command.message(), command.attachments(),
                 turnSettings(task, references(command.attachments()), command.developmentAutomation()), Optional.empty());
     }
 
@@ -1186,6 +1251,7 @@ public final class DefaultAgentTurnService
             AgentTask task,
             String idempotencyKey,
             String message,
+            List<AgentAttachment> attachments,
             AgentTurnSettings settings,
             Optional<DevelopmentTurnOrigin> origin)
     {
@@ -1204,7 +1270,7 @@ public final class DefaultAgentTurnService
                 "text/plain; charset=utf-8");
         EventId messageEventId = EventId.random();
         unitOfWork.execute(() -> {
-            taskStore.update(task.claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, acceptedAt), acceptedAt));
+            taskStore.update(claimAcceptedTurn(task, turn));
             turnStore.insert(turn);
             outboxStore.insert(new AgentEventOutboxEntry(
                     messageEventId,
@@ -1219,7 +1285,16 @@ public final class DefaultAgentTurnService
                     Optional.empty()));
             return null;
         });
-        return new TurnAcceptance(turn, messageEventId);
+        return new TurnAcceptance(turn, messageEventId, message, attachments);
+    }
+
+    private AgentTask claimAcceptedTurn(AgentTask task, AgentTurn turn)
+    {
+        AgentTask claimed = task.claimWorktreeMutation(WorktreeMutationClaim.turn(turn.id(), turn.createdAt()), turn.createdAt());
+        if (turn.developmentOrigin().isEmpty() && developmentTurnEligible(task, turn)) {
+            return claimed.withDevelopmentContinuation(true, turn.createdAt());
+        }
+        return claimed;
     }
 
     private void registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn, AgentSessionRef reference)
@@ -2090,12 +2165,18 @@ public final class DefaultAgentTurnService
         };
     }
 
-    private record TurnAcceptance(AgentTurn turn, EventId deliveryEventId)
+    private record TurnAcceptance(
+            AgentTurn turn,
+            EventId deliveryEventId,
+            String message,
+            List<AgentAttachment> attachments)
     {
         private TurnAcceptance
         {
             requireNonNull(turn, "turn is null");
             requireNonNull(deliveryEventId, "deliveryEventId is null");
+            requireNonNull(message, "message is null");
+            attachments = ImmutableList.copyOf(attachments);
         }
     }
 

@@ -135,6 +135,96 @@ public class GitHubPullRequestReadClient
         return result.build();
     }
 
+    /** Reads all PR states for an exact fork or same-repository head, retaining different base branches. */
+    public List<GitHubPullRequestIdentity> fetchPullRequestIdentities(String pat, RepoRef baseRepository, RepoRef headRepository, String headBranch)
+    {
+        requirePat(pat);
+        requireNonNull(baseRepository, "baseRepository is null");
+        requireNonNull(headRepository, "headRepository is null");
+        requireNonNull(headBranch, "headBranch is null");
+        ImmutableList.Builder<GitHubPullRequestIdentity> result = ImmutableList.builder();
+        for (int page = 1; page <= 50; page++) {
+            int currentPage = page;
+            List<PublicationPullRequest> rows = translating(() -> gitHubRestClient.get()
+                    .uri(uri -> uri.path("/repos/{owner}/{repo}/pulls")
+                            .queryParam("state", "all")
+                            .queryParam("head", "{head}")
+                            .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
+                            .queryParam("page", currentPage)
+                            .build(baseRepository.owner(), baseRepository.repo(), headRepository.owner() + ":" + headBranch))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<PublicationPullRequest>>() {}));
+            if (rows == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull-request identity response");
+            }
+            for (PublicationPullRequest row : rows) {
+                GitHubPullRequestIdentity identity = publicationIdentity(row, baseRepository);
+                if (!identity.headRepository().fullName().equalsIgnoreCase(headRepository.fullName()) || !identity.headBranch().equals(headBranch)) {
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned another pull-request head");
+                }
+                result.add(identity);
+            }
+            if (rows.size() < GitHubPaginator.PAGE_SIZE) {
+                return result.build();
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Pull-request identity results exceeded the pagination limit");
+    }
+
+    private static GitHubPullRequestIdentity publicationIdentity(PublicationPullRequest row, RepoRef expectedBase)
+    {
+        try {
+            requireNonNull(row, "pull request is null");
+            RepoRef headRepository = publicationRepository(row.head().repo());
+            RepoRef baseRepository = publicationRepository(row.base().repo());
+            checkState(baseRepository.fullName().equalsIgnoreCase(expectedBase.fullName()), "GitHub returned another base repository");
+            checkState(row.number() > 0 && row.draft() != null, "GitHub omitted pull-request identity facts");
+            checkState(row.mergedAt() == null || "closed".equals(row.state()), "GitHub returned inconsistent pull-request state");
+            checkState(row.head().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")
+                    && row.base().sha().matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid pull-request revision");
+            GitHubPullRequestIdentity.State state = switch (row.state()) {
+                case "open" -> GitHubPullRequestIdentity.State.OPEN;
+                case "closed" -> row.mergedAt() == null ? GitHubPullRequestIdentity.State.CLOSED : GitHubPullRequestIdentity.State.MERGED;
+                default -> throw new IllegalStateException("GitHub returned an unknown pull-request state");
+            };
+            return new GitHubPullRequestIdentity(
+                    PullRequestRef.of(baseRepository.owner(), baseRepository.repo(), row.number()), row.htmlUrl(),
+                    headRepository, row.head().ref(), row.head().sha(), baseRepository, row.base().ref(), row.base().sha(),
+                    state, row.draft(), row.user().login());
+        }
+        catch (IllegalArgumentException | IllegalStateException | NullPointerException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub pull-request identity could not be verified", invalid);
+        }
+    }
+
+    private static RepoRef publicationRepository(PublicationRepository repository)
+    {
+        String[] parts = repository.fullName().split("/", -1);
+        checkState(parts.length == 2 && !parts[0].isBlank() && !parts[1].isBlank(), "GitHub returned an invalid repository identity");
+        return RepoRef.of(parts[0], parts[1]);
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PublicationPullRequest(
+            int number,
+            @JsonProperty("html_url") String htmlUrl,
+            String state,
+            @JsonProperty("merged_at") Instant mergedAt,
+            Boolean draft,
+            PublicationBranch head,
+            PublicationBranch base,
+            PublicationUser user) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PublicationBranch(String ref, String sha, PublicationRepository repo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PublicationRepository(@JsonProperty("full_name") String fullName) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PublicationUser(String login) {}
+
     public List<RepoUser> fetchAssignableUsers(String pat, RepoRef repo)
     {
         return fetchAssignableRepositoryUsers(pat, repo).stream()

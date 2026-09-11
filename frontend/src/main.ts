@@ -20,6 +20,7 @@ import {
   parseAgentApproval,
   parseAgentAttachment,
   parseAgentCompletion,
+  parseAgentDevelopmentFacts,
   parseAgentInputDelivery,
   parseAgentProviderStatuses,
   parseAgentProviderUnavailable,
@@ -558,6 +559,10 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('agent:task:development-facts', (_event, taskId: string, workspaceId: string) =>
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/development-facts`
+      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then((facts) => parseAgentDevelopmentFacts(facts)));
   ipcMain.handle('agent:task:rename', (
     _event,
     taskId: string,

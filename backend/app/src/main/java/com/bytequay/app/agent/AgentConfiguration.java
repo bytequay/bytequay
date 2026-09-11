@@ -62,11 +62,15 @@ import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
@@ -336,15 +340,23 @@ public class AgentConfiguration
                 // provider's own reader; it must not block that thread on a provider call.
                 command -> Thread.ofVirtual().name("bytequay-agent-queue").start(command),
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
+                (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
                 completionService);
     }
 
     @Bean
-    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, WorktreeService worktrees)
+    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git, GhCliService gh)
     {
-        return new DevelopmentFollowupCoordinator(turns, worktrees,
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git, gh,
                 command -> Thread.ofVirtual().name("bytequay-development-followup").start(command));
+    }
+
+    @Bean
+    public DevelopmentGitInspector developmentGitInspector(WorktreeService worktrees, WorkspaceStore workspaces, GitCommandRunner git,
+            CredentialService credentials, GitHubPullRequestReadClient pullRequests)
+    {
+        return new DevelopmentGitInspector(worktrees, workspaces, git, credentials, pullRequests);
     }
 
     @Bean

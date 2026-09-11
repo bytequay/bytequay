@@ -44,6 +44,8 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.app.agent.DevelopmentGitInspector;
+import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
@@ -85,6 +87,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
@@ -117,6 +120,8 @@ import java.util.stream.StreamSupport;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -244,6 +249,9 @@ class TestAgentHttpApi
     @MockitoBean
     private CredentialService credentials;
 
+    @MockitoSpyBean
+    private DevelopmentGitInspector developmentGit;
+
     private String workspaceId;
     private Path repository;
 
@@ -254,6 +262,7 @@ class TestAgentHttpApi
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
+        doReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())).when(developmentGit).inspectPublication(any(), any());
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();

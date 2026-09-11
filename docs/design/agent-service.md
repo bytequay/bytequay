@@ -21,8 +21,12 @@ normal FIFO dispatch. Its existing task row carries only an unfinished marker;
 generated turns carry a bounded operation and parent user-turn ID. Trusted starts
 retain that user's entire accepted settings and enforce readiness and narrowing.
 The application coordinator gates questions, hands off preaccepted FIFO work,
-and revalidates managed-worktree ownership. Automatic commit/publication dispatch
-and CI handoff remain pending; no complete delivery result is claimed yet.
+and verifies local changes and exact publication routing. Its accepted hook
+captures the Git/remote baseline outside the task lock before provider startup;
+Stop/shutdown is rechecked before launch. One bounded commit turn and one
+publication turn can run through the trusted generated-turn path. The agent
+chooses commit/PR text and uses its native tools; the app verifies clean Git
+history, the pushed SHA, and exact PR identity. CI handoff remains pending.
 
 A question clears the marker and permits a normal answer while earlier queue
 rows remain paused. Stop/failure revokes continuation authority. Backend startup
@@ -600,6 +604,13 @@ terminal retry cannot dispatch them. `DevelopmentTurnCompletion` keeps provider
 quiescence and cleanup failure separate from the stored terminal assessment.
 The ordinary send/queue contracts below remain in use; a development owner
 also blocks competing starts, steering, completion, and deletion.
+
+Eligible ordinary turn acceptance briefly sets the existing unfinished marker
+while the app captures its baseline outside the task lock. The service clears
+that marker immediately before launching the provider through the serialized
+path, allowing ordinary active-turn steering/queueing. Generated turns do not
+recapture the baseline and retain their continuation owner. Stop or shutdown
+during capture prevents late launch; startup never replays a lost capture.
 
 ```java
 package com.bytequay.agent.core;
@@ -2581,6 +2592,15 @@ coordinates the narrower interfaces shown in the last column.
 | 8. Mark failed | `POST /agent/tasks/{taskId}/mark-failed` after inspecting the incident | `AgentCompletionService.abandon(TaskId, String)`, then optional `cleanupWorktree(TaskId)` | Refuses an active turn, closes the task's retained provider session, and requires its owned tree to be verified stopped; one unit of work records the incident and `FAILED` and releases the mutation claim. The interactive controller then attempts normal clean-worktree cleanup unless a pre-restart process remained unverifiable; dirty or unverifiable work remains untouched |
 | 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It rejects an active turn or any last-turn process not already verified stopped, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
 | 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Retries verified worktree removal before `AgentResourceService.delete(...)`, then records cleanup as `DELETED`; failure records `RETRY_PENDING` for the same operation |
+
+Interactive tasks also expose the read-only
+`GET /agent/tasks/{taskId}/development-facts?workspaceId=...` projection through
+Electron's `getAgentDevelopmentFacts` bridge. It uses `getInteractive` scope
+validation and reports dated local file/commit/HEAD observations independently
+of remote branch/PR observations. Unknown reads differ from confirmed absence.
+The task UI uses **Idle**, names generated commit/publication turns, and shows
+these facts above the composer without deriving success from transcript text.
+Reading this projection never reserves ownership or advances delivery.
 
 The base send path is shown end to end below. Calls below `AgentTaskService`,
 `AgentTurnService`, and `AgentCompletionService` are internal orchestration,

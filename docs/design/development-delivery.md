@@ -1,9 +1,9 @@
 # Development task delivery
 
 Status: Approved MVP design; implementation in progress. Settings, accepted-turn
-snapshots, root readiness reporting, and the live coordinator's gate/admission
-foundation are implemented and verified. Automatic commit/publication dispatch
-and CI handoff remain pending. This replaces the larger recovery-oriented
+snapshots, root readiness reporting, live continuation ownership, bounded commit
+and draft-publication turns, and observed result presentation are implemented.
+CI attachment, green verification, synchronization, and promotion remain pending. This replaces the larger recovery-oriented
 proposal. Use the current [agent service](agent-service.md)
 and [CI Autofix](ci-autofix-service.md), with a small in-process coordinator.
 There is no overall workflow state machine, delivery table, phase engine,
@@ -173,17 +173,31 @@ in-memory owner before notifying the coordinator. A racing read may store the
 terminal result and marker, but cannot reserve the owner or dispatch work.
 Only the live completion path notifies `DevelopmentFollowupCoordinator`;
 ordinary reads and terminal retries do not create continuations. The app runs
-its readiness/queue gate and read-only managed-worktree inspection outside the
-task lock. Commit/publication dispatch is added in the next checkpoint.
+its readiness/queue gate, Git inspection, and commit/publication waits outside
+the task lock. `advance` drives at most one commit turn and one publication
+turn through `startGeneratedTurn`, verifying each result before continuing.
 
 An optional `DevelopmentTurnOrigin` on a generated turn names its bounded
 operation and original user turn. That user-turn ID is the in-memory owner;
 there is no delivery ID or step journal. The internal start path carries the
 source turn's complete accepted settings, including model, effort, permission,
 service tier, attachments, and automation choices. Earlier readiness reports
-in the same continuation can only narrow later actions. Remote PR base and
-push routing are captured with the publication baseline when those operations
-are introduced; they are not inferred from changing task defaults.
+in the same continuation can only narrow later actions.
+
+Before an ordinary development provider starts, its accepted hook captures the
+starting HEAD, file fingerprint, commit count, frozen base SHA, and exact PR
+base/push routing. This also runs outside the task lock; core revalidates the
+accepted turn before launching it. The existing unfinished marker covers this
+capture interval, clears immediately before ordinary provider launch, and is
+set again at continuation reservation. Stop during capture cannot launch the
+provider later; backend loss uses the existing fail-and-delete policy.
+Generated turns inherit this baseline without recapturing it.
+
+The hook observes the remote ref and matching PRs when publication or CI is
+enabled. An unavailable remote baseline does not prevent initial local editing,
+but prevents subsequent publication from assuming absence. Read-only turns
+without pending work settle locally. A question's ordinary answer or a FIFO
+handoff can carry earlier pending work forward even without fresh edits.
 
 The coordinator applies these decisions in order:
 
@@ -253,7 +267,22 @@ HEAD/remote, pushes that object to the authorized ref, and uses
 `gh pr create --draft` with the repository template when no matching PR exists.
 Reuse an existing open PR; closed/merged/ambiguous matches stop the MVP.
 Enforce expected remote absence or exact SHA at push time and do not overwrite
-outside changes. Verify GitHub independently afterward, not by parsing a URL.
+outside changes. The generated command pins the exact push URL/ref/object and
+uses `--force-with-lease=<ref>:<expected-SHA>`, with an empty expected value for
+confirmed absence. Git enforces that lease when the command runs. Native agent
+tools retain their normal approval policy; this scoped instruction is not a
+sandbox for arbitrary agent commands. ByteQuay independently rereads the remote
+SHA and exact head/base repository/branch identities afterward; a reported URL
+or successful agent response cannot establish publication.
+
+Publication uses the installed `gh` login and its Git credential helper; app
+workspace credentials are used separately for ByteQuay's read-only verification.
+No app token is injected into the generated prompt. An unavailable `gh` login
+fails the publication action. Same-repository PR commands use a branch-only
+`--head`; forks use `owner:branch`. The installed CLI does not support an
+organization-owned fork in that syntax; such a creation fails visibly without
+an alternate publisher or retry. Existing PRs keep their current draft status;
+PRs created by the publication follow-up must independently verify as drafts.
 
 Useful local validation belongs to the agent. Missing Bun, for example,
 remains an explicit local-check limitation; it is not proof of passing tests
@@ -384,6 +413,16 @@ can reread existing facts while the backend continues; backend restart fails
 the live continuation. No Resume delivery or automatic recovery control is
 part of this MVP. Task closure is explicit; successful delivery retains the
 open development conversation and worktree.
+
+`GET /agent/tasks/{taskId}/development-facts?workspaceId=...` provides dated,
+read-only local and remote observations after interactive workspace scoping.
+The compact result row appears below any blocking question and above the queue
+and composer. The renderer reads on initial settled load, turn settlement, or
+continuation-marker change, and does not launch work. During active execution
+it retains clearly dated earlier observations. A failed remote lookup produces
+an unknown result, never inferred "Not pushed" or "No PR"; confirmed absence
+is represented separately. Known PR references remain in the existing panel.
+Local validation limitations remain in the agent transcript.
 
 ## 8. Implementation gaps and checks
 

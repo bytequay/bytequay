@@ -37,7 +37,7 @@ verification are still pending, even where reusable infrastructure exists.
 
 - [x] CP1 — Settings, root readiness reporting, and question presentation.
 - [x] CP2 — Live coordinator, admission, and failure foundation.
-- [ ] CP3 — Verified commit and draft-PR follow-ups.
+- [x] CP3 — Verified commit and draft-PR follow-ups.
 - [ ] CP4 — Existing CI integration, child ownership, and deletion.
 - [ ] CP5 — Green gate, source synchronization, promotion, and final checks.
 
@@ -197,51 +197,96 @@ Evidence:
 Starting points: coordinator, existing Git/worktree and GitHub services, and
 the manual draft-PR prompt and turn rendering in `AgentTaskScreen`.
 
-- [ ] Capture the accepted user turn's starting Git facts and exact target
+- [x] Capture the accepted user turn's starting Git facts and exact target
   PR base/push routing before any delivery write. Inspect actual ownership,
   branch/HEAD, staged/unstaged/untracked files, open Git operations,
   deliverable commits/diff, remote ref, and exact matching PR.
-- [ ] Compare against the turn baseline and observed published revision.
+- [x] Compare against the turn baseline and observed published revision.
   Distinguish an unchanged read-only turn from earlier work explicitly released
   by an answer. An existing PR alone must not trigger another delivery/CI run.
-- [ ] With Auto commit enabled and finished dirty work, request at most one
+- [x] With Auto commit enabled and finished dirty work, request at most one
   normal commit turn. The agent chooses focused commits and repository-convention
   subjects/bodies. ByteQuay rechecks actual history and cleanliness afterward.
-- [ ] With Auto commit disabled and dirty work, stop locally; do not publish
+- [x] With Auto commit disabled and dirty work, stop locally; do not publish
   only the committed subset. With no deliverable changes, finish without a PR.
-- [ ] With Auto draft PR enabled, request at most one publication turn for the
+- [x] With Auto draft PR enabled, request at most one publication turn for the
   exact clean revision. This turn never commits. The agent pushes and uses
   `gh pr create --draft`, following the repository PR template.
-- [ ] Enforce the authorized destination and expected remote absence/SHA at
+- [x] Enforce the authorized destination and expected remote absence/SHA at
   push time. Reuse the exact open PR; stop on closed, merged, ambiguous, or
   externally changed results. Verify remote SHA and PR identity independently.
-- [ ] Apply the same readiness/approval/shutdown checks to generated turns.
+- [x] Apply the same readiness/approval/shutdown checks to generated turns.
   Questions preserve files/commits and return control for a normal user answer.
-- [ ] On failed or uncertain commit/push/create, stop visibly without an
+- [x] On failed or uncertain commit/push/create, stop visibly without an
   automatic retry. Keep known branch/PR references, or show Remote result unknown.
   Never roll back remote results or quietly attach a replacement task to them.
-- [ ] Show ByteQuay · Auto commit and ByteQuay · Create draft PR in normal
+- [x] Show ByteQuay · Auto commit and ByteQuay · Create draft PR in normal
   turn history. Replace runtime Ready with Idle and add observed file/commit,
   HEAD, push, and PR facts. Keep missing local checks honest, such as missing Bun.
 
 Acceptance checks:
 
-- [ ] Use disposable real repositories for clean, staged, unstaged, untracked,
+- [x] Use disposable real repositories for clean, staged, unstaged, untracked,
   already-committed, no-change, open-operation, and wrong-ownership cases.
-- [ ] Verify one commit/publication request maximum, question/answer inside
+- [x] Verify one commit/publication request maximum, question/answer inside
   either follow-up, disabled-setting behavior, and actual post-turn inspection.
-- [ ] Verify false readiness prevents publication with dirty files, local
+- [x] Verify false readiness prevents publication with dirty files, local
   commits, and an existing PR. Check `stopAfter` at both commit and publication
   boundaries, including when a follow-up itself asks a question.
-- [ ] Verify existing-PR reuse, fork publication routing, wrong base/head,
+- [x] Verify existing-PR reuse, fork publication routing, wrong base/head,
   remote changes between inspection and push, and uncertain PR-create outcomes.
-- [ ] Verify no second PR on later task revisions, no publication from replay,
+- [x] Verify no second PR on later task revisions, no publication from replay,
   and no unexplained success when a prerequisite or validation is unavailable.
 
 Exit: a completed development request yields truthful local/remote facts and,
 when enabled, a verified draft through bounded ordinary agent turns.
 
-Evidence: Pending.
+Evidence:
+
+- `mvn verify` passed across all seven backend reactor modules, including
+  Checkstyle and the repackaged sidecar: 1,687 tests, zero failures, errors,
+  or skips. Core acceptance/shutdown coverage includes all 97 turn-service tests.
+- `TestDevelopmentFollowupCoordinator` covers 37 cases: bounded generated
+  requests, prior-question and FIFO pending-work inheritance, source/generated
+  stop limits, exact existing-PR reuse, wrong-base/closed/ambiguous refusal,
+  changed remote/local revisions, missing evidence, cancellation, and uncertain
+  publication without retries.
+- `TestDevelopmentGitInspector` covers 12 disposable real-Git scenarios,
+  including dirty-file fingerprints, ignored output, local commits, merge-base
+  diffs, verified ownership/routing, fork destination, and absent/stale remote
+  leases against a bare fixture remote. The exact object is pushed even when
+  local HEAD subsequently advances. GitHub identity fixtures cover exact head
+  validation, incomplete responses, and pagination bounds.
+- `TestDevelopmentFactsResponse`, `TestAgentHttpErrors`, and `TestAgentHttpApi`
+  cover factual unknown-versus-absent results, historical PRs with a deleted
+  remote ref, exact workspace scope, and repeated GET without delivery writes.
+  The HTTP fixture retains real local Git inspection and stubs remote reads.
+- `npm run lint`, `npx tsc --noEmit`, and `npm test` passed: 762 frontend tests
+  in 65 files. The Chromium bridge regression covers generated-turn labels,
+  question precedence, settled facts refresh, and unavailable remote evidence.
+  A merged PR with no current remote branch retains its link and never claims
+  that it was never pushed.
+- The full build exposed a reproducible pre-existing process-test teardown
+  race: the final receipt could arrive during temporary-directory deletion.
+  One test-only await now waits for `process.exit()` before cleanup, as its
+  neighboring test already does. All 26 supervisor tests and the subsequent
+  full build passed; production process handling is unchanged.
+- Native publication uses authenticated `gh`, branch-only heads for direct
+  repositories, and owner-qualified heads for forks. The installed CLI's
+  organization-owned-fork limitation is explicit in the canonical design;
+  failures stop without an alternate publisher or retry. No live-model or
+  GitHub-write smoke was performed.
+- Canonical delivery and agent-service contracts describe the implemented
+  accepted baseline, generated turns, and read-only HTTP/IPC facts surface.
+  CI attachment, child ownership, green validation, synchronization, and
+  promotion remain CP4–CP5; this checkpoint is not the complete-chain release.
+- `npm run package` produced the macOS arm64 app with the freshly verified
+  backend jar. Build outputs stayed ignored and the temporary dependency
+  symlink was removed without changing the original dependencies.
+- `git diff --check` passed, and all 18 relative links in the changed design
+  documents resolved. Final review found no new runtime phase/state service,
+  delivery recovery journal, dependency, or live remote mutation.
+
 
 ## CP4 — CI integration, ownership, and deletion
 
@@ -349,11 +394,13 @@ Evidence: Pending.
 
 ## Evidence and remaining work
 
-CP1 and CP2 are verified. The live coordinator, admission, stop/failure,
-and trusted generated-turn foundation are implemented.
-The automatic commit/publication and CI chain remain pending in CP3–CP5.
-Concrete PR base/push routing and manual CI branch attachment are checked beside
-those callers, rather than claiming integration before publication exists.
+CP1–CP3 are implemented and verified through backend, frontend, and packaging
+checks.
+The live coordinator now captures accepted Git/routing facts, dispatches bounded
+commit and draft-publication turns, and verifies the actual local/remote result.
+CI integration, shared branch ownership, synchronization, and promotion remain
+pending in CP4–CP5.
+Do not release the full default-on chain before the CP5 release checks pass.
 Replace each Pending evidence entry with focused commands/results and relevant
 test or artifact paths when verified. Record an unresolved blocker beside its
 unchecked item; do not add a runtime recovery design to this tracker.

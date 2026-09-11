@@ -297,7 +297,7 @@ describe('agent task list', () => {
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('Describe a task');
     // Wire enums never reach the user.
-    expect(markup).toContain('>Ready<');
+    expect(markup).toContain('>Idle<');
     expect(markup).toContain('>Completed<');
     expect(markup).toContain('>Recovery required<');
     expect(markup).not.toContain('OPEN');
@@ -984,7 +984,7 @@ describe('agent task detail', () => {
     // Complete is live while idle, and the header names the state.
     expect(idle).toMatch(/<button[^>]*class="agt-headbtn"[^>]*aria-label="Mark it complete"(?![^>]*disabled)/);
     expect(idle).toContain('title="Mark it complete"');
-    expect(idle).toContain('>Ready<');
+    expect(idle).toContain('>Idle<');
     // The bounded status line is what assistive technology hears; it names the state, not tokens.
     expect(idle).toContain('aria-live="polite"');
     expect(idle.match(/role="status"/g)).toHaveLength(1);

@@ -37,6 +37,9 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.rebase.BranchRebase;
+import com.bytequay.core.rebase.BranchRebaseId;
+import com.bytequay.core.rebase.BranchRebaseStore;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
@@ -73,6 +76,9 @@ class TestSqliteCiAutofixStore
 
     @Autowired
     private SqliteCiAutofixStore store;
+
+    @Autowired
+    private BranchRebaseStore rebases;
 
     @Autowired
     private CiAutofixAttemptJpaRepository attemptRepository;
@@ -326,6 +332,32 @@ class TestSqliteCiAutofixStore
                 .hasStackTraceContaining("physical repository is incomplete");
     }
 
+    @Test
+    void persistsParentAndExcludesOwnedRunsAndRebasesBeforeTheMonitorLimit()
+    {
+        CiAutofixRun prototype = newRun("owned", "owned-feature", NOW);
+        Scope scope = prototype.scope();
+        CiAutofixRun owned = CiAutofixRun.create(prototype.id(), prototype.startIdempotencyKey(),
+                new Scope(scope.pullRequest(), scope.workspaceId(), scope.physicalRepository(), scope.author(), scope.headRef(), scope.baseRef(), scope.laneId(),
+                        Optional.of("parent-task")), HEAD, HEAD, BASE, prototype.authorization(), NOW).assignAgentTask("owned-child", NOW);
+        store.insert(owned);
+        CiAutofixRun standalone = newRun("standalone", "standalone-feature", NOW.plusSeconds(1));
+        store.insert(standalone);
+        BranchRebase rebase = rebases.createOrGet(BranchRebase.create(BranchRebaseId.random(), "owned-rebase", "owned-child", RepoRef.of("bytequay", "physical"),
+                Path.of("/tmp/owned-child"), "owned-feature", "main", HEAD, BASE, NOW));
+
+        assertThat(store.listByParentTaskId("parent-task")).containsExactly(owned);
+        assertThat(store.findByActiveBranch("BYTEQUAY/SAMPLE", "owned-feature")).contains(owned);
+        assertThat(store.listStandaloneNonFinished(1)).containsExactly(standalone);
+        assertThat(rebases.listRunning(10)).contains(rebase);
+        assertThat(rebases.listIndependentlyRunning(10)).doesNotContain(rebase);
+
+        CiAutofixRun terminal = store.update(owned.finish(FinishReason.CANCELLED, "Source deleted local child", NOW.plusSeconds(2)));
+        assertThat(store.listByParentTaskId("parent-task")).containsExactly(terminal);
+        assertThat(store.findByActiveBranch("bytequay/sample", "owned-feature")).isEmpty();
+        assertThat(rebases.listIndependentlyRunning(10)).doesNotContain(rebase);
+    }
+
     private static CiAutofixRun newRun(String key, String headRef, Instant now)
     {
         return newRun(key, headRef, PullRequestRef.of("bytequay", "sample", 7), now);
@@ -347,7 +379,7 @@ class TestSqliteCiAutofixStore
                         "author",
                         headRef,
                         "main",
-                        "codex"),
+                        "codex", Optional.empty()),
                 HEAD,
                 HEAD,
                 BASE,

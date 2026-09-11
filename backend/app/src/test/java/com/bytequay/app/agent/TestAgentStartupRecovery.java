@@ -103,6 +103,38 @@ class TestAgentStartupRecovery
     }
 
     @Test
+    void ownedCleanupFailureKeepsItsParentBlockedButAllowsExplicitStopAndOtherTasks()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTurnService turns = mock(AgentTurnService.class);
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTask blocked = openTask(TaskId.random()).withDevelopmentContinuation(true, now);
+        AgentTask other = openTask(TaskId.random()).withDevelopmentContinuation(true, now);
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(blocked, other));
+        when(taskStore.find(blocked.id())).thenReturn(Optional.of(blocked));
+        when(taskStore.find(other.id())).thenReturn(Optional.of(other));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("old-provider")));
+        AgentServingGate servingGate = new AgentServingGate();
+        when(turns.failLostDevelopmentContinuation(blocked.id())).thenThrow(new AgentUnavailableException("Owned child is unverified"));
+        when(turns.failLostDevelopmentContinuation(other.id())).thenAnswer(ignored -> {
+            assertThat(servingGate.isReady()).isFalse();
+            return other.fail("Backend restarted", now, now.plusSeconds(60));
+        });
+
+        new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, servingGate, launchStore(), taskStore, turnStore, turns).afterSingletonsInstantiated();
+
+        InOrder order = inOrder(supervisor, turns);
+        order.verify(supervisor).acknowledge("old-provider");
+        order.verify(turns).failLostDevelopmentContinuation(blocked.id());
+        order.verify(turns).failLostDevelopmentContinuation(other.id());
+        assertThat(taskStore.find(blocked.id()).orElseThrow().developmentContinuationUnfinished()).isTrue();
+        assertThat(servingGate.isReady()).isTrue();
+    }
+
+    @Test
     void doesNotSettleLostDevelopmentWhenAWriterCannotBeAttributed()
     {
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
@@ -147,6 +179,35 @@ class TestAgentStartupRecovery
         order.verify(supervisor).recoverOwnedProcess("old-provider");
         order.verify(supervisor).acknowledge("old-provider");
         order.verify(turns).failLostDevelopmentContinuation(task.id());
+    }
+
+    @Test
+    void unverifiedRecoveredSourceStillStopsOwnedChildrenAndRetainsBothFailures()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTurnService turns = mock(AgentTurnService.class);
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTask task = openTask(TaskId.random()).withDevelopmentContinuation(true, now)
+                .claimWorktreeMutation(WorktreeMutationClaim.recovery("old-provider", now), now);
+        when(taskStore.find(task.id())).thenReturn(Optional.of(task));
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(unverifiableFor("old-provider", task.id().toString()));
+        AgentUnavailableException childFailure = new AgentUnavailableException("Child writer is unverified");
+        when(turns.failLostDevelopmentContinuation(task.id())).thenThrow(childFailure);
+        AgentStartupRecovery recovery = new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, new AgentServingGate(), launchStore(appServerLaunch("old-provider", task.id())), taskStore, turnStore, turns);
+
+        assertThatThrownBy(() -> recovery.stopRecoveredRuntime(task.id(), "task:" + task.version()))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("old-provider")
+                .satisfies(failure -> assertThat(failure.getSuppressed()).containsExactly(childFailure));
+
+        verify(turns).failLostDevelopmentContinuation(task.id());
+        verify(supervisor, never()).acknowledge("old-provider");
+        verify(taskStore, never()).update(any());
+        AgentTask retained = taskStore.find(task.id()).orElseThrow();
+        assertThat(retained.developmentContinuationUnfinished()).isTrue();
+        assertThat(retained.worktreeMutationClaim()).isEqualTo(task.worktreeMutationClaim());
     }
 
     @Test

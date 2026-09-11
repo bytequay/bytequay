@@ -17,6 +17,7 @@ import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -27,4 +28,12 @@ public interface BranchRebaseJpaRepository
     Optional<BranchRebaseEntity> findByStartIdempotencyKey(String startIdempotencyKey);
 
     List<BranchRebaseEntity> findByStatusOrderByUpdatedAtAsc(Status status, Pageable pageable);
+
+    @Query("""
+            select rebase from BranchRebaseEntity rebase
+            where rebase.status = :status
+            and not exists (select ci.id from CiAutofixRunEntity ci where ci.agentTaskId = rebase.agentTaskId and ci.parentTaskId is not null)
+            order by rebase.updatedAt asc
+            """)
+    List<BranchRebaseEntity> findIndependentlyRunning(Status status, Pageable pageable);
 }

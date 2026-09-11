@@ -29,7 +29,13 @@ public interface CiAutofixRunJpaRepository
 
     Optional<CiAutofixRunEntity> findByAgentTaskId(String agentTaskId);
 
+    List<CiAutofixRunEntity> findByParentTaskIdOrderByCreatedAtAsc(String parentTaskId);
+
+    Optional<CiAutofixRunEntity> findByActiveBranchSlot(String activeBranchSlot);
+
     List<CiAutofixRunEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
     List<CiAutofixRunEntity> findByStatusInOrderByUpdatedAtAsc(Collection<Status> statuses, Pageable pageable);
+
+    List<CiAutofixRunEntity> findByStatusInAndParentTaskIdIsNullOrderByUpdatedAtAsc(Collection<Status> statuses, Pageable pageable);
 }

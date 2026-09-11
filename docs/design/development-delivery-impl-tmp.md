@@ -38,7 +38,7 @@ verification are still pending, even where reusable infrastructure exists.
 - [x] CP1 — Settings, root readiness reporting, and question presentation.
 - [x] CP2 — Live coordinator, admission, and failure foundation.
 - [x] CP3 — Verified commit and draft-PR follow-ups.
-- [ ] CP4 — Existing CI integration, child ownership, and deletion.
+- [x] CP4 — Existing CI integration, child ownership, and deletion.
 - [ ] CP5 — Green gate, source synchronization, promotion, and final checks.
 
 Complete these in order. Focused tests and UI accompany each checkpoint.
@@ -293,46 +293,84 @@ Evidence:
 Starting points: `DefaultCiAutofixService`, CI/rebase monitor jobs,
 `BranchRebaseMonitorJob`, `AgentStartupRecovery`, and task Delete handling.
 
-- [ ] Start or reuse existing CI Autofix for the verified PR/head. Preserve
+- [x] Start or reuse existing CI Autofix for the verified PR/head. Preserve
   current eligibility: open authored same-repository PR and a ready CI-capable
   provider. Recheck the accepted CI provider's readiness without fallback at
   attachment. Show the draft and reason when CI is unsupported or unavailable.
-- [ ] Preserve three repair attempts, three reruns per unchanged head, and
+- [x] Preserve three repair attempts, three reruns per unchanged head, and
   the eight-hour window beginning at continuation activation. Follow-ups never
   renew it; an unchanged request cannot restart an exhausted run.
-- [ ] Store the optional parent task ID before a delivery-owned CI run can
+- [x] Store the optional parent task ID before a delivery-owned CI run can
   start. Require the matching live coordinator for all its advancement/write
   paths: repair turns, rebase, rerun, push, and explicit resume/message actions.
-- [ ] Drive these children through the existing CI service from the coordinator.
+- [x] Drive these children through the existing CI service from the coordinator.
   Exclude owned CI and linked rebase work from independent schedulers/recovery.
   Keep standalone CI behavior and recovery unchanged.
-- [ ] Keep source branch ownership while CI may write. Disable new source
+- [x] Keep source branch ownership while CI may write. Disable new source
   Send/queue start and Complete; retain composer drafts. Existing CI question
   controls can answer within that run without competing source development.
-- [ ] Add derived CI activity, run navigation, attempt counts, and Stop controls.
+- [x] Add derived CI activity, run navigation, attempt counts, and Stop controls.
   New source work waits; stopped or unrecoverable automation fails the MVP.
-- [ ] Revoke parent authority before stopping children. During startup, stop
+- [x] Revoke parent authority before stopping children. During startup, stop
   known child/provider processes and fail lost parents before serving or
   scheduler writes. Never replay an orphaned push journal.
-- [ ] Extend explicit Delete to stop and remove linked CI local tasks/worktrees
+- [x] Extend explicit Delete to stop and remove linked CI local tasks/worktrees
   after writers are proven stopped. Preserve remote branches/PRs and show their
   references. Failure alone must not delete local work; unknown writers block Delete.
 
 Acceptance checks:
 
-- [ ] Verify new and reused CI runs, original deadline/budget retention,
+- [x] Verify new and reused CI runs, original deadline/budget retention,
   unsupported providers/forks, and manual attachment exclusion on the same branch.
-- [ ] Verify every scheduler/manual child entry point rejects advancement
+- [x] Verify every scheduler/manual child entry point rejects advancement
   after parent stop, failure, or restart, including rebase and push recovery.
-- [ ] Verify source-turn/CI-write races and CI question handling without a
+- [x] Verify source-turn/CI-write races and CI question handling without a
   competing writer. Confirm standalone CI regression behavior remains intact.
-- [ ] Verify cascade Delete, dirty owned worktrees, proven-stop requirements,
+- [x] Verify cascade Delete, dirty owned worktrees, proven-stop requirements,
   and remote-result preservation. An in-flight remote write may remain unknown.
 
 Exit: the existing CI loop can be attached without any child continuing after
 its parent loses authority. Do not enable automatic CI before these checks pass.
 
-Evidence: Pending.
+Evidence:
+
+- `DevelopmentFollowupCoordinator` attaches the independently verified PR with
+  the accepted CI provider and original activation time, then drives existing
+  `CiAutofixService.advance` directly. Its 50 tests cover commit/publication
+  gates, CI-only attachment, disabled/missing providers, the original deadline,
+  leave-draft intent, scoped pauses, a reply racing a paused poll, failure,
+  and Stop without dispatching or settling another owner.
+- `DefaultCiAutofixService` has 56 passing tests, including parent persistence
+  before provisioning, idempotent budget retention, expired/changed scope,
+  unavailable provider without fallback, orphaned push refusal, source/manual
+  branch exclusion, Stop draining admitted provisioning, owned Cancel delegating
+  to source Stop, recovered-child deletion refusal, and local cascade Delete
+  retaining PR/head references. Existing CI and rebase end-to-end tests pass
+  against disposable repositories and fixture GitHub responses.
+- Core tests verify source admission under the shared task lock, revocation
+  while retaining exclusion, aggregate source/child stop failures, and explicit
+  retry. Startup tests verify child stopping before lost-parent settlement,
+  recovery-claim retention, and per-parent failures without bypassing the global
+  unknown-process gate. HTTP tests prevent Mark failed/Delete from bypassing
+  proven shutdown. Persistence/rebase tests verify parent-indexed reads and
+  exclusion from both active and terminal standalone monitor paths.
+- Frontend lint and TypeScript pass. `npm test` passes **766 tests in 66 files**,
+  including **eight Chromium scenarios**: scoped CI replies, idempotent explicit
+  retry, source/child draft separation, revocation, sequential polling without
+  Git inspection, remote references in Delete confirmation, replacing an older
+  CI run with a newer run, and Stop-only recovery.
+- Full backend `mvn verify` passes all seven reactor modules: **1,725 tests,
+  zero failures/errors/skips**, including Spring context startup and existing
+  standalone CI/rebase/cherry-pick/workspace regressions. Native process tests
+  required the normal macOS process visibility blocked by the sandbox.
+- `npm run package` passes using the freshly verified backend JAR. Packaging
+  needed network access to retrieve the standard Electron build artifacts.
+  Temporary dependency linking was removed after verification; the original
+  dependencies were not changed.
+- `git diff --check` passes. Relative links in the changed design documents
+  resolve. No live GitHub write or live-provider smoke was performed. Full green
+  verification, source synchronization, and ready promotion remain CP5; this
+  checkpoint is not the release of the complete default-on chain.
 
 ## CP5 — Green gate, source synchronization, and release
 

@@ -145,6 +145,7 @@ public final class DefaultAgentCompletionService
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
             requireNoDevelopmentContinuation(task);
+            runtimeRegistry.checkBranchAdmission(task);
             turnStore.findActive(task.id()).ifPresent(turn -> {
                 throw new AgentConflictException("Task has an active turn: " + turn.id());
             });
@@ -401,6 +402,7 @@ public final class DefaultAgentCompletionService
             return false;
         }
         requireNoDevelopmentContinuation(found.orElseThrow());
+        runtimeRegistry.checkBranchAdmission(found.orElseThrow());
         turnStore.findActive(taskId).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn; stop it before deleting: " + turn.id());
         });

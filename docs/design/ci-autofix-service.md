@@ -10,18 +10,41 @@
 This document designs CI Autofix only. Review-comment triage is a different,
 read-only service and is not covered here.
 
-## Proposed development handoff
+## Development handoff
 
-[Development Task Delivery](development-delivery.md) adds a proposed caller
-after agent-owned draft publication and a general existing-PR UI entry point.
-Its required extensions include expected PR/head/deadline guards, source-task
-exclusion, and correction of the green predicate's empty-job pending workflow
-gap. Delivery-owned CI/rebase work may advance only under its live parent
-coordinator; losing that coordinator stops its children instead of recovering
-the delivery chain. Standalone CI retains its existing behavior. Ready
-promotion belongs to the delivery caller with fresh check evidence and explicit
-scope; generic CI `GREEN` does not change draft state. These additions are
-pending implementation, independently of the CI loop documented below.
+[Development Task Delivery](development-delivery.md) now calls
+`startDevelopment` after independently verified draft publication. The selected
+CI-capable provider is rechecked at attachment without fallback. The caller
+supplies exact PR/head/base facts, parent task/source turn, and continuation
+activation time. Idempotent reuse keeps the same scope and original three-fix,
+three-rerun-per-head, eight-hour budget; it cannot adopt standalone or another
+parent's run or restart an exhausted run.
+
+The existing CI row carries a nullable indexed parent task ID before any child
+can be provisioned. `DevelopmentCiOwnership` binds it to the existing live
+source continuation owner and deadline. All repair, rebase, rerun, push,
+provisioning retry, and message paths require that authority. The development
+coordinator calls the existing CI service directly; CI and linked rebase monitor
+queries exclude owned runs before limiting their batches. Manual standalone CI
+attachment and source mutation admission use the same task lock and persisted
+active-branch exclusion.
+
+A recoverable CI pause accepts a message through that run while the source
+remains busy. Message availability is derived from current run, child, rebase,
+lease/journal, and parent facts; stale polling cannot fail a newly started reply.
+Stop revokes parent authority first, drains admitted operations, and verifies
+existing child providers, using the existing recovered-process stop path where
+necessary. It pauses linked rebase without abort/continue or journal replay.
+Unknown writers and dirty work remain for inspection. Explicit source Delete
+stops every linked child before deleting local tasks/worktrees; it retains CI
+run history and remote PR/head references. Lost-parent runs never resume through
+the standalone schedulers, including terminal cleanup; standalone CI retains its
+existing behavior and recovery.
+
+The task UI displays CI activity and attempt counts and opens a scoped CI
+conversation panel. A general existing-PR UI entry remains separate. Full green
+verification, source synchronization, and ready promotion remain pending in the
+final delivery checkpoint. Generic CI `GREEN` still does not change draft state.
 
 ## 1. Decision
 

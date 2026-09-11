@@ -190,6 +190,8 @@ export function createPreviewBridge(
       record('getAgentDevelopmentFacts', taskId, id);
       return { observedAt: '2026-01-01T12:00:00Z', local: null, localError: 'Local facts unavailable in this preview', remote: null, remoteError: null };
     },
+    getCiAutofixRun: async () => { throw new Error('This preview has no CI run'); },
+    sendCiAutofixMessage: async () => { throw new Error('This preview has no CI run'); },
     syncPrs: async (id) => {
       record('syncPrs', id);
     },

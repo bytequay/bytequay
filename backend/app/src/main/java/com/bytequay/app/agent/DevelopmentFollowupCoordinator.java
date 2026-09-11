@@ -25,11 +25,17 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DevelopmentStopAfter;
+import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.core.ci.CiAutofixRun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,15 +55,22 @@ public final class DevelopmentFollowupCoordinator
     private final DevelopmentGitInspector git;
     private final GhCliService gh;
     private final Executor executor;
+    private final CiAutofixService ci;
+    private final Clock clock;
+    private final Runnable waitForCi;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
 
-    public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git, GhCliService gh, Executor executor)
+    public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git, GhCliService gh,
+            Executor executor, CiAutofixService ci, Clock clock, Runnable waitForCi)
     {
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.git = requireNonNull(git, "git is null");
         this.gh = requireNonNull(gh, "gh is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.ci = requireNonNull(ci, "ci is null");
+        this.clock = requireNonNull(clock, "clock is null");
+        this.waitForCi = requireNonNull(waitForCi, "waitForCi is null");
     }
 
     /** Called after turn admission and before provider launch, outside the task lock. */
@@ -91,7 +104,8 @@ public final class DevelopmentFollowupCoordinator
     {
         requireNonNull(completion, "completion is null");
         try {
-            executor.execute(() -> advance(completion));
+            Instant activatedAt = Instant.now(clock);
+            executor.execute(() -> advance(completion, activatedAt));
         }
         catch (RuntimeException failure) {
             fail(completion, "Could not start the development follow-up: " + message(failure));
@@ -99,7 +113,7 @@ public final class DevelopmentFollowupCoordinator
         }
     }
 
-    private void advance(DevelopmentTurnCompletion completion)
+    private void advance(DevelopmentTurnCompletion completion, Instant activatedAt)
     {
         Optional<Accepted> captured = Optional.ofNullable(accepted.get(completion.task().id()))
                 .filter(value -> value.turnId().equals(completion.turn().id()));
@@ -142,8 +156,9 @@ public final class DevelopmentFollowupCoordinator
                 checkState(!local.headSha().equals(beforeCommit.headSha()), "Auto commit did not create a commit");
                 checkState(git.isAncestor(baseline.worktree(), beforeCommit.headSha(), local.headSha()), "Auto commit rewrote existing task history");
             }
-            if (local.commitCount() == 0 || !local.diffFromBase() || !automation.autoDraftPr()
-                    || !allowed(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR)) {
+            boolean publicationAllowed = automation.autoDraftPr() && allowed(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR);
+            boolean ciAllowed = automation.autoCiFix() && allowed(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR);
+            if (local.commitCount() == 0 || !local.diffFromBase() || (!publicationAllowed && !ciAllowed)) {
                 finish(completion);
                 return;
             }
@@ -160,6 +175,10 @@ public final class DevelopmentFollowupCoordinator
             boolean alreadyPublished = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent()
                     && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
+                if (!publicationAllowed) {
+                    finish(completion);
+                    return;
+                }
                 checkState(publication.remoteHeadSha().equals(original.remoteHeadSha()), "The remote branch changed during development");
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
                         "The pull request changed during development");
@@ -188,6 +207,11 @@ public final class DevelopmentFollowupCoordinator
                 else {
                     checkState(verifiedPr.orElseThrow().draft(), "The created pull request is not a draft");
                 }
+                currentPr = verifiedPr;
+            }
+            if (ciAllowed && allowed(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR)) {
+                action = "CI Autofix";
+                runCi(completion, currentPr.orElseThrow(), automation, activatedAt);
             }
             finish(completion);
         }
@@ -197,6 +221,39 @@ public final class DevelopmentFollowupCoordinator
         }
         finally {
             captured.ifPresent(value -> accepted.remove(completion.task().id(), value));
+        }
+    }
+
+    private void runCi(DevelopmentTurnCompletion source, GitHubPullRequestIdentity pullRequest, DevelopmentAutomation automation, Instant activatedAt)
+    {
+        checkState(owns(source), "Development automation was stopped");
+        checkState(pullRequest.headRepository().equals(pullRequest.baseRepository()), "CI Autofix currently requires a same-repository pull request");
+        var lane = automation.ciLaneId().orElseThrow(() -> new IllegalStateException("Select a supported CI provider in Automation before starting the task"));
+        checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8))), "CI Autofix authorization expired before attachment");
+        CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(source.task().workspaceId().orElseThrow(), pullRequest.pullRequest().number(),
+                lane, 3, true, true, true, "development-ci:" + source.task().id() + ":" + source.turn().id()),
+                source.task().id(), source.turn().id(), pullRequest, activatedAt);
+        while (owns(source)) {
+            if (run.status() == CiAutofixRun.Status.FINISHED) {
+                checkState(run.finishReason().filter(reason -> reason == CiAutofixRun.FinishReason.GREEN).isPresent(),
+                        "CI Autofix ended: %s", run.summary().orElse(run.finishReason().map(Enum::name).orElse("Unknown result")));
+                return;
+            }
+            if (run.status() == CiAutofixRun.Status.PAUSED && !ci.canMessage(run)) {
+                CiAutofixRun latest = ci.get(run.id());
+                if (!latest.equals(run)) {
+                    // A reply can start a repair between polling and checking the paused run.
+                    run = latest;
+                    continue;
+                }
+                throw new IllegalStateException("CI Autofix cannot continue: "
+                        + run.summary().orElseGet(() -> latest.pauseReason().map(Enum::name).orElse("Unknown result")));
+            }
+            // The coordinator owns polling; a renderer reload or an independent monitor cannot drive this run.
+            run = ci.advance(run.id());
+            if (run.status() != CiAutofixRun.Status.FINISHED) {
+                waitForCi.run();
+            }
         }
     }
 

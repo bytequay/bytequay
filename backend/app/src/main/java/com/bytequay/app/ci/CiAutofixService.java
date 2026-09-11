@@ -13,9 +13,13 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 
+import java.time.Instant;
 import java.util.List;
 
 public interface CiAutofixService
@@ -32,6 +36,25 @@ public interface CiAutofixService
      * @return the created or existing run
      */
     CiAutofixRun start(StartCiAutofixCommand command);
+
+    /** Starts only under the live source continuation, retaining its original authorization deadline. */
+    CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, TurnId sourceTurnId,
+            GitHubPullRequestIdentity expectedPr, Instant activatedAt);
+
+    /**
+     * Stops children after the caller has revoked the source continuation in agent core.
+     * Never replays journals or provisions missing tasks; source revocation also excludes a preparing, not-yet-inserted child.
+     */
+    void stopDevelopment(TaskId parentTaskId);
+
+    /**
+     * Explicitly discards local children after source authority was revoked in agent core and all child writers are verified stopped.
+     * Retains CI run history and all remote results.
+     */
+    void deleteDevelopment(TaskId parentTaskId);
+
+    /** Whether the existing paused run currently permits an answer without renewing authority. */
+    boolean canMessage(CiAutofixRun run);
 
     /**
      * Returns one durable run and its attempts.

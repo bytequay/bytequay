@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -39,8 +40,11 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -52,9 +56,11 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
+import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -82,6 +88,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -148,6 +156,11 @@ class TestDefaultCiAutofixService
     private PullRequestTimelineService timelineService;
     private CredentialService credentials;
     private DefaultCiAutofixService service;
+    private DevelopmentCiOwnership ownership;
+    private AgentTaskStore taskStore;
+    private AgentRuntimeRegistry runtimes;
+    private ObjectProvider<AgentStartupRecovery> recovery;
+    private AtomicInteger recoveryRequests;
     private Path worktree;
     private TaskId taskId;
     private TaskWorktree taskWorktree;
@@ -269,6 +282,19 @@ class TestDefaultCiAutofixService
         when(eventService.readAfter(any(), any(Long.class), any(Integer.class))).thenReturn(ImmutableList.of());
         logReader = new CiAutofixLogReader(gitHub, resourceService, eventService);
 
+        recoveryRequests = new AtomicInteger();
+        recovery = new ObjectProvider<>()
+        {
+            @Override
+            public AgentStartupRecovery getObject()
+            {
+                recoveryRequests.incrementAndGet();
+                throw new AgentConflictException("Recovered child process is unavailable");
+            }
+        };
+        taskStore = mock(AgentTaskStore.class);
+        runtimes = new AgentRuntimeRegistry();
+        ownership = new DevelopmentCiOwnership(store, taskStore, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new DefaultCiAutofixService(
                 store,
                 gitHub,
@@ -285,7 +311,9 @@ class TestDefaultCiAutofixService
                 rebaseService,
                 timelineService,
                 credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                ownership,
+                recovery);
     }
 
     @Test
@@ -1514,6 +1542,236 @@ class TestDefaultCiAutofixService
         assertThat(observed.summary()).hasValueSatisfying(summary -> assertThat(summary).contains("provider fact"));
     }
 
+    @Test
+    void persistsDevelopmentOwnerBeforeCreatingWorkAndKeepsItsOriginalBudget()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        Instant activated = NOW.minusSeconds(3600);
+        doAnswer(invocation -> {
+            assertThat(store.run.scope().parentTaskId()).contains(parent.id().toString());
+            return task(invocation.getArgument(0));
+        }).when(taskService).create(any());
+
+        CiAutofixRun run = service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), activated);
+        assertThat(run.authorization().authorizedAt()).isEqualTo(activated);
+        assertThat(run.authorization().expiresAt()).isEqualTo(activated.plus(Duration.ofHours(8)));
+        assertThat(run.authorization().maxFixAttempts()).isEqualTo(3);
+        assertThat(service.startDevelopment(startCommand("development"), parent.id(), source, publishedPr(), NOW).authorization()).isEqualTo(run.authorization());
+        assertThatThrownBy(() -> service.start(startCommand("development"))).isInstanceOf(CiAutofixConflictException.class);
+        verify(taskService).create(any());
+    }
+
+    @Test
+    void lostDevelopmentOwnerCannotReplayPushOrReprovisionItsChild()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-push"), parent.id(), source, publishedPr(), NOW);
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
+                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        run = service.advance(run.id());
+        CiAutofixRun pending = run;
+        assertThat(pending.pushJournal()).isPresent();
+
+        DefaultCiAutofixService restarted = service(store);
+        assertThatThrownBy(() -> restarted.advance(pending.id())).isInstanceOf(CiAutofixConflictException.class);
+        assertThatThrownBy(() -> restarted.startDevelopment(startCommand("owned-push"), parent.id(), source, publishedPr(), NOW))
+                .isInstanceOf(CiAutofixConflictException.class);
+        verify(gitService, never()).push(any());
+        verify(taskService).create(any());
+    }
+
+    @Test
+    void unavailableRecoveredChildStopBlocksDeletionWithoutReplayingItsRun()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-recovery"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        AgentTask child = activeTask();
+        AgentTask recovered = child.claimWorktreeMutation(WorktreeMutationClaim.recovery("launch", NOW), NOW);
+        when(taskService.get(taskId)).thenReturn(recovered);
+
+        assertThatThrownBy(() -> service.deleteDevelopment(parent.id())).isInstanceOf(AgentConflictException.class);
+        assertThat(ownership.authorized(run)).isFalse();
+        assertThat(recoveryRequests.get()).isEqualTo(1);
+        verify(completionService, never()).delete(any());
+        verify(gitService, never()).push(any());
+        verify(rebaseService, never()).cancel(any());
+        assertThatThrownBy(() -> service.advance(run.id())).isInstanceOf(CiAutofixConflictException.class);
+    }
+
+    @Test
+    void deletesStoppedOwnedChildrenBeforeReleasingTheirBranchSlot()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-delete"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
+        doAnswer(_ -> {
+            assertThat(store.run.status()).isNotEqualTo(Status.FINISHED);
+            assertThat(ownership.authorized(store.run)).isFalse();
+            return null;
+        }).when(completionService).delete(taskId);
+
+        service.deleteDevelopment(parent.id());
+
+        assertThat(store.run.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(store.run.scope().parentTaskId()).contains(parent.id().toString());
+        assertThat(store.run.scope().pullRequest()).isEqualTo(run.scope().pullRequest());
+        verify(completionService).delete(taskId);
+        verify(rebaseService, never()).cancel(any());
+        verify(gitHub, never()).rerunFailedJobs(any());
+    }
+
+    @Test
+    void rejectsStandaloneAttachmentDuringSourceWorkAndReservesAdmissionWhenIdle()
+    {
+        AgentTask parent = developmentParent();
+        when(taskStore.listByWorkspace("workspace-1")).thenReturn(ImmutableList.of(parent));
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        assertThatThrownBy(() -> service.start(startCommand("manual-busy"))).isInstanceOf(CiAutofixConflictException.class);
+        verify(taskService, never()).create(any());
+
+        AgentTask idle = parent.withDevelopmentContinuation(false, NOW);
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(idle));
+        service.start(startCommand("manual-idle"));
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(idle)).isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void canMessageUsesTheFreshRunAndNeverResumesARevokedParent()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-message"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        CiAutofixRun paused = store.update(run.pause(PauseReason.INVALID_GIT_RESULT, "Needs a user correction", NOW));
+        assertThat(service.canMessage(paused)).isTrue();
+        store.update(paused.resume(NOW));
+        assertThat(service.canMessage(paused)).isFalse();
+        CiAutofixRun pausedAgain = store.update(store.run.pause(PauseReason.INVALID_GIT_RESULT, "Needs a user correction", NOW));
+        ownership.revoke(parent.id());
+        assertThat(service.canMessage(pausedAgain)).isFalse();
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Answer", "owned-answer")))
+                .isInstanceOf(CiAutofixConflictException.class);
+    }
+
+    @Test
+    void stopDrainsAdmittedProvisioningBeforeInspectingTheChild()
+            throws Exception
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        CountDownLatch provisioningStarted = new CountDownLatch(1);
+        CountDownLatch releaseProvisioning = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            provisioningStarted.countDown();
+            assertThat(releaseProvisioning.await(5, TimeUnit.SECONDS)).isTrue();
+            return task(invocation.getArgument(0));
+        }).when(taskService).create(any());
+        when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stopped", Optional.empty(), false));
+        when(turnService.stopRuntime(any(), eq("stopped"))).thenAnswer(_ -> activeTask());
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var starting = executor.submit(() -> service.startDevelopment(startCommand("owned-provision"), parent.id(), source, publishedPr(), NOW));
+            assertThat(provisioningStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            var stopping = executor.submit(() -> service.stopDevelopment(parent.id()));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (ownership.authorized(store.run) && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(ownership.authorized(store.run)).isFalse();
+            assertThat(stopping.isDone()).isFalse();
+            releaseProvisioning.countDown();
+            starting.get(5, TimeUnit.SECONDS);
+            stopping.get(5, TimeUnit.SECONDS);
+        }
+        verify(taskService).create(any());
+        verify(turnService).stopRuntime(taskId, "stopped");
+        verify(turnService, never()).start(any());
+        assertThatThrownBy(() -> service.advance(store.run.id())).isInstanceOf(CiAutofixConflictException.class);
+    }
+
+    @Test
+    void ownedCancelRevokesTheSourceBeforeStoppingItsChild()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-cancel"), parent.id(), source, publishedPr(), NOW);
+        doReturn(parent).when(taskService).get(parent.id());
+        when(turnService.stopImpact(any())).thenAnswer(invocation -> new AgentRuntimeStopImpact(invocation.getArgument(0), "stop", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "stop")).thenReturn(activeTask());
+        when(turnService.stopRuntime(parent.id(), "stop")).thenAnswer(_ -> {
+            ReflectionTestUtils.invokeMethod(runtimes, "stopDevelopment", parent.id());
+            service.stopDevelopment(parent.id());
+            return parent;
+        });
+
+        service.cancel(run.id());
+
+        assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), source)).isFalse();
+        InOrder stopped = inOrder(turnService);
+        stopped.verify(turnService).stopRuntime(parent.id(), "stop");
+        stopped.verify(turnService).stopRuntime(taskId, "stop");
+        assertThat(ownership.authorized(store.run)).isFalse();
+    }
+
+    @Test
+    void rejectsExpiredOrChangedDevelopmentScopeBeforeProvisioning()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("expired-owned"), parent.id(), source, publishedPr(), NOW.minus(Duration.ofHours(8))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("expired");
+        GitHubPullRequestIdentity expected = publishedPr();
+        GitHubPullRequestIdentity moved = new GitHubPullRequestIdentity(expected.pullRequest(), expected.url(), expected.headRepository(), expected.headBranch(),
+                FIXED_HEAD, expected.baseRepository(), expected.baseBranch(), expected.baseSha(), expected.state(), expected.draft(), expected.author());
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("moved-owned"), parent.id(), source, moved, NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
+        verify(taskService, never()).create(any());
+        verify(provisioning, never()).synchronizeCode(any());
+    }
+
+    @Test
+    void rejectsAnUnavailableAcceptedCiProviderWithoutFallback()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        doThrow(new IllegalArgumentException("Accepted CI provider is unavailable")).when(drivers).require(AgentLaneId.CLAUDE_CLI);
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("unavailable-owned"), parent.id(), source, publishedPr(), NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unavailable");
+        verify(gitHub, never()).inspect(any());
+        verify(taskService, never()).create(any());
+    }
+
+    private AgentTask developmentParent()
+    {
+        TaskId parent = TaskId.random();
+        String branch = "bytequay/task/" + parent;
+        snapshot = new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), snapshot.sameRepository(), branch, snapshot.headSha(),
+                snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+        when(gitHub.inspect(any())).thenReturn(snapshot);
+        TaskWorktree source = new TaskWorktree(parent, "workspace-1", REPOSITORY, temporaryDirectory.resolve(parent.toString()), branch, HEAD);
+        return AgentTask.created(parent, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW).withDevelopmentContinuation(true, NOW);
+    }
+
+    private TurnId reserveParent(AgentTask parent)
+    {
+        TurnId source = TurnId.random();
+        when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        synchronized (runtimes.taskLock(parent.id())) {
+            ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), source);
+        }
+        return source;
+    }
+
+    private GitHubPullRequestIdentity publishedPr()
+    {
+        RepoRef repository = RepoRef.of(PULL_REQUEST.owner(), PULL_REQUEST.repo());
+        return new GitHubPullRequestIdentity(PULL_REQUEST, snapshot.url(), repository, snapshot.headRef(), HEAD, repository,
+                snapshot.baseRef(), snapshot.baseSha(), GitHubPullRequestIdentity.State.OPEN, true, snapshot.author());
+    }
+
     private DefaultCiAutofixService service(InMemoryCiAutofixStore requestedStore)
     {
         return service(requestedStore, Clock.fixed(NOW, ZoneOffset.UTC));
@@ -1537,7 +1795,9 @@ class TestDefaultCiAutofixService
                 rebaseService,
                 timelineService,
                 credentials,
-                requestedClock);
+                requestedClock,
+                new DevelopmentCiOwnership(requestedStore, taskStore, runtimes, requestedClock),
+                recovery);
     }
 
     private BranchRebase completedRebase(StartBranchRebaseCommand command)

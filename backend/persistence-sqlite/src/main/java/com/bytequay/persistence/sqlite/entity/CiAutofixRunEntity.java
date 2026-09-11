@@ -37,6 +37,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
@@ -52,7 +53,7 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 
 @Entity
-@Table(name = "ci_autofix_run")
+@Table(name = "ci_autofix_run", indexes = @Index(name = "idx_ci_autofix_parent_task", columnList = "parent_task_id"))
 public class CiAutofixRunEntity
         implements Persistable<String>
 {
@@ -104,6 +105,8 @@ public class CiAutofixRunEntity
 
     @Column(unique = true)
     private String agentTaskId;
+
+    private String parentTaskId;
 
     // Nullable only for rows written before task provisioning became restart-safe.
     private String taskStartCommit;
@@ -247,6 +250,10 @@ public class CiAutofixRunEntity
         headRef = scope.headRef();
         baseRef = scope.baseRef();
         laneId = scope.laneId();
+        if (!newEntity) {
+            checkArgument(Optional.ofNullable(parentTaskId).equals(scope.parentTaskId()), "CI parent task identity changed");
+        }
+        parentTaskId = scope.parentTaskId().orElse(null);
         agentTaskId = run.agentTaskId().orElse(null);
         status = run.status();
         activeBranchSlot = status == Status.FINISHED ? null : scope.activeBranchSlot();
@@ -286,7 +293,8 @@ public class CiAutofixRunEntity
                 author,
                 headRef,
                 baseRef,
-                laneId);
+                laneId,
+                Optional.ofNullable(parentTaskId));
         Authorization authorization = new Authorization(
                 allowFailedJobReruns,
                 allowHistoryRewrites,

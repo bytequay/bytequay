@@ -106,6 +106,18 @@ public class SqliteBranchRebaseStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<BranchRebase> listIndependentlyRunning(int limit)
+    {
+        checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT, "limit must be between 1 and " + MAX_LIST_LIMIT);
+        return read("Cannot list independently scheduled branch rebases",
+                () -> repository.findIndependentlyRunning(Status.RUNNING, PageRequest.of(0, limit)).stream()
+                        .map(BranchRebaseEntity::toRebase)
+                        .collect(toImmutableList()),
+                BranchRebaseStorageException::new);
+    }
+
+    @Override
     @Transactional
     public BranchRebase save(BranchRebase rebase)
     {

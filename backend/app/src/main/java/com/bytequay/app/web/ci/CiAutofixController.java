@@ -121,7 +121,8 @@ public class CiAutofixController
         return CiAutofixHttpModels.run(
                 run,
                 task.map(value -> metricsService.taskTotals(value.id())),
-                task.flatMap(value -> value.taskWorktree().map(worktree -> worktree.generatedBranch())));
+                task.flatMap(value -> value.taskWorktree().map(worktree -> worktree.generatedBranch())),
+                service.canMessage(run));
     }
 
     private Optional<AgentTask> findTask(TaskId taskId)

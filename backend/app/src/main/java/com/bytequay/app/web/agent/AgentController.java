@@ -15,6 +15,7 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
@@ -55,14 +56,18 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.DevelopmentGitInspector;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.DevelopmentAutomationDto;
+import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
@@ -103,6 +108,7 @@ import java.util.stream.Stream;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
@@ -133,6 +139,8 @@ public class AgentController
     private final PullRequestService pullRequestCatalog;
     private final WorkspaceStore workspaces;
     private final DevelopmentGitInspector developmentGit;
+    private final CiAutofixStore ciRuns;
+    private final CiAutofixService ci;
 
     public AgentController(
             AgentTaskService taskService,
@@ -153,7 +161,9 @@ public class AgentController
             PullRequestService pullRequestCatalog,
             WorkspaceStore workspaces,
             AppSettingsService appSettings,
-            DevelopmentGitInspector developmentGit)
+            DevelopmentGitInspector developmentGit,
+            CiAutofixStore ciRuns,
+            CiAutofixService ci)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -174,6 +184,8 @@ public class AgentController
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.developmentGit = requireNonNull(developmentGit, "developmentGit is null");
+        this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
+        this.ci = requireNonNull(ci, "ci is null");
     }
 
     /**
@@ -183,7 +195,10 @@ public class AgentController
     private InteractiveAgentHttpContract.TaskResponse taskResponse(AgentTask task)
     {
         AgentMetrics metrics = task.worktreeMutationClaim().isPresent() ? metricsService.taskTotals(task.id()) : task.metrics();
-        return InteractiveAgentHttpContract.task(task, metrics);
+        Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
+                .max(comparing(CiAutofixRun::createdAt))
+                .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi);
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -336,7 +351,7 @@ public class AgentController
 
     /**
      * Removes a task and everything ByteQuay keeps for it, generated branch included: the one place
-     * that branch may be destroyed. A running task is refused; repeating the request is a no-op.
+     * that branch may be destroyed. Delivery children stop first; repeating the request is a no-op.
      */
     @DeleteMapping("/tasks/{taskId}")
     public ResponseEntity<Void> deleteTask(
@@ -353,6 +368,10 @@ public class AgentController
         }
         String correlationId = UUID.randomUUID().toString();
         log.info("Deleting task {} with branch {} (correlation {})", id, task.taskWorktree().map(TaskWorktree::generatedBranch).orElse("none"), correlationId);
+        if (task.developmentContinuationUnfinished()) {
+            stopTaskRuntime(task, turnService.stopImpact(id).generation());
+        }
+        ci.deleteDevelopment(id);
         completionService.delete(id);
         log.info("Deleted task {} (correlation {})", id, correlationId);
         return ResponseEntity.noContent().build();
@@ -793,6 +812,9 @@ public class AgentController
         requireNotBlank(request.reason(), "reason must not be blank");
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task = taskService.getInteractive(workspaceId, id);
+        if (task.developmentContinuationUnfinished()) {
+            throw new AgentConflictException("Stop development automation before marking the task failed; its linked CI writers must be verified stopped");
+        }
         boolean processUnverified = task.worktreeMutationClaim()
                 .map(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
                 .orElse(false);
@@ -825,8 +847,8 @@ public class AgentController
     /**
      * Stops this task's provider process, the last resort behind ordinary cancellation.
      *
-     * <p>Reaches no other task. The generation is the one the user confirmed, so a turn that
-     * started since cannot be stopped by a stale confirmation.
+     * <p>Development automation also stops its linked CI task. The generation is the one the
+     * user confirmed, so a turn that started since cannot be stopped by a stale confirmation.
      */
     @PostMapping("/tasks/{taskId}/runtime/stop")
     public InteractiveAgentHttpContract.TaskResponse stopRuntime(
@@ -837,11 +859,15 @@ public class AgentController
         requireNotBlank(request.generation(), "generation must not be blank");
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task = taskService.getInteractive(workspaceId, id);
-        AgentTask stopped = task.worktreeMutationClaim()
+        return taskResponse(stopTaskRuntime(task, request.generation()));
+    }
+
+    private AgentTask stopTaskRuntime(AgentTask task, String generation)
+    {
+        return task.worktreeMutationClaim()
                 .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
-                .map(claim -> startupRecovery.stopRecoveredRuntime(id, request.generation()))
-                .orElseGet(() -> turnService.stopRuntime(id, request.generation()));
-        return taskResponse(stopped);
+                .map(claim -> startupRecovery.stopRecoveredRuntime(task.id(), generation))
+                .orElseGet(() -> turnService.stopRuntime(task.id(), generation));
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")

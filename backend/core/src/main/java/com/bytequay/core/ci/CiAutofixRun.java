@@ -643,7 +643,8 @@ public record CiAutofixRun(
             String author,
             String headRef,
             String baseRef,
-            String laneId)
+            String laneId,
+            Optional<String> parentTaskId)
     {
         public Scope
         {
@@ -660,6 +661,7 @@ public record CiAutofixRun(
             checkText(headRef, "headRef", 255);
             checkText(baseRef, "baseRef", 255);
             checkText(laneId, "laneId", 100);
+            checkOptionalText(parentTaskId, "parentTaskId", 128);
         }
 
         public String activeBranchSlot()

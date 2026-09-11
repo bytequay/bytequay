@@ -29,5 +29,8 @@ public interface BranchRebaseStore
 
     List<BranchRebase> listRunning(int limit);
 
+    /** Running rebases whose caller is independently scheduled, excluding delivery-owned CI tasks. */
+    List<BranchRebase> listIndependentlyRunning(int limit);
+
     BranchRebase save(BranchRebase rebase);
 }

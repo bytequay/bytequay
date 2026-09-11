@@ -62,6 +62,7 @@ import type { CommitRange } from '../pulls/PullChanges';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { DevelopmentFacts } from './DevelopmentFacts';
+import { CiAutofixPanel, ciActivity, DevelopmentCiStatus } from './CiAutofixPanel';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -257,6 +258,7 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
   onMarkFailed: () => void;
 }): React.JSX.Element {
   const oldProcess = task.mutationClaim?.kind === 'RECOVERY';
+  const automationUnfinished = task.developmentContinuationUnfinished === true;
   return (
     <section className="agt-recovery" aria-labelledby="agt-recovery-title">
       <div className="agt-recovery__head">
@@ -267,15 +269,16 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           type="button"
           className="agt-action is-danger"
           onClick={onStopServer}
-          title={oldProcess
+          title={automationUnfinished ? 'Stops this task and its linked CI agents, after confirmation' : oldProcess
             ? 'Stops and verifies this task’s provider runtime from before the restart, after confirmation'
             : 'Stops only this task’s provider runtime, after confirmation'}
         >
-          Stop this task&apos;s agent runtime…
+          {automationUnfinished ? 'Stop automation…' : <>Stop this task&apos;s agent runtime…</>}
         </button>
       </div>
       <div className="agt-recovery__body">
-        {oldProcess
+        {automationUnfinished ? 'Automation could not finish stopping its agents. The transcript is safe; use Stop automation '
+          + 'to retry shutdown and verification. The task stays blocked until every linked agent is confirmed stopped.' : oldProcess
           ? 'ByteQuay restarted while this task was working, and a process from before the restart '
             + 'could not be verified stopped. The transcript is safe; stop this task’s agent runtime '
             + 'to retry shutdown and verification. The checkout stays reserved until that succeeds.'
@@ -292,19 +295,19 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
         </div>
       )}
       <div className="agt-recovery__actions">
-        <button
+        {!automationUnfinished && <button
           type="button"
           className="agt-action"
           onClick={onMarkFailed}
           title="Fails the task and keeps its checkout for inspection, after confirmation"
         >
           Mark task failed
-        </button>
-        <button type="button" className="agt-action" disabled title="Unlocks after recovery — never re-sends by itself">
+        </button>}
+        {!automationUnfinished && <button type="button" className="agt-action" disabled title="Unlocks after recovery — never re-sends by itself">
           Retry last message
-        </button>
+        </button>}
         <span className="agt-spacer" />
-        <span className="agt-recovery__note">Only this task&apos;s provider runtime is stopped</span>
+        <span className="agt-recovery__note">{automationUnfinished ? 'Stop verifies that this task and its linked CI agents have stopped' : <>Only this task&apos;s provider runtime is stopped</>}</span>
       </div>
     </section>
   );
@@ -860,6 +863,9 @@ export function AgentTaskBody({
   developmentFacts = null,
   developmentFactsLoading = false,
   developmentFactsError = null,
+  ciPollingError = null,
+  onOpenDevelopmentCi,
+  renderCiPanel,
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
@@ -956,6 +962,9 @@ export function AgentTaskBody({
   developmentFacts?: AgentDevelopmentFactsDto | null;
   developmentFactsLoading?: boolean;
   developmentFactsError?: string | null;
+  ciPollingError?: string | null;
+  onOpenDevelopmentCi?: () => void;
+  renderCiPanel?: (width: number) => React.ReactNode;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
@@ -1027,6 +1036,7 @@ export function AgentTaskBody({
   };
   const status = runtimeStatus(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
+  const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
   const terminal = status === 'completed' || status === 'failed';
   const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
@@ -1035,6 +1045,7 @@ export function AgentTaskBody({
     : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR' : null;
   const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
+    : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
     : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
   const statusText = state.turn === null
     ? statusLabel
@@ -1154,7 +1165,10 @@ export function AgentTaskBody({
       {state.task?.interactive === true && state.task.checkoutRemovedAt === null && <DevelopmentFacts
         facts={developmentFacts} loading={developmentFactsLoading} error={developmentFactsError} running={status === 'running'} />}
 
-      {!terminal && automationActive && status !== 'recovery' && <div className="agt-barrier" role="status">
+      {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
+        error={ciPollingError} onOpen={onOpenDevelopmentCi} />}
+
+      {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
         Automation is running. Your next message stays in the composer until it finishes.
       </div>}
 
@@ -1230,7 +1244,7 @@ export function AgentTaskBody({
             title="Drag to resize the panel"
             onMouseDown={sidePanel.startResize}
           />
-          <SidePanel
+          {renderCiPanel !== undefined ? renderCiPanel(sidePanel.width) : <SidePanel
             agents={agents}
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
@@ -1270,7 +1284,7 @@ export function AgentTaskBody({
             showAgents={supportsNestedAgents}
             logChoice={logChoice}
             onToggleLog={onToggleLog}
-          />
+          />}
         </>
       )}
       </div>
@@ -1371,6 +1385,8 @@ export default function AgentTaskScreen({
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [ciPanelOpen, setCiPanelOpen] = useState(false);
+  const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
   const [logChoice, setLogChoice] = useState<string | null>(null);
@@ -1596,6 +1612,27 @@ export default function AgentTaskScreen({
   const factsAvailable = state.task?.interactive === true && state.task.checkoutRemovedAt === null;
   const canReadFacts = factsAvailable && canRefreshPullRequests;
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
+  const developmentCi = state.task?.developmentCi ?? null;
+  const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
+  useEffect(() => {
+    if (!pollContinuation) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
+      try {
+        const task = await live().getAgentTask(taskId, workspaceId);
+        if (!active) return;
+        dispatch({ type: 'task/loaded', task });
+        setCiPollingError(null);
+        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) return;
+      } catch (failure) {
+        if (active) setCiPollingError(`Could not refresh CI activity. ${failureText(failure)}`);
+      }
+      if (active) timer = setTimeout(() => { void read(); }, 5000);
+    };
+    timer = setTimeout(() => { void read(); }, 5000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [live, taskId, workspaceId, pollContinuation]);
   useEffect(() => {
     if (!canReadFacts) {
       setDevelopmentFactsLoading(false);
@@ -2036,6 +2073,7 @@ export default function AgentTaskScreen({
   }, [live, run, taskId, workspaceId]);
 
   const markFailed = useCallback(() => {
+    if (stateRef.current.task?.developmentContinuationUnfinished) return;
     confirmationRequestRef.current++;
     dispatch({ type: 'notice/changed', notice: null });
     setConfirmation({ kind: 'fail' });
@@ -2162,6 +2200,12 @@ export default function AgentTaskScreen({
       developmentFacts={developmentFacts}
       developmentFactsLoading={developmentFactsLoading}
       developmentFactsError={developmentFactsError}
+      ciPollingError={ciPollingError}
+      onOpenDevelopmentCi={() => { setCiPanelOpen(true); setPanelOpen(true); }}
+      renderCiPanel={ciPanelOpen && developmentCi !== null ? width => <CiAutofixPanel
+        key={developmentCi.runId} ci={developmentCi} parentTaskId={taskId} workspaceId={workspaceId}
+        active={continuationUnfinished && developmentCi.status !== 'FINISHED' && state.task?.state === 'OPEN' && !confirming}
+        bridge={live()} width={width} onClose={() => { setCiPanelOpen(false); setPanelOpen(false); }} onStop={() => { void stopServer(); }} /> : undefined}
       onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
@@ -2170,10 +2214,10 @@ export default function AgentTaskScreen({
       onPullRequestCommitRangeChange={setPullRequestCommitRange}
       onPullRequestPendingCommentsChange={setPullRequestPendingComments}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-      onTogglePanel={() => setPanelOpen((open) => !open)}
-      onOpenAgent={(threadId) => { setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}
+      onTogglePanel={() => { setCiPanelOpen(false); setPanelOpen((open) => !open); }}
+      onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
-      onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}
+      onSelectPanelTab={(tab) => { setCiPanelOpen(false); setPanelTab(tab); setOpenAgent(null); }}
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}
@@ -2202,6 +2246,10 @@ export default function AgentTaskScreen({
           <p>{confirmation.automation
             ? 'This ends automation and marks the task failed once its agents have stopped. Delete the task and start again to continue development.'
             : 'You can continue once ByteQuay confirms the agent has stopped.'}</p>
+          {confirmation.automation && state.task?.developmentCi != null && <p>
+            This also stops the linked CI agents. Remote branch <code>{state.task.developmentCi.headRef}</code> and{' '}
+            <a href={state.task.developmentCi.pullRequestUrl}>PR #{state.task.developmentCi.pullRequestNumber}</a> remain on GitHub.
+          </p>}
         </> : <>
           <p>This ends the task. You won’t be able to send more messages here.</p>
           <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>

@@ -62,7 +62,7 @@ class TestCiAutofixMonitorJob
         CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun first = run();
         CiAutofixRun second = run();
-        when(store.listNonFinished(2)).thenReturn(ImmutableList.of(first, second));
+        when(store.listStandaloneNonFinished(2)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
         new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 2).monitor();
@@ -79,7 +79,7 @@ class TestCiAutofixMonitorJob
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CiAutofixService service = mock(CiAutofixService.class);
         CiAutofixRun run = run();
-        when(store.listNonFinished(1)).thenReturn(ImmutableList.of(run));
+        when(store.listStandaloneNonFinished(1)).thenReturn(ImmutableList.of(run));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         doAnswer(invocation -> {
@@ -97,7 +97,7 @@ class TestCiAutofixMonitorJob
             firstPass.get();
         }
 
-        verify(store, times(1)).listNonFinished(1);
+        verify(store, times(1)).listStandaloneNonFinished(1);
         verify(service, times(1)).advance(run.id());
     }
 
@@ -237,7 +237,7 @@ class TestCiAutofixMonitorJob
                         "author",
                         "feature",
                         "main",
-                        "codex"),
+                        "codex", Optional.empty()),
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),

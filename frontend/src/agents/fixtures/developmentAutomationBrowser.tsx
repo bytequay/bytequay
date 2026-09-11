@@ -18,6 +18,7 @@ import type { AgentDevelopmentFactsDto, AgentStreamMessage, AgentTaskDto, AgentT
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
+import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -118,7 +119,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await observedResultsRefresh()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios()];
 }
 
 async function continuationAdmission(): Promise<{ name: string; error?: string }[]> {

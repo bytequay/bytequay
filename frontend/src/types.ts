@@ -592,6 +592,7 @@ export type AgentMutationClaimDto = {
 export type AgentTaskDto = {
   interactive?: boolean;
   developmentContinuationUnfinished: boolean;
+  developmentCi?: AgentDevelopmentCiDto | null;
   id: string;
   workspaceId: string;
   title: string;
@@ -681,6 +682,44 @@ export type AgentDevelopmentFactsDto = {
     pullRequest: { number: number; url: string; state: string; draft: boolean; headSha: string } | null;
   } | null;
   remoteError: string | null;
+};
+
+export type AgentDevelopmentCiDto = {
+  runId: string;
+  agentTaskId: string | null;
+  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  activity: string;
+  attemptsUsed: number;
+  maxAttempts: number;
+  rerunsUsed: number;
+  summary: string | null;
+  finishReason: string | null;
+  headRef: string;
+  expectedRemoteHead: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string;
+  canMessage: boolean;
+};
+
+export type CiAutofixRunDto = {
+  id: string;
+  workspaceId: string;
+  repository: string;
+  pullRequestNumber: number;
+  headRef: string;
+  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  activity: string;
+  version: number;
+  authorization: { maxAttempts: number; expiresAt: string };
+  attemptsUsed: number;
+  rerunsUsed: number;
+  agentTaskId: string | null;
+  currentTurnId: string | null;
+  parentTaskId: string | null;
+  canMessage: boolean;
+  summary: string | null;
+  pauseReason: string | null;
+  finishReason: string | null;
 };
 
 export type CreateAgentTaskRequest = {
@@ -1510,6 +1549,8 @@ export type Bridge = {
   /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
   getAgentDevelopmentFacts: (taskId: string, workspaceId: string) => Promise<AgentDevelopmentFactsDto>;
+  getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
+  sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;

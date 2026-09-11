@@ -16,9 +16,13 @@ package com.bytequay.app.rebase;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseException;
@@ -56,7 +60,8 @@ class TestBranchRebaseMonitorJob
                 mock(AgentTurnService.class),
                 new RebaseSequencerDriver(git),
                 git,
-                Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
+                new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), new AgentRuntimeRegistry(), Clock.systemUTC()));
 
         new BranchRebaseMonitorJob(store, service, readyAgentServingGate(), 20).monitor();
 
@@ -130,6 +135,12 @@ class TestBranchRebaseMonitorJob
         public List<BranchRebase> listRunning(int limit)
         {
             return running;
+        }
+
+        @Override
+        public List<BranchRebase> listIndependentlyRunning(int limit)
+        {
+            return listRunning(limit);
         }
 
         @Override

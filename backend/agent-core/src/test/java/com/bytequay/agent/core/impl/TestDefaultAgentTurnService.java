@@ -115,6 +115,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
@@ -152,6 +153,7 @@ class TestDefaultAgentTurnService
     private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
     private boolean codeGraphEnabled = true;
     private Optional<Consumer<DevelopmentTurnCompletion>> developmentListener = Optional.empty();
+    private Consumer<TaskId> stopChildren = ignored -> {};
     private BiConsumer<AgentTask, AgentTurn> developmentAccepted = (acceptedTask, turn) -> {};
 
     @BeforeEach
@@ -836,6 +838,136 @@ class TestDefaultAgentTurnService
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.FAILED);
+    }
+
+    @Test
+    void stopsChildrenWithoutAuthorityBeforeReleasingParentOwnership()
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change", "child-stop-source"));
+        reportReady(source, Optional.empty());
+        driver.complete("Done");
+        CompletionStage<DevelopmentTurnCompletion> generated = service.startGeneratedTurn(
+                task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
+        stopChildren = stoppedTask -> {
+            awaitTaskLock(runtimeRegistry);
+            assertThat(stoppedTask).isEqualTo(task.id());
+            assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isFalse();
+            assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isTrue();
+            assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+            assertThat(runtimeRegistry.session(task.id())).isPresent();
+            assertThatThrownBy(() -> completionService().delete(task.id())).isInstanceOf(AgentConflictException.class);
+        };
+
+        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        assertThat(stopped.state()).isEqualTo(TaskState.FAILED);
+        assertThat(stopped.developmentContinuationUnfinished()).isFalse();
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
+        assertThat(runtimeRegistry.session(task.id())).isEmpty();
+        assertThat(generated.toCompletableFuture()).isCompletedExceptionally();
+    }
+
+    @Test
+    void childAndSourceStopFailuresKeepTheParentExcludedUntilBothCanStop()
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change", "child-stop-failure"));
+        reportReady(source, Optional.empty());
+        driver.complete("Done");
+        service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
+        AgentStorageException childFailure = new AgentStorageException("Child writer could not be verified stopped");
+        stopChildren = ignored -> {
+            throw childFailure;
+        };
+        driver.failNextCloseVerification();
+
+        assertThatThrownBy(() -> service.failDevelopmentContinuation(task.id(), source.id(), "Stop failed"))
+                .isSameAs(childFailure).satisfies(failure -> assertThat(failure.getSuppressed()).hasSize(1));
+
+        assertThat(runtimeRegistry.unverifiedClose(task.id())).isPresent();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isPresent();
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isTrue();
+        assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isFalse();
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        assertThatThrownBy(() -> service.start(command("Competing change", "blocked-source"))).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> completionService().delete(task.id())).isInstanceOf(AgentConflictException.class);
+
+        assertThatThrownBy(() -> service.stopRuntime(task.id(), service.stopImpact(task.id()).generation())).isSameAs(childFailure);
+        assertThat(runtimeRegistry.session(task.id())).isEmpty();
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isTrue();
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        stopChildren = ignored -> {};
+        assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
+    }
+
+    @Test
+    void lostContinuationStopsChildrenEvenWhenItsSourceRecoveryClaimRemains()
+    {
+        enableDevelopment(ignored -> {});
+        WorktreeMutationClaim recovery = WorktreeMutationClaim.recovery("lost-source", NOW);
+        task = stores.update(task.withDevelopmentContinuation(true, NOW).claimWorktreeMutation(recovery, NOW));
+        List<TaskId> stoppedChildren = new ArrayList<>();
+        stopChildren = stoppedTask -> {
+            awaitTaskLock(runtimeRegistry);
+            stoppedChildren.add(stoppedTask);
+        };
+
+        AgentTask retained = service.failLostDevelopmentContinuation(task.id());
+
+        assertThat(stoppedChildren).containsExactly(task.id());
+        assertThat(retained.state()).isEqualTo(TaskState.OPEN);
+        assertThat(retained.worktreeMutationClaim()).contains(recovery);
+        assertThat(retained.developmentContinuationUnfinished()).isTrue();
+        stores.update(retained.releaseWorktreeMutation(recovery, NOW));
+        stopChildren = ignored -> {
+            throw new AgentStorageException("Child is still unverified");
+        };
+        assertThatThrownBy(() -> service.failLostDevelopmentContinuation(task.id())).hasMessageContaining("Child is still unverified");
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        stopChildren = stoppedChildren::add;
+        assertThat(service.failLostDevelopmentContinuation(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(stoppedChildren).containsExactly(task.id(), task.id());
+    }
+
+    @Test
+    void sharedBranchAdmissionBlocksSourceStartCompleteAndDelete()
+    {
+        runtimeRegistry = new AgentRuntimeRegistry(candidate -> {
+            assertThat(Thread.holdsLock(runtimeRegistry.taskLock(candidate.id()))).isTrue();
+            throw new AgentConflictException("CI owns the source branch");
+        });
+        service = service(driver, runtimeRegistry);
+
+        assertThatThrownBy(() -> service.start(command("Change", "ci-reserved-start"))).hasMessageContaining("CI owns");
+        assertThatThrownBy(() -> completionService().complete(new CompleteAgentTaskCommand(task.id(), Optional.empty()))).hasMessageContaining("CI owns");
+        assertThatThrownBy(() -> completionService().delete(task.id())).hasMessageContaining("CI owns");
+
+        assertThat(stores.list(task.id())).isEmpty();
+        assertThat(driver.commands()).isEmpty();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void rechecksSharedBranchAdmissionAfterCapturingTheAcceptedBaseline()
+    {
+        AtomicBoolean reserved = new AtomicBoolean();
+        runtimeRegistry = new AgentRuntimeRegistry(candidate -> {
+            assertThat(Thread.holdsLock(runtimeRegistry.taskLock(candidate.id()))).isTrue();
+            if (reserved.get()) {
+                throw new AgentConflictException("CI owns the source branch");
+            }
+        });
+        enableDevelopment(ignored -> {});
+        developmentAccepted = (acceptedTask, turn) -> reserved.set(true);
+
+        assertThatThrownBy(() -> service.start(command("Change", "ci-reserved-after-capture"))).hasMessageContaining("CI owns");
+
+        assertThat(driver.commands()).isEmpty();
+        assertThat(stores.list(task.id()).getLast().knownUnsent()).isTrue();
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        service.failDevelopmentContinuation(task.id(), stores.list(task.id()).getLast().id(), "CI admission changed");
     }
 
     @Test
@@ -2526,6 +2658,7 @@ class TestDefaultAgentTurnService
                 ignored -> developmentListener.isPresent(),
                 (acceptedTask, turn) -> developmentAccepted.accept(acceptedTask, turn),
                 completion -> developmentListener.orElseThrow().accept(completion),
+                stoppedTask -> stopChildren.accept(stoppedTask),
                 completionService());
     }
 

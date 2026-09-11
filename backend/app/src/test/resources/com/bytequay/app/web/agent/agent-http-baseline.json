@@ -63,7 +63,8 @@
     "codegraph": false,
     "archivedAt": null,
     "interactive": true,
-    "developmentContinuationUnfinished": false
+    "developmentContinuationUnfinished": false,
+    "developmentCi": null
   },
   "turns": [
     {
@@ -786,6 +787,7 @@
     "codegraph": false,
     "archivedAt": null,
     "interactive": true,
-    "developmentContinuationUnfinished": false
+    "developmentContinuationUnfinished": false,
+    "developmentCi": null
   }
 }

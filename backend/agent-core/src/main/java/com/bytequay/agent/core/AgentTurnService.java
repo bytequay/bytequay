@@ -168,10 +168,11 @@ public interface AgentTurnService
     AgentRuntimeStopImpact stopImpact(TaskId taskId);
 
     /**
-     * Stops the task's own provider process, interrupting whatever it was running.
+     * Stops the task's provider process and any CI work owned by its development continuation.
      *
-     * <p>This is the last resort behind ordinary cancellation and reaches no other task. The active
-     * turn, if any, is interrupted and its pending approvals denied. The task's worktree claim is
+     * <p>Development authority is revoked before stopping owned children. The parent stays blocked
+     * until child and source writers are verified stopped. The active turn, if any, is interrupted
+     * and its pending approvals denied. The task's worktree claim is
      * released only once the process tree is verified stopped; a process that cannot be verified
      * keeps the task blocked and this method fails. A claim left by an earlier turn whose provider
      * could not be shown quiet is released by the same verification, because the process that

@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
@@ -32,6 +33,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -52,16 +54,34 @@ public final class AgentRuntimeRegistry
     private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, DevelopmentOwner> developmentOwners = new ConcurrentHashMap<>();
     private final Set<TaskId> stoppedDevelopmentTasks = ConcurrentHashMap.newKeySet();
+    private final Consumer<AgentTask> branchAdmission;
     private volatile boolean closing;
+
+    public AgentRuntimeRegistry()
+    {
+        this(task -> {});
+    }
+
+    public AgentRuntimeRegistry(Consumer<AgentTask> branchAdmission)
+    {
+        this.branchAdmission = requireNonNull(branchAdmission, "branchAdmission is null");
+    }
+
+    void checkBranchAdmission(AgentTask task)
+    {
+        branchAdmission.accept(task);
+    }
 
     boolean closing()
     {
         return closing;
     }
 
-    void stopDevelopment(TaskId taskId)
+    List<CompletableFuture<DevelopmentTurnCompletion>> stopDevelopment(TaskId taskId)
     {
         stoppedDevelopmentTasks.add(taskId);
+        DevelopmentOwner owner = developmentOwners.get(taskId);
+        return owner == null ? ImmutableList.of() : ImmutableList.copyOf(owner.turns().values());
     }
 
     boolean developmentStopped(TaskId taskId)
@@ -77,13 +97,16 @@ public final class AgentRuntimeRegistry
     public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
     {
         DevelopmentOwner owner = developmentOwners.get(requireNonNull(taskId, "taskId is null"));
-        return owner != null && owner.sourceTurnId().equals(requireNonNull(sourceTurnId, "sourceTurnId is null"));
+        return !closing && !developmentStopped(taskId) && owner != null && owner.sourceTurnId().equals(requireNonNull(sourceTurnId, "sourceTurnId is null"));
     }
 
     void reserveDevelopmentOwner(TaskId taskId, TurnId sourceTurnId)
     {
         if (closing) {
             throw new AgentConflictException("Backend is shutting down");
+        }
+        if (developmentStopped(taskId)) {
+            throw new AgentConflictException("Development continuation is stopped: " + taskId);
         }
         DevelopmentOwner owner = new DevelopmentOwner(sourceTurnId, new EnumMap<>(DevelopmentTurnOrigin.Kind.class));
         if (developmentOwners.putIfAbsent(taskId, owner) != null) {
@@ -107,7 +130,7 @@ public final class AgentRuntimeRegistry
     {
         synchronized (taskLock(taskId)) {
             DevelopmentOwner owner = developmentOwners.get(taskId);
-            if (closing || owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId())) {
+            if (closing || developmentStopped(taskId) || owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId())) {
                 throw new AgentConflictException("Development continuation is no longer active: " + taskId);
             }
             return owner.turns().computeIfAbsent(origin.kind(), ignored -> new CompletableFuture<>());
@@ -129,7 +152,8 @@ public final class AgentRuntimeRegistry
         return Optional.ofNullable(developmentOwners.get(taskId)).map(DevelopmentOwner::sourceTurnId);
     }
 
-    Object taskLock(TaskId taskId)
+    /** Shared monitor for task admission and branch-writer reservations. */
+    public Object taskLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         return taskLocks.get(taskId);

@@ -116,6 +116,25 @@ class TestAgentRuntimeRegistry
         assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
     }
 
+    @Test
+    void stoppedDevelopmentKeepsExclusionButCannotAuthorizeAnotherTurn()
+    {
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        TurnId source = TurnId.random();
+        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
+        registry.reserveDevelopmentOwner(FIRST, source);
+        var pending = registry.registerDevelopmentTurn(FIRST, origin);
+
+        assertThat(registry.stopDevelopment(FIRST)).containsExactly(pending);
+
+        assertThat(registry.ownsDevelopmentContinuation(FIRST, source)).isFalse();
+        assertThat(registry.hasDevelopmentOwner(FIRST)).isTrue();
+        assertThatThrownBy(() -> registry.registerDevelopmentTurn(FIRST, origin)).isInstanceOf(AgentConflictException.class);
+        registry.releaseDevelopmentOwner(FIRST, source);
+        assertThat(registry.hasDevelopmentOwner(FIRST)).isFalse();
+        assertThatThrownBy(() -> registry.reserveDevelopmentOwner(FIRST, source)).isInstanceOf(AgentConflictException.class);
+    }
+
     private static AgentSession session(String taskId, List<String> closed)
     {
         return new StubSession(taskId, closed);

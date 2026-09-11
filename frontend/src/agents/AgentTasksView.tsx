@@ -983,6 +983,15 @@ export function AgentTaskList({
               </span>
             </li>
           </ul>
+          {confirm.some(task => task.developmentCi != null) && <>
+            <p>Linked CI tasks and their local worktrees are also removed after their agents stop. These remote results remain on GitHub:</p>
+            <ul className="agt-del-list">
+              {confirm.map(task => task.developmentCi == null ? null : <li key={task.id}>
+                <a href={task.developmentCi.pullRequestUrl}>PR #{task.developmentCi.pullRequestNumber}</a>{' · '}
+                branch <code>{task.developmentCi.headRef}</code>
+              </li>)}
+            </ul>
+          </>}
         </ConfirmDialog>
       )}
     </div>

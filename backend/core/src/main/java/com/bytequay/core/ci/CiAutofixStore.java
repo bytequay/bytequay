@@ -56,6 +56,12 @@ public interface CiAutofixStore
      */
     Optional<CiAutofixRun> findByAgentTaskId(String taskId);
 
+    /** Returns every CI run linked to one development task, including terminal runs. */
+    List<CiAutofixRun> listByParentTaskId(String parentTaskId);
+
+    /** Returns the non-finished run reserving this repository head branch. */
+    Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef);
+
     /**
      * Lists complete runs in reverse update order.
      *
@@ -75,6 +81,9 @@ public interface CiAutofixStore
      * @throws CiAutofixStorageException when persistence fails
      */
     List<CiAutofixRun> listNonFinished(int limit);
+
+    /** Lists only independently scheduled runs; delivery-owned runs require their live parent. */
+    List<CiAutofixRun> listStandaloneNonFinished(int limit);
 
     /**
      * Atomically replaces one run and its attempts using optimistic version checking.

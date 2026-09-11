@@ -37,12 +37,22 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitTestSupport;
 import com.bytequay.app.git.RebaseSequencerDriver;
+import com.bytequay.app.git.SequenceState;
+import com.bytequay.core.ci.CiAutofixConflictException;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.FinishReason;
 import com.bytequay.core.rebase.BranchRebase.PauseReason;
@@ -96,6 +106,7 @@ class TestBranchRebaseService
     private FakeTurns turns;
     private RebaseSequencerDriver driver;
     private BranchRebaseService service;
+    private CiAutofixStore ciRuns;
 
     @BeforeEach
     void setUp()
@@ -118,6 +129,7 @@ class TestBranchRebaseService
         store = new InMemoryStore();
         turns = new FakeTurns();
         driver = new RebaseSequencerDriver(GIT);
+        ciRuns = mock(CiAutofixStore.class);
 
         AgentTaskService tasks = mock(AgentTaskService.class);
         WorktreeService worktrees = mock(WorktreeService.class);
@@ -139,7 +151,28 @@ class TestBranchRebaseService
                 turns,
                 driver,
                 GIT,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC)));
+    }
+
+    @Test
+    void rejectsEveryOwnedRebaseEntryAfterItsLiveCoordinatorIsLost()
+    {
+        Tips tips = cleanDivergence();
+        BranchRebase started = service.start(command("owned-rebase"));
+        CiAutofixRun owner = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
+                new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), "workspace-1", Optional.of(RepoRef.of("trinodb", "trino")),
+                        "author", workBranch(), "main", "claude-cli", Optional.of("parent")),
+                tips.original(), tips.original(), tips.base(),
+                new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plusSeconds(8 * 3600)), NOW).assignAgentTask(taskId.toString(), NOW);
+        when(ciRuns.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(owner));
+
+        assertThatThrownBy(() -> service.start(command("blocked-start"))).isInstanceOf(CiAutofixConflictException.class);
+        assertThatThrownBy(() -> service.advance(started.id())).isInstanceOf(CiAutofixConflictException.class);
+        assertThatThrownBy(() -> service.sendMessage(started.id(), "Resume")).isInstanceOf(CiAutofixConflictException.class);
+        assertThatThrownBy(() -> service.cancel(started.id())).isInstanceOf(CiAutofixConflictException.class);
+        assertThat(head()).isEqualTo(tips.original());
+        assertThat(driver.observe(repository).kind()).isEqualTo(SequenceState.Kind.COMPLETED);
     }
 
     @Test
@@ -628,6 +661,12 @@ class TestBranchRebaseService
                     .sorted(Comparator.comparing(BranchRebase::updatedAt))
                     .limit(limit)
                     .collect(toImmutableList());
+        }
+
+        @Override
+        public List<BranchRebase> listIndependentlyRunning(int limit)
+        {
+            return listRunning(limit);
         }
 
         @Override

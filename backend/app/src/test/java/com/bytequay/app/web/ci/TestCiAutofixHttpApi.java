@@ -289,7 +289,8 @@ class TestCiAutofixHttpApi
         CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(
                 watching,
                 Optional.empty(),
-                Optional.of("bytequay/task/task-1"));
+                Optional.of("bytequay/task/task-1"),
+                false);
 
         assertThat(response.activity()).isEqualTo("WATCHING_CI");
         assertThat(response.attempts()).isEmpty();
@@ -307,7 +308,7 @@ class TestCiAutofixHttpApi
                         "author",
                         "feature",
                         "main",
-                        "codex"),
+                        "codex", Optional.empty()),
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),

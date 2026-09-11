@@ -64,7 +64,7 @@ final class BranchRebaseMonitorJob
 
     private List<BranchRebaseId> running()
     {
-        return store.listRunning(batchSize).stream()
+        return store.listIndependentlyRunning(batchSize).stream()
                 .map(BranchRebase::id)
                 .collect(toImmutableList());
     }

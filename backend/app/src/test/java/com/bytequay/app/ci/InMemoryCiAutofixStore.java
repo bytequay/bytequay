@@ -23,6 +23,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
 final class InMemoryCiAutofixStore
         implements CiAutofixStore
 {
@@ -63,6 +65,20 @@ final class InMemoryCiAutofixStore
     }
 
     @Override
+    public List<CiAutofixRun> listByParentTaskId(String parentTaskId)
+    {
+        return Optional.ofNullable(run).filter(value -> value.scope().parentTaskId().filter(parentTaskId::equals).isPresent()).stream()
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef)
+    {
+        return Optional.ofNullable(run).filter(value -> value.status() != Status.FINISHED
+                && value.scope().pullRequest().repoFullName().equalsIgnoreCase(repositoryFullName) && value.scope().headRef().equals(headRef));
+    }
+
+    @Override
     public List<CiAutofixRun> listRecent(int limit)
     {
         return run == null ? ImmutableList.of() : ImmutableList.of(run);
@@ -72,6 +88,13 @@ final class InMemoryCiAutofixStore
     public List<CiAutofixRun> listNonFinished(int limit)
     {
         return run == null || run.status() == Status.FINISHED ? ImmutableList.of() : ImmutableList.of(run);
+    }
+
+    @Override
+    public List<CiAutofixRun> listStandaloneNonFinished(int limit)
+    {
+        return listNonFinished(limit).stream().filter(value -> value.scope().parentTaskId().isEmpty())
+                .collect(toImmutableList());
     }
 
     @Override

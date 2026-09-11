@@ -109,7 +109,15 @@ public final class AgentStartupRecovery
             taskStore.listLive().stream()
                     .filter(AgentTask::developmentContinuationUnfinished)
                     .map(AgentTask::id)
-                    .forEach(turns::failLostDevelopmentContinuation);
+                    .forEach(taskId -> {
+                        try {
+                            turns.failLostDevelopmentContinuation(taskId);
+                        }
+                        catch (RuntimeException failure) {
+                            // The retained parent marker blocks its writers while leaving explicit Stop available.
+                            log.error("Lost development task {} could not stop its owned work; its task remains blocked", taskId, failure);
+                        }
+                    });
             drainPendingEvents();
             servingGate.open();
         }
@@ -150,6 +158,29 @@ public final class AgentStartupRecovery
                 .filter(held -> held.kind() == WorktreeMutationClaim.Kind.RECOVERY)
                 .orElseThrow(() -> new AgentConflictException("Task has no recovered provider runtime to stop: " + taskId));
 
+        AgentTask settled;
+        try {
+            settled = stopRecoveredProvider(task, claim);
+        }
+        catch (RuntimeException sourceFailure) {
+            if (task.developmentContinuationUnfinished()) {
+                try {
+                    turns.failLostDevelopmentContinuation(taskId);
+                }
+                catch (RuntimeException childFailure) {
+                    if (sourceFailure != childFailure) {
+                        sourceFailure.addSuppressed(childFailure);
+                    }
+                }
+            }
+            throw sourceFailure;
+        }
+        return settled.developmentContinuationUnfinished() ? turns.failLostDevelopmentContinuation(taskId) : settled;
+    }
+
+    private AgentTask stopRecoveredProvider(AgentTask task, WorktreeMutationClaim claim)
+    {
+        TaskId taskId = task.id();
         Map<String, AgentProcessLaunch> launches = new LinkedHashMap<>();
         launchStore.list().forEach(launch -> launches.put(launch.launchId(), launch));
         ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
@@ -189,7 +220,7 @@ public final class AgentStartupRecovery
             throw new AgentUnavailableException(
                     "Provider process " + unresolved.launchId() + " could not be verified stopped: " + unresolved.detail());
         }
-        return settled.developmentContinuationUnfinished() ? turns.failLostDevelopmentContinuation(taskId) : settled;
+        return settled;
     }
 
     /**

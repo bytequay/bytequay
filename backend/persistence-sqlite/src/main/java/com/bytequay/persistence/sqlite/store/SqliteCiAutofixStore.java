@@ -35,6 +35,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -121,6 +122,28 @@ public class SqliteCiAutofixStore
 
     @Override
     @Transactional(readOnly = true)
+    public List<CiAutofixRun> listByParentTaskId(String parentTaskId)
+    {
+        requireNonNull(parentTaskId, "parentTaskId is null");
+        checkArgument(!parentTaskId.isBlank(), "parentTaskId is blank");
+        return read("Cannot list development-owned CI Autofix runs",
+                () -> runRepository.findByParentTaskIdOrderByCreatedAtAsc(parentTaskId).stream().map(this::toProjection).collect(toImmutableList()),
+                CiAutofixStorageException::new);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CiAutofixRun> findByActiveBranch(String repositoryFullName, String headRef)
+    {
+        requireNonNull(repositoryFullName, "repositoryFullName is null");
+        requireNonNull(headRef, "headRef is null");
+        return read("Cannot read CI Autofix branch reservation",
+                () -> runRepository.findByActiveBranchSlot(repositoryFullName.toLowerCase(Locale.ROOT) + ":" + headRef).map(this::toProjection),
+                CiAutofixStorageException::new);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<CiAutofixRun> listRecent(int limit)
     {
         checkLimit(limit);
@@ -138,6 +161,18 @@ public class SqliteCiAutofixStore
         checkLimit(limit);
         return read("Cannot list non-finished CI Autofix runs",
                 () -> runRepository.findByStatusInOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
+                        .map(this::toProjection)
+                        .collect(toImmutableList()),
+                CiAutofixStorageException::new);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CiAutofixRun> listStandaloneNonFinished(int limit)
+    {
+        checkLimit(limit);
+        return read("Cannot list independently scheduled CI Autofix runs",
+                () -> runRepository.findByStatusInAndParentTaskIdIsNullOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
                         .map(this::toProjection)
                         .collect(toImmutableList()),
                 CiAutofixStorageException::new);

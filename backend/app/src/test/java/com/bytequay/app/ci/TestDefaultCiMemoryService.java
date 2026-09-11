@@ -206,7 +206,7 @@ class TestDefaultCiMemoryService
                         "author",
                         "feature",
                         "main",
-                        "claude"),
+                        "claude", Optional.empty()),
                 HEAD,
                 HEAD,
                 BASE,

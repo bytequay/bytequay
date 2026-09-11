@@ -263,7 +263,7 @@ class TestCiAutofixRun
                         "author",
                         headRef,
                         "main",
-                        "codex"),
+                        "codex", Optional.empty()),
                 HEAD,
                 HEAD,
                 BASE,

@@ -82,7 +82,7 @@ final class CiAutofixMonitorJob
 
     private List<CiAutofixRunId> nonFinished()
     {
-        return store.listNonFinished(batchSize).stream()
+        return store.listStandaloneNonFinished(batchSize).stream()
                 .map(CiAutofixRun::id)
                 .collect(toImmutableList());
     }
@@ -111,6 +111,7 @@ final class CiAutofixMonitorJob
                 .map(AgentTask::id)
                 .map(taskId -> store.findByAgentTaskId(taskId.toString()))
                 .flatMap(Optional::stream)
+                .filter(run -> run.scope().parentTaskId().isEmpty())
                 .filter(run -> run.status() == CiAutofixRun.Status.FINISHED)
                 .map(CiAutofixRun::id)
                 .limit(batchSize)

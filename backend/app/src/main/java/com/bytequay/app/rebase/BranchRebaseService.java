@@ -25,6 +25,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
 import com.bytequay.app.git.SequenceState;
@@ -67,6 +68,7 @@ public class BranchRebaseService
     private final RebaseSequencerDriver sequencer;
     private final GitCommandRunner git;
     private final Clock clock;
+    private final DevelopmentCiOwnership ownership;
     private final Striped<Lock> advanceLocks = Striped.lock(64);
 
     public BranchRebaseService(
@@ -76,7 +78,8 @@ public class BranchRebaseService
             AgentTurnService turns,
             RebaseSequencerDriver sequencer,
             GitCommandRunner git,
-            Clock clock)
+            Clock clock,
+            DevelopmentCiOwnership ownership)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -85,6 +88,7 @@ public class BranchRebaseService
         this.sequencer = requireNonNull(sequencer, "sequencer is null");
         this.git = requireNonNull(git, "git is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.ownership = requireNonNull(ownership, "ownership is null");
     }
 
     /**
@@ -93,7 +97,12 @@ public class BranchRebaseService
      * @param command caller-owned task, lease, branches, and idempotency key
      * @return durable rebase before any replay command runs
      */
-    public synchronized BranchRebase start(StartBranchRebaseCommand command)
+    public BranchRebase start(StartBranchRebaseCommand command)
+    {
+        return ownership.executeTask(command.taskWorktree().taskId(), () -> startLocked(command));
+    }
+
+    private synchronized BranchRebase startLocked(StartBranchRebaseCommand command)
     {
         requireNonNull(command, "command is null");
         Optional<BranchRebase> existing = store.findByIdempotencyKey(command.idempotencyKey());
@@ -161,6 +170,11 @@ public class BranchRebaseService
     /** Inspects Git and performs at most one bounded next action. */
     public BranchRebase advance(BranchRebaseId rebaseId)
     {
+        return ownership.executeTask(TaskId.valueOf(get(rebaseId).agentTaskId()), () -> advanceLocked(rebaseId));
+    }
+
+    private BranchRebase advanceLocked(BranchRebaseId rebaseId)
+    {
         Lock lock = advanceLocks.get(rebaseId.toString());
         if (!lock.tryLock()) {
             return get(rebaseId);
@@ -182,6 +196,11 @@ public class BranchRebaseService
 
     /** Resumes one paused rebase with a bounded, untrusted user note. */
     public BranchRebase sendMessage(BranchRebaseId rebaseId, String message)
+    {
+        return ownership.executeTask(TaskId.valueOf(get(rebaseId).agentTaskId()), () -> sendMessageLocked(rebaseId, message));
+    }
+
+    private BranchRebase sendMessageLocked(BranchRebaseId rebaseId, String message)
     {
         requireNonNull(message, "message is null");
         if (message.isBlank() || message.length() > MAX_MESSAGE_CHARACTERS) {
@@ -206,6 +225,11 @@ public class BranchRebaseService
     /** Requests turn cancellation, aborts the owned rebase, and verifies restoration. */
     public BranchRebase cancel(BranchRebaseId rebaseId)
     {
+        return ownership.executeTask(TaskId.valueOf(get(rebaseId).agentTaskId()), () -> cancelLocked(rebaseId));
+    }
+
+    private BranchRebase cancelLocked(BranchRebaseId rebaseId)
+    {
         Lock lock = advanceLocks.get(rebaseId.toString());
         lock.lock();
         try {
@@ -228,8 +252,29 @@ public class BranchRebaseService
         }
     }
 
+    /** Stops only program advancement after the owning CI provider has been verified stopped; does not abort Git. */
+    public void stopForLostOwner(BranchRebaseId rebaseId)
+    {
+        Lock lock = advanceLocks.get(rebaseId.toString());
+        lock.lock();
+        try {
+            BranchRebase rebase = get(rebaseId);
+            if (!ownership.deliveryOwnedTask(rebase.agentTaskId())) {
+                throw new BranchRebaseException("Only delivery-owned rebases use lost-parent stopping");
+            }
+            if (rebase.status() == Status.RUNNING) {
+                store.save(rebase.withoutTurn(clock.instant()).pause(PauseReason.UNSAFE_GIT_STATE,
+                        "Development automation stopped; the local rebase was preserved without advancing or aborting it", clock.instant()));
+            }
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
     private BranchRebase act(BranchRebase rebase, Optional<String> userNote)
     {
+        ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
         if (!ownsBranch(rebase)) {
             return pause(rebase, PauseReason.UNSAFE_GIT_STATE, "Worktree is no longer on the recorded work branch");
         }
@@ -258,6 +303,7 @@ public class BranchRebaseService
         SequenceState state = sequencer.observe(rebase.worktree());
         if (state.kind() == SequenceState.Kind.COMPLETED
                 && state.head().equals(action.expectedHead())) {
+            ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
             state = sequencer.begin(rebase.worktree(), action.expectedHead(), rebase.baseSha());
         }
         return recordState(rebase, state, Optional.empty());
@@ -268,6 +314,7 @@ public class BranchRebaseService
         ActionJournal action = rebase.journal().orElseThrow();
         SequenceState state = sequencer.observe(rebase.worktree());
         if (sameStop(state, action, SequenceState.Kind.STOPPED_RESOLVED)) {
+            ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
             state = sequencer.continueRebase(
                     rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
         }
@@ -279,6 +326,7 @@ public class BranchRebaseService
         ActionJournal action = rebase.journal().orElseThrow();
         SequenceState state = sequencer.observe(rebase.worktree());
         if (sameStop(state, action, SequenceState.Kind.STOPPED_EMPTY)) {
+            ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
             state = sequencer.skipEmpty(
                     rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
         }
@@ -287,6 +335,7 @@ public class BranchRebaseService
 
     private BranchRebase recoverAbort(BranchRebase rebase)
     {
+        ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
         SequenceState state = sequencer.abort(rebase.worktree(), rebase.originalWorkTip());
         if (state.kind() != SequenceState.Kind.COMPLETED
                 || !state.head().equals(rebase.originalWorkTip())) {
@@ -352,6 +401,7 @@ public class BranchRebaseService
                     "Rebase moved before the conflict-resolution turn started");
         }
         try {
+            ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
             AgentTurn turn = turns.start(new StartAgentTurnCommand(
                     TaskId.valueOf(rebase.agentTaskId()),
                     BranchRebasePromptBuilder.resolve(rebase, state, action.attempt(), userNote),

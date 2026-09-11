@@ -49,6 +49,14 @@ rebase stops, the service starts a separate agent turn that may edit and stage
 only the conflict resolution; the program decides the next Git action.
 Cherry-pick does not wait for or invoke this service.
 
+For development-owned CI, the existing agent-task link resolves its live parent
+authority through `DevelopmentCiOwnership`. Start, advance, message, and Git
+mutation paths require that same unexpired owner. The standalone monitor excludes
+these linked runs before batch limiting, including after the CI run terminates.
+Parent Stop pauses rebase without aborting its sequencer or replaying its journal;
+explicit source Delete may discard the proven-stopped local child worktree.
+Standalone rebase recovery is unchanged.
+
 ## 2. What is shared, and what is not
 
 `git cherry-pick <commit>` and `git rebase <base>` use the same sequencer

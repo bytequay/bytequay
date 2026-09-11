@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -30,6 +31,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentMaintenance;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -54,6 +56,7 @@ import com.bytequay.app.agent.DevelopmentLocalFacts;
 import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.DevelopmentPublicationRoute;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
@@ -64,6 +67,10 @@ import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -81,6 +88,7 @@ import java.util.Optional;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -108,6 +116,8 @@ class TestAgentHttpErrors
     private GitCommandRunner git;
     private AgentCompletionService completionService;
     private DevelopmentGitInspector developmentGit;
+    private CiAutofixStore ciRuns;
+    private CiAutofixService ci;
 
     @BeforeEach
     void setUp()
@@ -121,6 +131,8 @@ class TestAgentHttpErrors
         git = mock(GitCommandRunner.class);
         completionService = mock(AgentCompletionService.class);
         developmentGit = mock(DevelopmentGitInspector.class);
+        ciRuns = mock(CiAutofixStore.class);
+        ci = mock(CiAutofixService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
         AgentController controller = new AgentController(
@@ -150,7 +162,9 @@ class TestAgentHttpErrors
                 mock(PullRequestService.class),
                 mock(WorkspaceStore.class),
                 appSettings,
-                developmentGit);
+                developmentGit,
+                ciRuns,
+                ci);
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -313,6 +327,101 @@ class TestAgentHttpErrors
         verify(developmentGit, times(2)).inspectPublication(worktree, route);
         verifyNoMoreInteractions(developmentGit);
         verifyNoInteractions(turnService, completionService, driverRegistry, driver, workspaces, git);
+    }
+
+    @Test
+    void taskReadsExposeLinkedCiWithoutDrivingItOrInspectingGit()
+            throws Exception
+    {
+        AgentTask task = deliveryTask();
+        Instant now = task.createdAt();
+        String head = "a".repeat(40);
+        CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
+                new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), "workspace-1", Optional.empty(), "author",
+                        task.taskWorktree().orElseThrow().generatedBranch(), "main", "claude-cli", Optional.of(task.id().toString())),
+                head, head, head, new CiAutofixRun.Authorization(true, true, true, 3, now, now.plusSeconds(28_800)), now);
+        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
+        when(ciRuns.listByParentTaskId(task.id().toString())).thenReturn(ImmutableList.of(run));
+        when(ci.canMessage(run)).thenReturn(false);
+
+        mvc.perform(get("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.developmentCi.runId").value(run.id().toString()))
+                .andExpect(jsonPath("$.developmentCi.activity").value("PREPARING_AGENT"))
+                .andExpect(jsonPath("$.developmentCi.attemptsUsed").value(0))
+                .andExpect(jsonPath("$.developmentCi.maxAttempts").value(3))
+                .andExpect(jsonPath("$.developmentCi.canMessage").value(false))
+                .andExpect(jsonPath("$.developmentCi.pullRequestUrl").value("https://github.com/bytequay/sample/pull/42"));
+        verify(ci).canMessage(run);
+        verifyNoMoreInteractions(ci);
+        verifyNoInteractions(developmentGit, turnService, completionService, git);
+    }
+
+    @Test
+    void deleteStopsDeliveryAndRemovesLinkedLocalWorkBeforeTheParent()
+            throws Exception
+    {
+        AgentTask task = deliveryTask();
+        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
+        when(turnService.stopImpact(task.id())).thenReturn(new AgentRuntimeStopImpact(task.id(), "owner-generation", Optional.empty(), false));
+
+        mvc.perform(delete("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isNoContent());
+        var order = inOrder(turnService, ci, completionService);
+        order.verify(turnService).stopImpact(task.id());
+        order.verify(turnService).stopRuntime(task.id(), "owner-generation");
+        order.verify(ci).deleteDevelopment(task.id());
+        order.verify(completionService).delete(task.id());
+    }
+
+    @Test
+    void unknownCiWriterPreventsParentDeletion()
+            throws Exception
+    {
+        AgentTask task = deliveryTask().withDevelopmentContinuation(false, Instant.EPOCH);
+        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
+        doThrow(new AgentConflictException("CI provider stop is unproven")).when(ci).deleteDevelopment(task.id());
+
+        mvc.perform(delete("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isConflict());
+        verify(completionService, never()).delete(any());
+    }
+
+    @Test
+    void markedRecoveredParentUsesRecoveryProofBeforeDelete()
+            throws Exception
+    {
+        AgentTask task = deliveryTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("unverified-provider", Instant.EPOCH), Instant.EPOCH);
+        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
+        when(turnService.stopImpact(task.id())).thenReturn(new AgentRuntimeStopImpact(task.id(), "task:0", Optional.empty(), false));
+
+        // The separate recovery store cannot establish ownership; Delete must propagate that refusal.
+        mvc.perform(delete("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
+                .andExpect(status().isNotFound());
+        verify(turnService, never()).stopRuntime(any(), any());
+        verifyNoInteractions(ci, completionService);
+    }
+
+    @Test
+    void markingFailedCannotBypassLinkedWriterShutdown()
+            throws Exception
+    {
+        AgentTask task = deliveryTask();
+        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
+
+        mvc.perform(post("/agent/tasks/{taskId}/mark-failed", task.id()).queryParam("workspaceId", "workspace-1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Start over\"}"))
+                .andExpect(status().isConflict());
+        verifyNoInteractions(completionService);
+    }
+
+    private static AgentTask deliveryTask()
+    {
+        TaskId id = TaskId.random();
+        TaskWorktree worktree = new TaskWorktree(id, "workspace-1", new RepositoryIdentity("bytequay", "sample"),
+                Path.of("/tmp/bytequay-worktrees").resolve(id.toString()), "bytequay/task/" + id, "a".repeat(40));
+        return AgentTask.created(id, true, "Delivery", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH).withDevelopmentContinuation(true, Instant.EPOCH);
     }
 
     private static AgentStartupRecovery startupRecovery()

@@ -21,6 +21,8 @@ import type {
   AgentCapabilitiesDto,
   AgentCompletionDto,
   AgentDevelopmentFactsDto,
+  AgentDevelopmentCiDto,
+  CiAutofixRunDto,
   AgentInputDeliveryDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
@@ -240,6 +242,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
+    developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
     title: text(source.title, `${path}.title`),
     titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
@@ -271,6 +274,43 @@ export function parseAgentTasks(value: unknown): AgentTaskDto[] {
     throw new Error('tasks is not an array');
   }
   return value.map((entry, index) => parseAgentTask(entry, `tasks[${index}]`));
+}
+
+export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'): AgentDevelopmentCiDto {
+  const source = object(value, path);
+  return {
+    runId: text(source.runId, `${path}.runId`),
+    agentTaskId: optionalText(source.agentTaskId, `${path}.agentTaskId`),
+    status: enumText(source.status, ['ACTIVE', 'PAUSED', 'FINISHED'] as const, `${path}.status`),
+    activity: text(source.activity, `${path}.activity`),
+    attemptsUsed: count(source.attemptsUsed, `${path}.attemptsUsed`),
+    maxAttempts: count(source.maxAttempts, `${path}.maxAttempts`),
+    rerunsUsed: count(source.rerunsUsed, `${path}.rerunsUsed`),
+    summary: optionalText(source.summary, `${path}.summary`),
+    finishReason: optionalText(source.finishReason, `${path}.finishReason`),
+    headRef: text(source.headRef, `${path}.headRef`),
+    expectedRemoteHead: text(source.expectedRemoteHead, `${path}.expectedRemoteHead`),
+    pullRequestNumber: count(source.pullRequestNumber, `${path}.pullRequestNumber`),
+    pullRequestUrl: text(source.pullRequestUrl, `${path}.pullRequestUrl`),
+    canMessage: flag(source.canMessage, `${path}.canMessage`),
+  };
+}
+
+export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
+  const source = object(value, 'ciRun');
+  const authorization = object(source.authorization, 'ciRun.authorization');
+  return {
+    id: text(source.id, 'ciRun.id'), workspaceId: text(source.workspaceId, 'ciRun.workspaceId'),
+    repository: text(source.repository, 'ciRun.repository'), pullRequestNumber: count(source.pullRequestNumber, 'ciRun.pullRequestNumber'),
+    headRef: text(source.headRef, 'ciRun.headRef'),
+    status: enumText(source.status, ['ACTIVE', 'PAUSED', 'FINISHED'] as const, 'ciRun.status'),
+    activity: text(source.activity, 'ciRun.activity'), version: count(source.version, 'ciRun.version'),
+    authorization: { maxAttempts: count(authorization.maxAttempts, 'ciRun.authorization.maxAttempts'), expiresAt: text(authorization.expiresAt, 'ciRun.authorization.expiresAt') },
+    attemptsUsed: count(source.attemptsUsed, 'ciRun.attemptsUsed'), rerunsUsed: count(source.rerunsUsed, 'ciRun.rerunsUsed'),
+    agentTaskId: optionalText(source.agentTaskId, 'ciRun.agentTaskId'), currentTurnId: optionalText(source.currentTurnId, 'ciRun.currentTurnId'),
+    parentTaskId: optionalText(source.parentTaskId, 'ciRun.parentTaskId'), canMessage: flag(source.canMessage, 'ciRun.canMessage'),
+    summary: optionalText(source.summary, 'ciRun.summary'), pauseReason: optionalText(source.pauseReason, 'ciRun.pauseReason'), finishReason: optionalText(source.finishReason, 'ciRun.finishReason'),
+  };
 }
 
 /** Narrows turn settings, whether they came from a turn or from the effective-settings read. */

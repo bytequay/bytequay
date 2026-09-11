@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.web.DevelopmentAutomationDto;
+import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -53,7 +54,7 @@ final class InteractiveAgentHttpContract
     private InteractiveAgentHttpContract() {}
 
     /** {@code metrics} are the totals to show: a live task's row lags its turns, so the caller folds them. */
-    static TaskResponse task(AgentTask task, AgentMetrics metrics)
+    static TaskResponse task(AgentTask task, AgentMetrics metrics, Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi)
     {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
@@ -81,7 +82,8 @@ final class InteractiveAgentHttpContract
                 task.codegraph(),
                 task.archivedAt(),
                 task.interactive(),
-                task.developmentContinuationUnfinished());
+                task.developmentContinuationUnfinished(),
+                developmentCi);
     }
 
     /**
@@ -318,7 +320,8 @@ final class InteractiveAgentHttpContract
             boolean codegraph,
             Optional<Instant> archivedAt,
             boolean interactive,
-            boolean developmentContinuationUnfinished) {}
+            boolean developmentContinuationUnfinished,
+            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi) {}
 
     record MutationClaim(
             String kind,

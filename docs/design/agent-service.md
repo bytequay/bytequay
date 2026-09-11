@@ -26,13 +26,23 @@ captures the Git/remote baseline outside the task lock before provider startup;
 Stop/shutdown is rechecked before launch. One bounded commit turn and one
 publication turn can run through the trusted generated-turn path. The agent
 chooses commit/PR text and uses its native tools; the app verifies clean Git
-history, the pushed SHA, and exact PR identity. CI handoff remains pending.
+history, the pushed SHA, and exact PR identity. It then attaches the verified
+PR to existing CI Autofix with the accepted provider and original eight-hour
+window. The same coordinator polls CI; renderer reads and independent schedulers
+do not drive delivery-owned work. Source Send, queue start, and Complete remain
+excluded while its CI child can write. Green verification, source synchronization,
+and draft-to-ready promotion remain the final release checkpoint.
 
 A question clears the marker and permits a normal answer while earlier queue
 rows remain paused. Stop/failure revokes continuation authority. Backend startup
 fails lost continuations after provider-process classification, before serving
 new work. An unproven writer retains its existing claim and unfinished marker;
-verified Stop then fails the task, without resuming delivery. This adds no
+verified Stop then fails the task, without resuming delivery. Stop first revokes
+parent authority, drains admitted child actions, and verifies child and source
+providers. Child cleanup failure retains the marker and source exclusion while
+allowing an explicit Stop retry. Public Mark failed cannot bypass that barrier.
+Explicit Delete verifies Stop before removing linked local CI worktrees and the
+source; remote branches and PRs remain. This adds no
 workflow state machine or whole-flow restart recovery. Task completion is not
 its trigger.
 
@@ -2601,6 +2611,16 @@ of remote branch/PR observations. Unknown reads differ from confirmed absence.
 The task UI uses **Idle**, names generated commit/publication turns, and shows
 these facts above the composer without deriving success from transcript text.
 Reading this projection never reserves ownership or advances delivery.
+
+Task GET/list responses also include optional `developmentCi` derived from the
+latest parent-linked CI run: activity, attempts/reruns, head/PR references, and
+whether its scoped message action is currently available. While the continuation
+is unfinished, the UI polls the task projection sequentially every five seconds;
+it does not repeatedly inspect Git/GitHub. The source result includes an embedded
+CI Autofix panel using the child's existing conversation/history APIs and the
+CI service's own message endpoint. Source and child drafts stay separate; a
+stopped parent makes the panel read-only. Historical finished CI does not drive
+the next development turn's status.
 
 The base send path is shown end to end below. Calls below `AgentTaskService`,
 `AgentTurnService`, and `AgentCompletionService` are internal orchestration,

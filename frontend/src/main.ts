@@ -21,6 +21,7 @@ import {
   parseAgentAttachment,
   parseAgentCompletion,
   parseAgentDevelopmentFacts,
+  parseCiAutofixRun,
   parseAgentInputDelivery,
   parseAgentProviderStatuses,
   parseAgentProviderUnavailable,
@@ -563,6 +564,11 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/development-facts`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((facts) => parseAgentDevelopmentFacts(facts)));
+  ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
+    backendJson(`${backendBase()}/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
+  ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>
+    backendJson(`${backendBase()}/ci-autofix/runs/${encodeURIComponent(runId)}/messages`,
+      jsonInit('POST', { message }, { ...agentHeaders(), 'Idempotency-Key': idempotencyKey })).then(parseCiAutofixRun));
   ipcMain.handle('agent:task:rename', (
     _event,
     taskId: string,

@@ -59,7 +59,9 @@ import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
 import com.bytequay.app.agent.codegraph.CodeGraphProperties;
 import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
+import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -69,6 +71,7 @@ import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,6 +87,7 @@ import org.springframework.context.annotation.Configuration;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -153,10 +157,16 @@ public class AgentConfiguration
         return new StaticAgentDriverRegistry(drivers);
     }
 
-    @Bean(destroyMethod = "close")
-    public AgentRuntimeRegistry agentRuntimeRegistry()
+    @Bean
+    public DevelopmentCiOwnership developmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentRuntimeRegistry runtimes, Clock agentClock)
     {
-        return new AgentRuntimeRegistry();
+        return new DevelopmentCiOwnership(store, tasks, runtimes, agentClock);
+    }
+
+    @Bean(destroyMethod = "close")
+    public AgentRuntimeRegistry agentRuntimeRegistry(ObjectProvider<DevelopmentCiOwnership> ciOwnership)
+    {
+        return new AgentRuntimeRegistry(task -> ciOwnership.getObject().requireSourceAdmission(task));
     }
 
     @Bean
@@ -316,6 +326,7 @@ public class AgentConfiguration
             AgentProperties properties,
             AgentReviewStore reviews,
             ObjectProvider<DevelopmentFollowupCoordinator> development,
+            ObjectProvider<CiAutofixService> ci,
             AgentCompletionService completionService)
     {
         return new DefaultAgentTurnService(
@@ -342,14 +353,24 @@ public class AgentConfiguration
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
                 (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
+                taskId -> ci.getObject().stopDevelopment(taskId),
                 completionService);
     }
 
     @Bean
-    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git, GhCliService gh)
+    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
+            GhCliService gh, CiAutofixService ci, Clock agentClock)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git, gh,
-                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command));
+                command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, agentClock, () -> {
+                    try {
+                        Thread.sleep(Duration.ofSeconds(5));
+                    }
+                    catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("Development CI monitoring was stopped", interrupted);
+                    }
+                });
     }
 
     @Bean

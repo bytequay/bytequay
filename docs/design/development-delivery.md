@@ -227,7 +227,8 @@ after a stopped user development turn:
         verify actual remote SHA and PR identity; if wrong/unknown: fail
 
     if no matching published PR: show local result; finish
-    if auto CI fix off or unavailable: show PR and reason; finish
+    if auto CI fix off: show PR; finish
+    if selected CI provider unavailable/unsupported: fail with PR and reason
 
     start/reuse the existing CI run for this verified revision
     drive its existing watch/fix/push loop within its limits
@@ -297,6 +298,16 @@ window begins once this live continuation activates, before follow-ups;
 generated turns never extend it. Supply the expected PR/head and that deadline
 at CI start. A reused run keeps its original scope/budget. An unchanged turn
 cannot restart an exhausted run; this MVP has no resume/retry delivery action.
+
+The application implements this through `CiAutofixService.startDevelopment`,
+then calls `advance` from the same live coordinator with a five-second wait
+between observations. It supplies the accepted provider without fallback,
+original activation timestamp, parent/source-turn IDs, and exact verified PR
+identity. `DevelopmentCiOwnership` ties the optional persisted CI parent link
+to that live owner; a database row alone cannot restore authority. Existing CI
+and rebase stores exclude delivery-owned runs from standalone monitor batches.
+A CI reply is serialized by the existing run lock, and polling rereads a changed
+paused run before interpreting it as an unrecoverable result.
 
 Keep the source task busy while the separate CI worktree may commit, rebase,
 and push. This is an in-memory ownership check at Send, queue start, and

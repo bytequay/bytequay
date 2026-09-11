@@ -23,7 +23,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-final class CiAutofixHttpModels
+public final class CiAutofixHttpModels
 {
     private static final int MAXIMUM_GIT_FACTS = 200;
 
@@ -32,7 +32,8 @@ final class CiAutofixHttpModels
     static RunResponse run(
             CiAutofixRun run,
             Optional<AgentMetrics> metrics,
-            Optional<String> generatedLocalBranch)
+            Optional<String> generatedLocalBranch,
+            boolean canMessage)
     {
         return new RunResponse(
                 run.id().toString(),
@@ -84,13 +85,41 @@ final class CiAutofixHttpModels
                         journal.startedAt())),
                 run.finalFixupCheck().map(check -> new FinalCheckResponse(
                         check.headSha(), check.result().name(), check.diagnostics(), check.checkedAt())),
-                run.attempts().stream().map(CiAutofixHttpModels::attempt).collect(toImmutableList()));
+                run.attempts().stream().map(CiAutofixHttpModels::attempt).collect(toImmutableList()),
+                run.scope().parentTaskId(),
+                canMessage);
     }
 
     static RunResponse run(CiAutofixRun run, Optional<AgentMetrics> metrics)
     {
-        return run(run, metrics, Optional.empty());
+        return run(run, metrics, Optional.empty(), false);
     }
+
+    public static DevelopmentResponse development(CiAutofixRun run, boolean canMessage)
+    {
+        return new DevelopmentResponse(
+                run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent()),
+                run.attemptsUsed(), run.authorization().maxFixAttempts(), run.rerunCounter().used(), run.summary(),
+                run.finishReason().map(Enum::name), run.scope().headRef(), run.expectedRemoteHead(),
+                run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
+                canMessage);
+    }
+
+    public record DevelopmentResponse(
+            String runId,
+            Optional<String> agentTaskId,
+            String status,
+            String activity,
+            int attemptsUsed,
+            int maxAttempts,
+            int rerunsUsed,
+            Optional<String> summary,
+            Optional<String> finishReason,
+            String headRef,
+            String expectedRemoteHead,
+            int pullRequestNumber,
+            String pullRequestUrl,
+            boolean canMessage) {}
 
     private static AttemptResponse attempt(CiAutofixAttempt attempt)
     {
@@ -192,7 +221,9 @@ final class CiAutofixHttpModels
             Optional<PushJournalResponse> pushJournal,
             Optional<RerunJournalResponse> rerunJournal,
             Optional<FinalCheckResponse> finalCheck,
-            List<AttemptResponse> attempts) {}
+            List<AttemptResponse> attempts,
+            Optional<String> parentTaskId,
+            boolean canMessage) {}
 
     record AuthorizationResponse(
             boolean allowFailedJobReruns,

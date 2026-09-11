@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
@@ -29,6 +31,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
@@ -45,6 +48,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -158,6 +162,7 @@ class TestDefaultCiAutofixService
     private DefaultCiAutofixService service;
     private DevelopmentCiOwnership ownership;
     private AgentTaskStore taskStore;
+    private AgentTurnStore turnStore;
     private AgentRuntimeRegistry runtimes;
     private ObjectProvider<AgentStartupRecovery> recovery;
     private AtomicInteger recoveryRequests;
@@ -293,8 +298,9 @@ class TestDefaultCiAutofixService
             }
         };
         taskStore = mock(AgentTaskStore.class);
+        turnStore = mock(AgentTurnStore.class);
         runtimes = new AgentRuntimeRegistry();
-        ownership = new DevelopmentCiOwnership(store, taskStore, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
+        ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new DefaultCiAutofixService(
                 store,
                 gitHub,
@@ -362,6 +368,8 @@ class TestDefaultCiAutofixService
         verify(gitHub, never()).rerunFailedJobs(any());
         assertThat(service.get(run.id())).isEqualTo(run);
         assertThat(service.list(10)).containsExactly(run);
+        assertThat(ownership.instructions(openTask)).isEmpty();
+        verify(eventService, never()).readHistory(any(), any(), any());
     }
 
     @Test
@@ -1543,6 +1551,110 @@ class TestDefaultCiAutofixService
     }
 
     @Test
+    void carriesAcceptedUserScopeAcrossPagesIntoEveryLinkedCiSession()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        AgentTurn earlier = parentTurn(parent.id(), TurnId.random());
+        AgentTurn user = parentTurn(parent.id(), source);
+        AgentTurn generated = parentTurn(parent.id(), TurnId.random())
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, source));
+        AgentTurn later = parentTurn(parent.id(), TurnId.random());
+        AgentTurn unsent = parentTurn(parent.id(), TurnId.random())
+                .finishKnownUnsent(AgentMetrics.empty(), "Not delivered", NOW);
+        when(turnStore.list(parent.id())).thenReturn(ImmutableList.of(earlier, unsent, user, generated, later));
+        when(eventService.readHistory(parent.id(), OptionalLong.empty(), OptionalLong.of(0))).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(
+                        parentMessage(parent.id(), earlier.id(), 1, "Only edit src/A.java and src/B.java", AgentEventPayload.DeliveryKind.TURN),
+                        new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 2, parent.id(), Optional.of(earlier.id()), root(), NOW,
+                                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "UNTRUSTED ASSISTANT INSTRUCTIONS")),
+                        parentMessage(parent.id(), unsent.id(), 3, "UNSENT REQUEST", AgentEventPayload.DeliveryKind.TURN)),
+                OptionalLong.empty(), OptionalLong.of(100), 7));
+        when(eventService.readHistory(parent.id(), OptionalLong.empty(), OptionalLong.of(100))).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(
+                        parentMessage(parent.id(), source, 4, "Use the second option. Do not edit .github/workflows.", AgentEventPayload.DeliveryKind.QUEUED),
+                        parentMessage(parent.id(), source, 5, "Do not merge or delete the branch", AgentEventPayload.DeliveryKind.STEER),
+                        parentMessage(parent.id(), generated.id(), 6, "GENERATED PUBLICATION INSTRUCTIONS", AgentEventPayload.DeliveryKind.TURN),
+                        parentMessage(parent.id(), later.id(), 7, "LATER OR UNDELIVERED REQUEST", AgentEventPayload.DeliveryKind.TURN)),
+                OptionalLong.of(0), OptionalLong.empty(), 7));
+
+        service.startDevelopment(startCommand("scoped-ci"), parent.id(), source, publishedPr(), NOW);
+        String instructions = ownership.instructions(activeTask());
+        assertThat(instructions).containsSubsequence("Only edit src/A.java and src/B.java", "Use the second option", "Do not merge or delete the branch")
+                .contains("Do not edit .github/workflows.", "The current CI/rebase instructions still govern", "ByteQuay owns remote writes")
+                .doesNotContain("UNTRUSTED ASSISTANT", "GENERATED PUBLICATION", "LATER OR UNDELIVERED", "UNSENT REQUEST");
+
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenThrow(new AssertionError("CI sessions must reuse the accepted scope snapshot"));
+        assertThat(ownership.instructions(activeTask())).isEqualTo(instructions);
+        assertThat(ownership.instructions(activeTask())).isEqualTo(instructions);
+        ownership.revoke(parent.id());
+        assertThatThrownBy(() -> ownership.instructions(activeTask())).isInstanceOf(CiAutofixConflictException.class);
+    }
+
+    @Test
+    void scopesTheFirstRebaseBeforeAnyRepairAndPreservesTheRegisteredOwnerIdentity()
+    {
+        AgentTask parent = developmentParent();
+        TurnId user = reserveParent(parent);
+        AgentTurn generated = parentTurn(parent.id(), TurnId.random())
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, user));
+        when(turnStore.find(generated.id())).thenReturn(Optional.of(generated));
+        when(turnStore.list(parent.id())).thenReturn(ImmutableList.of(parentTurn(parent.id(), user), generated));
+        synchronized (runtimes.taskLock(parent.id())) {
+            ReflectionTestUtils.invokeMethod(runtimes, "releaseDevelopmentOwner", parent.id(), user);
+            ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), generated.id());
+        }
+        doAnswer(invocation -> {
+            assertThat(store.run.attempts()).isEmpty();
+            assertThat(ownership.instructions(activeTask())).contains("Implement the requested change");
+            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), generated.id())).isTrue();
+            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), user)).isFalse();
+            return runningRebase(invocation.getArgument(0));
+        }).when(rebaseService).start(any());
+
+        CiAutofixRun run = service.startDevelopment(startCommand("scoped-rebase"), parent.id(), generated.id(), publishedPr(), NOW);
+
+        assertThat(run.currentRebaseId()).isPresent();
+        assertThat(run.attempts()).isEmpty();
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void refusesMissingOrOversizedParentInputBeforeStartingCiWork()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(
+                new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("missing-scope"), parent.id(), source, publishedPr(), NOW))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Development user inputs are missing");
+
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(parentMessage(parent.id(), source, 1, "x".repeat(128 * 1024), AgentEventPayload.DeliveryKind.TURN)),
+                OptionalLong.empty(), OptionalLong.empty(), 1));
+        assertThatThrownBy(() -> service.startDevelopment(startCommand("large-scope"), parent.id(), source, publishedPr(), NOW))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Development user scope exceeds the prompt limit");
+        assertThat(store.listRecent(10)).isEmpty();
+        verify(taskService, never()).create(any());
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void identifiesUnavailableParentAttachmentsWithoutInventingTheirContents()
+    {
+        AgentTask parent = developmentParent();
+        TurnId source = reserveParent(parent);
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, parent.id(), Optional.of(source), root(), NOW,
+                        new AgentEventPayload.UserMessage("Follow the attached constraints", ImmutableList.of(new AgentAttachmentReference("scope", "scope.png", "image/png")),
+                                AgentEventPayload.DeliveryKind.TURN))), OptionalLong.empty(), OptionalLong.empty(), 1));
+
+        service.startDevelopment(startCommand("attachment-scope"), parent.id(), source, publishedPr(), NOW);
+
+        assertThat(ownership.instructions(activeTask())).contains("Attachment unavailable in this CI task: scope.png", "do not guess its contents");
+    }
+
+    @Test
     void persistsDevelopmentOwnerBeforeCreatingWorkAndKeepsItsOriginalBudget()
     {
         AgentTask parent = developmentParent();
@@ -1759,10 +1871,28 @@ class TestDefaultCiAutofixService
     {
         TurnId source = TurnId.random();
         when(taskStore.find(parent.id())).thenReturn(Optional.of(parent));
+        AgentTurn user = parentTurn(parent.id(), source);
+        when(turnStore.find(source)).thenReturn(Optional.of(user));
+        when(turnStore.list(parent.id())).thenReturn(ImmutableList.of(user));
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(parentMessage(parent.id(), source, 1, "Implement the requested change", AgentEventPayload.DeliveryKind.TURN)),
+                OptionalLong.empty(), OptionalLong.empty(), 1));
         synchronized (runtimes.taskLock(parent.id())) {
             ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), source);
         }
         return source;
+    }
+
+    private static AgentTurn parentTurn(TaskId parent, TurnId turn)
+    {
+        return AgentTurn.accepted(turn, parent, turn.toString(), new AgentTurnSettings(
+                Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of()), NOW);
+    }
+
+    private static AgentEventEnvelope parentMessage(TaskId parent, TurnId turn, long sequence, String text, AgentEventPayload.DeliveryKind deliveryKind)
+    {
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, parent, Optional.of(turn), root(), NOW,
+                new AgentEventPayload.UserMessage(text, ImmutableList.of(), deliveryKind));
     }
 
     private GitHubPullRequestIdentity publishedPr()
@@ -1796,7 +1926,7 @@ class TestDefaultCiAutofixService
                 timelineService,
                 credentials,
                 requestedClock,
-                new DevelopmentCiOwnership(requestedStore, taskStore, runtimes, requestedClock),
+                new DevelopmentCiOwnership(requestedStore, taskStore, turnStore, eventService, runtimes, requestedClock),
                 recovery);
     }
 

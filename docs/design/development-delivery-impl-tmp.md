@@ -508,8 +508,13 @@ It uses a fresh clone of GitHub main, not the divergent local main history.
   pass, as do lint, TypeScript, and macOS arm64 packaging. Native process and
   Electron tests require normal macOS process/app access.
 - [x] Remove the stale documentation-only verification instruction.
-- [ ] Fast-forward local main after final integration review.
-- [ ] Run the genuine provider/GitHub smoke and record its exact outcome.
+- [x] Fast-forward local main after final integration review. The integrated
+  implementation is at `2b00e419f`; remote main was not pushed.
+- [x] Run Codex development against the real provider/GitHub account and
+  record its exact outcome.
+- [x] Preserve user text scope in the linked CI task and verify the fix.
+- [x] Verify completed Claude failures release only proven stopped processes.
+- [ ] Run the separate Claude development/CI smoke after Codex validation.
 
 GitHub main and local main have substantially divergent histories. This
 integration does not publish or rewrite remote main. Live smoke evidence will
@@ -518,3 +523,49 @@ be recorded separately from fixture coverage above.
 Validation logs: `/private/tmp/bytequay-delivery-integration-backend.log`,
 `/private/tmp/bytequay-delivery-integration-frontend-native.log`, and
 `/private/tmp/bytequay-delivery-integration-package.log`.
+
+
+Live Codex evidence:
+
+- Codex `gpt-6-astra` created exactly two smoke fixture files, ran the
+  focused Vitest test once with the intended `41` versus `42` failure,
+  committed `bf2ba7fa9f4af72d8d2d7f16eb6780081aae702b`, pushed the generated
+  branch, and created draft [PR #58](https://github.com/bytequay/bytequay/pull/58).
+  GitHub and local Git independently confirmed the exact head and clean tree.
+- Its typed ready report automatically handed the task to the development
+  coordinator, which attached CI Autofix and launched Claude when the real
+  unit-test job failed. No extra user message drove this transition.
+- Claude hit its session limit before making a repair. A separate shutdown
+  proof bug classified its complete error response as uncertain process
+  completion. The run did not repair, repush, synchronize, or mark ready.
+  This is evidence of Codex development/publication and automatic CI handoff,
+  not a successful full-chain live run.
+- The failed isolated backend was stopped, all observed process IDs/group
+  were absent, and its task data/process receipts were retained without
+  rewriting proof. The PR remains draft and must not be merged.
+- Live data: `/private/tmp/bytequay-delivery-live-20260911-a`. The existing
+  recovery claim is retained; this task will not be restarted or resumed.
+
+
+Live-test fixes and verification:
+
+- Linked CI sessions now retain accepted parent user text through the source
+  turn, including earlier answers and steering. The same live owner snapshot
+  reaches repairs, rebase conflicts, and replies through managed instructions.
+  Generated prompts and assistant output are excluded. Missing/oversized text
+  blocks attachment; unavailable attachments are named and require context
+  when needed. No new durable state or recovery mechanism was added.
+- Complete typed Claude failure results can establish finished-work proof
+  with a nonzero exit code. The failed result is retained; unfinished tools,
+  uncertain streams, and unverified known processes still prevent release.
+- Backend verification exercised 1,825 tests. One new test setup called the
+  ownership helper without its source ID; that fixture was corrected, and all
+  60 CI service regressions passed on the targeted verification rerun. The
+  complete delivery E2E test passed with provider-visible scope assertions.
+  The unchanged frontend retains its 770-test/lint/TypeScript verification.
+- Logs: `/private/tmp/bytequay-delivery-live-fixes-verify.log`,
+  `/private/tmp/bytequay-delivery-scope-regressions.log`, and
+  `/private/tmp/bytequay-delivery-claude-failure-proof.log`.
+
+- macOS arm64 packaging passed against the updated backend JAR. Log:
+  `/private/tmp/bytequay-delivery-live-fixes-package.log`.

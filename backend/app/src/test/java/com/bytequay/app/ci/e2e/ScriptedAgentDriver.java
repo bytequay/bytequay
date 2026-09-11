@@ -211,7 +211,8 @@ final class ScriptedAgentDriver
     private synchronized StartedAction takeAction(
             AgentScript script,
             Path worktree,
-            AgentTurnCommand command)
+            AgentTurnCommand command,
+            String instructions)
     {
         checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName());
         AgentAction action = script.actions().removeFirst();
@@ -220,6 +221,7 @@ final class ScriptedAgentDriver
                 worktree,
                 command.turnId(),
                 truncate(command.message(), 4096, "…"),
+                instructions,
                 command.attachments());
         turns.add(call);
         return new StartedAction(action, call);
@@ -259,6 +261,7 @@ final class ScriptedAgentDriver
             Path worktree,
             String turnId,
             String message,
+            String instructions,
             List<AgentAttachment> attachments)
     {
         TurnCall
@@ -308,7 +311,7 @@ final class ScriptedAgentDriver
         @Override
         public RunningTurn start(AgentTurnCommand command)
         {
-            StartedAction started = takeAction(script, context.worktree(), command);
+            StartedAction started = takeAction(script, context.worktree(), command, context.managedInstructions());
             AgentAction action = started.action();
             TurnCall call = started.call();
             events.emit(new ProviderAgentEvent.Lifecycle(

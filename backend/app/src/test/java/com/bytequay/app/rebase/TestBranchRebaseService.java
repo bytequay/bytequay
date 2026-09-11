@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
@@ -39,6 +40,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -152,7 +154,8 @@ class TestBranchRebaseService
                 driver,
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
-                new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC)));
+                new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
+                        new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 
     @Test

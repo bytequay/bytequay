@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.rebase;
 
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
@@ -61,7 +63,8 @@ class TestBranchRebaseMonitorJob
                 new RebaseSequencerDriver(git),
                 git,
                 Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
-                new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), new AgentRuntimeRegistry(), Clock.systemUTC()));
+                new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
+                        new AgentRuntimeRegistry(), Clock.systemUTC()));
 
         new BranchRebaseMonitorJob(store, service, readyAgentServingGate(), 20).monitor();
 

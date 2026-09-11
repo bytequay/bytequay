@@ -20,6 +20,19 @@ activation time. Idempotent reuse keeps the same scope and original three-fix,
 three-rerun-per-head, eight-hour budget; it cannot adopt standalone or another
 parent's run or restart an exhausted run.
 
+At attachment, the live owner snapshots accepted user-message text through the
+source user turn, including earlier answers and steering. Generated follow-ups,
+assistant messages, known-unsent turns, and undelivered queue entries are excluded.
+The existing managed-instructions channel supplies this scope to every linked CI
+session, including rebase conflicts before the first repair and later CI replies.
+Missing required inputs or text beyond the 131,072-character bound fail attachment
+instead of silently dropping constraints. Attachment names are included; their
+contents are unavailable, so the agent must ask if those contents are needed.
+This context preserves user restrictions, not instructions to repeat development
+or publication; CI/rebase action rules and program-owned remote writes still apply.
+Standalone CI sessions receive no development context. The snapshot lives only in
+the existing owner entry and adds no durable state or recovery path.
+
 The existing CI row carries a nullable indexed parent task ID before any child
 can be provisioned. `DevelopmentCiOwnership` binds it to the existing live
 source continuation owner and deadline. All repair, rebase, rerun, push,

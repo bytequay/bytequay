@@ -160,9 +160,10 @@ public class AgentConfiguration
     }
 
     @Bean
-    public DevelopmentCiOwnership developmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentRuntimeRegistry runtimes, Clock agentClock)
+    public DevelopmentCiOwnership developmentCiOwnership(
+            CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, AgentEventService events, AgentRuntimeRegistry runtimes, Clock agentClock)
     {
-        return new DevelopmentCiOwnership(store, tasks, runtimes, agentClock);
+        return new DevelopmentCiOwnership(store, tasks, turns, events, runtimes, agentClock);
     }
 
     @Bean(destroyMethod = "close")
@@ -329,6 +330,7 @@ public class AgentConfiguration
             AgentReviewStore reviews,
             ObjectProvider<DevelopmentFollowupCoordinator> development,
             ObjectProvider<CiAutofixService> ci,
+            DevelopmentCiOwnership ciOwnership,
             AgentCompletionService completionService)
     {
         return new DefaultAgentTurnService(
@@ -346,7 +348,7 @@ public class AgentConfiguration
                 approvalService,
                 runtimeRegistry,
                 codeGraph,
-                skills::instructions,
+                task -> skills.instructions(task) + ciOwnership.instructions(task),
                 agentClock,
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the

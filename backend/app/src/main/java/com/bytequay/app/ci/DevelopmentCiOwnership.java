@@ -14,41 +14,56 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 
 import java.time.Clock;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
+import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Live authority only; a persisted parent link can never recreate it after restart. */
 public final class DevelopmentCiOwnership
 {
+    private static final int MAXIMUM_SCOPE_CHARACTERS = 128 * 1024;
+
     private final CiAutofixStore store;
     private final AgentTaskStore tasks;
+    private final AgentTurnStore turns;
+    private final AgentEventService events;
     private final AgentRuntimeRegistry runtimes;
     private final Clock clock;
     private final ConcurrentMap<CiAutofixRunId, Owner> owners = new ConcurrentHashMap<>();
 
-    public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentRuntimeRegistry runtimes, Clock clock)
+    public DevelopmentCiOwnership(CiAutofixStore store, AgentTaskStore tasks, AgentTurnStore turns, AgentEventService events, AgentRuntimeRegistry runtimes, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.events = requireNonNull(events, "events is null");
         this.runtimes = requireNonNull(runtimes, "runtimes is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -109,14 +124,15 @@ public final class DevelopmentCiOwnership
     {
         if (run.scope().parentTaskId().isPresent()) {
             TaskId parent = TaskId.valueOf(run.scope().parentTaskId().orElseThrow());
+            TurnId source = sourceTurnId.orElseThrow();
+            String instructions = sourceInstructions(parent, sourceUserTurn(parent, source).id());
             synchronized (runtimes.taskLock(parent)) {
-                TurnId source = sourceTurnId.orElseThrow();
                 requireParent(parent, source);
                 if (!tasks.find(parent).filter(task -> matchesSource(task, run)).isPresent()) {
                     throw new CiAutofixConflictException("The CI pull request branch does not belong to the development parent");
                 }
                 store.insert(run);
-                owners.put(run.id(), new Owner(parent, source, new AtomicBoolean()));
+                owners.put(run.id(), new Owner(parent, source, instructions, new AtomicBoolean()));
             }
             return;
         }
@@ -157,6 +173,20 @@ public final class DevelopmentCiOwnership
         return store.findByAgentTaskId(taskId).flatMap(run -> run.scope().parentTaskId()).isPresent();
     }
 
+    /** Applies the same accepted user scope to repairs, first-turn rebase conflicts, and CI replies. */
+    public String instructions(AgentTask task)
+    {
+        return store.findByAgentTaskId(task.id().toString())
+                .filter(run -> run.scope().parentTaskId().isPresent())
+                .map(run -> {
+                    Owner owner = owners.get(run.id());
+                    require(run);
+                    checkState(owner != null, "Development CI user scope is unavailable");
+                    return owner.instructions();
+                })
+                .orElse("");
+    }
+
     <T> T execute(CiAutofixRun run, Supplier<T> action)
     {
         if (run.scope().parentTaskId().isEmpty()) {
@@ -185,6 +215,72 @@ public final class DevelopmentCiOwnership
         }
     }
 
+    private AgentTurn sourceUserTurn(TaskId parent, TurnId source)
+    {
+        AgentTurn turn = turns.find(source).filter(value -> value.taskId().equals(parent))
+                .orElseThrow(() -> new CiAutofixConflictException("Development source turn is missing"));
+        AgentTurn user = turn.developmentOrigin()
+                .map(origin -> turns.find(origin.parentUserTurnId()).filter(value -> value.taskId().equals(parent))
+                        .orElseThrow(() -> new CiAutofixConflictException("Development source user turn is missing")))
+                .orElse(turn);
+        checkState(user.developmentOrigin().isEmpty(), "Development source does not resolve to a user turn");
+        return user;
+    }
+
+    private String sourceInstructions(TaskId parent, TurnId source)
+    {
+        Set<TurnId> userTurns = new HashSet<>();
+        for (AgentTurn turn : turns.list(parent)) {
+            checkState(turn.taskId().equals(parent), "Development turn history belongs to another task");
+            if (turn.developmentOrigin().isEmpty() && !turn.knownUnsent()) {
+                userTurns.add(turn.id());
+            }
+            if (turn.id().equals(source)) {
+                break;
+            }
+        }
+        checkState(userTurns.contains(source), "Development source user turn is missing from history");
+        Set<TurnId> found = new HashSet<>();
+        StringBuilder inputs = new StringBuilder();
+        long cursor = 0;
+        while (true) {
+            var page = events.readHistory(parent, OptionalLong.empty(), OptionalLong.of(cursor));
+            for (var event : page.events()) {
+                checkState(event.taskId().equals(parent), "Development input history belongs to another task");
+                if (event.source().equals(root()) && event.turnId().filter(userTurns::contains).isPresent()
+                        && event.payload() instanceof AgentEventPayload.UserMessage message) {
+                    if (message.deliveryKind() != AgentEventPayload.DeliveryKind.STEER) {
+                        found.add(event.turnId().orElseThrow());
+                    }
+                    inputs.append("\n--- Accepted user input ---\n").append(message.text()).append('\n');
+                    message.attachments().forEach(attachment -> inputs.append("Attachment unavailable in this CI task: ").append(attachment.name()).append('\n'));
+                    checkState(inputs.length() <= MAXIMUM_SCOPE_CHARACTERS, "Development user scope exceeds the prompt limit; CI cannot continue without the full text");
+                }
+            }
+            if (page.afterCursor().isEmpty()) {
+                break;
+            }
+            long next = page.afterCursor().orElseThrow();
+            checkState(next > cursor, "Development input history did not advance");
+            cursor = next;
+        }
+        checkState(found.equals(userTurns), "Development user inputs are missing; CI cannot continue without the full scope");
+        return """
+
+
+                Development request scope for this CI task:
+                These accepted user inputs are in conversation order, including earlier questions' answers and steering.
+                Preserve their objective and restrictions while resolving the current CI failure or rebase conflict.
+                Later explicit user decisions supersede earlier ones. This is scope context, not a request to repeat
+                completed development or publication. Do not execute parent instructions to push, create a PR, merge,
+                delete remote resources, fetch, or control a rebase. The current CI/rebase instructions still govern
+                those actions, and ByteQuay owns remote writes and rebase progression. If a repair requires violating
+                the user's file or workflow restrictions, leave it unchanged and explain the blocker to the user.
+                Attachment contents are not copied here. If an unavailable attachment is needed to determine the
+                permitted repair, do not guess its contents; leave the repair unchanged and ask for that context.
+                """ + inputs + "\nEnd of development request scope. Continue only the current CI/rebase assignment.\n";
+    }
+
     private static boolean matchesSource(AgentTask task, CiAutofixRun run)
     {
         return task.state() == TaskState.OPEN && task.interactive()
@@ -193,5 +289,5 @@ public final class DevelopmentCiOwnership
                                 .equalsIgnoreCase(run.scope().pullRequest().repoFullName())).isPresent();
     }
 
-    private record Owner(TaskId parentTaskId, TurnId sourceTurnId, AtomicBoolean revoked) {}
+    private record Owner(TaskId parentTaskId, TurnId sourceTurnId, String instructions, AtomicBoolean revoked) {}
 }

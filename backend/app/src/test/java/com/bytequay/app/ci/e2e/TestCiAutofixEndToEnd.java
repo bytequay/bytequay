@@ -283,7 +283,8 @@ class TestCiAutofixEndToEnd
         }, "ci-repair", Optional.empty(), Optional.of("development.txt"));
 
         try {
-            AgentTurn initial = turns.start(new StartAgentTurnCommand(source.id(), "Implement the requested change", ImmutableList.of(), "development-start"));
+            String request = "Implement the requested change. Only edit development.txt; do not change workflows or delete remote branches.";
+            AgentTurn initial = turns.start(new StartAgentTurnCommand(source.id(), request, ImmutableList.of(), "development-start"));
             long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
             Optional<CiAutofixRun> owned = Optional.empty();
             boolean suppliedGreen = false;
@@ -333,6 +334,9 @@ class TestCiAutofixEndToEnd
             assertThat(sourceTurns.get(2).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, initial.id()));
             assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
                     .containsExactly("development-edit", "development-commit", "development-draft", "ci-repair");
+            assertThat(agent.turns().getLast().instructions()).contains(request, "Development request scope for this CI task")
+                    .doesNotContain("Create the draft pull request for this completed development revision");
+            assertThat(agent.turns().subList(0, 3)).allSatisfy(turn -> assertThat(turn.instructions()).doesNotContain("Development request scope for this CI task"));
             verify(publicationWrites).markReadyForReview("test-token", "development-pr-node");
             verify(publicationReads, atLeast(3)).fetchDeliveryChecks("test-token", pr);
         }

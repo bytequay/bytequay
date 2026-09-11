@@ -313,6 +313,16 @@ and rebase stores exclude delivery-owned runs from standalone monitor batches.
 A CI reply is serialized by the existing run lock, and polling rereads a changed
 paused run before interpreting it as an unrecoverable result.
 
+The live CI owner also captures the source task's accepted user-message text
+through the original user turn, including earlier answers and steering, while
+excluding generated follow-ups, assistant prose, known-unsent turns, and queued
+work not yet delivered. Every CI repair, rebase-conflict, and reply session receives
+that same scope through managed instructions. Missing or oversized required text
+fails attachment rather than dropping restrictions. Attachment names are reported
+without copying their contents; the agent must ask if unavailable content is needed.
+The scope does not replay completed development/publication actions or override
+CI/rebase execution rules. It adds no stored workflow state or restart support.
+
 Keep the source task busy while the separate CI worktree may commit, rebase,
 and push. This is an in-memory ownership check at Send, queue start, and
 Complete, not a new durable `DELIVERY` claim. Existing worktree claims still

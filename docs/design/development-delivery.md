@@ -519,6 +519,5 @@ CI limits/green detection; and stop/fail on lost backend with no orphan CI or
 rebase writer. Verify Delete preserves remote results and refuses live writers.
 
 For material implementation run `mvn verify` in `backend/`, and frontend
-`npm run lint`, `npx tsc --noEmit`, `npm test`, and `npm run package`. This change
-is documentation only; validate its links and consistency rather than running
-an application build.
+`npm run lint`, `npx tsc --noEmit`, `npm test`, and `npm run package`. Validate
+document links and consistency alongside the implementation checks.

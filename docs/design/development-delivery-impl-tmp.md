@@ -4,7 +4,7 @@ Approved behavior is defined in [Development task delivery](development-delivery
 This is a temporary implementation tracker, not a second design. Checkpoints
 organize engineering work; they are not runtime phases or persisted states.
 All five checkpoints are implemented and locally verified. Evidence distinguishes
-fixture coverage from live-provider/live-GitHub testing, which was not requested.
+fixture coverage from the separately authorized live-provider/GitHub smoke.
 
 ## Scope and working rules
 
@@ -496,5 +496,25 @@ Known MVP limits are explicit: same-repository/authored PR and provider admissio
 still follow CI Autofix. Separate test-merge checks, app-bound legacy statuses,
 required workflow/code-scanning rules, and other unverified requirements never
 imply green; the draft waits with a reason within the original deadline, then
-fails if unresolved. A live account smoke requires its own authorized target.
-The feature branch has not been merged or pushed by this checkpoint.
+fails if unresolved. The authorized live smoke targets `bytequay/bytequay`
+through a disposable direct workspace and a separate two-file fixture PR.
+It uses a fresh clone of GitHub main, not the divergent local main history.
+
+## Integration and live validation
+
+- [x] Rebase onto local main, preserving its shared helpers and turn-launch
+  simplifications alongside development continuation ownership.
+- [x] Rerun all required checks: 1,818 backend tests and 770 frontend tests
+  pass, as do lint, TypeScript, and macOS arm64 packaging. Native process and
+  Electron tests require normal macOS process/app access.
+- [x] Remove the stale documentation-only verification instruction.
+- [ ] Fast-forward local main after final integration review.
+- [ ] Run the genuine provider/GitHub smoke and record its exact outcome.
+
+GitHub main and local main have substantially divergent histories. This
+integration does not publish or rewrite remote main. Live smoke evidence will
+be recorded separately from fixture coverage above.
+
+Validation logs: `/private/tmp/bytequay-delivery-integration-backend.log`,
+`/private/tmp/bytequay-delivery-integration-frontend-native.log`, and
+`/private/tmp/bytequay-delivery-integration-package.log`.

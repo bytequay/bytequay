@@ -15,16 +15,17 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { DevelopmentFacts } from './DevelopmentFacts';
+import { TurnView } from './AgentConversation';
+import { DevelopmentFacts, draftPullRequestRequest } from './DevelopmentFacts';
 import { parseAgentDevelopmentFacts, parseAgentTurn } from './contracts';
-import { AgentTaskBody } from './AgentTaskScreen';
+import { AgentTaskBody, draftPullRequestPrompt } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import { initialAgentTaskState } from './model';
 import { parseAgentEventSequence } from './events';
 import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import { previewTask } from './fixtures/previewBridge';
-import type { AgentDevelopmentFactsDto, AgentTaskDto, AgentTurnDto } from '../types';
+import type { AgentDevelopmentFactsDto, AgentTaskDto, AgentTurnDto, WorkspaceDto } from '../types';
 
 const facts: AgentDevelopmentFactsDto = {
   observedAt: '2026-01-01T12:00:00Z',
@@ -110,17 +111,54 @@ it('keeps the durable question ahead of observed files, commits and the composer
 });
 
 it('attributes generated requests using trusted durable origins and names live activity', () => {
-  for (const [kind, label, activity] of [['AUTO_COMMIT', 'Auto commit', 'Committing'], ['CREATE_DRAFT_PR', 'Create draft PR', 'Creating draft PR']] as const) {
+  for (const [kind, shown, activity] of [['AUTO_COMMIT', 'ByteQuay · Auto commit', 'Committing'], ['CREATE_DRAFT_PR', 'Open draft pull request', 'Creating draft PR']] as const) {
     const origin = { kind, parentUserTurnId: 'source-turn' };
     const turn = parseAgentTurn({ ...contracts.turn, state: 'RUNNING', developmentOrigin: { ...origin, hiddenPath: '/secret' } });
     expect(turn.developmentOrigin).toEqual(origin);
     const html = taskHtml(turn);
-    expect(html).toContain(`ByteQuay · ${label}`);
+    expect(html).toContain(shown);
     expect(html).toContain(activity);
     expect(taskHtml(turn, true)).toContain('>Needs approval<');
   }
   expect(() => parseAgentTurn({ ...contracts.turn, developmentOrigin: { kind: 'USER', parentUserTurnId: 'source' } })).toThrow();
   expect(taskHtml({ ...baseTurn, state: 'COMPLETED' })).not.toContain('ByteQuay · Auto commit');
+});
+
+it('shows both create-PR requests as the action and the branches they name, never as the prompt', () => {
+  const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
+  const route = { head: 'bytequay/task/c587a121', base: 'master' };
+  const generated: AgentTurnDto = { ...ordinary, developmentOrigin: { kind: 'CREATE_DRAFT_PR', parentUserTurnId: 'source-turn' } };
+  // The lines DevelopmentFollowupCoordinator.publicationPrompt writes for a fork route.
+  const publication = [
+    'ByteQuay · Create draft PR',
+    "Worktree: '/w/worktrees/t'. Branch: 'bytequay/task/t'. Exact clean HEAD to publish: e5083dc3.",
+    "Base repository/branch: trinodb/trino / 'master'. Push repository: alice/trino. Push URL: 'https://github.com/alice/trino.git'.",
+  ].join('\n');
+  const workspace: WorkspaceDto = {
+    id: 'workspace-1', name: 'trino', selectedRepositoryId: 1, selectedOwner: 'alice', selectedRepo: 'trino',
+    upstreamRepositoryId: 2, upstreamOwner: 'trinodb', upstreamRepo: 'trino', monitoredRepositoryId: 2, monitoredOwner: 'trinodb', monitoredRepo: 'trino',
+    topology: 'FORK', defaultBranch: 'main', upstreamDefaultBranch: 'master', localRepositoryPath: '/w', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
+  };
+  const panel = draftPullRequestPrompt(workspace);
+  expect(draftPullRequestRequest(generated, publication)).toEqual(route);
+  expect(draftPullRequestRequest(ordinary, panel)).toEqual(route);
+  // A reworded template still reads as the action; only its base goes unnamed.
+  expect(draftPullRequestRequest(generated, 'Push the revision and create its draft')).toEqual({ ...route, base: null });
+  // Only the trusted origin or the panel's own request qualifies, and only with its durable turn.
+  expect(draftPullRequestRequest(ordinary, publication)).toBeNull();
+  expect(draftPullRequestRequest(ordinary, 'Please open a draft pull request for this task.')).toBeNull();
+  expect(draftPullRequestRequest(undefined, panel)).toBeNull();
+
+  const html = renderToStaticMarkup(<TurnView
+    turn={{ turnId: ordinary.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
+      users: [{ id: 'request', text: panel, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [ordinary.id]: ordinary }} activityChoice={{}} previews={{}} agentLabels={{}}
+    onToggle={() => {}} onToggleActivity={() => {}} />);
+  expect(html).toContain('Open draft pull request');
+  expect(html).toContain(`title="${route.head}">${route.head}</span>`);
+  expect(html).toContain('→ master');
+  expect(html).not.toContain('agt-user__bubble');
+  expect(html).not.toContain('gh pr create');
 });
 
 it('uses Idle for settled runtime and preserves live automation and recovery precedence in task cards', () => {

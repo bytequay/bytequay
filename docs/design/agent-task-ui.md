@@ -346,7 +346,9 @@ does not acquire a synthetic checklist, image input, or steering control.
 
 The transcript displays:
 
-- user messages and their attachments;
+- user messages and their attachments, except ByteQuay's create-PR requests
+  (the panel's **Create draft PR** action or Auto draft PR), which show as one
+  **Open draft pull request** `head → base` row instead of the prompt;
 - partial and completed assistant messages;
 - provider-supported readable reasoning summaries, never hidden
   chain-of-thought;

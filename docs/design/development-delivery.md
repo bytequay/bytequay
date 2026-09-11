@@ -250,10 +250,11 @@ after a stopped user development turn:
 
 This is ordinary control flow, not saved `COMMITTING → PUBLISHING → WATCHING`
 transitions. The coordinator waits asynchronously on each generated turn;
-its completion continues the same function. Generated turns are labeled
-**ByteQuay · Auto commit** or **ByteQuay · Create draft PR**, carry trusted
-origin metadata, and never start a second coordinator. They reuse existing
-turn execution, approvals, transcript, and metrics.
+its completion continues the same function. The commit turn is labeled
+**ByteQuay · Auto commit**; the publication turn shows its request as one
+**Open draft pull request** `head → base` row instead of the prompt. Generated
+turns carry trusted origin metadata and never start a second coordinator. They
+reuse existing turn execution, approvals, transcript, and metrics.
 
 When an already-accepted user queue takes precedence, atomically hand admission
 to its FIFO turn under the task lock and end the current continuation. That

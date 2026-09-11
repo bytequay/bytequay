@@ -3452,3 +3452,55 @@
 }
 
 .agt-user__attribution { color: #57606a; font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+
+/*
+ * ByteQuay's create-PR request reads as the action it asks for. In a narrow column the head branch
+ * gives way first, then the label; the base branch always stays whole.
+ */
+.agt-user__request {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 76%;
+  overflow: hidden;
+  padding: 9px 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.agt-user__request > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: #8c959f;
+}
+
+.agt-user__request-action,
+.agt-user__request-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-user__request-action {
+  font-weight: 500;
+}
+
+.agt-user__request-head,
+.agt-user__request-base {
+  color: #57606a;
+}
+
+/* A zero basis gives the head only the room left over, so the label shrinks only once it is gone. */
+.agt-user__request-head {
+  flex: 1 1 0;
+}
+
+.agt-user__request-base {
+  flex: none;
+}

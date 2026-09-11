@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 
-import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
+import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import React,{ useEffect,useLayoutEffect,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import type { AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
-import { developmentTurnLabel } from './DevelopmentFacts';
+import { developmentTurnLabel,draftPullRequestRequest } from './DevelopmentFacts';
 import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
@@ -504,32 +504,44 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
   const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
-  const generatedLabel = developmentTurnLabel(turn.turnId === null ? null : durableTurns[turn.turnId]) ?? (generatedRequest ? 'Review request' : null);
+  const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
+  const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
+  const opening = turn.users[0];
+  const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text) : null;
   return (
     <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
           <div className="agt-user" data-history-anchor={user.id}>
-            <div className="agt-user__bubble">
-              {generatedLabel !== null && index === 0 && user.delivery === 'TURN' && (
-                <div className="agt-user__attribution">ByteQuay · {generatedLabel}</div>
-              )}
-              {user.attachments.length > 0 && (
-                <div className="agt-user__files">
-                  {user.attachments.map((attachment) => (
-                    <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
-                  ))}
-                </div>
-              )}
-              <div>{user.text}</div>
-              {user.delivery !== 'TURN' && (
-                <div className="agt-muted agt-small agt-user__delivery">
-                  <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
-                  <span>{user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
-                </div>
-              )}
-            </div>
+            {index === 0 && request !== null ? (
+              <div className="agt-user__request">
+                <GitPullRequest aria-hidden="true" />
+                <span className="agt-user__request-action">Open draft pull request</span>
+                {' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span>
+                {request.base !== null && <>{' '}<span className="agt-user__request-base">→ {request.base}</span></>}
+              </div>
+            ) : (
+              <div className="agt-user__bubble">
+                {generatedLabel !== null && index === 0 && user.delivery === 'TURN' && (
+                  <div className="agt-user__attribution">ByteQuay · {generatedLabel}</div>
+                )}
+                {user.attachments.length > 0 && (
+                  <div className="agt-user__files">
+                    {user.attachments.map((attachment) => (
+                      <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
+                    ))}
+                  </div>
+                )}
+                <div>{user.text}</div>
+                {user.delivery !== 'TURN' && (
+                  <div className="agt-muted agt-small agt-user__delivery">
+                    <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
+                    <span>{user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </React.Fragment>
       ))}

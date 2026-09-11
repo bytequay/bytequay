@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import type { DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { AUTOMATION_OPTIONS, automationForSubmission, automationSummary } from './developmentAutomation';
 import '../css/development-automation.css';
@@ -48,8 +48,19 @@ export function AutomationControl({ value, providers, disabled, futureTurns, loc
   onChange: (value: DevelopmentAutomationDto) => void;
   onLocalOnlyChange: (value: boolean) => void;
 }) {
-  return <details className="agt-automation">
-    <summary aria-label="Automation settings">Automation <span>{automationSummary(automationForSubmission(value, localOnly))}</span></summary>
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    // Capture phase, because the model picker stops mousedown from bubbling past its own trigger.
+    const close = (event: MouseEvent): void => {
+      if (ref.current?.open && !ref.current.contains(event.target as Node)) ref.current.open = false;
+    };
+    window.addEventListener('mousedown', close, true);
+    return () => window.removeEventListener('mousedown', close, true);
+  }, []);
+  return <details ref={ref} className="agt-automation" onKeyDown={event => { if (event.key === 'Escape') event.currentTarget.open = false; }}>
+    <summary className="agt-compose__chip" aria-label="Automation settings">
+      Automation <span className="agt-picker__effort">{automationSummary(automationForSubmission(value, localOnly))}</span>
+    </summary>
     <div className="agt-automation-options">
       <strong>Automation{futureTurns ? ' · For future turns' : ''}</strong>
       {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
@@ -63,7 +74,6 @@ export function AutomationControl({ value, providers, disabled, futureTurns, loc
         <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange(event.target.checked)} />
         <span>Local only for this turn<small>Skip all three steps for this submission.</small></span>
       </label>
-      <p>CI allows up to 3 repairs, 3 reruns per revision, and 8 hours. GitHub writes apply to this task’s branch and PR.</p>
     </div>
   </details>;
 }

@@ -29,6 +29,7 @@ import type {
   RepoLabelDto,
   PullTimelineCommentDto,
   RepoUserDto,
+  UserProfileDto,
 } from '../types';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
@@ -80,6 +81,20 @@ export type PullDetailUpdater = (
   number: number,
   update: (detail: PullRequestDetailDto) => PullRequestDetailDto,
 ) => void;
+
+/** The signed-in account, for review composers and local pending comments. */
+export function useViewer(enabled: boolean): UserProfileDto | null {
+  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    window.bridge.getUserProfile()
+      .then(profile => { if (live) setViewer(profile); })
+      .catch(() => { /* the composer just falls back to an initial */ });
+    return () => { live = false; };
+  }, [enabled]);
+  return viewer;
+}
 
 export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;

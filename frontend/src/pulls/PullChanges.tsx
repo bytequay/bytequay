@@ -28,7 +28,7 @@ import type {
 import { useResizablePane } from '../useResizablePane';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
-import { CopyLinkButton, remoteErrorMessage, ReviewThread, type PullDetailUpdater } from './PullOverview';
+import { CopyLinkButton, remoteErrorMessage, ReviewThread, useViewer, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
@@ -145,20 +145,6 @@ export default function PullChanges({
         window.bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha)}
     />
   );
-}
-
-/** The signed-in account, for review composers and local pending comments. */
-function useViewer(enabled: boolean): UserProfileDto | null {
-  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    window.bridge.getUserProfile()
-      .then(profile => { if (live) setViewer(profile); })
-      .catch(() => { /* the composer just falls back to an initial */ });
-    return () => { live = false; };
-  }, [enabled]);
-  return viewer;
 }
 
 export function DiffViewer({

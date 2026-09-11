@@ -49,7 +49,10 @@ do not duplicate them in a new delivery lifecycle.
 
 Store defaults in the existing `AppSettingsStore`. Copy them into a new task,
 allow per-task overrides, and snapshot them when a user turn is accepted.
-Generated follow-ups inherit that snapshot. The task's **Automation** control
+Generated follow-ups inherit that snapshot. **CI repair agent** selects a lane
+that advertises `CI_AUTOFIX`; Codex and Claude Code are eligible when available.
+It chooses the agent that repairs code, not the CI host (GitHub Actions).
+The task's **Automation** control
 is separate from its **Auto** permission mode. While a continuation is active,
 settings edits are labeled **For future turns**; **Stop automation** stops the
 current continuation. Local only supplies all three false for one user turn.
@@ -77,7 +80,8 @@ Respect independent settings:
 - Auto CI fix off leaves the published draft as a draft.
 - Missing/unsupported CI shows the actual partial result, not full success.
   Currently CI requires an authored same-repository PR and a `CI_AUTOFIX`
-  provider. Claude supports it; Codex development can hand off to Claude.
+  provider. Both Codex and Claude support it. The explicitly selected CI repair
+  agent may differ from the development agent; there is no provider fallback.
   Fork draft creation works independently, but fork CI remains unsupported.
 
 ## 3. User-input gates come before Git decisions

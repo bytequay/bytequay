@@ -14,12 +14,15 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.ReviewTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -35,6 +38,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -170,7 +174,7 @@ class TestClaudePermissionBroker
         ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
                 "task-3",
                 temporaryDirectory,
-                AgentPermissionPolicy.CI_AUTOFIX,
+                AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()),
                 Optional.of(new CodeGraphBridge(query -> "graph for " + query, "use the graph"))).orElseThrow();
@@ -189,9 +193,90 @@ class TestClaudePermissionBroker
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"permission_prompt","arguments":{"tool_name":"Bash","input":{}}}}
                 """)).body().orElseThrow();
         assertThat(hidden.at("/error/code").asInt()).isEqualTo(-32602);
+        JsonNode memory = broker.handle(registration.token(), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
+                """)).body().orElseThrow();
+        assertThat(memory.at("/error/code").asInt()).isEqualTo(-32602);
 
         registration.close();
         assertThat(broker.handle(registration.token(), objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+
+    @Test
+    void ciOnlyRegistrationsExposeTaskScopedMemoryWithoutClaudePermissions()
+            throws Exception
+    {
+        AtomicInteger memoryReads = new AtomicInteger();
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> {
+                    memoryReads.incrementAndGet();
+                    return taskId + ": " + query.orElse("recent");
+                });
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        AgentApprovalHandler approvals = (request, timeout) -> {
+            throw new AssertionError("Codex must not invoke Claude permission callbacks");
+        };
+        try (ClaudePermissionBroker.CodeGraphRegistration first = broker.registerTools(
+                "task-ci-first", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
+                approvals, redactor, Optional.empty()).orElseThrow();
+                ClaudePermissionBroker.CodeGraphRegistration second = broker.registerTools(
+                        "task-ci-second", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
+                        approvals, redactor, Optional.empty()).orElseThrow()) {
+            JsonNode listRequest = objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """);
+            assertThat(broker.handle(first.token(), listRequest).body().orElseThrow().at("/result/tools").findValuesAsText("name"))
+                    .containsExactly("read_ci_memory");
+            JsonNode readRequest = objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
+                    """);
+            assertThat(broker.handle(first.token(), readRequest).body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("task-ci-first: recent");
+            assertThat(broker.handle(second.token(), readRequest).body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("task-ci-second: recent");
+            JsonNode crossTask = objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+                    "name":"read_ci_memory","arguments":{"taskId":"task-ci-second"}}}
+                    """);
+            assertThat(broker.handle(first.token(), crossTask).body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+            JsonNode permissionRequest = objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
+                    "name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"git push"}}}}
+                    """);
+            assertThat(broker.handle(first.token(), permissionRequest).body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(broker.handle("wrong-token", readRequest).status()).isEqualTo(401);
+            first.close();
+            assertThat(broker.handle(first.token(), readRequest).status()).isEqualTo(401);
+            assertThat(broker.handle(second.token(), readRequest).body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("task-ci-second: recent");
+            assertThat(memoryReads.get()).isEqualTo(3);
+        }
+    }
+
+    @Test
+    void reviewRegistrationsDoNotExposeCiMemory()
+            throws Exception
+    {
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review context")), "Review this pull request");
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> {
+                    throw new AssertionError("Review tasks must not read CI memory");
+                },
+                taskId -> Optional.of(review));
+        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
+                "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
+            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
+            JsonNode denied = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
+                    """)).body().orElseThrow();
+            assertThat(denied.at("/error/code").asInt()).isEqualTo(-32602);
+        }
     }
 
     @Test

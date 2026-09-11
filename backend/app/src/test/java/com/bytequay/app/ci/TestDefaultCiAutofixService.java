@@ -1844,11 +1844,11 @@ class TestDefaultCiAutofixService
     }
 
     @Test
-    void rejectsAnUnavailableAcceptedCiProviderWithoutFallback()
+    void rejectsAnUnavailableAcceptedCiRepairAgentWithoutFallback()
     {
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
-        doThrow(new IllegalArgumentException("Accepted CI provider is unavailable")).when(drivers).require(AgentLaneId.CLAUDE_CLI);
+        doThrow(new IllegalArgumentException("Accepted CI repair agent is unavailable")).when(drivers).require(AgentLaneId.CLAUDE_CLI);
         assertThatThrownBy(() -> service.startDevelopment(startCommand("unavailable-owned"), parent.id(), source, publishedPr(), NOW))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unavailable");
         verify(gitHub, never()).inspect(any());

@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -88,6 +89,38 @@ class TestCodexLaunchProfile
             assertThat(CodexLaunchProfile.threadConfig(childProfile)).containsEntry("web_search", "live");
             assertThat(CodexLaunchProfile.threadConfig(childProfile, true)).containsEntry("web_search", "live");
         }
+    }
+
+    @Test
+    void pinsUnattendedCiAtProcessAndThreadScopeForEveryChildProfile()
+    {
+        List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
+        for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
+            List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots);
+            assertThat(arguments).containsSequence("-c", "approval_policy=\"never\"");
+            assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
+            assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
+            assertThat(arguments).containsSequence("--disable", "guardian_approval");
+            assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=false");
+            assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true");
+            assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_slash_tmp=true");
+            assertThat(arguments).noneMatch(argument -> argument.startsWith("auto_review.policy="));
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots))
+                    .containsEntry("approval_policy", "never")
+                    .containsEntry("approvals_reviewer", "user")
+                    .containsEntry("web_search", "disabled")
+                    .containsEntry("sandbox_workspace_write", CodexLaunchProfile.ciSandboxConfig(roots))
+                    .doesNotContainKey("auto_review");
+            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false, true)).containsEntry("guardian_approval", false);
+        }
+    }
+
+    @Test
+    void preservesPunctuationInsideWritablePaths()
+    {
+        List<String> roots = ImmutableList.of("/Work, Projects/task", "/repo/quote\"and\\slash");
+        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots))
+                .contains("sandbox_workspace_write.writable_roots=[\"/Work, Projects/task\",\"/repo/quote\\\"and\\\\slash\"]");
     }
 
     private static void assertCommonIsolation(List<String> arguments)

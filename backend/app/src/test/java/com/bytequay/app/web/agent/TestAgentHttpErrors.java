@@ -380,7 +380,7 @@ class TestAgentHttpErrors
     {
         AgentTask task = deliveryTask().withDevelopmentContinuation(false, Instant.EPOCH);
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
-        doThrow(new AgentConflictException("CI provider stop is unproven")).when(ci).deleteDevelopment(task.id());
+        doThrow(new AgentConflictException("CI repair agent stop is unproven")).when(ci).deleteDevelopment(task.id());
 
         mvc.perform(delete("/agent/tasks/{taskId}", task.id()).queryParam("workspaceId", "workspace-1"))
                 .andExpect(status().isConflict());

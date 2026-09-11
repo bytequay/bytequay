@@ -252,7 +252,7 @@ public final class DevelopmentFollowupCoordinator
     {
         checkState(owns(source), "Development automation was stopped");
         checkState(pullRequest.headRepository().equals(pullRequest.baseRepository()), "CI Autofix currently requires a same-repository pull request");
-        var lane = automation.ciLaneId().orElseThrow(() -> new IllegalStateException("Select a supported CI provider in Automation before starting the task"));
+        var lane = automation.ciLaneId().orElseThrow(() -> new IllegalStateException("Select a supported CI repair agent in Automation before starting the task"));
         checkState(Instant.now(clock).isBefore(activatedAt.plus(Duration.ofHours(8))), "CI Autofix authorization expired before attachment");
         CiAutofixRun run = ci.startDevelopment(new StartCiAutofixCommand(source.task().workspaceId().orElseThrow(), pullRequest.pullRequest().number(),
                 lane, 3, true, true, true, "development-ci:" + source.task().id() + ":" + source.turn().id()),

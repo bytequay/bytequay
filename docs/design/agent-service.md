@@ -3163,6 +3163,60 @@ sandbox, disabled tools, and disabled web search. Shell networking remains
 disabled in the sandbox; only attended `AUTO` receives the ordinary temporary
 directory allowances described above.
 
+The approved CI Autofix lane uses the existing `AgentDriver` interface and
+`AgentPermissionPolicy.CI_AUTOFIX`. `CodexCliDriver` pins `never` and reviewer
+`user` at process, thread start/resume, and turn start. Native guardian review,
+web search, and child agents are disabled for CI. Effective configuration and
+session flags must preserve the exact writable roots, disabled command network,
+and excluded generic temporary directories before every turn. Unexpected native
+approval requests are denied locally without creating a human approval card.
+
+`CodexCiSandbox` verifies the canonical linked worktree, Git directory and
+back-pointer, shared object directory, and named task-branch ref. Normal repair
+turns grant write access to the worktree, its private Git directory, shared
+objects, and the exact task branch ref/reflog and their lock files. Other branch
+refs, shared configuration, and hooks stay protected. The shared object store
+is writable so Git can commit; this does not provide complete write isolation
+from objects used by other worktrees. Symlinks and unsafe Git metadata fail
+admission; a branch or Git scope change before another turn fails that session.
+
+A program-owned rebase may have detached HEAD. Exactly one validated
+`rebase-merge` or `rebase-apply` directory with a safe branch name and commit
+identities permits a conflict turn with only the worktree, private Git directory,
+and objects writable; branch refs are omitted. The existing rebase service
+checks the recorded branch and stopped commit before launching and verifies
+that the agent only resolves/stages before ByteQuay continues. These semantic
+checks remain necessary because the private Git directory is writable. The turn
+service opens a fresh provider process for every turn, so normal repair,
+conflict staging, and subsequent repair receive their respective roots while
+resuming the task's conversation. Arbitrary detached HEAD stays unsupported.
+Builds needing network or writable caches outside these roots must fail within
+this unattended policy rather than escalate.
+
+Text attachments accept `text/plain` and `text/plain; charset=utf-8`. The driver
+requires each attachment to resolve to a regular file inside the task runtime,
+rejecting missing files, directories, and symlink escapes. It supplies quoted
+names and canonical paths as text inputs, treating the files as data and keeping
+large CI logs out of the initial prompt. CI logs are outside writable roots.
+The existing task MCP registration supplies `read_ci_memory` independently of
+CodeGraph and without exposing Claude's permission tool. The CI service already
+passes accepted parent instructions through `managedInstructions`; no provider
+context bridge or new workflow service is needed.
+
+The opt-in native check is:
+
+```text
+python3 scripts/codex-ci-sandbox-probe.py --run-native
+```
+
+On Codex 0.153.4, this keyless local-provider fixture verifies process config,
+thread start/resume and turn policy, local commit success, conflict staging in a
+real detached rebase, and denied writes to other refs, shared config/hooks,
+outside files, and the network. It also verifies
+that native escalation and Default-mode user-input requests do not reach the
+host. It uses disposable local Git data and does not publish to GitHub. This is
+native adapter evidence; it does not claim a live model repairing a real PR.
+
 ByteQuay adds no general
 custom tool router, semantic Git-command policy, or post-turn Git workflow in
 this phase. The separately gated CodeGraph bridge remains limited to its one
@@ -3538,9 +3592,10 @@ process exit.
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
 | Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
 | Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | CLI 2.1.219+ Agent invocation ownership, forwarded `parent_tool_use_id`, and native task terminal events; execution IDs do not represent resumable sessions |
-| Interactive approvals | App Server JSON-RPC approval requests | ByteQuay MCP permission-prompt tool |
+| Interactive approvals | App Server JSON-RPC approval requests for attended tasks | ByteQuay MCP permission-prompt tool |
+| CI repairs | `CI_AUTOFIX`, native `never` with scoped local Git writes | `CI_AUTOFIX`, unattended policy and task sandbox |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
-| Text attachments | Provider input item when supported | Exact read-only paths inside the task runtime directory |
+| Text attachments | Validated task-owned file paths in text input; logs are not inlined | Exact read-only paths inside the task runtime directory |
 | Steering | Stable `turn/steer` against the expected active turn | Unsupported until a native safe equivalent exists |
 | Token usage | `thread/tokenUsage/updated`, semantics normalized from the adapter's known schema | Per-step assistant usage and terminal invocation totals |
 | Monetary cost | Unavailable unless a future protocol field supplies it | Terminal `total_cost_usd` when present |

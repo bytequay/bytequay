@@ -676,3 +676,50 @@ Final prepared integration:
 - macOS arm64 packaging passed with the fresh integrated backend JAR. The
   temporary dependency symlink was removed afterward. Log:
   `/private/tmp/bytequay-delivery-approval-timeout-package.log`.
+
+
+## Codex CI repair support
+
+- [x] Reuse `AgentDriver` and the existing CI Autofix coordinator/repair loop.
+- [x] Pin unattended Codex process, thread, and turn permissions; verify them
+  before each turn and reject native requests that would ask the user.
+- [x] Admit bounded task-owned text CI logs and enable task-scoped CI memory
+  without CodeGraph or Claude permission prompts.
+- [x] Verify native local commits with scoped Git metadata writes and blocked
+  network, unrelated branch, configuration, and hook writes.
+- [x] Advertise Codex CI support and offer both supported lanes under the
+  clearer **CI repair agent** label in settings and task automation controls.
+- [x] Verify program-owned rebase conflict staging with Codex.
+- [x] Complete backend verification, frontend checks, and desktop packaging.
+- [x] Commit the Codex support and record verification evidence.
+
+The existing development-finished gate and backend follow-up ownership remain
+unchanged. No new workflow states, provider fallback, or restart recovery are
+introduced. Native fixture evidence does not replace the separately pending
+live PR repair-to-ready smoke.
+
+
+Codex CI verification evidence:
+
+- Full `mvn verify` passed all 1,876 backend tests with zero failures, errors,
+  or skips, including both-lane settings/handoff, memory token isolation,
+  text logs, per-turn policy drift, and normal/rebase/resumed repair profiles.
+  Log: `/private/tmp/bytequay-codex-ci-backend-verify.log`.
+- Frontend lint, TypeScript, and all 770 tests across 66 files passed. The
+  selector regression includes eligible Codex and Claude lanes, excludes an
+  unsupported lane, and preserves explicit selection without fallback.
+  Logs: `/private/tmp/bytequay-codex-ci-frontend-{lint,tsc,test}.log`.
+- macOS arm64 packaging passed with the verified backend JAR. The temporary
+  dependency symlink was removed. Log: `/private/tmp/bytequay-codex-ci-package.log`.
+- The keyless native Codex 0.153.4 fixture passed local edits/commits, readonly
+  CI logs, denied other refs/config/hooks/outside/network writes, never/user
+  start/turn/resume, local denial of escalation and user-input requests, and
+  disabled child agents. A real detached rebase conflict staged successfully
+  without advancing Git or acquiring writable branch refs. Evidence:
+  `/private/tmp/bytequay-codex-ci-jcb4mhjb`.
+- Independent review identified and resolved punctuation corruption in writable
+  paths and detached-HEAD rebase admission. Shared Git objects remain writable
+  for local commits; this boundary is explicit in the agent design.
+- A live model repairing a real GitHub PR is still unverified. Native adapter
+  checks made no GitHub writes. The existing local-main integration and live
+  publication approval blocks remain separate outstanding work.

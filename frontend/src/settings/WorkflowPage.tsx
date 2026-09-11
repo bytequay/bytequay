@@ -31,7 +31,7 @@ export default function WorkflowPage({ value, providers, busy, error, onChange }
         {AUTOMATION_OPTIONS.map(option => <SettingsRow key={option.key} title={option.title} subtitle={option.description}>
           <Toggle label={option.title} on={value[option.key]} disabled={busy} onChange={enabled => onChange({ ...value, [option.key]: enabled })} />
         </SettingsRow>)}
-        <SettingsRow title="CI provider" subtitle="A supported provider is required for CI repairs.">
+        <SettingsRow title="CI repair agent" subtitle="Choose the agent that repairs failing CI checks.">
           <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={busy} onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
         </SettingsRow>
       </SettingsCard>

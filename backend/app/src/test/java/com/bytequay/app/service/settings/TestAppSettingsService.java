@@ -23,6 +23,8 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -70,15 +72,17 @@ class TestAppSettingsService
         verifyNoInteractions(drivers);
     }
 
-    @Test
-    void automationRoundTripsIndependentChoicesAndExplicitCiProvider()
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex"})
+    void automationRoundTripsIndependentChoicesAndExplicitCiRepairAgent(String laneId)
     {
-        AgentDriver claude = mock(AgentDriver.class);
-        when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(claude);
-        when(claude.capabilities()).thenReturn(new AgentCapabilities(
+        AgentLaneId lane = new AgentLaneId(laneId);
+        AgentDriver driver = mock(AgentDriver.class);
+        when(drivers.require(lane)).thenReturn(driver);
+        when(driver.capabilities()).thenReturn(new AgentCapabilities(
                 false, false, false, false, false, false, false, false, false, false,
                 ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
-        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane));
 
         settings.saveDevelopmentAutomation(chosen);
 
@@ -91,11 +95,12 @@ class TestAppSettingsService
     @Test
     void automationRejectsUnsupportedCiAndCorruptStorageWithoutEnablingDefaults()
     {
-        AgentDriver codex = mock(AgentDriver.class);
-        when(drivers.require(AgentLaneId.CODEX_CLI)).thenReturn(codex);
-        when(codex.capabilities()).thenReturn(AgentCapabilities.none());
+        AgentLaneId lane = new AgentLaneId("unsupported");
+        AgentDriver driver = mock(AgentDriver.class);
+        when(drivers.require(lane)).thenReturn(driver);
+        when(driver.capabilities()).thenReturn(AgentCapabilities.none());
         assertThatThrownBy(() -> settings.saveDevelopmentAutomation(
-                new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CODEX_CLI))))
+                new DevelopmentAutomation(true, true, true, Optional.of(lane))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support CI Autofix");
         assertThat(rows).isEmpty();
         rows.put("agent.developmentAutomation", "{\"autoCommit\":true}");

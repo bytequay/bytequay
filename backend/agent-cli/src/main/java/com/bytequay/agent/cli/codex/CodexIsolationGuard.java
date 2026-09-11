@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -56,6 +57,7 @@ final class CodexIsolationGuard
     private final CodexLaunchProfile.ChildProfile childProfile;
     private final Optional<URI> codeGraphEndpoint;
     private final boolean textOnly;
+    private final List<String> ciWritableRoots;
 
     /**
      * @param codexHome the isolated home ByteQuay assigned to this process
@@ -98,11 +100,23 @@ final class CodexIsolationGuard
             Optional<URI> codeGraphEndpoint,
             boolean textOnly)
     {
+        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of());
+    }
+
+    CodexIsolationGuard(
+            CodexAppServerClient client,
+            Path codexHome,
+            CodexLaunchProfile.ChildProfile childProfile,
+            Optional<URI> codeGraphEndpoint,
+            boolean textOnly,
+            List<String> ciWritableRoots)
+    {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
         this.childProfile = requireNonNull(childProfile, "childProfile is null");
         this.codeGraphEndpoint = requireNonNull(codeGraphEndpoint, "codeGraphEndpoint is null");
         this.textOnly = textOnly;
+        this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
     }
 
     /**
@@ -253,16 +267,37 @@ final class CodexIsolationGuard
         if (!config.isObject()) {
             throw unavailable("config/read omitted the launch policy");
         }
-        requireTextValue(config, "web_search", textOnly ? "disabled" : "live");
-        if (!textOnly) {
+        boolean ci = !ciWritableRoots.isEmpty();
+        requireTextValue(config, "web_search", textOnly || ci ? "disabled" : "live");
+        if (!textOnly && !ci) {
             requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy());
+        }
+        if (ci) {
+            requireTextValue(config, "approval_policy", "never");
+            requireTextValue(config, "approvals_reviewer", "user");
+            JsonNode sandbox = config.path("sandbox_workspace_write");
+            JsonNode roots = sandbox.path("writable_roots");
+            if (!roots.isArray() || roots.size() != ciWritableRoots.size()) {
+                throw unavailable("Codex CI writable roots do not match the task's Git scope");
+            }
+            for (int index = 0; index < ciWritableRoots.size(); index++) {
+                if (!roots.get(index).isTextual() || !roots.get(index).asText().equals(ciWritableRoots.get(index))) {
+                    throw unavailable("Codex CI writable roots do not match the task's Git scope");
+                }
+            }
+            for (String field : ImmutableList.of("network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp")) {
+                JsonNode value = sandbox.path(field);
+                if (!value.isBoolean() || value.asBoolean() != !field.equals("network_access")) {
+                    throw unavailable("Codex CI sandbox " + field + " does not match the launch profile");
+                }
+            }
         }
 
         JsonNode features = config.path("features");
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, ci).entrySet()) {
             JsonNode value = features.path(feature.getKey());
             if (!value.isBoolean() || value.asBoolean() != feature.getValue()) {
                 throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");

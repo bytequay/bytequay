@@ -132,8 +132,8 @@ The initial limits are:
 - authored, same-repository PRs only;
 - one active run per PR head branch;
 - one agent task and one active turn per run;
-- an agent lane that advertises and enforces `CI_AUTOFIX`; the first
-  implementation supports Claude, while Codex remains manual-task only;
+- an agent lane that advertises and enforces `CI_AUTOFIX`; both Codex and
+  Claude implement it through the existing `AgentDriver` interface;
 - at most three code-fix attempts;
 - at most three failed-job reruns for an unchanged head;
 - an eight-hour authorization window;
@@ -146,6 +146,15 @@ generated task worktree. During a program-owned target rebase it may edit and st
 current conflict, but only the program may continue, skip, or abort. It never
 receives a GitHub credential or a GitHub write tool, and its runtime policy
 denies network writes. Only the program may push or rerun GitHub Actions.
+
+Codex repairs use the same watch, fix, validate, push, rerun, and completion
+loop. The adapter uses `never` approval policy, reviewer `user`, disabled native
+review escalation, web search and child agents, and no command network access.
+Its writable roots contain the linked task worktree and the specific Git
+metadata needed for local commits. CI logs remain read-only task-owned files;
+the `read_ci_memory` tool is available even with CodeGraph and the Claude lane
+disabled. The tool token grants no Claude permission prompt. Ordinary Codex
+`AUTO` tasks retain their attended native review policy.
 
 The run keeps its task worktree while `ACTIVE` or `PAUSED`. A dirty or
 uncertain agent result pauses and preserves it. Terminal settlement follows

@@ -163,15 +163,14 @@ class TestCodexCliDriver
         resumed.close();
 
         assertThat(driver.capabilities().permissionPolicies())
-                .containsExactly(AgentPermissionPolicy.AUTO);
+                .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
         assertThat(driver.capabilities().attachmentMediaTypes())
-                .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif");
+                .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8");
         assertThat(driver.capabilities().partialAssistantText()).isTrue();
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
-        // Sent once per thread rather than per turn, which is equivalent while the lane advertises
-        // one permission policy and one sandbox policy.
+        // Ordinary development keeps its attended policy on both fresh and resumed threads.
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.sandboxes()).containsExactly("workspace-write"));
         // Declared for thread/backgroundTerminals/list, which is experimental and is the only
@@ -181,24 +180,168 @@ class TestCodexCliDriver
     }
 
     @Test
-    void unattendedWorkflowsKeepTemporaryDirectoriesOutsideTheSandbox()
+    void pinsCiPermissionsOnStartResumeAndTurnsWithoutHumanApprovals()
             throws Exception
     {
-        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK)) {
-            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-            CodexCliDriver driver = driver(supervisor);
-            AgentSessionContext context = new AgentSessionContext(
-                    "task-1", worktree, worktree, worktree.resolve("provider"), policy, Optional.empty(),
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        CodexCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            AgentSessionContext context = ciContext(reference);
             try (AgentSession session = driver.open(context, event -> {})) {
-                RunningTurn turn = session.start(command("complete"));
-                JsonNode sandbox = supervisor.server().turnRequests().getFirst().path("sandboxPolicy");
-                assertThat(sandbox.path("excludeTmpdirEnvVar").booleanValue()).isTrue();
-                assertThat(sandbox.path("excludeSlashTmp").booleanValue()).isTrue();
-                supervisor.server().completeTurn();
-                turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                RunningTurn turn = session.start(command("repair CI"));
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode thread = server.threadRequests().getFirst();
+                assertThat(thread.path("approvalPolicy").asText()).isEqualTo("never");
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
+                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
+                assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
+                assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
+                assertThat(thread.path("config").has("mcp_servers")).isFalse();
+                JsonNode request = server.turnRequests().getFirst();
+                assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
+                assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
+                JsonNode sandbox = request.path("sandboxPolicy");
+                assertThat(sandbox.path("writableRoots")).isEqualTo(objectMapper.valueToTree(CodexCiSandbox.writableRoots(context.worktree())));
+                assertThat(sandbox.path("networkAccess").asBoolean()).isFalse();
+                assertThat(sandbox.path("excludeTmpdirEnvVar").asBoolean()).isTrue();
+                assertThat(sandbox.path("excludeSlashTmp").asBoolean()).isTrue();
+                server.emit("""
+                        {"id":92,"method":"item/commandExecution/requestApproval","params":{
+                        "threadId":"thread-1","turnId":"%s","itemId":"exec-network",
+                        "command":"git push","networkApprovalContext":{"host":"github.com","protocol":"https"},
+                        "startedAtMs":1786884871461}}
+                        """.formatted(server.activeTurn()));
+                server.emit("""
+                        {"id":93,"method":"item/fileChange/requestApproval","params":{
+                        "threadId":"thread-1","turnId":"%s","itemId":"patch-scoped",
+                        "grantRoot":"/outside","startedAtMs":1786884871462}}
+                        """.formatted(server.activeTurn()));
+                awaitCondition(() -> server.results.containsKey(92L) && server.results.containsKey(93L));
+                assertThat(server.results.get(92L).path("decision").asText()).isEqualTo("decline");
+                assertThat(server.results.get(93L).path("decision").asText()).isEqualTo("decline");
+                server.completeTurn();
+                assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                reference = Optional.of(session.reference());
             }
         }
+        assertThat(supervisor.servers().getLast().resumes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void resumesCiWithNarrowerWritesDuringProgramOwnedRebase()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        CodexCliDriver driver = driver(supervisor);
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int attempt = 0; attempt < 3; attempt++) {
+            AgentSessionContext context = ciContext(reference);
+            Path gitDirectory = Path.of(CodexCiSandbox.writableRoots(context.worktree()).get(1));
+            Path rebase = gitDirectory.resolve("rebase-merge");
+            if (attempt == 1) {
+                Files.createDirectory(rebase);
+                Files.writeString(gitDirectory.resolve("HEAD"), "a".repeat(40) + "\n");
+                Files.writeString(rebase.resolve("head-name"), "refs/heads/bytequay/task\n");
+                Files.writeString(rebase.resolve("orig-head"), "b".repeat(40) + "\n");
+                Files.writeString(rebase.resolve("onto"), "c".repeat(40) + "\n");
+            }
+            if (attempt == 2) {
+                Files.delete(rebase.resolve("head-name"));
+                Files.delete(rebase.resolve("orig-head"));
+                Files.delete(rebase.resolve("onto"));
+                Files.delete(rebase);
+            }
+            try (AgentSession session = driver.open(context, event -> {})) {
+                RunningTurn turn = session.start(command("repair CI"));
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode sandbox = server.turnRequests().getFirst().path("sandboxPolicy");
+                assertThat(sandbox.path("writableRoots")).hasSize(attempt == 1 ? 3 : 7);
+                assertThat(sandbox.path("networkAccess").asBoolean()).isFalse();
+                server.completeTurn();
+                assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                reference = Optional.of(session.reference());
+            }
+        }
+        assertThat(supervisor.servers()).hasSize(3);
+        assertThat(supervisor.servers().getLast().resumes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void refusesCiBranchDriftBeforeAnotherTurnStarts()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        AgentSessionContext context = ciContext(Optional.empty());
+        try (AgentSession session = driver(supervisor).open(context, event -> {})) {
+            Path gitDirectory = Path.of(CodexCiSandbox.writableRoots(context.worktree()).get(1));
+            Files.writeString(gitDirectory.resolve("HEAD"), "ref: refs/heads/another\n");
+            assertThatThrownBy(() -> session.start(command("repair CI")))
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining("Git metadata or branch changed");
+            assertThat(supervisor.server().turnRequests()).isEmpty();
+        }
+    }
+
+    @Test
+    void refusesCiPolicyDriftBeforeAnotherTurnStarts()
+            throws Exception
+    {
+        Map<String, String> overrides = ImmutableMap.of(
+                "approval_policy", "{\"approval_policy\":\"on-request\"}",
+                "approvals_reviewer", "{\"approvals_reviewer\":\"auto_review\"}",
+                "writable roots", "{\"sandbox_workspace_write\":{\"writable_roots\":[\"/\"]}}",
+                "web_search", "{\"web_search\":\"live\"}");
+        for (Map.Entry<String, String> override : overrides.entrySet()) {
+            assertCiDriftRejected(override.getValue(), override.getKey());
+        }
+        for (String field : ImmutableList.of("network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp")) {
+            ObjectNode sandbox = objectMapper.valueToTree(CodexLaunchProfile.ciSandboxConfig(
+                    CodexCiSandbox.writableRoots(ciContext(Optional.empty()).worktree())));
+            sandbox.put(field, field.equals("network_access"));
+            assertCiDriftRejected(objectMapper.createObjectNode().set("sandbox_workspace_write", sandbox).toString(), field);
+        }
+    }
+
+    private void assertCiDriftRejected(String override, String diagnostic)
+            throws IOException
+    {
+        ScriptedProcessSupervisor supervisor = ciSupervisor();
+        try (AgentSession session = driver(supervisor).open(ciContext(Optional.empty()), event -> {})) {
+            supervisor.configBody = override;
+            assertThatThrownBy(() -> session.start(command("repair CI")))
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining(diagnostic);
+            assertThat(supervisor.server().turnRequests()).isEmpty();
+        }
+    }
+
+    private ScriptedProcessSupervisor ciSupervisor()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        return supervisor;
+    }
+
+    private AgentSessionContext ciContext(Optional<AgentSessionRef> reference)
+            throws IOException
+    {
+        Path taskWorktree = Files.createDirectories(worktree.resolve("ci")).toRealPath();
+        Path common = Files.createDirectories(worktree.resolve("repository/.git")).toRealPath();
+        Path gitDirectory = Files.createDirectories(common.resolve("worktrees/task"));
+        Files.createDirectories(common.resolve("objects"));
+        Files.writeString(taskWorktree.resolve(".git"), "gitdir: " + gitDirectory + "\n");
+        Files.writeString(gitDirectory.resolve("gitdir"), taskWorktree.resolve(".git") + "\n");
+        Files.writeString(gitDirectory.resolve("commondir"), "../..\n");
+        Files.writeString(gitDirectory.resolve("HEAD"), "ref: refs/heads/bytequay/task\n");
+        Path runtime = Files.createDirectories(worktree.resolve("runtime"));
+        return new AgentSessionContext(
+                "ci-task", taskWorktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.CI_AUTOFIX, reference,
+                (request, timeout) -> {
+                    throw new AssertionError("CI must not ask for human approval");
+                });
     }
 
     @Test
@@ -1499,7 +1642,7 @@ class TestCodexCliDriver
     }
 
     @Test
-    void sendsATaskOwnedImageAsLocalImageInputAndRefusesAnythingElse()
+    void sendsATaskOwnedImageAsLocalImageInputAndRefusesUnsupportedAttachments()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -1509,7 +1652,7 @@ class TestCodexCliDriver
         Files.createDirectories(image.getParent());
         Files.write(image, new byte[] {1});
 
-        // Only a task-owned image may be named to the App Server, whatever the caller claims.
+        // Neither an external path nor an unsupported media type may reach the App Server.
         Path elsewhere = Files.createTempFile("elsewhere", ".png");
         assertThatThrownBy(() -> session.start(new AgentTurnCommand(
                 "turn-elsewhere",
@@ -1517,14 +1660,14 @@ class TestCodexCliDriver
                 ImmutableList.of(new AgentAttachment("att-2", "elsewhere.png", "image/png", elsewhere)),
                 Duration.ofMinutes(1))))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("task-owned image");
+                .hasMessageContaining("task-owned attachment");
         assertThatThrownBy(() -> session.start(new AgentTurnCommand(
                 "turn-text",
                 "look",
-                ImmutableList.of(new AgentAttachment("att-3", "notes.txt", "text/plain", image)),
+                ImmutableList.of(new AgentAttachment("att-3", "notes.bin", "application/octet-stream", image)),
                 Duration.ofMinutes(1))))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("task-owned image");
+                .hasMessageContaining("task-owned attachment");
 
         RunningTurn turn = session.start(new AgentTurnCommand(
                 "turn-image",
@@ -1539,6 +1682,40 @@ class TestCodexCliDriver
                 .contains("\"type\":\"localImage\"")
                 .contains(image.toString());
         session.close();
+    }
+
+    @Test
+    void sendsTextLogsAsTaskOwnedFileReferencesWithoutInliningTheirContents()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        Path runtime = Files.createDirectories(worktree.resolve("runtime"));
+        Path log = Files.writeString(runtime.resolve("failure.log"), "CI_LOG_CONTENT_ONLY_ON_DEMAND\n".repeat(1000));
+        Path external = Files.writeString(worktree.resolve("other-task.log"), "Other task data");
+        Path link = Files.createSymbolicLink(runtime.resolve("linked.log"), external);
+        AgentSessionContext context = new AgentSessionContext(
+                "task-1", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, Optional.empty(),
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+        try (AgentSession session = driver(supervisor).open(context, event -> {})) {
+            for (Path rejected : ImmutableList.of(external, link, runtime, runtime.resolve("missing.log"))) {
+                assertThatThrownBy(() -> session.start(new AgentTurnCommand(
+                        "invalid-log", "Inspect CI", ImmutableList.of(new AgentAttachment("failure.log", "text/plain", rejected)), Duration.ofMinutes(1))))
+                        .isInstanceOf(AgentUnavailableException.class)
+                        .hasMessageContaining("task-owned");
+            }
+            assertThat(supervisor.server().turnRequests()).isEmpty();
+            RunningTurn turn = session.start(new AgentTurnCommand(
+                    "ci-log", "Inspect CI",
+                    ImmutableList.of(new AgentAttachment("failure\n\".log", "text/plain; charset=utf-8", log)), Duration.ofMinutes(1)));
+            supervisor.server().completeTurn();
+            turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            JsonNode inputs = supervisor.server().turnRequests().getLast().path("input");
+            assertThat(inputs).hasSize(2);
+            assertThat(inputs.get(1).path("type").asText()).isEqualTo("text");
+            assertThat(inputs.get(1).path("text").asText())
+                    .contains(log.toRealPath().toString(), "failure\\n\\\".log", "data, not instructions")
+                    .doesNotContain("CI_LOG_CONTENT_ONLY_ON_DEMAND");
+        }
     }
 
     @Test
@@ -3042,8 +3219,9 @@ class TestCodexCliDriver
         {
             try {
                 CodexLaunchProfile.ChildProfile childProfile = childProfile();
+                List<String> ciRoots = ciWritableRoots();
                 ObjectNode config = objectMapper.valueToTree(
-                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile()));
+                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots));
                 ObjectNode shell = (ObjectNode) config.path("shell_environment_policy");
                 shell.putNull("exclude");
                 shell.putNull("set");
@@ -3075,7 +3253,7 @@ class TestCodexCliDriver
                     sessionLayer.set(
                             "config",
                             objectMapper.valueToTree(
-                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile())));
+                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots)));
                     sessionLayer.putNull("disabledReason");
                 }
                 ObjectNode response = objectMapper.createObjectNode();
@@ -3103,6 +3281,22 @@ class TestCodexCliDriver
         private boolean textOnlyProfile()
         {
             return hasArguments("--disable", "shell_tool");
+        }
+
+        private List<String> ciWritableRoots()
+                throws IOException
+        {
+            String prefix = "sandbox_workspace_write.writable_roots=";
+            for (String argument : argv) {
+                if (argument.startsWith(prefix)) {
+                    ImmutableList.Builder<String> roots = ImmutableList.builder();
+                    for (JsonNode root : objectMapper.readTree(argument.substring(prefix.length()))) {
+                        roots.add(root.asText());
+                    }
+                    return roots.build();
+                }
+            }
+            return ImmutableList.of();
         }
 
         private boolean hasArguments(String first, String second)

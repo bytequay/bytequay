@@ -33,6 +33,7 @@ import java.util.Optional;
  * advertised by its selected model; V1 is bounded to the proven root/child/grandchild depth.
  */
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 final class CodexLaunchProfile
 {
@@ -107,7 +108,18 @@ final class CodexLaunchProfile
             Optional<CodeGraphLaunch> codeGraph,
             boolean textOnly)
     {
+        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of());
+    }
+
+    static List<String> arguments(
+            String executable,
+            ChildProfile childProfile,
+            Optional<CodeGraphLaunch> codeGraph,
+            boolean textOnly,
+            List<String> ciWritableRoots)
+    {
         requireNonNull(codeGraph, "codeGraph is null");
+        boolean ci = !ciWritableRoots.isEmpty();
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
                 "app-server",
@@ -121,7 +133,7 @@ final class CodexLaunchProfile
                 "-c",
                 "forced_login_method=\"chatgpt\"",
                 "-c",
-                "web_search=" + tomlString(textOnly ? "disabled" : "live"),
+                "web_search=" + tomlString(textOnly || ci ? "disabled" : "live"),
                 "-c",
                 "shell_environment_policy.inherit=\"core\"",
                 "-c",
@@ -131,9 +143,18 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
-        arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
-        if (!textOnly) {
+        arguments.add(textOnly || ci ? "--disable" : "--enable", "guardian_approval");
+        if (!textOnly && !ci) {
             arguments.add("-c", "auto_review.policy=" + tomlString(CodexApprovalPolicy.policy()));
+        }
+        if (ci) {
+            arguments.add(
+                    "-c", "approval_policy=\"never\"",
+                    "-c", "approvals_reviewer=\"user\"",
+                    "-c", "sandbox_workspace_write.writable_roots=" + quotedList(ciWritableRoots),
+                    "-c", "sandbox_workspace_write.network_access=false",
+                    "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                    "-c", "sandbox_workspace_write.exclude_slash_tmp=true");
         }
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
@@ -170,13 +191,24 @@ final class CodexLaunchProfile
 
     static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly)
     {
+        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of());
+    }
+
+    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly, List<String> ciWritableRoots)
+    {
         requireNonNull(childProfile, "childProfile is null");
+        boolean ci = !ciWritableRoots.isEmpty();
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
-                .put("web_search", textOnly ? "disabled" : "live")
-                .put("features", expectedFeatures(childProfile, textOnly))
+                .put("web_search", textOnly || ci ? "disabled" : "live")
+                .put("features", expectedFeatures(childProfile, textOnly, ci))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy());
-        if (!textOnly) {
+        if (!textOnly && !ci) {
             config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy()));
+        }
+        if (ci) {
+            config.put("approval_policy", "never")
+                    .put("approvals_reviewer", "user")
+                    .put("sandbox_workspace_write", ciSandboxConfig(ciWritableRoots));
         }
         if (!codeGraph) {
             config.put("mcp_servers", ImmutableMap.of());
@@ -194,10 +226,15 @@ final class CodexLaunchProfile
 
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
     {
+        return expectedFeatures(childProfile, textOnly, false);
+    }
+
+    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean ci)
+    {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
-        features.put("guardian_approval", !textOnly);
+        features.put("guardian_approval", !textOnly && !ci);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
@@ -205,6 +242,15 @@ final class CodexLaunchProfile
         features.put("multi_agent", childProfile == ChildProfile.V1);
         features.put("multi_agent_v2", childProfile == ChildProfile.V2);
         return features.buildOrThrow();
+    }
+
+    static Map<String, Object> ciSandboxConfig(List<String> writableRoots)
+    {
+        return ImmutableMap.of(
+                "writable_roots", ImmutableList.copyOf(writableRoots),
+                "network_access", false,
+                "exclude_tmpdir_env_var", true,
+                "exclude_slash_tmp", true);
     }
 
     /** A TOML basic string: quotes, backslashes, and line breaks escaped, everything else literal. */
@@ -255,9 +301,7 @@ final class CodexLaunchProfile
     private static String quotedList(List<String> values)
     {
         return values.stream()
-                .map(value -> "\"" + value + "\"")
-                .collect(ImmutableList.toImmutableList())
-                .toString()
-                .replace(", ", ",");
+                .map(CodexLaunchProfile::tomlString)
+                .collect(joining(",", "[", "]"));
     }
 }

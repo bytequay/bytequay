@@ -528,16 +528,18 @@ class TestDevelopmentFollowupCoordinator
         assertThat(prompt).contains("--head '" + route.headBranch() + "'").doesNotContain("--head 'owner:");
     }
 
-    @Test
-    void coordinatorDrivesCiUsingAcceptedProviderAndOriginalActivation()
+    @ParameterizedTest
+    @ValueSource(strings = {"claude", "codex"})
+    void coordinatorDrivesCiUsingAcceptedRepairAgentAndOriginalActivation(String laneId)
     {
-        preparePublished(FULL);
+        AgentLaneId lane = new AgentLaneId(laneId);
+        preparePublished(new DevelopmentAutomation(true, true, true, Optional.of(lane)));
         CiAutofixRun run = ciRun();
         doReturn(run).when(ci).startDevelopment(any(), any(), any(), any(), any());
         when(ci.advance(run.id())).thenReturn(run, run.finish(CiAutofixRun.FinishReason.GREEN, "Checks passed", NOW));
         advance();
         var order = inOrder(ci, waitForCi, turns);
-        order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand("workspace", 7, AgentLaneId.CLAUDE_CLI,
+        order.verify(ci).startDevelopment(eq(new StartCiAutofixCommand("workspace", 7, lane,
                 3, true, true, true, "development-ci:" + taskId + ":" + source.id())), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
         order.verify(ci).advance(run.id());
         order.verify(waitForCi).run();
@@ -578,11 +580,11 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void missingCiProviderFailsAfterPreservingTheVerifiedDraft()
+    void missingCiRepairAgentFailsAfterPreservingTheVerifiedDraft()
     {
         preparePublished(DevelopmentAutomation.DEFAULT);
         advance();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Select a supported CI provider"));
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Select a supported CI repair agent"));
         verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
         noFollowup();
     }
@@ -902,7 +904,7 @@ class TestDevelopmentFollowupCoordinator
     {
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
-                        AgentLaneId.CLAUDE_CLI.value(), Optional.of(taskId.toString())),
+                        source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElseThrow().value(), Optional.of(taskId.toString())),
                 deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 

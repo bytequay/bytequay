@@ -197,7 +197,7 @@ public final class ClaudePermissionBroker
 
     /**
      * Registers a token for a provider that reaches this endpoint through its own MCP
-     * configuration, exposing its graph, review, or development reporting capability. Empty
+     * configuration, exposing its CI memory, graph, review, or development reporting capability. Empty
      * when the task has no local tools.
      */
     public Optional<CodeGraphRegistration> registerTools(
@@ -216,7 +216,7 @@ public final class ClaudePermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        if (codeGraph.isEmpty() && review.isEmpty() && development.isEmpty()) {
+        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty()) {
             return Optional.empty();
         }
         String token = token();
@@ -276,7 +276,7 @@ public final class ClaudePermissionBroker
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
         return switch (params.name()) {
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
-            case "read_ci_memory" -> context.permissionTools() ? readCiMemory(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
+            case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             default -> reviewTool(request.id(), params, context);
@@ -493,7 +493,7 @@ public final class ClaudePermissionBroker
                                 "stopAfter", ImmutableMap.of("type", "string", "enum", ImmutableList.of("local_changes", "commits", "draft", "ci"))),
                         "required", ImmutableList.of("readyForDelivery"),
                         "additionalProperties", false))));
-        if (context.permissionTools() && context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
                     "Read recent or matching CI Autofix history for this task",
@@ -726,7 +726,7 @@ public final class ClaudePermissionBroker
     }
 
     /** HTTP response returned to the thin application controller. */
-    /** A code-graph-only task token and the endpoint it authenticates against; closing forgets the token. */
+    /** A task-local tool token and the endpoint it authenticates against; closing forgets the token. */
     public final class CodeGraphRegistration
             implements AutoCloseable
     {

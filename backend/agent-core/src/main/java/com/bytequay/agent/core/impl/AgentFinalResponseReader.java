@@ -21,6 +21,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -43,25 +44,42 @@ final class AgentFinalResponseReader
     }
 
     /**
-     * The compact index of every subagent the task's events name, in order of discovery, with
-     * how each ended and what it answered. Kept with the task after its transcript is removed.
+     * What the task answered and what every subagent its events name did, from one pass over the
+     * history: the root thread's last final answer, and the compact child index in order of
+     * discovery. Both are kept with the task after its transcript is removed.
      */
-    List<ChildSummary> children(TaskId taskId)
+    FinalResponse read(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         Map<String, ChildFacts> children = new LinkedHashMap<>();
+        String response = "";
         long afterSequence = 0;
         while (true) {
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
             for (AgentEventEnvelope envelope : page) {
                 observeChild(children, envelope);
+                // A subagent's answer is its own; only the root thread answers for the task.
+                if (envelope.source().parentProviderThreadId().isEmpty()
+                        && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
+                        && message.messageKind() == MessageKind.ANSWER
+                        && message.phase() == MessagePhase.FINAL) {
+                    response = message.text();
+                }
             }
             if (page.size() < EVENT_PAGE_SIZE) {
-                break;
+                return new FinalResponse(response, children.values().stream().map(ChildFacts::summary).collect(toImmutableList()));
             }
             afterSequence = page.getLast().sequence();
         }
-        return children.values().stream().map(ChildFacts::summary).collect(toImmutableList());
+    }
+
+    record FinalResponse(String response, List<ChildSummary> children)
+    {
+        FinalResponse
+        {
+            requireNonNull(response, "response is null");
+            children = ImmutableList.copyOf(children);
+        }
     }
 
     private static void observeChild(Map<String, ChildFacts> children, AgentEventEnvelope envelope)
@@ -125,29 +143,6 @@ final class AgentFinalResponseReader
         private ChildSummary summary()
         {
             return new ChildSummary(thread, Optional.of(parent), label, purpose, outcome, result, startedAt, endedAt);
-        }
-    }
-
-    String read(TaskId taskId)
-    {
-        requireNonNull(taskId, "taskId is null");
-        String response = "";
-        long afterSequence = 0;
-        while (true) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
-            for (AgentEventEnvelope envelope : page) {
-                // A subagent's answer is its own; only the root thread answers for the task.
-                if (envelope.source().parentProviderThreadId().isEmpty()
-                        && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                        && message.messageKind() == MessageKind.ANSWER
-                        && message.phase() == MessagePhase.FINAL) {
-                    response = message.text();
-                }
-            }
-            if (page.size() < EVENT_PAGE_SIZE) {
-                return response;
-            }
-            afterSequence = page.getLast().sequence();
         }
     }
 }

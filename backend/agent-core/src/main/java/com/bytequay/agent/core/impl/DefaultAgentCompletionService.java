@@ -172,18 +172,18 @@ public final class DefaultAgentCompletionService
     private TaskSummary summarize(AgentTask task, Optional<String> notes)
     {
         AgentMetrics metrics = metricsService.taskTotals(task.id());
-        String finalResponse = finalResponseReader.read(task.id());
+        AgentFinalResponseReader.FinalResponse finalResponse = finalResponseReader.read(task.id());
         WorktreeSnapshot worktree = worktreeService.inspect(task.taskWorktree()
                 .orElseThrow(() -> new AgentConflictException("Task has no managed worktree: " + task.id())));
         if (worktree.dirty() || worktree.gitOperationInProgress()) {
             throw new AgentConflictException("Task worktree is not clean: " + task.id());
         }
         return new TaskSummary(
-                finalResponse,
+                finalResponse.response(),
                 Optional.of(worktree),
                 metrics,
                 notes,
-                finalResponseReader.children(task.id()));
+                finalResponse.children());
     }
 
     private AgentTask persistCompletion(TaskId taskId, WorktreeMutationClaim claim, TaskSummary summary)

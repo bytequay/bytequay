@@ -164,9 +164,10 @@
 
 .agt-screen-head {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 10px;
-  padding: 12px 62px 11px 20px;
+  padding: 12px 20px 11px;
   border-bottom: 1px solid #e3e3e6;
 }
 
@@ -2045,6 +2046,14 @@
   min-height: 0;
 }
 
+.agt-task-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .agt-conversation {
   position: relative;
   display: flex;
@@ -2137,6 +2146,7 @@
 /* One 26px control for the header's actions, as the design draws Complete, the panel toggle and the overview. */
 .agt-headbtn {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -2170,119 +2180,7 @@
   cursor: not-allowed;
 }
 
-/* The panel's only top row: three tabs on the left, two 26px icon buttons on the right. */
-.agt-panel__tabs {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 9px 11px;
-}
-
-.agt-panel__tablist {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.agt-panel__tablist::-webkit-scrollbar {
-  display: none;
-}
-
-.agt-panel__tab {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 500;
-  color: #57606a;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.agt-panel__tab.is-current {
-  background: #eceff2;
-  font-weight: 600;
-  color: #1f2328;
-}
-
-.agt-panel__tab-mark {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  stroke-width: 1.75;
-  color: #6e6e76;
-}
-
-.agt-panel__tab-count {
-  display: inline-flex;
-  gap: 4px;
-  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.agt-panel__tab-count .is-added {
-  color: #1a7f37;
-}
-
-.agt-panel__tab-count .is-removed {
-  color: #cf222e;
-}
-
-.agt-panel__icon {
-  display: inline-flex;
-  width: 26px;
-  height: 26px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #e3e3e6;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #57606a;
-  cursor: pointer;
-  padding: 0;
-}
-
-.agt-panel__icon:hover {
-  background: #f6f8fa;
-  color: #1f2328;
-}
-
-.agt-panel__icon > svg {
-  width: 12px;
-  height: 12px;
-  stroke-width: 1.75;
-}
-
-.agt-panel__hide {
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  font-size: 13px;
-  color: #8c959f;
-  cursor: pointer;
-  padding: 0;
-}
-
-.agt-panel__hide:hover {
-  background: #f1f3f5;
-  color: #1f2328;
-}
-
-/* The app rings focus per component, so the panel's own controls declare their own ring. */
-.agt-panel :is(.agt-panel__tab, .agt-panel__icon, .agt-panel__hide, .agt-panel__row, .agt-nopr__create):focus-visible {
+.agt-panel :is(.pull-detail__tabs button, .pull-detail__header-actions button, .agt-panel__row, .agt-nopr__create):focus-visible {
   outline: 2px solid #0969da;
   outline-offset: 1px;
 }
@@ -2299,33 +2197,6 @@
 .agt-state.is-merged {
   color: #8250df;
   background: #fbefff;
-}
-
-/* The full-width pull request, read at panel width: same components, tighter frame. */
-.agt-panel .pull-request-overview {
-  max-width: none;
-  padding: 4px 0 18px;
-}
-
-.agt-panel .pull-request-overview .pr-overview__title h1 {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.agt-panel .pull-request-overview .pr-overview__number {
-  font-size: 17px;
-}
-
-.agt-panel .pull-request-overview .pr-overview__branches {
-  margin-top: 11px;
-}
-
-.agt-panel .pull-request-overview .pr-overview__rule {
-  margin: 14px 0;
-}
-
-.agt-panel .pull-request-overview .pr-meta {
-  margin-bottom: 14px;
 }
 
 /* The PR tab before the branch has one: the design's centred empty state. */

@@ -118,7 +118,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
     ? 'Merged'
     : state === 'closed'
       ? 'Closed'
-      : detail.draft || pr.draft
+      : detail.draft
         ? 'Draft'
         : isQueued(detail.recentActivity)
           ? 'Queued'

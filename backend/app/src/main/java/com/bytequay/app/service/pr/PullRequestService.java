@@ -652,6 +652,21 @@ public class PullRequestService
         invalidatePullRequestCaches(repo, number);
     }
 
+    public void markReadyForReview(String repo, int number)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        String nodeId = merges.pullRequestNodeId(pat, parseRef(repo, number))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
+        try {
+            pullRequestWrites.markReadyForReview(pat, nodeId);
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+        }
+        finally {
+            // A lost response may still have promoted the draft; refresh without repeating the write.
+            invalidatePullRequestDetail(repo, number);
+        }
+    }
+
     public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
     {
         pullRequestWrites.updateIssueMetadata(

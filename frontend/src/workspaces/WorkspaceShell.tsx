@@ -53,6 +53,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
   const agentScreens = tab === 'home' || tab === 'tasks';
+  const taskDetail = tab === 'tasks' && initialAgentTaskId !== null;
   useEffect(() => {
     if (!agentScreens) return;
     const onKey = (event: KeyboardEvent): void => {
@@ -65,22 +66,25 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.removeEventListener('keydown', onKey);
   }, [agentScreens]);
   useEffect(() => { if (!agentScreens) setOverviewOpen(false); }, [agentScreens]);
+  const overviewToggle = (
+    <button
+      type="button"
+      className={`agt-headbtn${taskDetail && !overviewOpen ? '' : ' agt-overview-toggle'}`}
+      aria-pressed={overviewOpen}
+      aria-label="Show all tasks"
+      title={'Show all tasks (⇧⌘\\)'}
+      onClick={() => setOverviewOpen((open) => !open)}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="2" y="5" width="9" height="9" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M5.5 5V3.6A1.6 1.6 0 0 1 7.1 2h5.3A1.6 1.6 0 0 1 14 3.6v5.3a1.6 1.6 0 0 1-1.6 1.6H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
   const stage = (content: React.ReactNode) => (
     <div className="agt-stage">
       {content}
-      <button
-        type="button"
-        className="agt-headbtn agt-overview-toggle"
-        aria-pressed={overviewOpen}
-        aria-label="Show all tasks"
-        title={'Show all tasks (⇧⌘\\)'}
-        onClick={() => setOverviewOpen((open) => !open)}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <rect x="2" y="5" width="9" height="9" rx="1.6" stroke="currentColor" strokeWidth="1.3" />
-          <path d="M5.5 5V3.6A1.6 1.6 0 0 1 7.1 2h5.3A1.6 1.6 0 0 1 14 3.6v5.3a1.6 1.6 0 0 1-1.6 1.6H11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-        </svg>
-      </button>
+      {(!taskDetail || overviewOpen) && overviewToggle}
       {overviewOpen && (
         <TaskOverview
           workspaceId={workspace.id}
@@ -177,6 +181,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           workspaceId={workspace.id}
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
+          headerAction={overviewOpen ? undefined : overviewToggle}
           onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
           workspace={workspace}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}

@@ -510,14 +510,20 @@ inventory still traverses children and grandchildren without display metadata.
 Such an inventory-only child does not manufacture cards or a V2 path, including
 saved children of resumed turns.
 
-The panel opens on the task's pull request, and **Subagents** is a sibling tab
-beside it. One top row holds the three tabs — **PR #&lt;number&gt;**, **Changes**
-with its `+n`/`−n` counters, and **Subagents** with a total count — plus exactly
-two 26px icon buttons, **Open full width** and **Hide panel**. Nothing else
-lives in that row: pull-request state, `base ← head` and checks read in the body
-under the title, where the full-width page already puts them, and scroll with
-it. The subagent list itself is unchanged; only its placement and the tab's icon
-and count are new.
+The panel opens on the task's pull request and uses the main PR page's toolbar,
+content spacing, and actions. **Subagents**, with its total count, replaces
+**Agent review** beside **PR #&lt;number&gt;** and **Changes**; providers without
+nested activity omit that tab. Refresh, **Submit review**, and the checks/merge
+button remain in the toolbar. An author can submit a comment review on their
+own PR, without approval or request-changes choices. **Open full width** opens
+the main PR page. Pull-request state, `base ← head`, and checks scroll with the
+body. The dialog opened by the checks button exposes **Ready for review** for
+the author or a repository writer on open drafts, beside the merge action.
+Both buttons remain visible: drafts enable **Ready for review** and disable
+merge, while open non-drafts disable **Ready for review** and enable merge when
+its existing permission, checks, and merge-mode requirements pass. Only clicking
+**Ready for review** promotes the draft; running checks do not block this
+explicit action. Drafts cannot be merged from that dialog.
 
 The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
 so the pull request is read beside the conversation without leaving the task. A
@@ -763,9 +769,13 @@ time remain in the composer or transcript rather than the header.
 
 The detail screen keeps the composer anchored at the bottom of the conversation
 pane while the transcript scrolls. The composer shares the transcript's reading
-width and horizontal inset, with no divider above it. An open side panel sits
-beside the whole conversation, including its composer, and extends to the bottom
-of the screen. This layout supersedes the older HTML prototype's full-width dock.
+width and horizontal inset, with no divider above it. Back, title, task status,
+archive/completion, the panel toggle, and **Show all tasks** stay in the conversation
+column's header. Connection and task-error banners also belong to that column.
+An open side panel sits beside the whole conversation, including its header and
+composer, and occupies the screen's full height with its own PR toolbar at the
+top. Resizing the panel keeps task controls inside the conversation column.
+This layout supersedes the older HTML prototype's full-width dock and task header.
 
 ```text
 ┌ Back · task title · status · ✓                      panel toggle ┐

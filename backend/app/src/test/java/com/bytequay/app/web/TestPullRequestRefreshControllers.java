@@ -111,6 +111,23 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void marksDraftReadyForReviewOnlyThroughTheWriteEndpoint()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
+        var mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/prs/ready-for-review").queryParam("repo", "owner/repo").queryParam("number", "7"))
+                .andExpect(status().isMethodNotAllowed());
+        verifyNoInteractions(pullRequests);
+        mvc.perform(post("/prs/ready-for-review").queryParam("repo", "owner/repo").queryParam("number", "7"))
+                .andExpect(status().isNoContent());
+
+        verify(pullRequests).markReadyForReview("owner/repo", 7);
+    }
+
+    @Test
     void dashboardRefreshCompletesBeforeTheRequestReturns()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);

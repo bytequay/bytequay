@@ -214,15 +214,20 @@ describe('watched repository workspace UI', () => {
     expect(tasks).toContain('Describe a task');
     // Every agent screen carries the overview control.
     expect(tasks).toContain('aria-label="Show all tasks"');
+    expect(tasks).toContain('class="agt-headbtn agt-overview-toggle"');
     const home = renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />);
     expect(home).toContain('class="agt-home__repo">upstream/project<');
     expect(home).toContain('Open tasks · 0');
     expect(home).toContain('aria-label="Describe a task"');
+    expect(home).toContain('class="agt-headbtn agt-overview-toggle"');
 
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
       <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
     expect(open).toContain('Message the agent');
+    expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
+    expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);
+    expect(open).not.toContain('agt-overview-toggle');
   });
 
   it('keeps repository-scoped PRs and Issues available before metadata is synchronized', () => {

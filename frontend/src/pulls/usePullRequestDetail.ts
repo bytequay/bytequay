@@ -107,12 +107,15 @@ export function usePullRequestDetail(
   const repo = target?.repo ?? null;
   const number = target?.number ?? null;
   const key = pullRequestKey(target);
+  const currentKey = useRef(key);
+  currentKey.current = key;
   // Effects read the callbacks through a ref so a caller passing inline arrows cannot restart the
   // poll on every render.
   const listeners = useRef({ onDetail, onStatus });
   listeners.current = { onDetail, onStatus };
 
   const apply = useCallback((value: PullRequestDetailDto, requestMutationVersion?: number) => {
+    if (pullRequestKey(value) !== currentKey.current) return;
     if (requestMutationVersion !== undefined && requestMutationVersion !== mutationVersion.current) return;
     applied.current = value;
     appliedKey.current = pullRequestKey(value);
@@ -215,25 +218,28 @@ export function usePullRequestDetail(
   }, [active, apply, key, number, repo]);
 
   const refresh = useCallback(async () => {
-    if (repo === null || number === null) return;
+    if (repo === null || number === null || key !== currentKey.current) return;
+    setLoading(true);
     const requestMutationVersion = mutationVersion.current;
     const request = window.bridge.refreshAllPullRequestDetailByRef(repo, number);
     refreshInFlight.current = request;
     try {
       apply(await request, requestMutationVersion);
-      setError(null);
+      if (key === currentKey.current) setError(null);
     }
     catch (failure) {
-      setError(remoteErrorMessage(failure));
+      if (key === currentKey.current) setError(remoteErrorMessage(failure));
     }
     finally {
       if (refreshInFlight.current === request) refreshInFlight.current = null;
+      if (key === currentKey.current) setLoading(false);
     }
-  }, [apply, number, repo]);
+  }, [apply, key, number, repo]);
 
   const update = useCallback<PullDetailUpdater>((updatedRepo, updatedNumber, change) => {
     const current = applied.current;
     if (current === null
+      || pullRequestKey(current) !== currentKey.current
       || current.repo.toLowerCase() !== updatedRepo.toLowerCase()
       || current.number !== updatedNumber) return;
     const next = change(current);
@@ -245,6 +251,7 @@ export function usePullRequestDetail(
   // A write returns the pull request as GitHub now has it, which does not carry the reactions,
   // label edits and thread resolutions this session applied locally. Merging keeps them.
   const replace = useCallback((value: PullRequestDetailDto) => {
+    if (pullRequestKey(value) !== currentKey.current) return;
     const current = applied.current;
     const next = current !== null
       && current.repo.toLowerCase() === value.repo.toLowerCase()
@@ -256,5 +263,5 @@ export function usePullRequestDetail(
     setDetail(next);
   }, []);
 
-  return { detail: key === null ? null : detail, loading, error, refresh, update, replace };
+  return { detail: key === null || pullRequestKey(detail) !== key ? null : detail, loading, error, refresh, update, replace };
 }

@@ -21,7 +21,6 @@ CircleX,
 FileDiff,
 GitPullRequest,
 ListChecks,
-Maximize2,
 PanelRight,
 TriangleAlert
 } from 'lucide-react';
@@ -31,6 +30,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
 import { remoteErrorMessage } from '../pulls/PullOverview';
+import { PullDetailHeader } from '../pulls/PullsScreen';
 import {
 laneLabel,
 providerAvailable,
@@ -135,6 +135,7 @@ interface AgentTaskScreenProps {
   workspace?: WorkspaceDto;
   /** Opens the provider settings used by authentication recovery. */
   onOpenSettings?: () => void;
+  headerAction?: React.ReactNode;
 }
 
 type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto; automation: boolean } | { kind: 'fail' };
@@ -505,56 +506,24 @@ export function draftPullRequestPrompt(workspace: WorkspaceDto): string {
   ].join('\n');
 }
 
-/**
- * The panel's one top row: the three tabs, then Open full width and Hide panel.
- *
- * Nothing else lives here. The pull request's state, its branches and its checks read in the
- * body under the title, where the full-width page already puts them, and scroll with it.
- */
-function PanelTabs({ tab, showAgents, pullRequest, agentCount, onSelect, onOpenFullWidth, onHide }: {
+/** The same tab styling before the task's branch has a pull request. */
+function PanelTabs({ tab, agentTab, onSelect }: {
   tab: PanelTab;
-  showAgents: boolean;
-  pullRequest: PullRequestDto | null;
-  agentCount: number;
+  agentTab: React.ReactNode;
   onSelect: (tab: PanelTab) => void;
-  /** Absent when the panel has no pull request to open, or no page to open it on. */
-  onOpenFullWidth?: () => void;
-  onHide: () => void;
 }): React.JSX.Element {
   return (
-    <div className="agt-panel__tabs">
-      {/* Labels never wrap: below the panel's minimum width the tabs scroll and the icons stay. */}
-      <div className="agt-panel__tablist" role="tablist" aria-label="Task side panel views">
-        <button type="button" role="tab" className={`agt-panel__tab${tab === 'pr' ? ' is-current' : ''}`} aria-selected={tab === 'pr'} onClick={() => onSelect('pr')}>
-          <GitPullRequest className="agt-panel__tab-mark" aria-hidden="true" />
-          {pullRequest === null ? 'Pull request' : `PR #${pullRequest.number}`}
+    <header className="pull-detail__header pull-detail__header--tabs">
+      <nav className="pull-detail__tabs" aria-label="Task side panel views">
+        <button type="button" className={tab === 'pr' ? 'is-active' : ''} aria-pressed={tab === 'pr'} onClick={() => onSelect('pr')}>
+          <GitPullRequest aria-hidden="true" /> Pull request
         </button>
-        <button type="button" role="tab" className={`agt-panel__tab${tab === 'changes' ? ' is-current' : ''}`} aria-selected={tab === 'changes'} onClick={() => onSelect('changes')}>
-          <FileDiff className="agt-panel__tab-mark" aria-hidden="true" />
-          Changes
-          {pullRequest !== null && (
-            <span className="agt-panel__tab-count">
-              <span className="is-added">+{pullRequest.additions}</span>
-              <span className="is-removed">−{pullRequest.deletions}</span>
-            </span>
-          )}
+        <button type="button" className={tab === 'changes' ? 'is-active' : ''} aria-pressed={tab === 'changes'} onClick={() => onSelect('changes')}>
+          <FileDiff aria-hidden="true" /> Changes
         </button>
-        {showAgents && (
-          <button type="button" role="tab" className={`agt-panel__tab${tab === 'agents' ? ' is-current' : ''}`} aria-selected={tab === 'agents'} onClick={() => onSelect('agents')}>
-            <Bot className="agt-panel__tab-mark" aria-hidden="true" />
-            Subagents
-            {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
-          </button>
-        )}
-      </div>
-      <span className="agt-spacer" />
-      {onOpenFullWidth !== undefined && (
-        <button type="button" className="agt-panel__icon" aria-label="Open this pull request full width" title="Open full width" onClick={onOpenFullWidth}>
-          <Maximize2 aria-hidden="true" />
-        </button>
-      )}
-      <button type="button" className="agt-panel__hide" aria-label="Hide the side panel" onClick={onHide}>»</button>
-    </div>
+        {agentTab}
+      </nav>
+    </header>
   );
 }
 
@@ -564,11 +533,12 @@ function PanelTabs({ tab, showAgents, pullRequest, agentCount, onSelect, onOpenF
  * The diff brings its own toolbar and scroller, so it mounts flush and fills the frame instead
  * of sitting inside a second scroller with its own padding.
  */
-function PanelFrame({ label, tabs, width, flush = false, children }: {
+function PanelFrame({ label, tabs, width, flush = false, overview = false, children }: {
   label: string;
   tabs: React.JSX.Element;
   width: number;
   flush?: boolean;
+  overview?: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -578,7 +548,7 @@ function PanelFrame({ label, tabs, width, flush = false, children }: {
       {tabs}
       {flush
         ? <div className="agt-panel__flush">{children}</div>
-        : <div className="agt-panel__scroll" ref={scrollRef}>{children}</div>}
+        : <div className={overview ? 'pull-detail__body' : 'agt-panel__scroll'} ref={scrollRef}>{children}</div>}
     </aside>
   );
 }
@@ -596,7 +566,7 @@ function SidePanel({
   pullRequestError, pullRequestLoading, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
-  activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onHide, onOpenPullRequest,
+  activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
   onCreatePullRequest, createPullRequestBlocked = null,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
@@ -631,7 +601,6 @@ function SidePanel({
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
   onSelectTab: (tab: PanelTab) => void;
-  onHide: () => void;
   onOpenPullRequest?: (number: number) => void;
   onCreatePullRequest?: () => void;
   createPullRequestBlocked?: string | null;
@@ -644,19 +613,33 @@ function SidePanel({
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
-  const tabs = (
-    <PanelTabs
-      tab={tab}
-      showAgents={showAgents}
-      pullRequest={pullRequest}
-      agentCount={agents.length + expiredChildren.length}
-      onSelect={onSelectTab}
-      onOpenFullWidth={pullRequest === null || onOpenPullRequest === undefined
+  const agentCount = agents.length + expiredChildren.length;
+  const agentTab = showAgents ? (
+    <button type="button" className={tab === 'agents' ? 'is-active' : ''} aria-pressed={tab === 'agents'} onClick={() => onSelectTab('agents')}>
+      <Bot aria-hidden="true" /> Subagents
+      {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
+    </button>
+  ) : null;
+  const tabs = pullRequest === null
+    ? <PanelTabs tab={tab} agentTab={agentTab} onSelect={onSelectTab} />
+    : <PullDetailHeader
+      pr={pullRequest}
+      detail={pullRequestDetail.detail}
+      tab={tab === 'pr' ? 'overview' : tab === 'changes' ? 'changes' : null}
+      agentTab={agentTab}
+      onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : 'changes')}
+      onRefresh={pullRequestDetail.refresh}
+      refreshing={pullRequestDetail.loading}
+      onReviewSubmitted={pullRequestDetail.replace}
+      onDetailUpdate={pullRequestDetail.update}
+      pendingComments={pullRequestPendingComments}
+      onPendingCommentsChange={onPullRequestPendingCommentsChange}
+      zoomed={false}
+      zoomLabel="Open this pull request full width"
+      onZoom={onOpenPullRequest === undefined
         ? undefined
         : () => onOpenPullRequest(pullRequest.number)}
-      onHide={onHide}
-    />
-  );
+    />;
   const pullRequestNotice = pullRequestError !== null
     ? <div className="agt-note" role="status">
         Could not refresh this task&apos;s pull request. {pullRequestError}{' '}
@@ -669,7 +652,7 @@ function SidePanel({
       : null;
   if (tab === 'pr') {
     return (
-      <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width}>
+      <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null}>
         {pullRequestNotice}
         {pullRequest === null
           ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
@@ -899,10 +882,12 @@ export function AgentTaskBody({
   onFollowHistory = () => {},
   pendingApprovals = null,
   automation,
+  headerAction,
   submissionBlocked = false,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
+  headerAction?: React.ReactNode;
   submissionBlocked?: boolean;
   models: ModelOptionDto[];
   historyLoading?: boolean;
@@ -989,7 +974,7 @@ export function AgentTaskBody({
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
   onCleanup?: () => void;
 }): React.JSX.Element {
-  const sidePanel = useResizablePane(300, 240, 1600, 'start');
+  const sidePanel = useResizablePane(960, 360, 1600, 'start');
   const before = historyBefore(state);
   const after = historyAfter(state);
   const scroll = useConversationHistory(state.events, state.turn?.endedAt, {
@@ -1073,6 +1058,8 @@ export function AgentTaskBody({
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
   return (
     <div className="agt-screen">
+      <div className="agt-body" onClickCapture={selectPullRequestTab}>
+      <section className="agt-task-column" aria-label="Agent conversation">
       <div className="agt-screen-head">
         <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
         <TaskTitle
@@ -1131,6 +1118,7 @@ export function AgentTaskBody({
             <PanelRight aria-hidden="true" />
           </button>
         )}
+        {headerAction}
       </div>
 
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
@@ -1143,7 +1131,6 @@ export function AgentTaskBody({
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
-      <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
@@ -1235,6 +1222,7 @@ export function AgentTaskBody({
           footer={<TaskStats task={state.task} turns={turns} now={now} />} />
       )}
       </AgentConversation>
+      </section>
       {panelOpen && state.task !== null && (
         <>
           <div
@@ -1275,7 +1263,6 @@ export function AgentTaskBody({
             onToggleActivity={onToggleActivity}
             onDecide={onDecide}
             onSelectTab={onSelectPanelTab}
-            onHide={onTogglePanel}
             onOpenPullRequest={onOpenPullRequest}
             onCreatePullRequest={onCreatePullRequest}
             createPullRequestBlocked={automationActive ? 'Available when automation finishes' : status !== 'idle' || state.sending || state.connection === 'failed'
@@ -1363,6 +1350,7 @@ export default function AgentTaskScreen({
   onOpenPullRequest,
   workspace,
   onOpenSettings,
+  headerAction,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
   const [models, setModels] = useState<ModelOptionDto[]>([]);
@@ -1684,12 +1672,19 @@ export default function AgentTaskScreen({
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
   const taskPr = taskPullRequest(pullRequests);
-  // The detail is read for the Changes tab too: its review threads and its "can this account
-  // review" answer both come from the detail, not from the diff.
-  const pullRequestDetail = useTaskPullRequestDetail(taskPr, pullRequestPanelVisible);
+  // Every panel tab keeps the shared PR toolbar's permissions and status current.
+  const pullRequestDetail = useTaskPullRequestDetail(taskPr, panelOpen && !ciPanelOpen);
   const pullRequestChanges = useTaskPullRequestChanges(taskPr, panelOpen && panelTab === 'changes');
-  const [pullRequestCommitRange, setPullRequestCommitRange] = useState<CommitRange>(null);
-  const [pullRequestPendingComments, setPullRequestPendingComments] = useState<InlineReviewCommentDto[]>([]);
+  const pullRequestKey = taskPr === null ? null : `${taskPr.repo.toLowerCase()}#${taskPr.number}`;
+  const currentPullRequestKey = useRef(pullRequestKey);
+  currentPullRequestKey.current = pullRequestKey;
+  const [pullRequestReview, setPullRequestReview] = useState<{
+    key: string | null;
+    commitRange: CommitRange;
+    pendingComments: InlineReviewCommentDto[];
+  }>({ key: pullRequestKey, commitRange: null, pendingComments: [] });
+  const pullRequestCommitRange = pullRequestReview.key === pullRequestKey ? pullRequestReview.commitRange : null;
+  const pullRequestPendingComments = pullRequestReview.key === pullRequestKey ? pullRequestReview.pendingComments : [];
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -2143,6 +2138,7 @@ export default function AgentTaskScreen({
   return (<>
     <AgentTaskBody
       state={state}
+      headerAction={headerAction}
       submissionBlocked={automationBlocked}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
         disabled={state.sending || automationSaving} futureTurns={running || state.task?.developmentContinuationUnfinished} localOnly={localOnly}
@@ -2212,8 +2208,12 @@ export default function AgentTaskScreen({
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}
       pullRequestPendingComments={pullRequestPendingComments}
-      onPullRequestCommitRangeChange={setPullRequestCommitRange}
-      onPullRequestPendingCommentsChange={setPullRequestPendingComments}
+      onPullRequestCommitRangeChange={commitRange => setPullRequestReview(current => currentPullRequestKey.current !== pullRequestKey
+        ? current
+        : { key: pullRequestKey, commitRange, pendingComments: [] })}
+      onPullRequestPendingCommentsChange={pendingComments => setPullRequestReview(current => currentPullRequestKey.current !== pullRequestKey
+        ? current
+        : { key: pullRequestKey, commitRange: current.key === pullRequestKey ? current.commitRange : null, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onTogglePanel={() => { setCiPanelOpen(false); setPanelOpen((open) => !open); }}
       onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { Bell, Check, CircleSlash, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
@@ -1109,6 +1109,7 @@ export default function PullsScreen({
               setDetailTab(next);
             }}
             onRefresh={refresh}
+            onDetailUpdate={updateSelectedDetail}
             onReviewSubmitted={applySubmittedReview}
             refreshing={detailLoading}
             pendingComments={pendingReviewComments}
@@ -1220,23 +1221,28 @@ export function PullDetailHeader({
   detail,
   tab,
   review = null,
+  agentTab,
   onTab,
   onRefresh,
+  onDetailUpdate,
   onReviewSubmitted,
   refreshing,
   pendingComments,
   onPendingCommentsChange,
   zoomed,
   onZoom,
+  zoomLabel,
   onClose,
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
-  tab: DetailTab;
+  tab: DetailTab | null;
   /** The open Agent review, when the pull request has one; its status rides on the tab. */
   review?: AgentReviewDto | null;
+  agentTab?: ReactNode;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
+  onDetailUpdate?: PullDetailUpdater;
   onReviewSubmitted: (
     detail: PullRequestDetailDto,
     event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
@@ -1245,41 +1251,40 @@ export function PullDetailHeader({
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   zoomed: boolean;
-  onZoom: () => void;
+  onZoom?: () => void;
+  zoomLabel?: string;
   onClose?: () => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const canReview = canSubmitReview(pr, detail);
+  const canReview = detail?.state?.toLowerCase() === 'open';
   // Promoted findings are outgoing comments too, so the count the button shows covers both.
   const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
   const reviewChip = review === null ? null : reviewStatus(review);
-  const canMerge = detail !== null
-    && detail.state?.toLowerCase() === 'open'
-    && !detail.draft
-    && detail.viewerCanWrite
-    && !isQueued(detail.recentActivity);
+  const draft = detail?.draft === true;
+  const canOpenMerge = detail?.state?.toLowerCase() === 'open';
+  const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !isQueued(detail.recentActivity);
   const conflicts = hasMergeConflicts(detail);
   const merge = detail ? mergeStatus(detail) : null;
   const mergeModeReady = typeof mergeQueue === 'boolean';
   const mergeBlocked = merge?.state === 'failed' || merge?.state === 'blocked';
-  const mergeLoading = mergeQueue === undefined || mergeQueue === null || merge?.state === 'pending';
+  const mergeLoading = (canMerge && !mergeModeReady) || merge?.state === 'pending';
   const state = (detail?.state ?? pr.state)?.toLowerCase();
   const iconState = state === 'merged' || state === 'closed'
     ? state
     : (detail?.draft ?? pr.draft) ? 'draft' : 'open';
   const mergeLabel = conflicts
     ? 'Conflicts'
-    : mergeQueue === undefined || mergeQueue === null
-      ? mergeActionLabel(mergeQueue)
-      : merge?.state === 'failed'
+    : merge?.state === 'failed'
         ? 'Checks failed'
         : merge?.state === 'blocked'
           ? 'Merge blocked'
           : merge?.state === 'pending'
             ? 'Checks running'
-            : mergeActionLabel(mergeQueue);
+            : draft || !canMerge
+              ? merge?.checksReported ? 'Checks passed' : 'No checks reported'
+              : mergeActionLabel(mergeQueue);
 
   useEffect(() => {
     setMergeOpen(false);
@@ -1291,7 +1296,7 @@ export function PullDetailHeader({
       .then(mode => { if (!cancelled) setMergeQueue(mode.mergeQueue); })
       .catch(() => { if (!cancelled) setMergeQueue(null); });
     return () => { cancelled = true; };
-  }, [canMerge, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
+  }, [canMerge, draft, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
 
   return (
     <header className="pull-detail__header pull-detail__header--tabs">
@@ -1313,7 +1318,7 @@ export function PullDetailHeader({
             <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
             <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
           </button>
-          <button
+          {agentTab === undefined ? <button
             className={tab === 'review' ? 'is-active' : ''}
             type="button"
             aria-pressed={tab === 'review'}
@@ -1325,16 +1330,16 @@ export function PullDetailHeader({
                 {reviewChip.chip}
               </span>
             )}
-          </button>
+          </button> : agentTab}
         </nav>
         <div className="pull-detail__header-actions">
           {onClose ? <button className="pull-detail__icon-action" type="button"
             title="Close (Esc)" aria-label="Close pull request details" onClick={onClose}>
             <X size={16} aria-hidden="true" />
-          </button> : <button className="pull-detail__icon-action" type="button"
-            title={zoomed ? 'Exit full screen (Esc)' : 'Enter full screen'}
-            aria-label={zoomed ? 'Exit full screen' : 'Enter full screen'}
-            aria-pressed={zoomed} onClick={onZoom}>
+          </button> : onZoom && <button className="pull-detail__icon-action" type="button"
+            title={zoomLabel ?? (zoomed ? 'Exit full screen (Esc)' : 'Enter full screen')}
+            aria-label={zoomLabel ?? (zoomed ? 'Exit full screen' : 'Enter full screen')}
+            aria-pressed={zoomLabel ? undefined : zoomed} onClick={onZoom}>
             <ZoomIcon zoomed={zoomed} />
           </button>}
           <button className={`pull-detail__icon-action${refreshing ? ' is-refreshing' : ''}`} type="button"
@@ -1356,11 +1361,11 @@ export function PullDetailHeader({
               )}
             </button>
           )}
-          {canMerge && (
+          {canOpenMerge && (
             <button
               className={`pull-detail__merge-action${conflicts || mergeBlocked ? ' is-conflicts' : mergeLoading ? ' is-loading' : ''}`}
               type="button"
-              disabled={!mergeModeReady || conflicts || refreshing}
+              disabled={refreshing}
               onClick={() => setMergeOpen(true)}>
               {conflicts || mergeBlocked
                 ? <ConflictIcon />
@@ -1377,9 +1382,9 @@ export function PullDetailHeader({
           onPendingCommentsChange={onPendingCommentsChange}
           onClose={() => setReviewOpen(false)} onReviewSubmitted={onReviewSubmitted} />
       )}
-      {mergeOpen && detail && typeof mergeQueue === 'boolean' && (
+      {mergeOpen && detail && (
         <MergeDialog pr={pr} detail={detail} mergeQueue={mergeQueue}
-          onClose={() => setMergeOpen(false)} onRefresh={onRefresh} />
+          onClose={() => setMergeOpen(false)} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
       )}
     </header>
   );
@@ -1451,7 +1456,9 @@ export function ReviewDialog({
   onClose: () => void;
 }) {
   const [body, setBody] = useState('');
-  const [event, setEvent] = useState<ReviewEvent>('APPROVE');
+  const authored = pr.origin === 'AUTHORED';
+  const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : 'APPROVE');
+  const event = authored ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0;
@@ -1467,6 +1474,7 @@ export function ReviewDialog({
   }, [onClose, submitting]);
 
   const submit = async () => {
+    if (submitting || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -1526,16 +1534,16 @@ export function ReviewDialog({
           title="Comment"
           description="Submit general feedback without explicit approval."
           onChange={() => setEvent('COMMENT')} />
-        <ReviewChoice
+        {!authored && <ReviewChoice
           checked={event === 'APPROVE'}
           title="Approve"
           description="Submit feedback and approve merging these changes."
-          onChange={() => setEvent('APPROVE')} />
-        <ReviewChoice
+          onChange={() => setEvent('APPROVE')} />}
+        {!authored && <ReviewChoice
           checked={event === 'REQUEST_CHANGES'}
           title="Request Changes"
           description="Submit feedback that must be addressed before merging."
-          onChange={() => setEvent('REQUEST_CHANGES')} />
+          onChange={() => setEvent('REQUEST_CHANGES')} />}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
       </div>
       <footer className="pr-review-sheet__footer">
@@ -1565,18 +1573,25 @@ function ReviewChoice({ checked, title, description, onChange }: {
   );
 }
 
-export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
+export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDetailUpdate = () => {} }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
-  mergeQueue: boolean;
+  mergeQueue: boolean | null | undefined;
   onClose: () => void;
   onRefresh: () => Promise<void>;
+  onDetailUpdate?: PullDetailUpdater;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { pending, failing, successful, unresolved, checksReported, state } = mergeStatus(detail);
   const blocked = state === 'failed' || state === 'blocked';
   const mounted = useRef(true);
+  const inFlight = useRef(false);
+  const submitted = useRef(false);
+  const canMarkReady = detail.draft && detail.state?.toLowerCase() === 'open'
+    && (detail.viewerCanWrite || pr.origin === 'AUTHORED');
+  const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
+    && typeof mergeQueue === 'boolean' && !hasMergeConflicts(detail) && !isQueued(detail.recentActivity);
 
   useEffect(() => {
     mounted.current = true;
@@ -1593,19 +1608,31 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
     return () => document.removeEventListener('keydown', close);
   }, [onClose, submitting]);
 
-  const submit = async () => {
+  const submit = async (action: 'ready' | 'merge') => {
+    if (inFlight.current || submitted.current || (action === 'ready' ? !canMarkReady : !canMerge)) return;
+    inFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
+      if (action === 'ready') {
+        await window.bridge.markPrReadyForReview(detail.repo, detail.number);
+        onDetailUpdate(detail.repo, detail.number, current => ({ ...current, draft: false }));
+      }
+      else {
+        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
+      }
+      submitted.current = true;
       if (!mounted.current) return;
       onClose();
       await onRefresh();
     }
     catch (value) {
-      setError(value instanceof Error ? value.message : String(value));
-      setSubmitting(false);
+      if (mounted.current) {
+        setError(remoteErrorMessage(value));
+        setSubmitting(false);
+      }
     }
+    finally { inFlight.current = false; }
   };
 
   return (
@@ -1628,7 +1655,10 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
             ? 'Merge blocked'
             : state === 'pending'
               ? 'Waiting for checks'
-              : mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
+              : detail.draft ? 'Draft pull request'
+                : !detail.viewerCanWrite ? 'Checks complete'
+                  : typeof mergeQueue !== 'boolean' ? mergeActionLabel(mergeQueue)
+                    : mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
         </div>
         <div className="pr-merge-status-card is-stacked">
           <div>
@@ -1664,8 +1694,13 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh }: {
       </div>
       <footer className="pr-merge-sheet__footer">
         <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
-        <button className="is-primary" type="button" disabled={submitting || state !== 'ready'} onClick={() => { void submit(); }}>
-          <PullRequestIcon /> {submitting ? 'Submitting…' : mergeQueue ? 'Queue when ready' : 'Rebase and merge'}
+        <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
+          onClick={() => { void submit('ready'); }}>
+          <PullRequestIcon /> {submitting && detail.draft ? 'Marking ready…' : 'Ready for review'}
+        </button>
+        <button className="is-primary" type="button" disabled={submitting || !canMerge}
+          onClick={() => { void submit('merge'); }}>
+          <PullRequestIcon /> {submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
         </button>
       </footer>
     </section>

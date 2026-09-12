@@ -361,7 +361,7 @@ public class GitHubPullRequestWriteClient
         }
     }
 
-    /** One mutation only; the coordinator must verify its authorized PR revision before and after this call. */
+    /** One mutation only; automated delivery also verifies its authorized PR revision before and after this call. */
     public void markReadyForReview(String pat, String nodeId)
     {
         requirePat(pat);

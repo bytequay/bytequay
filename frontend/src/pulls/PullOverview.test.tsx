@@ -50,6 +50,152 @@ const emptyPayload: PullTimelinePayloadDto = {
 };
 
 describe('PullOverview', () => {
+  it.each(['PENDING', 'FAILING', 'PASSING'] as const)('offers draft promotion in the checks popup with %s checks', ciStatus => {
+    const value: PullRequestDetailDto = {
+      ...detail(),
+      draft: true,
+      ciStatus,
+      checkRuns: [{
+        ...detail().checkRuns[0],
+        status: ciStatus === 'PENDING' ? 'in_progress' : 'completed',
+        category: ciStatus === 'PENDING' ? 'pending' : ciStatus === 'FAILING' ? 'failing' : 'successful',
+      }],
+    };
+    const overview = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    const popup = renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={value} mergeQueue
+      onClose={() => {}} onRefresh={async () => {}} />);
+
+    expect(overview).not.toContain('Ready for review');
+    expect(popup).toContain('Ready for review</button>');
+    expect(popup).toContain('Merge when ready</button>');
+    const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
+    expect(actions).toHaveLength(2);
+    expect(actions[0]).not.toContain('disabled');
+    expect(actions[1]).toContain('disabled=""');
+  });
+
+  it.each([true, false, undefined])('keeps ready and merge actions adjacent on an open PR (queue: %s)', mergeQueue => {
+    const popup = renderToStaticMarkup(<MergeDialog pr={pullRequest()}
+      detail={{ ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' }} mergeQueue={mergeQueue}
+      onClose={() => {}} onRefresh={async () => {}} />);
+    const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
+
+    expect(actions).toHaveLength(2);
+    expect(popup).toContain('Ready for review</button>');
+    expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
+    expect(actions[0]).toContain('disabled=""');
+    expect(actions[1].includes('disabled=""')).toBe(mergeQueue === undefined);
+  });
+
+  it.each([true, false])('does not route a disabled popup action to another endpoint (draft: %s)', draft => {
+    const markPrReadyForReview = vi.fn();
+    const mergePr = vi.fn();
+    const submit = captureMergeSubmit({
+      pr: pullRequest(), detail: { ...detail(), draft, viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' },
+      mergeQueue: true, onClose: () => {}, onRefresh: async () => {},
+    }, draft ? 'merge' : 'ready');
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
+    try {
+      submit();
+      expect(markPrReadyForReview).not.toHaveBeenCalled();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([true, false])('keeps both popup actions disabled without write permission (draft: %s)', draft => {
+    const props: Parameters<typeof MergeDialog>[0] = {
+      pr: { ...pullRequest(), origin: 'OTHER' as const },
+      detail: { ...detail(), draft, viewerCanWrite: false, checkRuns: [], ciStatus: 'PASSING' as const },
+      mergeQueue: true, onClose: () => {}, onRefresh: async () => {},
+    };
+    const popup = renderToStaticMarkup(<MergeDialog {...props} />);
+    const actions: string[] = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
+    const markPrReadyForReview = vi.fn();
+    const mergePr = vi.fn();
+    const ready = captureMergeSubmit(props, 'ready');
+    const merge = captureMergeSubmit(props, 'merge');
+
+    expect(actions).toHaveLength(2);
+    expect(actions.every(action => action.includes('disabled=""'))).toBe(true);
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
+    try {
+      ready();
+      merge();
+      expect(markPrReadyForReview).not.toHaveBeenCalled();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('promotes a draft once from the checks popup and applies the acknowledged state before refreshing', async () => {
+    const write = Promise.withResolvers<void>();
+    const refresh = Promise.withResolvers<void>();
+    const markPrReadyForReview = vi.fn(() => write.promise);
+    const mergePr = vi.fn();
+    const onDetailUpdate = vi.fn();
+    const onClose = vi.fn();
+    const onRefresh = vi.fn(() => {
+      expect(onDetailUpdate).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+      return refresh.promise;
+    });
+    const submit = captureMergeSubmit({
+      pr: pullRequest(), detail: { ...detail(), draft: true }, mergeQueue: true, onClose, onRefresh, onDetailUpdate,
+    }, 'ready');
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
+    try {
+      expect(markPrReadyForReview).not.toHaveBeenCalled();
+      submit();
+      submit();
+      expect(markPrReadyForReview).toHaveBeenCalledOnce();
+      expect(markPrReadyForReview).toHaveBeenCalledWith('owner/repo', 42);
+      expect(onDetailUpdate).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      write.resolve();
+      await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+
+      const [repo, number, update] = onDetailUpdate.mock.calls[0];
+      expect([repo, number]).toEqual(['owner/repo', 42]);
+      expect(update({ ...detail(), draft: true }).draft).toBe(false);
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally {
+      refresh.resolve();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps the checks popup and draft unchanged when GitHub rejects ready for review', async () => {
+    const write = Promise.withResolvers<void>();
+    const markPrReadyForReview = vi.fn(() => write.promise);
+    const mergePr = vi.fn();
+    const onDetailUpdate = vi.fn();
+    const onClose = vi.fn();
+    const onRefresh = vi.fn(async () => {});
+    const submit = captureMergeSubmit({
+      pr: pullRequest(), detail: { ...detail(), draft: true }, mergeQueue: false, onClose, onRefresh, onDetailUpdate,
+    }, 'ready');
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
+    try {
+      submit();
+      write.reject(new Error('Write access is required'));
+      await write.promise.catch(() => {});
+      expect(markPrReadyForReview).toHaveBeenCalledOnce();
+      expect(onDetailUpdate).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(onRefresh).not.toHaveBeenCalled();
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows the backend message without Electron IPC noise', () => {
     expect(remoteErrorMessage(new Error(
       "Error invoking remote method 'prs:metadata:update': Error: Grant it access to this repository",
@@ -195,6 +341,16 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-review-sheet" role="dialog"');
   });
 
+  it('limits an authored pull request review to a comment', () => {
+    const html = renderToStaticMarkup(<ReviewDialog pr={pullRequest()} detail={detail()}
+      onClose={() => {}} onReviewSubmitted={() => {}} />);
+
+    expect(html).toContain('<strong>Comment</strong>');
+    expect(html).not.toContain('<strong>Approve</strong>');
+    expect(html).not.toContain('<strong>Request Changes</strong>');
+    expect(html).toContain('<button class="is-primary" type="button" disabled="">Submit review</button>');
+  });
+
   it('stops showing the progress ring after every merge check passes', () => {
     const value = detail();
     value.checkRuns = value.checkRuns.map(check => ({
@@ -223,7 +379,7 @@ describe('PullOverview', () => {
       expect(onClose).toHaveBeenCalledOnce();
       return refresh.promise;
     });
-    const value: PullRequestDetailDto = { ...detail(), checkRuns: [], ciStatus: 'PASSING' };
+    const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' };
     const submit = captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue, onClose, onRefresh });
     vi.stubGlobal('window', { bridge: { mergePr } });
     try {
@@ -248,15 +404,19 @@ describe('PullOverview', () => {
 
   it('keeps a rejected merge open without starting a refresh', async () => {
     const merge = Promise.withResolvers<void>();
+    const mergePr = vi.fn(() => merge.promise);
     const onClose = vi.fn();
     const onRefresh = vi.fn(async () => {});
-    const submit = captureMergeSubmit({ pr: pullRequest(), detail: detail(), mergeQueue: true, onClose, onRefresh });
-    vi.stubGlobal('window', { bridge: { mergePr: () => merge.promise } });
+    const submit = captureMergeSubmit({
+      pr: pullRequest(), detail: { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' }, mergeQueue: true, onClose, onRefresh,
+    });
+    vi.stubGlobal('window', { bridge: { mergePr } });
     try {
       submit();
       merge.reject(new Error('Pull request cannot be queued'));
       await merge.promise.catch(() => {});
 
+      expect(mergePr).toHaveBeenCalledOnce();
       expect(onClose).not.toHaveBeenCalled();
       expect(onRefresh).not.toHaveBeenCalled();
     }
@@ -266,7 +426,7 @@ describe('PullOverview', () => {
   });
 
   it('blocks merging without a progress ring after checks fail', () => {
-    const value = detail();
+    const value = { ...detail(), viewerCanWrite: true };
     const html = renderToStaticMarkup(<MergeDialog
       pr={pullRequest()}
       detail={value}
@@ -999,7 +1159,7 @@ describe('PullOverview', () => {
     expect(unresolvedReviewCount(value)).toBe(1);
   });
 
-  it('offers review actions only for another author\'s open pull request', () => {
+  it('offers inline review actions only for another author\'s open pull request', () => {
     const pr = pullRequest();
     const value = detail();
 
@@ -1063,9 +1223,11 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Refresh pull request"');
   });
 
-  it('keeps merge available independently of review eligibility', () => {
-    const value = detail();
-    value.viewerCanWrite = true;
+  it('keeps Submit review and checks available for an authored pull request', () => {
+    const value: PullRequestDetailDto = {
+      ...detail(), draft: true, ciStatus: 'PENDING',
+      checkRuns: [{ ...detail().checkRuns[0], category: 'pending', status: 'in_progress' }],
+    };
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={pullRequest()}
       detail={value}
@@ -1079,8 +1241,10 @@ describe('PullOverview', () => {
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
-    expect(html).not.toContain('class="pull-detail__review-action"');
+    expect(html).toContain('class="pull-detail__review-action"');
     expect(html).toContain('class="pull-detail__merge-action');
+    expect(html).toContain('Checks running</button>');
+    expect(html).not.toContain('Ready for review</button>');
   });
 
   it('shows the pending comment count in the submit review action', () => {
@@ -1208,12 +1372,12 @@ describe('PullOverview', () => {
   });
 });
 
-function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0]): () => void {
+function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0], action: 'ready' | 'merge' = 'merge'): () => void {
   let submit: () => void;
   function CaptureDialog() {
     const view = MergeDialog(props);
     const footer = view.props.children.props.children.find((child: ReactElement) => child.type === 'footer');
-    submit = footer.props.children[1].props.onClick;
+    submit = footer.props.children[action === 'ready' ? 1 : 2].props.onClick;
     return view;
   }
   renderToStaticMarkup(<CaptureDialog />);

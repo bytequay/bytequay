@@ -1341,6 +1341,7 @@ export type Bridge = {
   ) => Promise<{ viewerHasReacted: boolean }>;
   editPrComment: (repo: string, number: number, target: PullCommentTarget, commentId: number, body: string) => Promise<PullRequestDetailDto>;
   closePr: (repo: string, number: number) => Promise<void>;
+  markPrReadyForReview: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;

@@ -301,6 +301,15 @@ public class PullRequestController
         pullRequests.closePullRequest(repo, number);
     }
 
+    @PostMapping("/prs/ready-for-review")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void readyForReview(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        pullRequests.markReadyForReview(repo, number);
+    }
+
     @PostMapping("/prs/checks/rerun-failed")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void rerunFailedChecks(

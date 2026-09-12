@@ -1200,6 +1200,48 @@ class TestPullRequestService
     }
 
     @Test
+    void marksDraftReadyForReviewAndPreservesTheSnapshotForRefresh()
+    {
+        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+
+        service.markReadyForReview("owner/repo", 7);
+
+        verify(writes).markReadyForReview("pat", "PR_7");
+        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(writes, detailStore);
+        verifyNoInteractions(diffStore);
+    }
+
+    @Test
+    void failedReadyForReviewInvalidatesTheSnapshotWithoutRetryingTheWrite()
+    {
+        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        ResponseStatusException failure = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review response is uncertain");
+        doThrow(failure).when(writes).markReadyForReview("pat", "PR_7");
+
+        assertThatThrownBy(() -> service.markReadyForReview("owner/repo", 7)).isSameAs(failure);
+
+        verify(writes).markReadyForReview("pat", "PR_7");
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(writes, detailStore);
+        verifyNoInteractions(recent, diffStore);
+    }
+
+    @Test
+    void rejectsReadyForReviewWhenGitHubReturnsNoNodeId()
+    {
+        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.markReadyForReview("owner/repo", 7))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+
+        verifyNoInteractions(writes, detailStore, recent);
+    }
+
+    @Test
     void repliesToReviewCommentAndInvalidatesDetail()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));

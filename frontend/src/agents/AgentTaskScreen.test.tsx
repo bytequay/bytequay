@@ -592,34 +592,37 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Show or hide the side panel"');
     expect(markup).toContain('aria-label="Pull request #482"');
     // Three tabs, the pull request first and selected without another click.
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?PR #482</);
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="false"[^>]*>[^]*?Changes/);
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="false"[^>]*>[^]*?Subagents/);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?PR #482</);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Changes/);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Subagents/);
     expect(markup).toContain('>+12<');
     expect(markup).toContain('>−3<');
-    // Exactly two icon buttons keep the top row light; status reads in the body instead.
+    // The panel uses the same PR toolbar, including refresh and full-width navigation.
     expect(markup).toContain('aria-label="Open this pull request full width"');
-    expect(markup).toContain('aria-label="Hide the side panel"');
+    expect(markup).toContain('aria-label="Refresh pull request"');
+    expect(markup).not.toContain('aria-label="Hide the side panel"');
+    expect(markup).not.toContain('Agent review');
     expect(markup).toContain('title="Drag to resize the panel"');
-    expect(markup).toContain('style="width:300px"');
-    expect(markup).toContain('class="agt-panel__scroll"');
+    expect(markup).toContain('style="width:960px"');
+    expect(markup).toContain('class="pull-detail__body"');
     // The tabs stay pinned while only the panel body scrolls, as in the approved design.
     expect(declarations('.agt-panel')).toContain('display: flex');
     expect(declarations('.agt-panel')).toContain('flex-direction: column');
     expect(declarations('.agt-panel__scroll')).toContain('overflow-y: auto');
     // The diff fills the frame instead of nesting inside a second scroller with its own padding.
     expect(declarations('.agt-panel__flush')).toContain('min-height: 0');
-    // Labels never wrap: below the panel's minimum width the tabs scroll and the two icons stay.
-    expect(declarations('.agt-panel__tab')).toContain('white-space: nowrap');
-    expect(declarations('.agt-panel__tablist')).toContain('overflow-x: auto');
-    expect(declarations('.agt-panel__tablist')).toContain('min-width: 0');
+    const column = markup.match(/<section class="agt-task-column"[^>]*>([^]*?)<\/section>/)?.[1];
+    expect(column).toContain('class="agt-screen-head"');
+    expect(column).toContain('aria-label="Show or hide the side panel"');
+    expect(column).not.toContain('class="agt-panel"');
+    expect(declarations('.agt-task-column')).toContain('min-width: 0');
   });
 
   it('keeps the subagent list unchanged under its own tab', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody state={state} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
     expect(markup).toContain('aria-label="Subagents"');
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?Subagents/);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Subagents/);
     expect(markup).toContain('No active subagents');
     // The tab reads Pull request, without a number, until the branch has one.
     expect(markup).toContain('Pull request<');
@@ -694,7 +697,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Pull request"');
     expect(markup).not.toContain('Subagents');
     expect(markup).not.toContain('No active subagents');
-    expect(markup).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>[^]*?Pull request</);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Pull request</);
   });
 
   it('reads the task pull request in the panel instead of a list that navigates away', () => {

@@ -51,7 +51,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -145,15 +144,10 @@ class CommitHistoryRefresher
 
     private CommitRefreshStatus withWorkspaceLock(String workspaceId, Supplier<CommitRefreshStatus> action)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             workspaces.getWorkspace(workspaceId);
             return action.get();
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private CommitRefreshStatus refreshLocked(String workspaceId, Collection<CommitHistoryRef> refs)

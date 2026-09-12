@@ -22,7 +22,6 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.locks.Lock;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -51,9 +50,7 @@ public class WorkspaceCommitsSettingsService
 
     public WorkspaceCommitsTarget save(String workspaceId, String branch)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             checkArgument(branch != null && !branch.isBlank() && branch.length() <= 512, "A branch name of at most 512 characters is required.");
             checkArgument(!branch.startsWith("-") && !branch.startsWith("refs/") && !branch.equals("HEAD"), "Enter a branch name, not a Git option or full ref.");
@@ -63,24 +60,16 @@ public class WorkspaceCommitsSettingsService
             checkArgument(validation.successful(), "Branch name is not a valid Git branch.");
             settings.put(TARGET_BRANCH_PREFIX + workspaceId, branch);
             return resolve(workspace);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     public WorkspaceCommitsTarget reset(String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             settings.delete(TARGET_BRANCH_PREFIX + workspaceId);
             return resolve(workspace);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private Workspace requireWorkspace(String workspaceId)

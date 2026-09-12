@@ -32,7 +32,6 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -102,9 +101,7 @@ public final class DefaultWorkspaceIssueService
     @Override
     public PrTimelineEvent comment(String workspaceId, int issueNumber, String body)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             requireNotBlank(body, "comment body must not be blank");
             Workspace workspace = requireWorkspace(workspaceId);
             PrTimelineEvent created = issueWrites.createIssueComment(
@@ -120,34 +117,24 @@ public final class DefaultWorkspaceIssueService
                     "comment:" + (created.githubId() == null ? created.timestamp() : created.githubId()),
                     body.trim());
             return created;
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
     public void close(String workspaceId, int issueNumber)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             issues.delete(workspace.monitoredRepositoryId(), issueNumber);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             String normalized = type;
             if (normalized != null) {
@@ -162,10 +149,7 @@ public final class DefaultWorkspaceIssueService
             details.save(detail);
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             return new IssueTypeOptions(current, detail.availableTypes());
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
@@ -175,9 +159,7 @@ public final class DefaultWorkspaceIssueService
             List<String> assignees,
             List<String> labels)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
             List<String> normalizedLabels = normalizeNames(labels, "labels");
@@ -194,10 +176,7 @@ public final class DefaultWorkspaceIssueService
                     updated.updatedAt() == null ? clock.instant() : updated.updatedAt());
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             return new IssueMetadata(updated.assignees(), updated.labels());
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private static PullRequestRef issueRef(Workspace workspace, int issueNumber)

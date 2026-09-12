@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.google.common.util.concurrent.Striped;
 
 import java.util.concurrent.locks.Lock;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -29,5 +30,28 @@ public final class WorkspaceOperationLocks
     public static Lock get(String workspaceId)
     {
         return LOCKS.get(requireNonNull(workspaceId, "workspaceId is null"));
+    }
+
+    /** Runs {@code action} holding the workspace's lock. */
+    public static <T> T withLock(String workspaceId, Supplier<T> action)
+    {
+        requireNonNull(action, "action is null");
+        Lock lock = get(workspaceId);
+        lock.lock();
+        try {
+            return action.get();
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    public static void withLock(String workspaceId, Runnable action)
+    {
+        requireNonNull(action, "action is null");
+        withLock(workspaceId, () -> {
+            action.run();
+            return null;
+        });
     }
 }

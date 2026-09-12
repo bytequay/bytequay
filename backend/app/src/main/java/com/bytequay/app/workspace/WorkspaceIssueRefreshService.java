@@ -76,14 +76,7 @@ public class WorkspaceIssueRefreshService
 
     public RepositoryIssuePage refreshIssues(String workspaceId)
     {
-        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
-        workspaceLock.lock();
-        try {
-            return refreshIssuesLocked(workspaceId);
-        }
-        finally {
-            workspaceLock.unlock();
-        }
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> refreshIssuesLocked(workspaceId));
     }
 
     private RepositoryIssuePage refreshIssuesLocked(String workspaceId)
@@ -106,14 +99,7 @@ public class WorkspaceIssueRefreshService
 
     public RepositoryIssueDetail refreshDetail(String workspaceId, int issueNumber)
     {
-        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
-        workspaceLock.lock();
-        try {
-            return refreshDetailLocked(workspaceId, issueNumber);
-        }
-        finally {
-            workspaceLock.unlock();
-        }
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> refreshDetailLocked(workspaceId, issueNumber));
     }
 
     private RepositoryIssueDetail refreshDetailLocked(String workspaceId, int issueNumber)

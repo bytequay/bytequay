@@ -89,14 +89,7 @@ public final class DefaultWorkspaceMetadataService
     @Override
     public WorkspaceMetadataSyncResult synchronize(String workspaceId)
     {
-        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
-        workspaceLock.lock();
-        try {
-            return synchronizeLocked(workspaceId);
-        }
-        finally {
-            workspaceLock.unlock();
-        }
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> synchronizeLocked(workspaceId));
     }
 
     private WorkspaceMetadataSyncResult synchronizeLocked(String workspaceId)

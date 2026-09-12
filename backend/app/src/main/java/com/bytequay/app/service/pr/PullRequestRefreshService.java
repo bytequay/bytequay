@@ -167,16 +167,11 @@ public class PullRequestRefreshService
     /** Rechecks current workspace membership and routing while excluding local workspace deletion. */
     public void refreshWorkspace(String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
             if (workspaces.isWatched(workspaceId)) {
                 workspaces.findById(workspaceId).map(Workspace::monitoredRepository).ifPresent(this::refreshRepository);
             }
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private void refresh(Runnable action)

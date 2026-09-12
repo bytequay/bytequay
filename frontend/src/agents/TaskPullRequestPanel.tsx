@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { GitPullRequest } from 'lucide-react';
+import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import PullChanges, { DiffViewer, type CommitRange } from '../pulls/PullChanges';
 import PullOverview, { remoteErrorMessage, type PullDetailUpdater } from '../pulls/PullOverview';
@@ -57,6 +57,21 @@ export function samePullRequest(href: string | null, pr: PullRequestDto): boolea
   if (href === null) return false;
   const path = href.split('#')[0].split('?')[0].replace(/\/+$/, '').toLowerCase();
   return path.endsWith(`/${pr.repo.toLowerCase()}/pull/${pr.number}`);
+}
+
+/**
+ * A pull request's state in GitHub's shape and colour — open, draft, merged or closed — wherever a
+ * task or a review names one. Without a stored pull request it stays a plain grey mark.
+ */
+export function PullRequestStateIcon({ pullRequest, size, className }: {
+  pullRequest: Pick<PullRequestDto, 'state' | 'draft'> | null;
+  size: number;
+  className?: string;
+}): React.JSX.Element {
+  const state = pullRequest === null ? null
+    : pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed' : pullRequest.draft ? 'draft' : 'open';
+  const Icon = state === 'merged' ? GitMerge : state === 'closed' ? GitPullRequestClosed : state === 'draft' ? GitPullRequestDraft : GitPullRequest;
+  return <Icon className={['agt-pr-icon', state === null ? null : `is-${state}`, className].filter(Boolean).join(' ')} size={size} aria-hidden="true" />;
 }
 
 export type TaskPullRequestDetail = PullRequestDetailSource;

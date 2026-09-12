@@ -3070,6 +3070,50 @@
   color: #57606a;
 }
 
+/*
+ * The title and its pull request share the row fairly: both grow toward their full width in equal
+ * steps, so a short one stays whole and only the longer one is cut.
+ */
+.agt-trow__name {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, max-content);
+  column-gap: 10px;
+  align-items: center;
+}
+
+.agt-trow__pr {
+  font-size: 12.5px;
+  color: #57606a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-trow__pr > svg {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* A pull request's state in GitHub's colours, wherever a task or a review names one. */
+.agt-pr-icon.is-open {
+  color: #1a7f37;
+}
+
+.agt-pr-icon.is-draft {
+  color: #6e7781;
+}
+
+.agt-pr-icon.is-merged {
+  color: #8250df;
+}
+
+.agt-pr-icon.is-closed {
+  color: #cf222e;
+}
+
 .agt-trow__meta {
   flex: none;
   font-size: 12px;

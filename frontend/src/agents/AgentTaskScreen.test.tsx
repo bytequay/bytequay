@@ -1777,6 +1777,20 @@ describe('task list tabs, day groups and row actions', () => {
     expect(empty).toContain('completed tasks move here after 7 days');
   });
 
+  it('names the pull request a task opened or delivered right after its title', () => {
+    const pullRequests = {
+      't-yesterday': pullRequest(31101, 'Refactor a minor issue', 'merged'),
+      't-today-2': pullRequest(482, 'Fix preview output limit', 'open', true),
+    };
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} pullRequests={pullRequests} />);
+
+    expect(markup).toContain('class="agt-trow__title">trino issue reading</span><span class="agt-trow__pr" title="#31101 Refactor a minor issue">');
+    expect(markup).toMatch(/title="#31101 Refactor a minor issue"><svg[^>]*class="[^"]*lucide-git-merge[^"]*agt-pr-icon is-merged"[^>]*>.*?<\/svg>#31101 Refactor a minor issue<\/span><\/span>/);
+    expect(markup).toMatch(/title="#482 Fix preview output limit"><svg[^>]*class="[^"]*lucide-git-pull-request-draft[^"]*agt-pr-icon is-draft"/);
+    // A task without one shows its title alone.
+    expect(markup).toContain('<span class="agt-trow__name"><span class="agt-trow__title">hello</span></span><span class="agt-mono agt-trow__meta">');
+  });
+
   it('offers Archive or Restore in the task header beside Complete', () => {
     const render = (open: AgentTaskDto) => renderToStaticMarkup(
       <AgentTaskBody

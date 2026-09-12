@@ -31,13 +31,15 @@ public interface PrTimelineJpaRepository
     List<PrTimelineEntity> findByPrIdOrderByTimestampAscIdAsc(Long prId);
 
     // Inline replies carry their own timestamps inside the payload, so every thread remains a candidate.
+    // LENGTH keeps SQLite off the unique local_event_key index: every GitHub row shares its NULL key, so the
+    // planner's one-row guess for IS NULL would scan the whole table for each correlated lookup instead of seeking by PR.
     @Query("""
             SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp, e.payload AS payload
             FROM PrTimelineEntity e
-            WHERE e.prId IN :ids AND e.localEventKey IS NULL AND e.event NOT IN :ignored
+            WHERE e.prId IN :ids AND LENGTH(e.localEventKey) IS NULL AND e.event NOT IN :ignored
               AND (e.event = 'review_thread' OR (e.timestamp IS NOT NULL AND NOT EXISTS (
                   SELECT newer.id FROM PrTimelineEntity newer
-                  WHERE newer.prId = e.prId AND newer.localEventKey IS NULL AND newer.event NOT IN :ignored
+                  WHERE newer.prId = e.prId AND LENGTH(newer.localEventKey) IS NULL AND newer.event NOT IN :ignored
                     AND (newer.timestamp > e.timestamp OR (newer.timestamp = e.timestamp AND newer.id > e.id)))))
             ORDER BY e.id
             """)

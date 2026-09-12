@@ -31,6 +31,7 @@ import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,6 +83,7 @@ class TestSqlitePrDetailStore
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+        registry.add("spring.jpa.properties.hibernate.session_factory.statement_inspector", RecordingStatementInspector.class::getName);
     }
 
     @BeforeEach
@@ -161,6 +164,24 @@ class TestSqlitePrDetailStore
         assertThat(store.findLatestActivities(ImmutableSet.of(prId, prId + 1))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
                 prId, new PrActivitySummary("reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty()),
                 prId + 1, new PrActivitySummary("review_requested", Optional.of("maintainer"), NOW, Optional.empty(), Optional.empty(), Optional.of("viewer"))));
+    }
+
+    @Test
+    void latestActivitiesSeekEachPullRequestInsteadOfScanningLocalEventKeys()
+    {
+        store.save(prId, detail(remote(1, NOW)));
+        timeline.flush();
+        RecordingStatementInspector.STATEMENTS.clear();
+
+        store.findLatestActivities(ImmutableSet.of(prId, prId + 1));
+
+        assertThat(RecordingStatementInspector.STATEMENTS).singleElement().satisfies(sql -> assertThat(jdbc.query(
+                "EXPLAIN QUERY PLAN " + sql,
+                (row, rowNumber) -> row.getString("detail"),
+                prId, prId + 1, "mentioned", "subscribed", "unsubscribed", "mentioned", "subscribed", "unsubscribed"))
+                .filteredOn(step -> step.startsWith("SEARCH") || step.startsWith("SCAN"))
+                .isNotEmpty()
+                .allMatch(step -> step.contains(" USING INDEX idx_pr_timeline_pr_timestamp (pr_id=?")));
     }
 
     @Test
@@ -484,5 +505,18 @@ class TestSqlitePrDetailStore
     private static PrTimelineEvent remote(long githubId, Instant timestamp)
     {
         return new PrTimelineEvent(githubId, "commented", "reviewer", timestamp, "comment", Optional.empty());
+    }
+
+    public static class RecordingStatementInspector
+            implements StatementInspector
+    {
+        private static final List<String> STATEMENTS = new CopyOnWriteArrayList<>();
+
+        @Override
+        public String inspect(String sql)
+        {
+            STATEMENTS.add(sql);
+            return sql;
+        }
     }
 }

@@ -167,16 +167,16 @@
   flex: none;
   align-items: center;
   gap: 10px;
-  padding: 12px 20px 11px;
+  padding: 6px 20px 7px;
   border-bottom: 1px solid #e3e3e6;
 }
 
-/* The composer and its supporting controls stay at the bottom of the conversation pane. */
+/* The composer and its supporting controls share the transcript's centred reading column. */
 .agt-bottom {
   display: flex;
   flex: none;
   flex-direction: column;
-  padding: 12px 24px;
+  padding: 12px max(24px, calc((100% - 760px) / 2));
   background: #ffffff;
 }
 

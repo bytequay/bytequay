@@ -1,20 +1,17 @@
-/* Reserve the same non-scrolling window handle above every routed page. */
 .app-content {
   position: relative;
-  padding-top: var(--space-4);
 }
 
-.app-content::before,
-.pulls-page--overlay::before {
+/* Loading and onboarding have no sidebar or page header to drag. */
+.app-content:only-child::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
   height: var(--space-4);
 }
 
-/* Full-window views supply their own headers instead of using app-content. */
-.app-content::before,
-.pulls-page--overlay::before,
+/* Existing headers provide window handles without adding a blank strip above every page. */
+.app-content:only-child::before,
 :is(
   .app-sidebar__traffic,
   .agt-screen-head,

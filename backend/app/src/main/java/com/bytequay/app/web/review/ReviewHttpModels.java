@@ -64,7 +64,8 @@ final class ReviewHttpModels
                 projection.queuedInputIds(),
                 projection.pendingApprovals(),
                 projection.byteQuayTurnIds(),
-                projection.draft().map(ReviewHttpModels::draft));
+                projection.draft().map(ReviewHttpModels::draft),
+                projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())));
     }
 
     private static RunResponse run(AgentReviewProjection.RunView run)
@@ -222,7 +223,8 @@ final class ReviewHttpModels
             List<String> queuedInputIds,
             int pendingApprovals,
             List<String> byteQuayTurnIds,
-            Optional<DraftResponse> draft) {}
+            Optional<DraftResponse> draft,
+            Optional<PullRequestResponse> pullRequest) {}
 
     record RunResponse(
             String id,
@@ -301,6 +303,8 @@ final class ReviewHttpModels
             boolean nestedAgents) {}
 
     record TurnResponse(String id, String state, Optional<Instant> startedAt, Optional<Instant> cancellationRequestedAt) {}
+
+    record PullRequestResponse(String title, String state, boolean draft) {}
 
     record DraftResponse(
             String repo,

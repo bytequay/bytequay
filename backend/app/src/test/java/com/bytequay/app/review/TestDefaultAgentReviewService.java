@@ -55,6 +55,7 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
@@ -610,6 +611,19 @@ class TestDefaultAgentReviewService
         assertThat(projection.review().followUpPaused()).isTrue();
         assertThat(projection.activeTurn().orElseThrow().id()).isEqualTo(TURN_ONE.toString());
         assertThat(projection.task().mutationClaim()).contains(WorktreeMutationClaim.Kind.TURN.name());
+    }
+
+    @Test
+    void projectionCarriesTheStoredPullRequest()
+    {
+        Fixture fixture = new Fixture();
+        PullRequest stored = new PullRequest(
+                1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
+                ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
+                0, 0, 0, null, "merged", null, null, null, null, null, null, null, null, null, null);
+        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(stored));
+
+        assertThat(fixture.service.start(WORKSPACE, REPO, NUMBER).pullRequest()).contains(stored);
     }
 
     @Test

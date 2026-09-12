@@ -69,6 +69,7 @@ below **Cherry-pick executions** and **Agent tasks**, listing that workspace's
 open and ended reviews. Group reviews by their local calendar start date into
 **Today**, **Yesterday**, **Recent 7 days**, **Recent 30 days**, and **Older**.
 Each review appears once, empty groups are hidden, and rows are newest first.
+A row names the pull request by number and stored title beside its state icon.
 Opening a row selects the exact review ID in the existing
 PR-owned Agent review pane, including an ended review when a newer review exists
 for the same PR. This is workspace navigation; review ownership and controls stay
@@ -77,7 +78,9 @@ in the PR workflow. Interactive task routes remain restricted to interactive tas
 `GET /api/agent-review?workspaceId=...` reads those reviews from local storage in
 descending update order, with review ID as the stable ascending tie-breaker. It
 returns the existing review projection and neither refreshes GitHub nor starts or
-reconciles agent execution. Supplying `repo` and `number` retains the existing
+reconciles agent execution. Every projection carries `pullRequest`, the stored
+pull request's title, state and draft flag; it is absent until ByteQuay has
+stored that pull request, and nothing fetches it to fill the gap. Supplying `repo` and `number` retains the existing
 single-PR lookup; `GET /api/agent-review/{reviewId}` opens an exact retained review.
 
 ### Visual contract

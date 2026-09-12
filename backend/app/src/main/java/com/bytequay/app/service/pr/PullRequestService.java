@@ -185,6 +185,12 @@ public class PullRequestService
         return store.findAttentionCandidates();
     }
 
+    /** Reads the stored row without contacting GitHub or marking the pull request viewed. */
+    public Optional<PullRequest> findStored(String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(repo, number).flatMap(store::findById);
+    }
+
     /** Reads cached avatar URLs without loading full details or contacting GitHub. */
     public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
     {

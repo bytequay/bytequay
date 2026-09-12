@@ -674,7 +674,10 @@ remain separate. Active shows three sections in order: **Cherry-pick executions*
 **Agent tasks**, and **Review tasks**, with the composer anchored beneath.
 Archived shows only shelved agent tasks and no composer. Review tasks lists
 this workspace's open and ended PR-owned reviews with their derived review
-status, grouped by local calendar start date into **Today**, **Yesterday**,
+status. A row names its pull request by number and stored title beside the
+pull request's state icon in GitHub's colours (open, draft, merged, closed); a
+pull request ByteQuay has not stored yet reads as repository and number with a
+grey icon. Reviews are grouped by local calendar start date into **Today**, **Yesterday**,
 **Recent 7 days**, **Recent 30 days**, and **Older**. Groups do not overlap;
 empty groups are hidden, and rows are newest first within each group.
 Selecting a row opens that exact review in the existing PR detail

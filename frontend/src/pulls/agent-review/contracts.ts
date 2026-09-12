@@ -171,6 +171,8 @@ export type AgentReviewDto = {
   pendingApprovals: number;
   byteQuayTurnIds: string[];
   draft: ReviewDraftDto | null;
+  /** The stored pull request's title and state; null until ByteQuay has stored the pull request. */
+  pullRequest: { title: string; state: string; draft: boolean } | null;
 };
 
 export type ReviewPublishResultDto = {
@@ -373,6 +375,7 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
   const review = object(value, 'review');
   const task = object(review.task, 'review task');
   const activeTurn = review.activeTurn === null || review.activeTurn === undefined ? null : object(review.activeTurn, 'review turn');
+  const pullRequest = review.pullRequest === null || review.pullRequest === undefined ? null : object(review.pullRequest, 'review pull request');
   return {
     id: text(review.id, 'review id'),
     workspaceId: text(review.workspaceId, 'workspace'),
@@ -410,6 +413,11 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
     pendingApprovals: count(review.pendingApprovals, 'pending approvals'),
     byteQuayTurnIds: strings(review.byteQuayTurnIds),
     draft: review.draft === null || review.draft === undefined ? null : parseReviewDraft(review.draft),
+    pullRequest: pullRequest === null ? null : {
+      title: text(pullRequest.title, 'pull request title'),
+      state: text(pullRequest.state, 'pull request state'),
+      draft: flag(pullRequest.draft),
+    },
   };
 }
 

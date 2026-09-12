@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewCoverage;
@@ -35,6 +36,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param byteQuayTurnIds the turns ByteQuay started with review requests, whose input the transcript attributes to ByteQuay
  * @param queuedInputIds queue rows still waiting, so a question that names one is shown as queued
+ * @param pullRequest the stored row for the reviewed pull request, which names it in lists; absent until ByteQuay has stored it
  */
 public record AgentReviewProjection(
         AgentReview review,
@@ -46,7 +48,8 @@ public record AgentReviewProjection(
         List<String> queuedInputIds,
         int pendingApprovals,
         List<String> byteQuayTurnIds,
-        Optional<ReviewDraft> draft)
+        Optional<ReviewDraft> draft,
+        Optional<PullRequest> pullRequest)
 {
     public AgentReviewProjection
     {
@@ -59,6 +62,7 @@ public record AgentReviewProjection(
         queuedInputIds = ImmutableList.copyOf(queuedInputIds);
         byteQuayTurnIds = ImmutableList.copyOf(byteQuayTurnIds);
         requireNonNull(draft, "draft is null");
+        requireNonNull(pullRequest, "pullRequest is null");
     }
 
     public record RunView(

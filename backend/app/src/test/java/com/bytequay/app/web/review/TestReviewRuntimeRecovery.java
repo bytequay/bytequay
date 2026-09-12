@@ -228,6 +228,6 @@ class TestReviewRuntimeRecovery
         return new AgentReviewProjection(
                 review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code", Optional.empty(), Optional.empty(), false, false),
-                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty());
     }
 }

@@ -233,6 +233,7 @@ export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentRev
     pendingApprovals: 0,
     byteQuayTurnIds: ['turn-1'],
     draft: null,
+    pullRequest: null,
     ...overrides,
   };
 }

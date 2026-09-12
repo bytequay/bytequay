@@ -13,11 +13,12 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ChevronRight, GitPullRequest, LoaderCircle } from 'lucide-react';
+import { ChevronRight, LoaderCircle } from 'lucide-react';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { reviewStatus } from '../pulls/agent-review/model';
 import { relativeTime } from '../relativeTime';
 import { displayModelName } from '../settings/model';
+import { PullRequestStateIcon } from './TaskPullRequestPanel';
 import '../css/review-tasks.css';
 
 export function ReviewTasksView({ workspaceId, onOpenReview }: {
@@ -120,8 +121,10 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
                 const status = reviewStatus(review);
                 return (
                   <button type="button" className="agt-trow agt-review-row" key={review.id} onClick={() => onOpenReview(review)}>
-                    <GitPullRequest className="agt-review-row__icon" size={16} aria-hidden="true" />
-                    <span className="agt-trow__title" title={`${review.repo} #${review.number}`}>{review.repo} #{review.number}</span>
+                    <PullRequestStateIcon pullRequest={review.pullRequest} size={16} className="agt-review-row__icon" />
+                    <span className="agt-trow__title" title={`${review.repo} #${review.number}${review.pullRequest === null ? '' : ` ${review.pullRequest.title}`}`}>
+                      {review.pullRequest === null ? `${review.repo} #${review.number}` : `#${review.number} ${review.pullRequest.title}`}
+                    </span>
                     <span className="agt-mono agt-trow__meta">
                       {review.task.laneLabel}{review.task.model === null ? '' : ` · ${displayModelName(review.task.model)}`}
                       {' · started '}<time dateTime={review.createdAt} title={new Date(review.createdAt).toLocaleString()}>{relativeTime(review.createdAt, { now })}</time>

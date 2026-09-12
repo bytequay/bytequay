@@ -138,6 +138,19 @@ describe('workspace review tasks', () => {
     expect(markup).not.toContain('agt-spin');
   });
 
+  it('names the stored pull request by number and title beside its state icon', () => {
+    const merged = reviewFixture({ id: 'merged-review', number: 31020, pullRequest: { title: 'Avoid duplicate field index lookup', state: 'merged', draft: false } });
+    const draft = reviewFixture({ id: 'draft-review', number: 30975, pullRequest: { title: 'Speed up the planner', state: 'open', draft: true } });
+    const markup = renderToStaticMarkup(<ReviewTaskList {...props} reviews={[merged, draft, reviews[1]]} />);
+
+    expect(markup).toContain('title="trinodb/trino #31020 Avoid duplicate field index lookup">#31020 Avoid duplicate field index lookup</span>');
+    expect(markup).toMatch(/class="[^"]*lucide-git-merge[^"]*agt-pr-icon is-merged agt-review-row__icon"/);
+    expect(markup).toMatch(/class="[^"]*lucide-git-pull-request-draft[^"]*agt-pr-icon is-draft agt-review-row__icon"/);
+    // A pull request ByteQuay has not stored yet keeps its repository and number beside a grey mark.
+    expect(markup).toContain('title="trinodb/trino #27365">trinodb/trino #27365</span>');
+    expect(markup).toMatch(/class="[^"]*lucide-git-pull-request[^"]*agt-pr-icon agt-review-row__icon"/);
+  });
+
   it('distinguishes loading, failure with retry, and an empty successful response', () => {
     const loading = renderToStaticMarkup(<ReviewTaskList {...props} reviews={[]} loading />);
     expect(loading).toContain('role="status">Loading review tasks…');

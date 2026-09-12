@@ -726,7 +726,8 @@ public class DefaultAgentReviewService
                 queued,
                 pendingApprovals,
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
-                drafts.find(review.repo(), review.number()));
+                drafts.find(review.repo(), review.number()),
+                pullRequests.findStored(review.repo(), review.number()));
     }
 
     /** The turn holding the task's worktree claim, if one is accepted or running. */

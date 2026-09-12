@@ -56,7 +56,7 @@ public final class TaskTitles
         return cut(title, MAX_LENGTH, false);
     }
 
-    private static String firstLine(String text)
+    static String firstLine(String text)
     {
         for (String raw : text.split("\\R")) {
             // A Markdown link is its text; the path or address it points at is not a name.

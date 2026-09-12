@@ -112,11 +112,17 @@ For new tasks, the application uses `TaskBranches` to generate:
 ```
 
 The login comes from the user's authenticated GitHub identity, independently of
-the selected repository owner. The slug uses lowercase words separated by
-hyphens, a bounded length, and `task` when the description contains no usable
-characters. Interactive tasks use the initial message's first line; workflows
-use their initial descriptive label. Generation is synchronous and does not
-wait for the optional task-title helper.
+the selected repository owner. Interactive tasks use the initial message's
+first plain-text line before UI-title truncation; workflows use their initial
+descriptive label. The generator removes common conversational request lead-ins
+such as “let's,” “please,” and “could you,” then makes a lowercase slug with
+hyphen-separated words. It keeps at most four words and 32 characters, cuts at
+a whole-word boundary where possible, and removes dangling function words.
+It uses `task` when no usable description remains. This is deterministic text
+cleanup, not model-generated summarization or grammatical rewriting. For
+example, “Let's refactor nits in Delta Lake” produces
+`refactor-nits-in-delta`. Generation is synchronous and does not wait for the
+optional task-title helper.
 
 The application freezes the branch once and passes it through task creation
 and provisioning. The renderer cannot submit an arbitrary branch. Existing

@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.text.Normalizer;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -24,8 +25,13 @@ import static java.util.Objects.requireNonNull;
 /** Git-safe task branch names, frozen before the worktree is created. */
 public final class TaskBranches
 {
+    private static final int MAX_SLUG_WORDS = 4;
+    private static final int MAX_SLUG_LENGTH = 32;
     private static final String LOGIN = "[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?";
     private static final Pattern BRANCH = Pattern.compile(LOGIN + "/bytequay/[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{8}");
+    // ponytail: English request lead-ins only; semantic summaries would need naming before provisioning.
+    private static final Pattern REQUEST_PREFIX = Pattern.compile("^(?:(?:let['’]s|let us|please|(?:can|could|would|will) you|"
+            + "(?:i|we) (?:want|need|would like) to|(?:i|we)['’]d like to|help (?:me|us)(?: to)?)\\b[\\s,:;!]*)++");
 
     private TaskBranches() {}
 
@@ -33,15 +39,25 @@ public final class TaskBranches
     {
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(githubLogin, "githubLogin");
+        checkNotBlank(description, "description");
         String login = githubLogin.toLowerCase(Locale.ROOT);
         checkArgument(login.matches(LOGIN), "githubLogin is not a safe GitHub login");
-        String slug = Normalizer.normalize(TaskTitles.provisional(description), Normalizer.Form.NFKD)
+        String descriptionLine = TaskTitles.firstLine(description).toLowerCase(Locale.ROOT);
+        String slug = Normalizer.normalize(REQUEST_PREFIX.matcher(descriptionLine).replaceFirst(""), Normalizer.Form.NFKD)
                 .replaceAll("\\p{M}+", "")
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^a-z0-9]+", "-")
                 .replaceAll("^-|-$", "");
-        slug = slug.substring(0, Math.min(slug.length(), 48)).replaceAll("-$", "");
-        return login + "/bytequay/" + (slug.isEmpty() ? "task" : slug) + "-" + taskId.toString().substring(0, 8);
+        String[] words = slug.split("-");
+        String shortSlug = String.join("-", Arrays.copyOf(words, Math.min(words.length, MAX_SLUG_WORDS)));
+        if (shortSlug.length() > MAX_SLUG_LENGTH) {
+            int boundary = shortSlug.lastIndexOf('-', MAX_SLUG_LENGTH);
+            shortSlug = shortSlug.substring(0, boundary > 0 ? boundary : MAX_SLUG_LENGTH);
+        }
+        if (!shortSlug.equals(slug)) {
+            shortSlug = shortSlug.replaceFirst("(?:-(?:a|an|the|and|or|in|on|at|to|for|of|with|from))+$", "");
+        }
+        return login + "/bytequay/" + (shortSlug.isEmpty() ? "task" : shortSlug) + "-" + taskId.toString().substring(0, 8);
     }
 
     static boolean matches(TaskId taskId, String branch)

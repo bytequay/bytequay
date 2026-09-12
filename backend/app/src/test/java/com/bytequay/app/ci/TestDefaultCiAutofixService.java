@@ -344,7 +344,7 @@ class TestDefaultCiAutofixService
         assertThat(task.getValue().workspaceId()).isEqualTo("workspace-1");
         assertThat(task.getValue().physicalRepository()).isEqualTo(REPOSITORY);
         assertThat(task.getValue().startCommit()).isEqualTo(HEAD);
-        assertThat(task.getValue().generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-2234-" + taskId.toString().substring(0, 8));
+        assertThat(task.getValue().generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-" + taskId.toString().substring(0, 8));
 
         ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         InOrder order = inOrder(memoryService, turnService);
@@ -834,7 +834,7 @@ class TestDefaultCiAutofixService
         assertThat(recovered.status()).isEqualTo(Status.ACTIVE);
         assertThat(taskId).isEqualTo(reserved);
         assertThat(taskService.get(reserved).taskWorktree()).contains(taskWorktree);
-        assertThat(taskWorktree.generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-2234-" + reserved.toString().substring(0, 8));
+        assertThat(taskWorktree.generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-" + reserved.toString().substring(0, 8));
     }
 
     @Test

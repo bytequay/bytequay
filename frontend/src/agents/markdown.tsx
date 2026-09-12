@@ -13,11 +13,14 @@
  */
 
 import React from 'react';
+import { parseGitHubReference } from '../githubReference';
+import { ReferenceLink } from '../pulls/MarkdownBody';
 
 /**
  * The Markdown an agent's prose actually uses, rendered without a library: paragraphs, headings,
  * bullet and numbered lists, fenced code, block quotes, and inline bold, italics, code and links.
- * Anything else is left as the text it is; nothing here executes or fetches.
+ * Anything else is left as the text it is; nothing here executes, and only a link to a GitHub pull
+ * request or issue reads that item, for its title and preview.
  */
 export function renderMarkdown(text: string): React.ReactNode {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
@@ -102,9 +105,13 @@ function inline(text: string): React.ReactNode[] {
       const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
       const label = link?.[1] ?? token;
       const url = link?.[2] ?? '';
-      nodes.push(/^https?:\/\//i.test(url)
-        ? <a key={key++} href={url} target="_blank" rel="noreferrer">{inline(label)}</a>
-        : <code key={key++} title={url}>{label}</code>);
+      const reference = parseGitHubReference(url);
+      // A label that only names the item, like "PR #12" or its URL, reads as the title; any other label is kept.
+      nodes.push(reference !== null
+        ? <ReferenceLink key={key++} reference={reference} showTitle={/^https?:\/\/|#\d+$/i.test(label)}>{inline(label)}</ReferenceLink>
+        : /^https?:\/\//i.test(url)
+          ? <a key={key++} href={url} target="_blank" rel="noreferrer">{inline(label)}</a>
+          : <code key={key++} title={url}>{label}</code>);
     }
     rest = rest.slice(match.index + token.length);
   }

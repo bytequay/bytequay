@@ -40,6 +40,14 @@ describe('agent markdown', () => {
     expect(out).toContain('<a href="https://example.com/x" target="_blank" rel="noreferrer">the docs</a>');
   });
 
+  it('links a GitHub pull request or issue as an in-app reference rather than a web page', () => {
+    const out = html('Created draft [PR #31101](https://github.com/trinodb/trino/pull/31101) targeting `master` for [the flaky test](https://github.com/trinodb/trino/issues/7).');
+    expect(out).toContain('<a class="md-reference is-pull" href="https://github.com/trinodb/trino/pull/31101"><svg');
+    expect(out).toContain('</svg>PR #31101</a> targeting <code>master</code> for <a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/7"><svg');
+    expect(out).toContain('</svg>the flaky test</a>.');
+    expect(out).not.toContain('target="_blank"');
+  });
+
   it('leaves plain prose alone, including asterisks that mark nothing', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });

@@ -634,7 +634,7 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   return request;
 }
 
-function ReferenceLink({ reference, showTitle = false, children }: {
+export function ReferenceLink({ reference, showTitle = false, children }: {
   reference: GitHubReference;
   showTitle?: boolean;
   children: ReactNode;
@@ -711,8 +711,10 @@ function ReferenceLink({ reference, showTitle = false, children }: {
       onFocus={() => show(0)}
       onBlur={() => hide()}
       onClick={event => {
-        event.preventDefault();
         hide(0);
+        // A surface that already took the click, like a task showing its own pull request in a panel, keeps it.
+        if (event.defaultPrevented) return;
+        event.preventDefault();
         void openGitHubReference({ ...reference, kind });
       }}
     >

@@ -1024,7 +1024,8 @@ export function AgentTaskBody({
   const resultBranch = state.task?.summary?.resultBranch ?? null;
   /**
    * A link to this task's own pull request reads in the panel instead of leaving for GitHub.
-   * The task route does not change, and every other link keeps its ordinary behaviour.
+   * The task route does not change, and every other link keeps its ordinary behaviour. It runs in the
+   * capture phase because a pull request title link navigates from its own click handler, which runs first.
    */
   const selectPullRequestTab = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (taskPr === null || event.defaultPrevented || event.metaKey || event.ctrlKey) return;
@@ -1142,7 +1143,7 @@ export function AgentTaskBody({
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
-      <div className="agt-body" onClick={selectPullRequestTab}>
+      <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}

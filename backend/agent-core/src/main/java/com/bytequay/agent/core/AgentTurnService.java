@@ -49,16 +49,16 @@ public interface AgentTurnService
     /** Releases a settled continuation; queued questions remain paused until explicitly resumed. */
     void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
 
-    /** Revokes live authority, stops known writers, and fails the task only after verified shutdown. */
+    /** Revokes live authority and stops known writers, preserving the open task after verified shutdown. */
     AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason);
 
-    /** Fails an unfinished continuation whose backend was lost; never restarts its work. */
+    /** Stops an unfinished continuation whose backend was lost, preserving the task without replaying work. */
     AgentTask failLostDevelopmentContinuation(TaskId taskId);
 
     /** Whether this backend still authorizes the source user turn's continuation. */
     boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
 
-    /** Runs a program action under live continuation ownership; Stop drains admitted actions before cleanup. */
+    /** Runs a program action under live continuation ownership; Stop drains admitted actions before releasing the task. */
     void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action);
 
     /** Appends an observed progress message to the existing task lifecycle history while this source owns delivery. */
@@ -184,9 +184,12 @@ public interface AgentTurnService
      * could not be shown quiet is released by the same verification, because the process that
      * might still have been writing is now provably gone.
      *
+     * <p>A stopped development continuation preserves the open task, files, and history. Waiting
+     * inputs stay paused; only a new user action starts more work.
+     *
      * @param taskId task whose process should stop
      * @param generation the value returned by {@link #stopImpact}
-     * @return the task after the stop
+     * @return the open task after the stop
      * @throws AgentTaskNotFoundException when the task does not exist
      * @throws AgentConflictException when the task is terminal or the generation is stale
      * @throws AgentUnavailableException when the process tree could not be verified stopped

@@ -387,6 +387,22 @@ class TestDevelopmentFollowupCoordinator
         noFollowup();
     }
 
+    @Test
+    void interruptedApprovalEndsAutomationWithItsReason()
+    {
+        prepare(local(BASE, false), local(HEAD, true), FULL, true, Optional.empty());
+        AgentTurn interrupted = running(FULL).finish(TurnState.INTERRUPTED, AgentMetrics.empty(), Optional.of("Approval request timed out"), NOW);
+        outcome = new DevelopmentTurnCompletion(task, interrupted, true, Optional.empty());
+        when(turns.ownsDevelopmentContinuation(taskId, interrupted.id())).thenReturn(true);
+
+        advance();
+
+        verify(turns).failDevelopmentContinuation(taskId, interrupted.id(), "Automation stopped. Check development result: Approval request timed out");
+        verify(git, never()).inspectLocal(any(), any());
+        verify(git, never()).inspectPublication(any(), any());
+        noFollowup();
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void cleanupAndQuiescenceAreBothRequired(boolean quiescent)
@@ -394,7 +410,7 @@ class TestDevelopmentFollowupCoordinator
         prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
         outcome = new DevelopmentTurnCompletion(task, source, quiescent, quiescent ? Optional.of("Cleanup failed") : Optional.empty());
         advance();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Automation failed"));
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Automation stopped"));
         noFollowup();
     }
 

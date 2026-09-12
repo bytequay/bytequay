@@ -371,19 +371,22 @@ public final class ClaudePermissionBroker
             decision = context.approvals()
                     .request(approval, APPROVAL_TIMEOUT)
                     .toCompletableFuture()
-                    .get(APPROVAL_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                    .get(APPROVAL_TIMEOUT.plusSeconds(1).toMillis(), TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             decision = ProviderApprovalDecision.deny();
         }
-        catch (ExecutionException | TimeoutException e) {
+        catch (ExecutionException e) {
             decision = ProviderApprovalDecision.deny();
+        }
+        catch (TimeoutException e) {
+            decision = ProviderApprovalDecision.expired();
         }
 
         PermissionResult result = decision.decision() == ProviderApprovalDecision.Decision.ALLOW
                 ? new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty())
-                : new PermissionResult("deny", Optional.empty(), Optional.of("Denied by user"));
+                : new PermissionResult("deny", Optional.empty(), Optional.of(decision.timedOut() ? "Approval timed out" : "Denied by user"));
         String text = objectMapper.writeValueAsString(result);
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
     }

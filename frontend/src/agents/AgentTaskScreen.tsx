@@ -221,7 +221,7 @@ const STATUS_LABELS: Record<AgentRuntimeStatus, string> = {
   idle: 'Idle',
   running: 'Running',
   closing: 'Closing',
-  recovery: 'Recovering',
+  recovery: 'Shutdown blocked',
   completed: 'Completed',
   failed: 'Failed',
 };
@@ -235,7 +235,7 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
         ? 'Mark it complete'
         : 'Run or remove every waiting queued message first';
     case 'recovery':
-      return 'Unlocks after recovery';
+      return 'Available after agent shutdown is verified';
     case 'closing':
       return 'Closing…';
     default:
@@ -246,10 +246,8 @@ function completeTitle(status: AgentRuntimeStatus, state: AgentTaskState): strin
 /**
  * Replaces the mutation controls while the checkout is still reserved.
  *
- * Nothing here edits or cleans that checkout. A claim from a turn means this task's own provider
- * runtime could not be shown to have stopped writing, and stopping it is the way out. A recovery
- * claim means the process predates this ByteQuay run, but the same explicit stop action can retry
- * shutdown and verification without adding renderer-owned recovery state.
+ * A retained claim means shutdown was not verified, not that a process is known to be running.
+ * Only an explicit Stop retries verification; the renderer never releases the checkout itself.
  */
 function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
   task: AgentTaskDto;
@@ -263,8 +261,8 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
   return (
     <section className="agt-recovery" aria-labelledby="agt-recovery-title">
       <div className="agt-recovery__head">
-        <Spinner warn />
-        <span id="agt-recovery-title">Recovering agent execution</span>
+        <TriangleAlert aria-hidden="true" />
+        <span id="agt-recovery-title">Could not verify shutdown</span>
         <span className="agt-spacer" />
         <button
           type="button"
@@ -278,20 +276,17 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
         </button>
       </div>
       <div className="agt-recovery__body">
-        {automationUnfinished ? 'Automation could not finish stopping its agents. The transcript is safe; use Stop automation '
-          + 'to retry shutdown and verification. The task stays blocked until every linked agent is confirmed stopped.' : oldProcess
-          ? 'ByteQuay restarted while this task was working, and a process from before the restart '
-            + 'could not be verified stopped. The transcript is safe; stop this task’s agent runtime '
-            + 'to retry shutdown and verification. The checkout stays reserved until that succeeds.'
-          : 'The last turn ended, but its provider process could not be shown to have stopped writing '
-            + 'here. The transcript is safe; new messages wait until nothing from that run can still '
-            + 'change files.'}
+        {automationUnfinished ? 'Automation stopped, but ByteQuay could not verify shutdown of every linked agent.' : oldProcess
+          ? 'ByteQuay could not verify shutdown of this task’s agent from before the restart.'
+          : 'The last turn ended, but ByteQuay could not verify that its agent and tools stopped.'}
+        {' Your conversation and files are kept. New messages stay blocked until shutdown is verified. '
+          + 'Use Stop to check again; if verification remains blocked, follow the reported diagnostic.'}
         {turn?.terminalReason && <div className="agt-row-meta">{turn.terminalReason}</div>}
       </div>
       {working.length > 0 && (
         <div className="agt-recovery__row">
-          <Spinner warn />
-          <span className="agt-recovery__key">Still working:</span>
+          <TriangleAlert aria-hidden="true" />
+          <span className="agt-recovery__key">Last reported activity:</span>
           <span className="agt-ellipsis">{working.map((agent) => agent.label).join(', ')}</span>
         </div>
       )}
@@ -303,9 +298,6 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
           title="Fails the task and keeps its checkout for inspection, after confirmation"
         >
           Mark task failed
-        </button>}
-        {!automationUnfinished && <button type="button" className="agt-action" disabled title="Unlocks after recovery — never re-sends by itself">
-          Retry last message
         </button>}
         <span className="agt-spacer" />
         <span className="agt-recovery__note">{automationUnfinished ? 'Stop verifies that this task and its linked CI agents have stopped' : <>Only this task&apos;s provider runtime is stopped</>}</span>
@@ -1069,7 +1061,7 @@ export function AgentTaskBody({
         />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
           {((status === 'running' && !waiting) || (status === 'idle' && automationActive)) && <Spinner />}
-          {(status === 'recovery' || status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
+          {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
         {state.task !== null && onArchive !== undefined && (
@@ -1161,6 +1153,10 @@ export function AgentTaskBody({
         {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
       </div>}
 
+      {status === 'idle' && !automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') && <div className="agt-note" role="status">
+        {state.developmentProgress.message}
+      </div>}
+
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
       {!terminal && (
@@ -1206,7 +1202,7 @@ export function AgentTaskBody({
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
           stopLabel={automationActive ? 'Stop automation' : undefined}
-          stopTitle={automationActive ? 'Stops automation and ends this task after its agents stop' : undefined}
+          stopTitle={automationActive ? 'Stops automation and keeps this task open after its agents stop' : undefined}
           disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
           sendEnabled={canSend(state) && !submissionBlocked} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked && !submissionBlocked}
           connection={state.connection} closing={status === 'closing'}
@@ -2243,10 +2239,10 @@ export default function AgentTaskScreen({
         {confirmation.kind === 'stop' ? <>
           <p>Only this task is affected. Your conversation and files will be kept.</p>
           <p>{confirmation.impact.activeTurnId === null
-            ? 'The last response is finished. This stops any remaining agent activity.'
+            ? 'The last turn ended. This checks for and stops any remaining agent activity.'
             : 'The current response will be interrupted and pending approvals declined.'}</p>
           <p>{confirmation.automation
-            ? 'This ends automation and marks the task failed once its agents have stopped. Delete the task and start again to continue development.'
+            ? 'This stops the current automation and keeps the task open. Once shutdown is verified, you can send another message here. The stopped work is not retried automatically.'
             : 'You can continue once ByteQuay confirms the agent has stopped.'}</p>
           {confirmation.automation && state.task?.developmentCi != null && <p>
             This also stops the linked CI agents. Remote branch <code>{state.task.developmentCi.headRef}</code> and{' '}

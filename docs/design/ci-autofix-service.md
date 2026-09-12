@@ -48,7 +48,10 @@ lease/journal, and parent facts; stale polling cannot fail a newly started reply
 Stop revokes parent authority first, drains admitted operations, and verifies
 existing child providers, using the existing recovered-process stop path where
 necessary. It pauses linked rebase without abort/continue or journal replay.
-Unknown writers and dirty work remain for inspection. Explicit source Delete
+Once shutdown succeeds, the owned CI run finishes as cancelled and releases its
+branch reservation. The source task can then accept a new user turn; its old
+CI run cannot resume. Child tasks, dirty files, and local/remote results remain
+for inspection. An unverified writer retains the reservation. Explicit source Delete
 stops every linked child before deleting local tasks/worktrees; it retains CI
 run history and remote PR/head references. Lost-parent runs never resume through
 the standalone schedulers, including terminal cleanup; standalone CI retains its

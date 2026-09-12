@@ -21,7 +21,6 @@ import com.bytequay.agent.cli.process.PreparedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
-import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
@@ -93,7 +92,6 @@ public final class DefaultProcessSupervisor
     private static final Duration IDENTITY_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration LAUNCHER_EXIT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
-    private static final String CODEX_MODEL_CATALOG_OWNER = "codex-model-catalog";
     private static final Optional<String> BOOT_SESSION_ID = readBootSessionId();
 
     private final LaunchMarkerStore store;
@@ -1047,10 +1045,9 @@ public final class DefaultProcessSupervisor
             }
             Optional<Instant> startToken = descendant.info().startInstant();
             if (startToken.isEmpty()) {
-                // The descendant can exit between the descendants snapshot and this identity read.
-                // Keep the gap distinct from known identities. A task launch needs either the
-                // strict observation verdict or its provider's explicit work-finished receipt.
-                if (!controlOnly(spec.owner()) || descendant.isAlive()) {
+                // A child can exit between enumeration and the identity read. Its confirmed death
+                // needs no later signal; an unreadable live identity still leaves an ownership gap.
+                if (descendant.isAlive()) {
                     markDescendantTrackingIncomplete("Unable to read the start token for descendant " + descendant.pid());
                 }
                 return;
@@ -1063,13 +1060,6 @@ public final class DefaultProcessSupervisor
                 marker = marker.withDescendant(identity);
                 store.write(marker);
             }
-        }
-
-        private static boolean controlOnly(ProcessOwner owner)
-        {
-            return owner.kind() == ProcessOwner.Kind.CLI_PROBE
-                    || owner.kind() == ProcessOwner.Kind.APP_SERVER
-                            && owner.id().equals(CODEX_MODEL_CATALOG_OWNER);
         }
 
         private void markDescendantTrackingIncomplete(String detail)

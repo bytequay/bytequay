@@ -17,7 +17,8 @@ An unfinished continuation blocks Send, steer, queue start, Complete, and the
 manual draft action while preserving composer text. A quiet continuation shows
 Automation running; active provider/approval and recovery facts take precedence.
 Stop automation uses the existing runtime-stop API and explains that verified
-stop ends this task. Questions disable Resume queue while allowing a normal
+stop ends the current execution while preserving the task and its files for
+another message. Questions disable Resume queue while allowing a normal
 answer after continuation ownership settles. Marker changes refresh the task
 through the existing lifecycle event stream.
 
@@ -803,11 +804,11 @@ expired** with the deletion date instead of reconstructing provider history or
 inventing events. Icons and exact spacing follow ByteQuay's existing
 React/plain-CSS system rather than copying Codex Desktop source or assets.
 
-After backend/provider loss, a **Recovering agent execution** card replaces
-mutation controls while ByteQuay terminates or reconciles the owned execution
-tree. It names any confirmed still-active child and offers the task-scoped Stop
-action; Retry is
-enabled only after the barrier passes. The card also names active execution
+After backend/provider loss, a static **Could not verify shutdown** card replaces
+mutation controls while the owned execution tree remains unverified. It names
+any confirmed still-active child and offers the task-scoped Stop action. Only
+an actively submitted Stop shows progress; an unresolved claim does not imply
+an automatic recovery loop. The card also names active execution
 items/background terminals or an unverifiable process receipt. The UI never
 releases the task's worktree-mutation claim
 merely because the root is marked interrupted. If provider-process ownership
@@ -827,6 +828,11 @@ An unverifiable close retains the runtime's session/process identity, so a
 later confirmed **Stop this task's provider runtime** action actively retries
 termination and verification. Only `VERIFIED_STOPPED` releases the stale claim
 and enables a new turn or paused queue retry; the old turn is never resent.
+Ordinary failure, approval timeout, and stopped automation retain the `OPEN`
+task, checkout, conversation, and attachments. Once the claim is released,
+the composer accepts the next message without deleting or recreating the task.
+The expired turn's approval cards stay resolved and cannot grant a new turn's
+operations. Failed automation is not automatically resumed.
 The card distinguishes completed provider work with blocked runtime cleanup
 from an interrupted or failed provider turn. Missing evidence says **Could not
 verify shutdown**, with the specific reason in details; it does not claim a

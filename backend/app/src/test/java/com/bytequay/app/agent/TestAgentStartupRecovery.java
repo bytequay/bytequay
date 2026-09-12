@@ -154,7 +154,7 @@ class TestAgentStartupRecovery
     }
 
     @Test
-    void verifiedRecoveredStopFailsUnfinishedDevelopmentInsteadOfResumingIt()
+    void verifiedRecoveredStopKeepsTaskAfterEndingLostDevelopment()
     {
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
@@ -166,15 +166,17 @@ class TestAgentStartupRecovery
         when(taskStore.update(any())).thenAnswer(invocation -> ((AgentTask) invocation.getArgument(0)).withVersion(task.version() + 1));
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
         when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(stopped("old-provider"));
-        AgentTask failed = task.releaseWorktreeMutation(task.worktreeMutationClaim().orElseThrow(), now)
-                .withDevelopmentContinuation(false, now).fail("Automation failed", now, now.plusSeconds(60));
-        when(turns.failLostDevelopmentContinuation(task.id())).thenReturn(failed);
+        AgentTask retained = task.releaseWorktreeMutation(task.worktreeMutationClaim().orElseThrow(), now)
+                .withDevelopmentContinuation(false, now);
+        when(turns.failLostDevelopmentContinuation(task.id())).thenReturn(retained);
 
         AgentTask result = new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
                 supervisor, new AgentServingGate(), launchStore(), taskStore, turnStore, turns)
                 .stopRecoveredRuntime(task.id(), "task:" + task.version());
 
-        assertThat(result).isEqualTo(failed);
+        assertThat(result).isEqualTo(retained);
+        assertThat(result.state().terminal()).isFalse();
+        assertThat(result.worktree()).isEqualTo(task.worktree());
         InOrder order = inOrder(supervisor, turns);
         order.verify(supervisor).recoverOwnedProcess("old-provider");
         order.verify(supervisor).acknowledge("old-provider");

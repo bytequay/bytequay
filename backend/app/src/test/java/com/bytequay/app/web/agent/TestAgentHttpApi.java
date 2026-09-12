@@ -854,18 +854,49 @@ class TestAgentHttpApi
     }
 
     @Test
-    void enabledAutomationFailsWhenTheLiveTurnOmitsItsReadinessReport()
+    void missingReadinessReportStopsAutomationAndPreservesTheTaskForAnotherRequest()
             throws Exception
     {
+        driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
         request.put("developmentAutomation", ImmutableMap.of("autoCommit", true, "autoDraftPr", true, "autoCiFix", true));
         JsonNode created = post("/agent/tasks", request, null).getBody();
-        String taskPath = "/agent/tasks/" + created.required("id").asText() + "?workspaceId=" + workspaceId;
-        awaitCondition(() -> get(taskPath).getBody().path("state").asText().equals("FAILED"));
-        JsonNode failed = get(taskPath).getBody();
-        assertThat(failed.required("developmentContinuationUnfinished").asBoolean()).isFalse();
-        assertThat(failed.required("terminalReason").asText()).contains("did not report a valid development result");
-        assertThat(failed.path("mutationClaim").isNull()).isTrue();
+        String taskId = created.required("id").asText();
+        String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
+        String eventsPath = "/agent/tasks/" + taskId + "/events?after=0&limit=100";
+        TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
+        String unchangedHead = run("git", "-C", worktree.canonicalWorktree().toString(), "rev-parse", "HEAD");
+        driver.completeHeldTurn();
+
+        awaitCondition(() -> get(eventsPath).getBody().findValuesAsText("message").stream()
+                .anyMatch(message -> message.startsWith("Automation stopped.")));
+        JsonNode stopped = get(taskPath).getBody();
+        assertThat(stopped.required("state").asText()).isEqualTo("OPEN");
+        assertThat(stopped.required("developmentContinuationUnfinished").asBoolean()).isFalse();
+        assertThat(stopped.path("mutationClaim").isNull()).isTrue();
+        assertThat(stopped.path("terminalReason").isNull()).isTrue();
+        assertThat(get(eventsPath).getBody()).anySatisfy(event -> {
+            assertThat(event.path("type").asText()).isEqualTo("lifecycle");
+            assertThat(event.path("payload").path("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
+            assertThat(event.path("payload").path("message").asText()).startsWith("Automation stopped.")
+                    .contains("did not report a valid development result");
+        });
+        assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
+        assertThat(worktree.canonicalWorktree()).isDirectory();
+
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        ResponseEntity<JsonNode> followup = post("/agent/tasks/" + taskId + "/turns", ImmutableMap.of(
+                "message", "Continue this task",
+                "expectedVersion", taskVersion(taskId),
+                "developmentAutomation", request.get("developmentAutomation")), "after-missing-readiness");
+        assertThat(followup.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        awaitCondition(() -> {
+            JsonNode current = get(taskPath).getBody();
+            return current.path("mutationClaim").isNull() && !current.required("developmentContinuationUnfinished").asBoolean();
+        });
+        assertThat(get(taskPath).getBody().required("state").asText()).isEqualTo("OPEN");
+        assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
+        assertThat(run("git", "-C", worktree.canonicalWorktree().toString(), "rev-parse", "HEAD")).isEqualTo(unchangedHead);
     }
 
     @Test

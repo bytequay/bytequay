@@ -19,23 +19,29 @@ import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record ProviderApprovalDecision(Decision decision, Optional<String> scopedPermission)
+public record ProviderApprovalDecision(Decision decision, Optional<String> scopedPermission, boolean timedOut)
 {
     public ProviderApprovalDecision
     {
         requireNonNull(decision, "decision is null");
         checkOptionalText(scopedPermission, "scopedPermission");
         checkArgument(decision != Decision.DENY || scopedPermission.isEmpty(), "a denied decision cannot grant a scoped permission");
+        checkArgument(!timedOut || decision == Decision.DENY, "an expired decision cannot grant permission");
     }
 
     public static ProviderApprovalDecision allow(Optional<String> scopedPermission)
     {
-        return new ProviderApprovalDecision(Decision.ALLOW, scopedPermission);
+        return new ProviderApprovalDecision(Decision.ALLOW, scopedPermission, false);
     }
 
     public static ProviderApprovalDecision deny()
     {
-        return new ProviderApprovalDecision(Decision.DENY, Optional.empty());
+        return new ProviderApprovalDecision(Decision.DENY, Optional.empty(), false);
+    }
+
+    public static ProviderApprovalDecision expired()
+    {
+        return new ProviderApprovalDecision(Decision.DENY, Optional.empty(), true);
     }
 
     public enum Decision

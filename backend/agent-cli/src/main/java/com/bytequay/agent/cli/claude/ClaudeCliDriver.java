@@ -39,6 +39,8 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -332,21 +334,10 @@ public final class ClaudeCliDriver
         }
         String sessionId = existing.map(AgentSessionRef::providerValue)
                 .orElseGet(() -> UUID.randomUUID().toString());
-        ClaudePermissionBroker.Registration registration = permissions.register(
-                context.taskId(),
-                context.worktree(),
-                context.runtimeDirectory(),
-                context.providerDirectory(),
-                context.permissionPolicy(),
-                context.textOnly(),
-                context.approvals(),
-                redactor,
-                context.codeGraph());
         ClaudeSession session = new ClaudeSession(
                 new AgentSessionRef(LANE_ID, CONTRACT_VERSION, sessionId),
                 context,
                 events,
-                registration,
                 existing.isPresent());
         sessions.add(session);
         return session;
@@ -717,15 +708,47 @@ public final class ClaudeCliDriver
                 AgentSessionRef reference,
                 AgentSessionContext context,
                 AgentEventSink events,
-                ClaudePermissionBroker.Registration registration,
                 boolean resume)
         {
             this.reference = requireNonNull(reference, "reference is null");
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
-            this.registration = requireNonNull(registration, "registration is null");
+            this.registration = permissions.register(
+                    context.taskId(),
+                    context.worktree(),
+                    context.runtimeDirectory(),
+                    context.providerDirectory(),
+                    context.permissionPolicy(),
+                    context.textOnly(),
+                    this::requestApproval,
+                    ClaudeCliDriver.this.redactor,
+                    context.codeGraph());
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
+        }
+
+        private CompletionStage<ProviderApprovalDecision> requestApproval(ProviderApprovalRequest request, Duration timeout)
+        {
+            ClaudeRunningTurn expected;
+            synchronized (this) {
+                expected = running;
+                if (sessionClosed || expected == null || expected.completion.isDone()) {
+                    return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+                }
+            }
+            return context.approvals().request(request, timeout)
+                    .thenApply(decision -> {
+                        synchronized (this) {
+                            if (sessionClosed || running != expected || expected.completion.isDone()) {
+                                return ProviderApprovalDecision.deny();
+                            }
+                            if (decision.timedOut()) {
+                                expected.interruptionReason = "Claude approval timed out";
+                                expected.cancel();
+                            }
+                            return decision;
+                        }
+                    });
         }
 
         @Override
@@ -1096,7 +1119,14 @@ public final class ClaudeCliDriver
                         exit.duration(),
                         providerQuiescent);
             }
-            else if (exit.reason() == ProcessExit.Reason.CANCELLED || exit.reason() == ProcessExit.Reason.TIMED_OUT) {
+            else if (exit.reason() == ProcessExit.Reason.TIMED_OUT) {
+                turnResult = failedResult(
+                        AgentTurnResult.State.INTERRUPTED,
+                        "Claude turn timed out",
+                        exit.duration(),
+                        providerQuiescent);
+            }
+            else if (exit.reason() == ProcessExit.Reason.CANCELLED) {
                 turnResult = failedResult(
                         AgentTurnResult.State.CANCELLED,
                         "Claude turn was cancelled",

@@ -86,6 +86,21 @@ it('new root turns and released markers prevent historical delivery progress fro
   expect(state.developmentProgress).toEqual({ sequence: 15, message: '' });
 });
 
+it('retains the stopped automation reason after release and clears it for a new user turn', () => {
+  const stopped: AgentEventEnvelope = { ...all[0], type: 'lifecycle', turnId: null, sequence: 20,
+    payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Automation stopped. Source synchronization failed; your files are retained.' } };
+  let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', direction: 'latest', page: {
+    events: [stopped], beforeCursor: null, afterCursor: null, latestSequence: 20,
+  } });
+  state = agentTaskReducer(state, { type: 'task/loaded', task: { ...openTask(), developmentContinuationUnfinished: false } });
+  expect(state.developmentProgress).toEqual({ sequence: 20, message: stopped.payload.message });
+  state = agentTaskReducer(state, { type: 'events/observed', events: [{ ...stopped, sequence: 21, turnId: 'new-user-turn',
+    payload: { phase: 'TURN_STARTED', message: 'Started' } }] });
+  expect(state.developmentProgress).toEqual({ sequence: 21, message: '' });
+  state = agentTaskReducer(state, { type: 'events/observed', events: [stopped] });
+  expect(state.developmentProgress?.message).toBe('');
+});
+
 function apply(state: AgentTaskState, events: AgentEventEnvelope[]): AgentTaskState {
   return agentTaskReducer(state, { type: 'events/applied', events });
 }

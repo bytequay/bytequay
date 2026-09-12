@@ -170,11 +170,10 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     assert(facts.local !== null, 'Synchronization fixture requires local observations');
     facts = { ...facts, observedAt: '2026-01-01T12:30:00Z', local: { ...facts.local, headSha: outcome === 'sync failure' ? 'bbbbbbbb11' : 'cccccccc22', commitCount: outcome === 'sync failure' ? 1 : 2 },
       remote: { headSha: 'cccccccc22', pullRequest: { ...pr, headSha: 'cccccccc22', draft: outcome !== 'ready' } } };
-    task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false,
-      state: outcome === 'sync failure' ? 'FAILED' : 'OPEN',
-      terminalReason: outcome === 'sync failure' ? 'Automation failed · Delete task and start again. Source synchronization failed; published CI repairs remain on the draft.' : null,
-      terminalAt: outcome === 'sync failure' ? '2026-01-01T12:30:00Z' : null };
-    emit('DEVELOPMENT_AUTOMATION_UPDATED');
+    task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false, state: 'OPEN', terminalReason: null, terminalAt: null };
+    emit('DEVELOPMENT_AUTOMATION_UPDATED', outcome === 'sync failure'
+      ? 'Automation stopped. Source synchronization failed; published CI repairs remain on the draft. Your task and files are retained; send a message to continue.'
+      : 'Development automation settled');
     await settle();
     assert(factsReads === duringCiReads, 'Disconnected settlement must wait for readable facts');
     notify({ subscriptionId: 'delivery', taskId: task.id, kind: 'state', state: 'open' });
@@ -188,19 +187,23 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
       'Observed draft status must determine the final PR label');
     if (outcome === 'sync failure') {
       assert(result?.textContent?.includes('Local HEAD differs from remote') === true, 'Failed synchronization must expose the retained local and remote heads');
-      assert(host.textContent?.includes('Automation failed · Delete task and start again. Source synchronization failed') === true, 'Failure must name the action and restart rule');
+      assert(host.textContent?.includes('Automation stopped. Source synchronization failed') === true, 'The stopped continuation must name its failure');
       assert(!host.textContent?.includes('Resume delivery'), 'Failed delivery must not offer a recovery continuation');
+      assert(!host.textContent?.includes('Delete task'), 'A stopped continuation must not require deleting the task');
     } else {
       assert(!result?.textContent?.includes('Local HEAD differs from remote'), 'Successful source synchronization must show matching heads');
-      assert(input.value === 'Keep my next development request', 'Completion must preserve the source draft');
-      assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Successful delivery must keep the source task open');
-      assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === false, 'Delivery must leave task closure explicit');
     }
+    assert(input.value === 'Keep my next development request', 'Settling the continuation must preserve the source draft');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Settled delivery must keep the source task open');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === false, 'Delivery must leave task closure explicit');
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
     await settle();
     assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
+    if (outcome === 'sync failure') {
+      assert(host.textContent?.includes('Automation stopped. Source synchronization failed') === true, 'The stopped reason must survive reopening');
+    }
     assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request ${task.generatedBranch}`) === true
       && !host.textContent?.includes('Push the revision and create its draft'), 'Replay must retain the commit label and show publication as its action');
     if (outcome === 'ready') {

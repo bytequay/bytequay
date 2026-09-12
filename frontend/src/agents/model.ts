@@ -169,6 +169,7 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       // Every task response carries a fresh version; holding a stale one conflicts on the next write.
       if (state.task?.id === action.task.id && action.task.version < state.task.version) return state;
       return { ...state, task: action.task, developmentProgress: !action.task.developmentContinuationUnfinished && state.developmentProgress !== null
+        && !state.developmentProgress.message.startsWith('Automation stopped.')
         ? { sequence: Math.max(state.lastSequence, state.developmentProgress.sequence), message: '' } : state.developmentProgress };
     case 'settings/loaded':
       return { ...state, effective: action.settings };

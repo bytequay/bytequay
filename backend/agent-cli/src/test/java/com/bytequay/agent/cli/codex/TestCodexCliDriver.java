@@ -49,6 +49,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.net.URI;
@@ -1002,7 +1004,85 @@ class TestCodexCliDriver
     }
 
     @Test
-    void rejectsAnApprovalDecisionAfterItsTurnFinishes()
+    void approvalTimeoutInterruptsTheNativeTurnAndPermitsAResumedSession()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSession session = driver.open(context(Optional.empty(),
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.expired())), event -> {});
+        RunningTurn turn = session.start(command("approval-timeout"));
+        AppServerProcess server = supervisor.server();
+        server.emit("""
+                {"id":98,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo expired",
+                "itemId":"exec-expired","startedAtMs":1786884871465,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.terminalReason()).contains("Codex approval timed out");
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(server.finishedWorkStops.get()).isGreaterThanOrEqualTo(1);
+        assertThat(server.result(98).path("decision").asText()).isEqualTo("cancel");
+        session.close();
+        AgentSession resumed = driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {});
+        RunningTurn next = resumed.start(command("next"));
+        assertThat(next.completion().toCompletableFuture()).isNotDone();
+        resumed.close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void approvalTimeoutRetainsItsCauseWhenReconciliationFails(boolean processUnverifiable)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        if (processUnverifiable) {
+            supervisor.leaveProcessTreeUnverifiable();
+        }
+        AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(),
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.expired())), event -> {});
+        RunningTurn turn = session.start(command("approval-timeout-missing-history"));
+        AppServerProcess server = supervisor.server();
+        server.inventoryChildren.put("thread-1", ImmutableList.of("missing-child"));
+        server.historyOverrides.put("missing-child", "{\"thread\":{\"id\":\"missing-child\",\"sessionId\":\"session-1\","
+                + "\"status\":{\"type\":\"idle\"},\"turns\":[]}}");
+        server.emit("""
+                {"id":98,"method":"item/commandExecution/requestApproval","params":{
+                "availableDecisions":["accept","decline"],"command":"echo expired",
+                "itemId":"exec-expired","startedAtMs":1786884871465,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason)
+                .contains("Codex approval timed out", "no current turn history"));
+        assertThat(result.providerQuiescent()).isEqualTo(!processUnverifiable);
+        assertThat(server.finishedWorkStops).hasValue(0);
+    }
+
+    @Test
+    void runtimeTimeoutInterruptsTheNativeTurnWithAPreciseReason()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(new AgentTurnCommand("timeout", "wait", ImmutableList.of(), Duration.ofMillis(50)));
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+            assertThat(result.terminalReason()).contains("Codex turn timed out");
+            assertThat(result.providerQuiescent()).isTrue();
+            assertThat(supervisor.server().finishedWorkStops.get()).isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsAnApprovalDecisionAfterItsTurnFinishes(boolean timedOut)
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
@@ -1026,10 +1106,14 @@ class TestCodexCliDriver
 
         server.failTurn();
         awaitCondition(() -> late.completion().toCompletableFuture().isDone());
-        decision.complete(ProviderApprovalDecision.allow(Optional.empty()));
+        AgentSession resumed = driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {});
+        RunningTurn next = resumed.start(command("next"));
+        decision.complete(timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.allow(Optional.empty()));
 
         awaitCondition(() -> server.error(98) != null);
         assertThat(server.error(98).path("message").asText()).contains("no longer belongs");
+        assertThat(next.completion().toCompletableFuture()).isNotDone();
+        resumed.close();
     }
 
     @Test
@@ -1310,12 +1394,12 @@ class TestCodexCliDriver
 
         session.close();
 
-        // Killing the process is the stop; the turn reports that, and the verified tree is what
-        // lets the task's worktree be released.
+        // Native interruption settles the provider first; verified process shutdown releases ownership.
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
         assertThat(result.providerQuiescent()).isTrue();
-        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("stopped"));
+        assertThat(supervisor.server().finishedWorkStops.get()).isGreaterThanOrEqualTo(1);
+        assertThat(result.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("interrupted"));
         assertThatThrownBy(() -> session.start(command("again")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("closed");
@@ -1337,7 +1421,7 @@ class TestCodexCliDriver
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("verified stopped");
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
         assertThat(result.providerQuiescent()).isFalse();
         // Asking again re-verifies rather than pretending the earlier close succeeded.
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);

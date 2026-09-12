@@ -330,8 +330,7 @@ public class AgentConfiguration
             AgentReviewStore reviews,
             ObjectProvider<DevelopmentFollowupCoordinator> development,
             ObjectProvider<CiAutofixService> ci,
-            DevelopmentCiOwnership ciOwnership,
-            AgentCompletionService completionService)
+            DevelopmentCiOwnership ciOwnership)
     {
         return new DefaultAgentTurnService(
                 taskStore,
@@ -357,8 +356,7 @@ public class AgentConfiguration
                 task -> reviews.findReviewByTask(task.id().toString()).isEmpty(),
                 (task, turn) -> development.getObject().accepted(task, turn),
                 outcome -> development.getObject().completed(outcome),
-                taskId -> ci.getObject().stopDevelopment(taskId),
-                completionService);
+                taskId -> ci.getObject().stopDevelopment(taskId));
     }
 
     @Bean

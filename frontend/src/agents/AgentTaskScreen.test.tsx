@@ -229,9 +229,9 @@ describe('agent task layout', () => {
     const connecting = body({ task: held, connection: 'connecting' });
     expect(connecting).toContain('>Connecting<');
     expect(connecting).toContain('Connecting — loading task history…');
-    expect(connecting).not.toContain('Recovering agent execution');
+    expect(connecting).not.toContain('Could not verify shutdown');
     // Once the history is in and shows no live turn, the claim really does mean recovery.
-    expect(body({ task: held, connection: 'open' })).toContain('Recovering agent execution');
+    expect(body({ task: held, connection: 'open' })).toContain('Could not verify shutdown');
   });
 
   it('settles the final displayed turn when a terminal task lacks its old turn-end event', () => {
@@ -1153,8 +1153,8 @@ describe('agent task detail', () => {
       composer: 'go',
     });
 
-    expect(markup).toContain('Recovering agent execution');
-    expect(markup).toContain('could not be shown to have stopped writing');
+    expect(markup).toContain('Could not verify shutdown');
+    expect(markup).toContain('could not verify that its agent and tools stopped');
     // The diagnostic is bounded to what the backend recorded, and the way out is named.
     expect(markup).toContain('proc-1 could not be shown stopped');
     expect(markup).toContain('Mark task failed');
@@ -1162,13 +1162,15 @@ describe('agent task detail', () => {
     expect(markup).not.toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
     // Nothing may send, retry or complete until the process is verified gone: the card replaces the composer.
     expect(markup).not.toContain('agt-compose');
-    expect(markup).toMatch(/<button[^>]*disabled[^>]*>Retry last message</);
+    expect(markup).not.toContain('Retry last message');
     expect(markup).toMatch(/<button[^>]*class="agt-headbtn"[^>]*aria-label="Mark it complete"[^>]*disabled/);
-    expect(markup).toContain('Unlocks after recovery');
-    expect(markup).toContain('>Recovering<');
+    expect(markup).toContain('Available after agent shutdown is verified');
+    expect(markup).toContain('>Shutdown blocked<');
+    expect(markup).not.toContain('agt-spin');
+    expect(markup).not.toContain('agt-state__dot');
   });
 
-  it('can retry stopping a recovered process without requiring another restart', () => {
+  it('offers a shutdown check without inventing a remedy for a recovered process', () => {
     const reserved = {
       ...task('t-1', 'OPEN', 'x'),
       mutationClaim: { kind: 'RECOVERY', ownerId: 'launch-9', acquiredAt: '2026-08-20T10:00:00Z' },
@@ -1177,8 +1179,33 @@ describe('agent task detail', () => {
 
     expect(markup).toContain('from before the restart');
     expect(markup).not.toMatch(/<button[^>]*disabled[^>]*>Stop this task/);
-    expect(markup).toContain('to retry shutdown and verification');
+    expect(markup).toContain('Use Stop to check again');
+    expect(markup).toContain('follow the reported diagnostic');
     expect(markup).not.toContain('restart ByteQuay');
+    expect(markup).not.toContain('Restart your Mac');
+  });
+
+  it.each(['FAILED', 'INTERRUPTED'])('keeps a %s turn inspectable and restores its composer only after shutdown', state => {
+    const open = task('t-1', 'OPEN', 'Kept task');
+    const ended = turn(state, { terminalReason: 'The request stopped before completion' });
+    const reason = 'Automation stopped. Your task and files are retained; send a message to continue.';
+    const preserved = { task: open, turn: ended, connection: 'open' as const, composer: 'Continue with the smaller change',
+      developmentProgress: { sequence: 12, message: reason } };
+    const blocked = body({ ...preserved, task: { ...open, developmentContinuationUnfinished: true,
+      mutationClaim: { kind: 'TURN', ownerId: ended.id, acquiredAt: ended.createdAt } } });
+    expect(blocked).toContain('Could not verify shutdown');
+    expect(blocked).toContain('Stop automation…');
+    expect(blocked).not.toContain('agt-compose');
+    expect(blocked).not.toContain('agt-spin');
+    expect(blocked).not.toContain('Retry last message');
+
+    const released = body(preserved);
+    expect(released).toContain('Continue with the smaller change</textarea>');
+    expect(released).toContain(reason);
+    expect(released).toMatch(/<button(?![^>]*disabled)[^>]*aria-label="Send message"/);
+    expect(released).not.toContain('Could not verify shutdown');
+    expect(released).not.toContain('Stop automation');
+    expect(released).not.toContain('Delete task');
   });
 
   it('shows the kept result instead of a composer once the task is closed', () => {

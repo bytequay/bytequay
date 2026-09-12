@@ -47,7 +47,8 @@ A question clears the marker and permits a normal answer while earlier queue
 rows remain paused. Stop/failure revokes continuation authority. Backend startup
 fails lost continuations after provider-process classification, before serving
 new work. An unproven writer retains its existing claim and unfinished marker;
-verified Stop then fails the task, without resuming delivery. Stop first revokes
+verified Stop then clears the marker and releases ownership while keeping the
+task `OPEN`, without resuming delivery. Stop first revokes
 parent authority, drains admitted child actions, and verifies child and source
 providers. Child cleanup failure retains the marker and source exclusion while
 allowing an explicit Stop retry. Public Mark failed cannot bypass that barrier.
@@ -55,6 +56,15 @@ Explicit Delete verifies Stop before removing linked local CI worktrees and the
 source; remote branches and PRs remain. This adds no
 workflow state machine or whole-flow restart recovery. Task completion is not
 its trigger.
+
+Approval expiry interrupts the affected turn with an explicit timeout reason.
+It never grants permission or automatically retries the request. Ordinary turn
+failure and stopped development automation preserve the task's checkout,
+uncommitted files, commits, transcript, attachments, and provider conversation;
+they do not run completion or retention cleanup. After verified shutdown, the
+next user message starts a fresh turn with the retained context. Queued work
+stays paused until explicitly resumed. A new turn cannot revive an old
+continuation or its uncertain remote writes.
 
 ## Managed skills
 
@@ -1037,7 +1047,9 @@ such a request with no card at all. Only an allow must be offered as a plain
 one-time `accept`.
 
 `ApprovalRequest` wraps the provider-neutral request with durable approval,
-task, and turn identity. If a Codex command request omits its optional
+task, and turn identity. The session callback is bound to its accepted turn;
+core rejects a late request from that session before it can register an approval
+against a newer active turn. If a Codex command request omits its optional
 `availableDecisions`, the driver fills its known legal command defaults and
 then applies the safety ceiling; other supported requests use their legal fixed
 decisions subject to the same ceiling. `ApprovalDecision` records allow or deny,
@@ -1926,6 +1938,15 @@ allows a new turn or paused queue item to be retried; it never resends the old
 turn. Another unverifiable close leaves the claim in place. The operation is confirmed
 against the generation returned by `GET /agent/tasks/{taskId}/runtime/stop-impact`
 and reachable at `POST /agent/tasks/{taskId}/runtime/stop`.
+Shutdown calls serialize on a distinct monitor for that task, rechecking the
+confirmed generation or source turn before touching its runtime. Parent shutdown
+may stop child tasks, so these monitors must not share hash stripes. Provider
+callbacks remain free to acquire the ordinary admission lock while Stop waits.
+An older Stop cannot close a session opened by a later user message.
+The runtime registry records accepted turn identity after each successful
+admission transaction, including queued and generated turns. Stale-callback
+guards use that causal identity rather than timestamp ordering; idempotent
+replays cannot replace it. This is live ownership only, not a restart checkpoint.
 Retry can resolve a still-running member or a temporary inspection failure.
 It reuses a valid durable finished-work fact from the same launch, but cannot
 invent one for a run that never established it. Missing historical evidence
@@ -2062,6 +2083,13 @@ waives a live known member or a failed exit check. Normal close, explicit Stop,
 and restart read the same launch evidence. No generic OS containment proof is
 claimed by `VERIFIED_STOPPED`.
 
+When a child has no readable start token, check that same process handle for
+liveness. A child already confirmed dead needs no later signal and does not
+create a new tracking gap. This rule applies to task runtimes as well as control
+probes. A live child without an identity, an enumeration failure, or an existing
+historical gap remains unverified. Do not repair old receipts by assuming their
+unidentified children were already dead.
+
 Keep known process identities when an observation fails and record incomplete
 tracking separately. Later observations may add identities but cannot clear
 the gap or discard earlier identities. Continue identity-checked termination
@@ -2078,6 +2106,15 @@ Complete cannot reuse the worktree. A later verified Stop releases that claim
 without changing or resending the recorded turn. When provider reconciliation
 itself fails, there is no finished-work proof; shutdown follows the conservative
 process path and may still retain the claim.
+
+Approval timeout is an interrupted turn, distinct from a user denial that the
+provider may handle within its current turn. Carry the timeout through the
+provider approval response and stop the affected execution rather than letting
+it repeat requests until the overall runtime limit. Codex uses native turn
+interruption and its completion/cleanup path; Claude stops its owned process.
+Verified process teardown can release an interrupted turn without claiming a
+successful provider result. A known live writer or unresolved observation gap
+still blocks release.
 
 #### Recovery and compatibility
 

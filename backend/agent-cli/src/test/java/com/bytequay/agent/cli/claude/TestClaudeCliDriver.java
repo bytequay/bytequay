@@ -67,6 +67,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1095,6 +1096,105 @@ class TestClaudeCliDriver
         }
         finally {
             Files.setPosixFilePermissions(claudeDirectory, PosixFilePermissions.fromString("rwx------"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void approvalTimeoutStopsItsTurnWhileAnExplicitDenialAllowsContinuation(boolean timedOut)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        AgentSessionContext plain = context(Optional.empty());
+        AgentSessionContext context = new AgentSessionContext(
+                plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                plain.sessionReference(), (request, timeout) -> CompletableFuture.completedFuture(
+                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()));
+        AgentSession session = driver.open(context, event -> {});
+        RunningTurn turn = session.start(command("cancel"));
+        JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
+        String authorization = config.at("/mcpServers/bytequay/headers/Authorization").asText();
+        JsonNode response = broker.handle(authorization.substring("Bearer ".length()), objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+                "name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"echo pending"}}}}
+                """)).body().orElseThrow();
+        JsonNode permission = objectMapper.readTree(response.at("/result/content/0/text").asText());
+        assertThat(permission.path("behavior").asText()).isEqualTo("deny");
+        assertThat(permission.path("message").asText()).isEqualTo(timedOut ? "Approval timed out" : "Denied by user");
+        if (timedOut) {
+            AgentTurnResult result = await(turn);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+            assertThat(result.terminalReason()).contains("Claude approval timed out");
+            assertThat(result.providerQuiescent()).isTrue();
+            assertThat(supervisor.turns().getFirst().cancelled()).isTrue();
+            assertThat(supervisor.turns().getFirst().workFinished).isFalse();
+        }
+        else {
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            turn.cancel();
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+        }
+        session.close();
+        AgentSession resumed = driver.open(context(Optional.of(session.reference())), event -> {});
+        assertThat(await(resumed.start(command("next"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", session.reference().providerValue());
+        resumed.close();
+    }
+
+    @Test
+    void anOldApprovalExpiryCannotCancelTheNextClaudeTurn()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
+        CountDownLatch requested = new CountDownLatch(1);
+        AgentSessionContext plain = context(Optional.empty());
+        AgentSessionContext context = new AgentSessionContext(
+                plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                plain.sessionReference(), (request, timeout) -> {
+                    requested.countDown();
+                    return decision;
+                });
+        try (AgentSession session = driver.open(context, event -> {})) {
+            RunningTurn first = session.start(command("cancel"));
+            JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
+            String token = config.at("/mcpServers/bytequay/headers/Authorization").asText().substring("Bearer ".length());
+            JsonNode request = objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+                    "name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"echo stale"}}}}
+                    """);
+            CompletableFuture<ClaudePermissionBroker.McpHttpResponse> response = CompletableFuture.supplyAsync(() -> broker.handle(token, request));
+            assertThat(requested.await(5, TimeUnit.SECONDS)).isTrue();
+            first.cancel();
+            assertThat(await(first).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+            RunningTurn next = session.start(new AgentTurnCommand("next", "cancel", ImmutableList.of(), Duration.ofMinutes(1)));
+            decision.complete(ProviderApprovalDecision.expired());
+            JsonNode permission = objectMapper.readTree(response.get(5, TimeUnit.SECONDS).body().orElseThrow().at("/result/content/0/text").asText());
+            assertThat(permission.path("behavior").asText()).isEqualTo("deny");
+            assertThat(next.completion().toCompletableFuture()).isNotDone();
+        }
+    }
+
+    @Test
+    void runtimeTimeoutReportsInterruptionWithoutFabricatingFinishedWork()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        try (AgentSession session = driver(supervisor).open(context(Optional.empty()), event -> {})) {
+            RunningTurn turn = session.start(command("cancel"));
+            supervisor.turns().getFirst().exit.complete(new ProcessExit(
+                    143, ProcessExit.Reason.TIMED_OUT, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMinutes(1), false, false));
+            AgentTurnResult result = await(turn);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+            assertThat(result.terminalReason()).contains("Claude turn timed out");
+            assertThat(result.providerQuiescent()).isTrue();
+            assertThat(supervisor.turns().getFirst().workFinished).isFalse();
         }
     }
 

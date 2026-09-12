@@ -34,6 +34,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -541,6 +544,66 @@ class TestDefaultProcessSupervisor
             ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
             assertThat(exit.treeTermination()).as("task launch %s", index).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
         }
+    }
+
+    @Test
+    void interruptedTaskWithAnAlreadyDeadTokenlessChildCanStopWithoutFinishedWorkProof()
+            throws Exception
+    {
+        ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "interrupted-task"), "read value"))
+                .start((stream, bytes) -> {});
+        try {
+            observeTokenlessDescendant(process, false);
+            assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+            LaunchMarker marker = new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow();
+            assertThat(marker.descendantTrackingIncomplete()).isFalse();
+            assertThat(marker.workFinished()).isFalse();
+        }
+        finally {
+            process.close();
+        }
+    }
+
+    @Test
+    void interruptedTaskWithAnUnreadableLiveChildStillRetainsTheOwnershipGap()
+            throws Exception
+    {
+        ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.CLAUDE_TURN, "interrupted-task"), "read value"))
+                .start((stream, bytes) -> {});
+        try {
+            observeTokenlessDescendant(process, true);
+            assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+            LaunchMarker marker = new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow();
+            assertThat(marker.descendantTrackingIncomplete()).isTrue();
+            assertThat(marker.workFinished()).isFalse();
+            observeTokenlessDescendant(process, false);
+            assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
+        }
+        finally {
+            process.close();
+        }
+    }
+
+    private static void observeTokenlessDescendant(ManagedProcess process, boolean alive)
+            throws Exception
+    {
+        ProcessHandle.Info info = (ProcessHandle.Info) Proxy.newProxyInstance(
+                ProcessHandle.Info.class.getClassLoader(), new Class<?>[] {ProcessHandle.Info.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("startInstant")) {
+                        return Optional.empty();
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+        ProcessHandle descendant = (ProcessHandle) Proxy.newProxyInstance(
+                ProcessHandle.class.getClassLoader(), new Class<?>[] {ProcessHandle.class}, (proxy, method, arguments) -> switch (method.getName()) {
+                    case "pid" -> 123_456_789L;
+                    case "info" -> info;
+                    case "isAlive" -> alive;
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+        Method observe = process.getClass().getDeclaredMethod("rememberDescendant", ProcessHandle.class);
+        observe.setAccessible(true);
+        observe.invoke(process, descendant);
     }
 
     @Test

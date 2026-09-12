@@ -405,8 +405,10 @@ public class DefaultCiAutofixService
             }
         }
         run.currentRebaseId().ifPresent(value -> rebaseService.stopForLostOwner(BranchRebaseId.valueOf(value)));
-        if (run.status() == Status.ACTIVE) {
-            store.update(run.pause(PauseReason.ERROR, "Development automation stopped; local and remote results were preserved", clock.instant()));
+        if (run.status() != Status.FINISHED) {
+            // A stopped parent may accept another message; the old CI run must release its branch
+            // reservation without deleting its checkout or becoming resumable again.
+            store.update(run.finish(FinishReason.CANCELLED, "Development automation stopped; local and remote results were preserved", clock.instant()));
         }
     }
 

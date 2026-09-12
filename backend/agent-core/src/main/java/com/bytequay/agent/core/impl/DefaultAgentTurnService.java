@@ -15,7 +15,6 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentAttachmentReference;
-import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventOutboxPayload;
@@ -151,7 +150,6 @@ public final class DefaultAgentTurnService
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion;
     private final Consumer<TaskId> stopChildren;
-    private final Optional<AgentCompletionService> completionService;
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -198,8 +196,7 @@ public final class DefaultAgentTurnService
                 task -> false,
                 (task, turn) -> {},
                 Optional.empty(),
-                ignored -> {},
-                Optional.empty());
+                ignored -> {});
     }
 
     public DefaultAgentTurnService(
@@ -224,8 +221,7 @@ public final class DefaultAgentTurnService
             Predicate<AgentTask> developmentEligibility,
             BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Consumer<DevelopmentTurnCompletion> developmentCompletion,
-            Consumer<TaskId> stopChildren,
-            AgentCompletionService completionService)
+            Consumer<TaskId> stopChildren)
     {
         this(
                 taskStore,
@@ -249,8 +245,7 @@ public final class DefaultAgentTurnService
                 developmentEligibility,
                 developmentAccepted,
                 Optional.of(developmentCompletion),
-                stopChildren,
-                Optional.of(completionService));
+                stopChildren);
     }
 
     private DefaultAgentTurnService(
@@ -275,8 +270,7 @@ public final class DefaultAgentTurnService
             Predicate<AgentTask> developmentEligibility,
             BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion,
-            Consumer<TaskId> stopChildren,
-            Optional<AgentCompletionService> completionService)
+            Consumer<TaskId> stopChildren)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -302,7 +296,6 @@ public final class DefaultAgentTurnService
         this.developmentAccepted = requireNonNull(developmentAccepted, "developmentAccepted is null");
         this.developmentCompletion = requireNonNull(developmentCompletion, "developmentCompletion is null");
         this.stopChildren = requireNonNull(stopChildren, "stopChildren is null");
-        this.completionService = requireNonNull(completionService, "completionService is null");
     }
 
     @Override
@@ -431,68 +424,101 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(sourceTurnId, "sourceTurnId is null");
         checkNotBlank(reason, "reason");
-        List<CompletableFuture<DevelopmentTurnCompletion>> pending;
-        synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
-            if (runtimeRegistry.closing() || task.state().terminal() || !task.developmentContinuationUnfinished()) {
-                return task;
+        synchronized (runtimeRegistry.stopLock(taskId)) {
+            List<CompletableFuture<DevelopmentTurnCompletion>> pending;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTask task = requireTask(taskId);
+                if (runtimeRegistry.closing() || task.state().terminal() || !task.developmentContinuationUnfinished()) {
+                    return task;
+                }
+                Optional<TurnId> owner = runtimeRegistry.developmentOwner(taskId);
+                if (owner.isPresent() && !owner.orElseThrow().equals(sourceTurnId)
+                        || !latestDevelopmentSource(taskId, sourceTurnId)) {
+                    throw new AgentConflictException("Development continuation owner changed: " + taskId);
+                }
+                pending = runtimeRegistry.stopDevelopment(taskId);
             }
-            Optional<TurnId> owner = runtimeRegistry.developmentOwner(taskId);
-            if (owner.isPresent() && !owner.orElseThrow().equals(sourceTurnId)) {
-                throw new AgentConflictException("Development continuation owner changed: " + taskId);
-            }
-            pending = runtimeRegistry.stopDevelopment(taskId);
+            pending.forEach(future -> future.completeExceptionally(new AgentConflictException(reason)));
+            return stopDevelopmentContinuation(taskId, sourceTurnId, reason);
         }
-        pending.forEach(future -> future.completeExceptionally(new AgentConflictException(reason)));
-        return stopAndFailDevelopmentContinuation(taskId, reason);
     }
 
     @Override
     public AgentTask failLostDevelopmentContinuation(TaskId taskId)
     {
-        synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
-            if (task.state().terminal() || !task.developmentContinuationUnfinished() || runtimeRegistry.hasDevelopmentOwner(taskId) || runtimeRegistry.closing()) {
-                return task;
+        synchronized (runtimeRegistry.stopLock(taskId)) {
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTask task = requireTask(taskId);
+                if (task.state().terminal() || !task.developmentContinuationUnfinished() || runtimeRegistry.hasDevelopmentOwner(taskId) || runtimeRegistry.closing()) {
+                    return task;
+                }
+                runtimeRegistry.stopDevelopment(taskId);
             }
-            runtimeRegistry.stopDevelopment(taskId);
-        }
-        stopChildren.accept(taskId);
-        synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
-            if (task.worktreeMutationClaim().isPresent() || turnStore.findActive(taskId).isPresent() || runtimeRegistry.unverifiedClose(taskId).isPresent()) {
-                return task;
+            stopChildren.accept(taskId);
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTask task = requireTask(taskId);
+                if (task.worktreeMutationClaim().isPresent() || turnStore.findActive(taskId).isPresent() || runtimeRegistry.unverifiedClose(taskId).isPresent()) {
+                    return task;
+                }
             }
+            return settleStoppedDevelopmentContinuation(taskId, "Backend restarted during development automation. Send another message to continue.");
         }
-        return completionService.orElseThrow().abandon(taskId, "Backend restarted during development automation. Delete this task and start again.");
     }
 
-    private AgentTask stopAndFailDevelopmentContinuation(TaskId taskId, String reason)
+    private AgentTask stopDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
     {
         Optional<AgentTurn> active;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = requireTask(taskId);
-            if (task.state().terminal() || runtimeRegistry.closing()) {
+            if (task.state().terminal() || runtimeRegistry.closing() || !task.developmentContinuationUnfinished()) {
                 return task;
+            }
+            if (!latestDevelopmentSource(taskId, sourceTurnId)) {
+                throw new AgentConflictException("Development continuation owner changed: " + taskId);
             }
             active = turnStore.findActive(taskId);
             active.ifPresent(turn -> turnStore.update(turn.requestCancellation(Instant.now(clock))));
         }
         stopDevelopmentRuntimes(taskId, active);
-        return failStoppedDevelopmentContinuation(taskId, reason);
+        return settleStoppedDevelopmentContinuation(taskId, reason);
     }
 
-    private AgentTask failStoppedDevelopmentContinuation(TaskId taskId, String reason)
+    private AgentTask settleStoppedDevelopmentContinuation(TaskId taskId, String reason)
     {
+        AgentTask stopped;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             releaseStaleTurnClaim(requireTask(taskId));
             AgentTask task = requireTask(taskId);
             if (task.worktreeMutationClaim().isPresent() || turnStore.findActive(taskId).isPresent() || runtimeRegistry.unverifiedClose(taskId).isPresent()) {
                 throw new AgentConflictException("Development automation stopped, but its provider could not be verified stopped: " + taskId);
             }
+            if (!task.developmentContinuationUnfinished()) {
+                return task;
+            }
+            String message = reason.startsWith("Automation stopped.") ? reason : "Automation stopped. " + reason;
+            stopped = unitOfWork.execute(() -> {
+                Instant now = Instant.now(clock);
+                for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
+                    if (input.state() == QueuedAgentInput.State.QUEUED) {
+                        queueStore.update(input.paused(message, now));
+                    }
+                }
+                AgentTask updated = taskStore.update(task.withDevelopmentContinuation(false, now));
+                outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(),
+                        AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
+                return updated;
+            });
             runtimeRegistry.developmentOwner(taskId).ifPresent(owner -> runtimeRegistry.releaseDevelopmentOwner(taskId, owner));
         }
-        return completionService.orElseThrow().abandon(taskId, reason);
+        drainPending(outboxStore, eventService, taskId);
+        return stopped;
+    }
+
+    private boolean latestDevelopmentSource(TaskId taskId, TurnId sourceTurnId)
+    {
+        return runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
+                .map(turn -> turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).orElse(turn.id()))
+                .filter(sourceTurnId::equals).isPresent();
     }
 
     private void stopDevelopmentRuntimes(TaskId taskId, Optional<AgentTurn> active)
@@ -1190,6 +1216,7 @@ public final class DefaultAgentTurnService
             }
             return null;
         });
+        runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, deliveryEventId, text, attachments);
     }
 
@@ -1342,6 +1369,7 @@ public final class DefaultAgentTurnService
                     Optional.empty()));
             return null;
         });
+        runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, messageEventId, message, attachments);
     }
 
@@ -1428,7 +1456,7 @@ public final class DefaultAgentTurnService
                 Optional<TurnId> owner = runtimeRegistry.developmentOwner(turn.taskId());
                 boolean settlingLiveTurn = initial.state().active() && owner.isEmpty()
                         && requireTask(turn.taskId()).developmentContinuationUnfinished()
-                        && turnStore.list(turn.taskId()).getLast().id().equals(turn.id());
+                        && runtimeRegistry.latestAcceptedTurn(turn.taskId()).filter(turn.id()::equals).isPresent();
                 if (!owner.filter(sourceTurnId::equals).isPresent() && !settlingLiveTurn) {
                     return turn;
                 }
@@ -1446,7 +1474,7 @@ public final class DefaultAgentTurnService
         }
         if (cancelledDevelopment.isPresent()) {
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation cancelled")));
-            failDevelopmentContinuation(initial.taskId(), cancelledDevelopment.orElseThrow(), "Development automation cancelled. Delete this task and start again.");
+            failDevelopmentContinuation(initial.taskId(), cancelledDevelopment.orElseThrow(), "The current request was cancelled. Send another message to continue.");
             return requireTurn(turnId);
         }
         // Approval and provider cancellation may complete callbacks that
@@ -1502,43 +1530,54 @@ public final class DefaultAgentTurnService
         if (generation == null || generation.isBlank()) {
             throw new InvalidAgentRequestException("generation must not be blank");
         }
-        retryCompletedTurn(taskId);
-        Optional<AgentTurn> active;
-        List<CompletableFuture<DevelopmentTurnCompletion>> pending;
-        synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
-            if (task.state().terminal()) {
-                throw new AgentConflictException("Task is already terminal: " + taskId);
-            }
-            active = turnStore.findActive(taskId);
-            if (!generation.equals(generation(task, active))) {
-                throw new AgentConflictException("Task runtime changed since the stop was confirmed: " + taskId);
-            }
-            if (!task.developmentContinuationUnfinished() && active.filter(turn -> developmentTurnEligible(task, turn)).isPresent()) {
-                updateDevelopmentMarker(task, true, "Development automation stopped");
-            }
-            pending = requireTask(taskId).developmentContinuationUnfinished() ? runtimeRegistry.stopDevelopment(taskId) : ImmutableList.of();
-            active.ifPresent(turn -> {
-                AgentTurn cancellation = turn.requestCancellation(Instant.now(clock));
-                if (cancellation != turn) {
-                    turnStore.update(cancellation);
+        synchronized (runtimeRegistry.stopLock(taskId)) {
+            retryCompletedTurn(taskId);
+            Optional<AgentTurn> active;
+            List<CompletableFuture<DevelopmentTurnCompletion>> pending;
+            boolean development;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTask task = requireTask(taskId);
+                if (task.state().terminal()) {
+                    throw new AgentConflictException("Task is already terminal: " + taskId);
                 }
-            });
+                active = turnStore.findActive(taskId);
+                if (!generation.equals(generation(task, active))) {
+                    throw new AgentConflictException("Task runtime changed since the stop was confirmed: " + taskId);
+                }
+                if (!task.developmentContinuationUnfinished() && active.filter(turn -> developmentTurnEligible(task, turn)).isPresent()) {
+                    updateDevelopmentMarker(task, true, "Development automation stopped");
+                }
+                development = requireTask(taskId).developmentContinuationUnfinished();
+                pending = development ? runtimeRegistry.stopDevelopment(taskId) : ImmutableList.of();
+                active.ifPresent(turn -> {
+                    AgentTurn cancellation = turn.requestCancellation(Instant.now(clock));
+                    if (cancellation != turn) {
+                        turnStore.update(cancellation);
+                    }
+                });
+            }
+            // Denying approvals and closing the session both complete provider callbacks that take the
+            // task lock, so neither may run under it.
+            pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation stopped")));
+            if (development) {
+                synchronized (runtimeRegistry.taskLock(taskId)) {
+                    AgentTask task = requireTask(taskId);
+                    // A synchronous completion callback may already have settled this stop.
+                    if (!task.developmentContinuationUnfinished() || !runtimeRegistry.developmentStopped(taskId)) {
+                        return task;
+                    }
+                }
+                stopDevelopmentRuntimes(taskId, active);
+                return settleStoppedDevelopmentContinuation(taskId, "Send another message to continue.");
+            }
+            stopProviderRuntime(taskId, active);
+            AgentTask stopped;
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                releaseStaleTurnClaim(requireTask(taskId));
+                stopped = requireTask(taskId);
+            }
+            return stopped;
         }
-        // Denying approvals and closing the session both complete provider callbacks that take the
-        // task lock, so neither may run under it.
-        pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation stopped")));
-        if (requireTask(taskId).developmentContinuationUnfinished()) {
-            stopDevelopmentRuntimes(taskId, active);
-            return failStoppedDevelopmentContinuation(taskId, "Development automation stopped. Delete this task and start again.");
-        }
-        stopProviderRuntime(taskId, active);
-        AgentTask stopped;
-        synchronized (runtimeRegistry.taskLock(taskId)) {
-            releaseStaleTurnClaim(requireTask(taskId));
-            stopped = requireTask(taskId);
-        }
-        return stopped;
     }
 
     /**
@@ -1647,7 +1686,7 @@ public final class DefaultAgentTurnService
                         resources.providerDirectory(),
                         settings.permissionPolicy(),
                         task.sessionReference(),
-                        (request, timeout) -> requestApproval(task.id(), request, timeout),
+                        (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
                         settings.model(),
                         settings.effort(),
                         false,
@@ -1769,11 +1808,15 @@ public final class DefaultAgentTurnService
 
     private CompletionStage<ProviderApprovalDecision> requestApproval(
             TaskId taskId,
+            TurnId boundTurnId,
             ProviderApprovalRequest request,
             Duration timeout)
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTurn turn = requireActiveTurn(taskId);
+            if (!turn.id().equals(boundTurnId)) {
+                throw new AgentConflictException("Approval request belongs to a stopped or replaced turn: " + boundTurnId);
+            }
             if (turn.cancellationRequestedAt().isPresent()) {
                 throw new AgentConflictException("Task turn is being cancelled: " + turn.id());
             }
@@ -1850,7 +1893,7 @@ public final class DefaultAgentTurnService
         TurnId sourceTurnId = turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).orElse(turn.id());
         synchronized (runtimeRegistry.taskLock(turn.taskId())) {
             AgentTask task = requireTask(turn.taskId());
-            if (!developmentTurnEligible(task, turn) || runtimeRegistry.closing() || task.state().terminal()) {
+            if (!developmentTurnEligible(task, turn) || runtimeRegistry.closing() || task.state().terminal() || !latestDevelopmentSource(task.id(), sourceTurnId)) {
                 return;
             }
             suppressFailure(failure, () -> {
@@ -1863,7 +1906,7 @@ public final class DefaultAgentTurnService
             });
         }
         suppressFailure(failure, () -> queueStarter.execute(() -> suppressFailure(failure, () ->
-                failDevelopmentContinuation(turn.taskId(), sourceTurnId, "Development automation could not store its result. Delete this task and start again."))));
+                failDevelopmentContinuation(turn.taskId(), sourceTurnId, "Development automation could not store its result. Send another message to continue."))));
     }
 
     private boolean reserveDevelopmentContinuation(AgentTurn turn)
@@ -1871,7 +1914,8 @@ public final class DefaultAgentTurnService
         AgentTask task = requireTask(turn.taskId());
         if (turn.developmentOrigin().isPresent() || runtimeRegistry.developmentStopped(task.id())
                 || !developmentTurnEligible(task, turn) || runtimeRegistry.closing()
-                || task.state() != TaskState.OPEN || runtimeRegistry.hasDevelopmentOwner(task.id())) {
+                || task.state() != TaskState.OPEN || runtimeRegistry.hasDevelopmentOwner(task.id())
+                || runtimeRegistry.latestAcceptedTurn(task.id()).filter(turn.id()::equals).isEmpty()) {
             return false;
         }
         if (!task.developmentContinuationUnfinished()) {
@@ -1923,9 +1967,10 @@ public final class DefaultAgentTurnService
 
     private boolean waitingForDevelopmentAnswer(TaskId taskId)
     {
-        List<AgentTurn> turns = turnStore.list(taskId);
-        return !turns.isEmpty() && turns.getLast().state() == TurnState.COMPLETED
-                && turns.getLast().developmentResult().filter(result -> !result.readyForDelivery()).isPresent();
+        Optional<AgentTurn> latest = runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
+                .or(() -> turnStore.list(taskId).reversed().stream().findFirst());
+        return latest.filter(turn -> turn.state() == TurnState.COMPLETED)
+                .flatMap(AgentTurn::developmentResult).filter(result -> !result.readyForDelivery()).isPresent();
     }
 
     private void finishTerminalCallbacks(AgentTurn turn, RunningTurn runningTurn)
@@ -2167,6 +2212,9 @@ public final class DefaultAgentTurnService
 
     private static ProviderApprovalDecision toProviderDecision(ApprovalDecision decision)
     {
+        if (decision.timedOut()) {
+            return ProviderApprovalDecision.expired();
+        }
         return switch (decision.decision()) {
             case ALLOW -> ProviderApprovalDecision.allow(decision.scopedPermission());
             case DENY -> ProviderApprovalDecision.deny();

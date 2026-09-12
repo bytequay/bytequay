@@ -1793,14 +1793,14 @@ class TestDefaultCiAutofixService
     }
 
     @Test
-    void deletesStoppedOwnedChildrenBeforeReleasingTheirBranchSlot()
+    void deletesPreservedChildrenOnlyAfterShutdown()
     {
         AgentTask parent = developmentParent();
         CiAutofixRun run = service.startDevelopment(startCommand("owned-delete"), parent.id(), reserveParent(parent), publishedPr(), NOW);
         when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
         when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
         doAnswer(_ -> {
-            assertThat(store.run.status()).isNotEqualTo(Status.FINISHED);
+            assertThat(store.run.status()).isEqualTo(Status.FINISHED);
             assertThat(ownership.authorized(store.run)).isFalse();
             return null;
         }).when(completionService).delete(taskId);
@@ -1813,6 +1813,30 @@ class TestDefaultCiAutofixService
         verify(completionService).delete(taskId);
         verify(rebaseService, never()).cancel(any());
         verify(gitHub, never()).rerunFailedJobs(any());
+    }
+
+    @Test
+    void stoppedDevelopmentReleasesTheBranchButPreservesItsChild()
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-stop"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        store.update(run.pause(PauseReason.TURN_INTERRUPTED, "Approval request timed out", NOW));
+        when(turnService.stopImpact(taskId)).thenReturn(new AgentRuntimeStopImpact(taskId, "generation", Optional.empty(), false));
+        when(turnService.stopRuntime(taskId, "generation")).thenReturn(activeTask());
+        AgentTask idle = parent.withDevelopmentContinuation(false, NOW);
+        assertThatThrownBy(() -> ownership.requireSourceAdmission(idle)).isInstanceOf(AgentConflictException.class);
+
+        service.stopDevelopment(parent.id());
+
+        ownership.requireSourceAdmission(idle);
+        assertThat(store.run.finishReason()).contains(FinishReason.CANCELLED);
+        assertThat(store.run.agentTaskId()).isEqualTo(run.agentTaskId());
+        assertThat(store.run.scope()).isEqualTo(run.scope());
+        assertThat(service.canMessage(store.run)).isFalse();
+        assertThatThrownBy(() -> service.advance(run.id())).isInstanceOf(CiAutofixConflictException.class);
+        verify(completionService, never()).delete(any());
+        verify(completionService, never()).cleanupWorktree(any());
+        verify(gitService, never()).push(any());
     }
 
     @Test

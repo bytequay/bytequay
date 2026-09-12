@@ -396,7 +396,8 @@ integration, coordinator, managed Git operations, and task result rendering.
   replay machinery, or automatic repair. Preserve the published CI result.
 - [x] Finish with actual local/remote/CI facts and retain the open task/worktree
   for later development. Questions take display precedence; failures show the
-  failed action and Delete task and start again, with no Resume delivery control.
+  stopped action while retaining the task and its files for a new message,
+  with no Resume delivery control.
 
 Acceptance checks:
 
@@ -821,3 +822,37 @@ skips. Frontend lint, TypeScript, all 770 tests, and the macOS arm64 package
 passed. Real temporary Git repositories verify that rewritten repair pushes
 and source synchronization update the fork while upstream refs remain intact.
 GitHub/provider interactions use fixtures; no live PR was changed by verification.
+
+## Continue after an interrupted turn
+
+- [x] End failed or stopped automation while preserving the open source task,
+  worktree, uncommitted changes, conversation, attachments, and provider reference.
+- [x] Pause queued work and revoke the old continuation without replaying it;
+  accept a fresh user turn only after verified shutdown.
+- [x] Finish stopped owned CI runs after child shutdown so they release the
+  source branch reservation while retaining child files and remote results.
+- [x] Show a static shutdown warning for unresolved cleanup and restore the
+  same composer after Stop succeeds; preserve the stopped-operation reason.
+- [x] Verify typed approval expiry and interruption for Codex first, then Claude.
+- [x] Verify that confirmed-dead startup children do not invent a process
+  tracking gap; genuine live/unreadable identities retain the shutdown guard.
+- [x] Verify competing stops and stale callbacks cannot affect a fresh turn.
+- [x] Run full backend verification and frontend lint, TypeScript, tests, and packaging.
+
+This changes future turn handling, not historical process evidence. Previously
+unverifiable receipts are not rewritten, tasks are not automatically replayed,
+and no live GitHub changes are part of verification.
+
+Verification: `mvn verify` passed all 1,932 backend tests with no failures,
+errors, or skips. Frontend lint, TypeScript, all 819 tests, the Chromium
+automation scenarios, and macOS arm64 packaging passed with the fresh backend
+JAR. Provider timeout tests ran Codex first, then Claude. The HTTP regression
+verifies that a stopped automation accepts a new explicit request in the same
+worktree with unchanged Git history. Race regressions cover delayed Stop,
+stale approval callbacks, and equal turn timestamps without advancing the
+test clock to hide ordering errors.
+
+Logs: `/private/tmp/bytequay-preserved-task-backend-verify.log`,
+`/private/tmp/bytequay-preserved-task-frontend-full.log`,
+`/private/tmp/bytequay-preserved-task-frontend-browser.log`, and
+`/private/tmp/bytequay-preserved-task-package.log`.

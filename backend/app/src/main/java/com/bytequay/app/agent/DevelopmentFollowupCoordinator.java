@@ -241,7 +241,7 @@ public final class DevelopmentFollowupCoordinator
         }
         catch (RuntimeException failure) {
             fail(completion, action + ": " + message(failure)
-                    + (action.equals("Create draft PR") ? ". Remote result may have changed; inspect the branch and PR before starting over." : ""));
+                    + (action.equals("Create draft PR") ? ". Remote result may have changed; inspect the branch and PR before another publication attempt." : ""));
         }
         finally {
             captured.ifPresent(value -> accepted.remove(completion.task().id(), value));
@@ -459,7 +459,8 @@ public final class DevelopmentFollowupCoordinator
 
     private static DevelopmentResultReport requireResult(DevelopmentTurnCompletion completion)
     {
-        checkState(completion.turn().state() == TurnState.COMPLETED, "Development turn did not complete successfully");
+        checkState(completion.turn().state() == TurnState.COMPLETED, "%s",
+                completion.turn().terminalReason().orElse("Development turn did not complete successfully"));
         checkState(completion.turn().cancellationRequestedAt().isEmpty(), "Development was stopped before delivery");
         checkState(completion.providerQuiescent(), "Provider shutdown could not be verified");
         checkState(completion.failure().isEmpty(), "Development turn cleanup failed: %s", completion.failure().orElse(""));
@@ -484,7 +485,7 @@ public final class DevelopmentFollowupCoordinator
             return;
         }
         try {
-            turns.failDevelopmentContinuation(completion.task().id(), completion.turn().id(), "Automation failed · Delete task and start again. " + reason);
+            turns.failDevelopmentContinuation(completion.task().id(), completion.turn().id(), "Automation stopped. " + reason);
         }
         catch (RuntimeException failure) {
             log.error("Could not settle development follow-up failure for task {}", completion.task().id(), failure);

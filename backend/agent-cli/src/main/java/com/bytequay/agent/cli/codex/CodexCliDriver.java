@@ -755,6 +755,7 @@ public final class CodexCliDriver
         private CodexRunningTurn running;
         private Optional<DevelopmentResultBridge> development = Optional.empty();
         private boolean closed;
+        private boolean closing;
 
         private CodexSession(
                 CodexAppServerClient client,
@@ -871,7 +872,7 @@ public final class CodexCliDriver
         public synchronized RunningTurn start(AgentTurnCommand command)
         {
             requireNonNull(command, "command is null");
-            if (closed) {
+            if (closed || closing) {
                 throw new AgentUnavailableException("Codex session is closed");
             }
             if (running != null && !running.completion().toCompletableFuture().isDone()) {
@@ -920,7 +921,10 @@ public final class CodexCliDriver
             String turnId = response.turn().id();
             development = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
-            running = new CodexRunningTurn(client, reference.providerValue(), turnId, command.maximumRuntime(), this::userInput);
+            running = new CodexRunningTurn(client, reference.providerValue(), turnId, this::userInput);
+            CodexRunningTurn started = running;
+            CompletableFuture.delayedExecutor(command.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
+                    .execute(() -> expire(started, "Codex turn timed out"));
             return running;
         }
 
@@ -1883,21 +1887,50 @@ public final class CodexCliDriver
             }
         }
 
-        /**
-         * Stops the App Server process serving this task.
-         *
-         * <p>Terminating the process is the stop; asking the turn to interrupt itself first would
-         * race the kill and could report the turn quiet before its process was. The close returns
-         * only once the process tree is verified stopped, and the running turn is interrupted with
-         * that verdict either way, so a turn whose process could not be verified keeps its claim.
-         * Repeated closes re-verify rather than returning early, so a refused stop can be retried.
-         */
-        @Override
-        public synchronized void close()
+        private synchronized void expire(CodexRunningTurn expectedTurn, String reason)
         {
-            closed = true;
-            CodexRunningTurn interrupted = running;
-            running = null;
+            if (closed || closing || running != expectedTurn || expectedTurn.completion.isDone()) {
+                return;
+            }
+            closing = true;
+            expectedTurn.interruptionReason = Optional.of(reason);
+            expectedTurn.cancel();
+            Thread.ofVirtual().name("bytequay-codex-expired-turn").start(() -> {
+                try {
+                    close();
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Unable to verify expired Codex turn stopped", failure);
+                }
+            });
+        }
+
+        /** Native interruption gets a bounded chance to settle tools before process-tree shutdown. */
+        @Override
+        public void close()
+        {
+            CodexRunningTurn interrupted;
+            synchronized (this) {
+                closing = true;
+                interrupted = running;
+            }
+            if (interrupted != null && !interrupted.completion.isDone()) {
+                interrupted.cancel();
+                try {
+                    // Do not hold the session lock: native completion needs it to reconcile children.
+                    interrupted.completion.get(PROCESS_CANCELLATION_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException ignored) {
+                    // The bounded process stop below remains authoritative if native cancellation stalls.
+                }
+            }
+            synchronized (this) {
+                closed = true;
+                running = null;
+            }
             codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
             try {
                 client.close();
@@ -1928,8 +1961,11 @@ public final class CodexCliDriver
                 if (decision.scopedPermission().isPresent()) {
                     throw new AgentUnavailableException("Codex approval does not support the requested scoped permission");
                 }
+                if (decision.timedOut()) {
+                    expire(expectedTurn, "Codex approval timed out");
+                }
                 boolean allow = decision.decision() == ProviderApprovalDecision.Decision.ALLOW;
-                JsonNode wireDecision = TextNode.valueOf(allow ? "accept" : "decline");
+                JsonNode wireDecision = TextNode.valueOf(decision.timedOut() ? "cancel" : allow ? "accept" : "decline");
                 if (serverRequest instanceof CodexProtocol.CommandApprovalRequest command) {
                     // Only an allow has to be offered; a decline is always legal and widens nothing.
                     if (allow && command.params().availableDecisions().isPresent()
@@ -1959,24 +1995,18 @@ public final class CodexCliDriver
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
         private final AtomicBoolean settling = new AtomicBoolean();
         private volatile Optional<String> finalResponse = Optional.empty();
+        private volatile Optional<String> interruptionReason = Optional.empty();
 
         private CodexRunningTurn(
                 CodexAppServerClient client,
                 String threadId,
                 String turnId,
-                Duration maximumRuntime,
                 BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput)
         {
             this.client = requireNonNull(client, "client is null");
             this.threadId = requireNonNull(threadId, "threadId is null");
             this.reference = new ProviderTurnRef(turnId);
             this.userInput = requireNonNull(userInput, "userInput is null");
-            CompletableFuture.delayedExecutor(maximumRuntime.toMillis(), TimeUnit.MILLISECONDS)
-                    .execute(() -> {
-                        if (!completion.isDone()) {
-                            cancel();
-                        }
-                    });
         }
 
         @Override
@@ -2063,7 +2093,7 @@ public final class CodexCliDriver
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.FAILED,
                     finalResponse,
-                    Optional.of("Codex CLI " + rememberAppServerVersion()
+                    Optional.of(interruptionReason.map(value -> value + "; ").orElse("") + "Codex CLI " + rememberAppServerVersion()
                             + " finished the turn but " + unsettled + " could not be shown stopped"),
                     elapsed(turn),
                     false));
@@ -2075,7 +2105,7 @@ public final class CodexCliDriver
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.FAILED,
                     finalResponse,
-                    Optional.of("Codex CLI " + rememberAppServerVersion()
+                    Optional.of(interruptionReason.map(value -> value + "; ").orElse("") + "Codex CLI " + rememberAppServerVersion()
                             + " finished the turn, but " + redactor.redact(reason)),
                     elapsed(turn),
                     true));
@@ -2113,6 +2143,10 @@ public final class CodexCliDriver
                 case CANCELLED -> Optional.of(detail);
                 case FAILED, INTERRUPTED -> Optional.of("Codex CLI " + rememberAppServerVersion() + ": " + detail);
             };
+            if (interruptionReason.isPresent()) {
+                state = AgentTurnResult.State.INTERRUPTED;
+                reason = interruptionReason;
+            }
             if (cleanupFailure.isPresent()) {
                 log.warn("Codex turn {} finished, but runtime cleanup is unresolved: {}", reference.value(), cleanupFailure.orElseThrow());
                 reason = reason.map(value -> value + "; Runtime cleanup: " + cleanupFailure.orElseThrow());
@@ -2129,7 +2163,7 @@ public final class CodexCliDriver
          */
         private void interrupt(Throwable failure, boolean providerQuiescent)
         {
-            String message = failure.getMessage();
+            String message = interruptionReason.orElseGet(failure::getMessage);
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.INTERRUPTED,
                     finalResponse,

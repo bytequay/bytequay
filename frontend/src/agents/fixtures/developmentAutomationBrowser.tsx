@@ -15,6 +15,7 @@ import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentDevelopmentFactsDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
+import type { AgentEventEnvelope } from '../events';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
@@ -120,7 +121,86 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+}
+
+async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a turn');
+  let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, developmentContinuationUnfinished: true,
+    mutationClaim: { kind: 'TURN', ownerId: event.turnId, acquiredAt: '2026-01-01T12:00:00Z' } };
+  let turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'RUNNING' };
+  const history = [event];
+  let notify: (message: AgentStreamMessage) => void = () => {};
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 });
+  bridge.readAgentEvents = async () => [...history];
+  bridge.readAgentPendingApprovals = async () => [];
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    notify = listener;
+    listener({ subscriptionId: 'stop-preserved', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  bridge.getAgentRuntimeStopImpact = async () => ({ taskId: task.id, generation: `task:${task.version}`,
+    activeTurnId: turn.state === 'RUNNING' ? turn.id : null, liveProcess: true });
+  let stops = 0;
+  bridge.stopAgentRuntime = async (taskId, workspaceId, generation) => {
+    assert(taskId === task.id && workspaceId === task.workspaceId && generation === `task:${task.version}`, 'Stop must target the freshly confirmed task generation');
+    stops++;
+    turn = { ...turn, version: turn.version + 1, state: 'INTERRUPTED', terminalReason: 'The request was interrupted' };
+    task = { ...task, version: task.version + 1 };
+    if (stops === 1) throw new Error('Shutdown remains unverified. Follow the process diagnostic before checking again.');
+    task = { ...task, mutationClaim: null, developmentContinuationUnfinished: false };
+    const stopped: AgentEventEnvelope = { ...event, eventId: 'stopped-preserved', sequence: event.sequence + 1, turnId: null, type: 'lifecycle',
+      payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Automation stopped. Your task and files are retained; send a message to continue.' } };
+    history.push(stopped);
+    notify({ subscriptionId: 'stop-preserved', taskId, kind: 'events', events: [stopped] });
+    return task;
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null, 'An active task must allow drafting the next message');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Continue with the smaller change');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const stop = attempt === 0 ? host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]')
+        : Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Stop automation…');
+      assert(stop != null, 'The task must offer an explicit shutdown check');
+      stop.click();
+      await settle();
+      const dialog = document.querySelector('dialog');
+      assert(dialog?.textContent?.includes('keeps the task open') === true, 'Stop must explain task preservation');
+      const confirm = Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === 'Stop automation');
+      assert(confirm !== undefined, 'The existing Stop confirmation must be required');
+      confirm.click();
+      await settle();
+      if (attempt === 0) {
+        assert(host.textContent?.includes('Could not verify shutdown') === true, 'An unresolved shutdown must remain blocked');
+        assert(host.textContent?.includes('Follow the process diagnostic') === true, 'The backend diagnostic must remain visible');
+        assert(host.querySelector('.agt-recovery .agt-spin') === null && host.querySelector('.agt-state__dot') === null, 'Blocked shutdown must not claim background progress');
+        assert(host.querySelector('textarea') === null, 'Unverified writers must block new work');
+      }
+    }
+    assert(task.state === 'OPEN' && task.terminalAt === null, 'Verified Stop must preserve this open task');
+    assert(host.querySelector<HTMLTextAreaElement>('textarea')?.value === 'Continue with the smaller change', 'Verified Stop must restore the retained draft');
+    assert(!bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'markAgentTaskFailed' || command.name === 'createAgentTask'), 'Stop must not replay input, fail or replace the task');
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'The user must be able to continue in the same task');
+    send.click();
+    await settle();
+    const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');
+    assert(requests.length === 1 && (requests[0].args[0] as StartAgentTurnRequest).message === 'Continue with the smaller change', 'Only the explicit new message may start a turn');
+    return [{ name: 'Verified Stop preserves the task and draft while unresolved shutdown remains blocked' }];
+  } catch (error) { return [{ name: 'Stop preserves the open task', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
 async function continuationAdmission(): Promise<{ name: string; error?: string }[]> {
@@ -158,7 +238,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     assert(stop !== null, 'Owned task must offer Stop automation through the existing stop flow');
     stop.click();
     await settle();
-    assert(document.body.textContent?.includes('marks the task failed once its agents have stopped') === true, 'Stop must explain the failure boundary');
+    assert(document.body.textContent?.includes('keeps the task open') === true, 'Stop must explain that the task is preserved');
     const cancel = Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Cancel');
     assert(cancel !== undefined, 'Existing stop confirmation must remain cancellable');
     cancel.click();

@@ -15,6 +15,7 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
@@ -51,6 +52,8 @@ public final class AgentRuntimeRegistry
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
     private final Striped<Lock> taskLocks = Striped.lock(64);
     private final Striped<Lock> steerLocks = Striped.lock(64);
+    private final ConcurrentMap<TaskId, Object> stopLocks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, TurnId> latestAcceptedTurns = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, DevelopmentOwner> developmentOwners = new ConcurrentHashMap<>();
     private final Set<TaskId> stoppedDevelopmentTasks = ConcurrentHashMap.newKeySet();
@@ -82,6 +85,20 @@ public final class AgentRuntimeRegistry
         stoppedDevelopmentTasks.add(taskId);
         DevelopmentOwner owner = developmentOwners.get(taskId);
         return owner == null ? ImmutableList.of() : ImmutableList.copyOf(owner.turns().values());
+    }
+
+    /** Records causal acceptance order after commit; stored turn timestamps may be equal. */
+    void recordAcceptedTurn(AgentTurn turn)
+    {
+        latestAcceptedTurns.put(turn.taskId(), turn.id());
+        if (turn.developmentOrigin().isEmpty()) {
+            stoppedDevelopmentTasks.remove(turn.taskId());
+        }
+    }
+
+    Optional<TurnId> latestAcceptedTurn(TaskId taskId)
+    {
+        return Optional.ofNullable(latestAcceptedTurns.get(taskId));
     }
 
     boolean developmentStopped(TaskId taskId)
@@ -190,6 +207,14 @@ public final class AgentRuntimeRegistry
     {
         requireNonNull(taskId, "taskId is null");
         return steerLocks.get(taskId);
+    }
+
+    /** Keeps overlapping shutdowns from reaching a newly opened session after another stop settles. */
+    Object stopLock(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        // Parent shutdown nests child shutdown, so unrelated tasks must never share a stripe.
+        return stopLocks.computeIfAbsent(taskId, ignored -> new Object());
     }
 
     public Optional<AgentSession> session(TaskId taskId)

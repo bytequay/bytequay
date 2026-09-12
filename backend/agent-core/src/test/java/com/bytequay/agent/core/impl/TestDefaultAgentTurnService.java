@@ -79,6 +79,7 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
+import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
@@ -94,8 +95,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -206,6 +211,8 @@ class TestDefaultAgentTurnService
             implements WorktreeService
     {
         private final Path worktree;
+        private int cleanupCalls;
+        private boolean dirty;
 
         private FixedWorktreeService(Path worktree)
         {
@@ -227,7 +234,7 @@ class TestDefaultAgentTurnService
         @Override
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false);
+            return new WorktreeSnapshot(worktree, worktree.startCommit(), dirty, false);
         }
 
         @Override
@@ -239,6 +246,7 @@ class TestDefaultAgentTurnService
         @Override
         public void cleanup(TaskWorktree worktree)
         {
+            cleanupCalls++;
             throw new UnsupportedOperationException();
         }
     }
@@ -643,6 +651,109 @@ class TestDefaultAgentTurnService
         service.finishDevelopmentContinuation(task.id(), queued.id());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = AgentTurnResult.State.class, names = {"FAILED", "INTERRUPTED", "CANCELLED"})
+    void unsuccessfulDevelopmentTurnKeepsFilesAndHistoryAndAcceptsFreshWork(AgentTurnResult.State outcome)
+            throws IOException
+    {
+        List<DevelopmentTurnCompletion> completed = new ArrayList<>();
+        enableDevelopment(completed::add);
+        Path file = Files.createDirectories(task.taskWorktree().orElseThrow().canonicalWorktree()).resolve("change.txt");
+        Files.writeString(file, "Uncommitted work");
+        worktrees.dirty = true;
+        AgentTurn source = service.start(command("Change the code", "failed-development"));
+        runtimeRegistry.running(source.id()).orElseThrow().completion().toCompletableFuture().complete(new AgentTurnResult(
+                outcome, Optional.empty(), Optional.of("Request could not finish"), Duration.ZERO, true));
+
+        AgentTask retained = service.failDevelopmentContinuation(task.id(), source.id(), "Request could not finish");
+
+        assertThat(retained.state()).isEqualTo(TaskState.OPEN);
+        assertThat(retained.developmentContinuationUnfinished()).isFalse();
+        assertThat(retained.worktreeMutationClaim()).isEmpty();
+        assertThat(retained.worktreeRemovedAt()).isEmpty();
+        assertThat(Files.readString(file)).isEqualTo("Uncommitted work");
+        assertThat(worktrees.cleanupCalls).isZero();
+        assertThat(events.readAfter(task.id(), 0, 100)).extracting(AgentEventEnvelope::payload)
+                .contains(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED,
+                        "Automation stopped. Request could not finish"));
+        assertThat(service.start(command("Do not replay", "failed-development")).id()).isEqualTo(source.id());
+        assertThat(completed).hasSize(1);
+        assertThat(driver.commands()).hasSize(1);
+
+        developmentAccepted = (acceptedTask, turn) -> assertThatThrownBy(() ->
+                service.failDevelopmentContinuation(task.id(), source.id(), "Late failure from the old request"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("owner changed");
+        AgentTurn next = service.start(command("Continue with these files", "fresh-development"));
+        reportReady(next, Optional.empty());
+        driver.complete("Ready");
+
+        assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
+        assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isFalse();
+        assertThat(driver.openedContexts().getLast().worktree()).isEqualTo(task.taskWorktree().orElseThrow().canonicalWorktree());
+        assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.payload() instanceof AgentEventPayload.UserMessage)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("Change the code", "Continue with these files");
+        assertThat(Files.readString(file)).isEqualTo("Uncommitted work");
+        service.finishDevelopmentContinuation(task.id(), next.id());
+    }
+
+    @Test
+    void deliveryFailureAfterSuccessfulTurnDoesNotStartItsQueuedInput()
+    {
+        enableDevelopment(completion -> service.failDevelopmentContinuation(task.id(), completion.turn().id(), "Publication failed"));
+        AgentTurn source = service.start(command("Change the code", "publication-failure"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "Queued follow-up", ImmutableList.of(), "paused-followup"));
+        reportReady(source, Optional.empty());
+
+        driver.complete("Development done");
+
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
+        assertThat(worktrees.cleanupCalls).isZero();
+        AgentTurn resumed = service.resumeQueued(task.id());
+        developmentListener = Optional.of(ignored -> {});
+        reportReady(resumed, Optional.empty());
+        driver.complete("Queued request finished");
+        assertThat(service.ownsDevelopmentContinuation(task.id(), resumed.id())).isTrue();
+        service.finishDevelopmentContinuation(task.id(), resumed.id());
+    }
+
+    @Test
+    void aStopWaitingForAnotherShutdownCannotStopTheNextRequest()
+            throws Exception
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn first = service.start(command("First request", "first-before-stop"));
+        String generation = service.stopImpact(task.id()).generation();
+        CompletableFuture<Void> secondEntered = new CompletableFuture<>();
+        CompletableFuture<AgentTask> secondStop;
+        AgentTurn next;
+        synchronized (runtimeRegistry.stopLock(task.id())) {
+            secondStop = CompletableFuture.supplyAsync(() -> {
+                secondEntered.complete(null);
+                return service.stopRuntime(task.id(), generation);
+            });
+            secondEntered.get(5, TimeUnit.SECONDS);
+            assertThatThrownBy(() -> secondStop.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+
+            service.stopRuntime(task.id(), generation);
+            next = service.start(command("Continue after Stop", "new-request-before-waiter"));
+        }
+
+        assertThatThrownBy(() -> secondStop.get(5, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(AgentConflictException.class).hasRootCauseMessage("Task runtime changed since the stop was confirmed: " + task.id());
+        assertThat(service.get(first.id()).state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(service.get(next.id()).state()).isEqualTo(TurnState.RUNNING);
+        assertThat(runtimeRegistry.session(task.id())).isPresent();
+        reportReady(next, Optional.empty());
+        driver.complete("Done");
+        assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
+        service.finishDevelopmentContinuation(task.id(), next.id());
+    }
+
     @Test
     void baselineCaptureFailureSettlesTheAcceptedTurnWithoutStartingTheProvider()
     {
@@ -674,7 +785,7 @@ class TestDefaultAgentTurnService
 
         assertThatThrownBy(() -> service.start(command("Change", "capture-stop"))).isInstanceOf(AgentConflictException.class);
 
-        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
         assertThat(stores.list(task.id()).getLast().state()).isEqualTo(TurnState.INTERRUPTED);
         assertThat(driver.commands()).isEmpty();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
@@ -809,11 +920,11 @@ class TestDefaultAgentTurnService
         assertThat(failed.state()).isEqualTo(TurnState.INTERRUPTED);
         assertThat(service.ownsDevelopmentContinuation(task.id(), failed.id())).isTrue();
         assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isFalse();
-        assertThat(service.failDevelopmentContinuation(task.id(), failed.id(), "Queued development failed").state()).isEqualTo(TaskState.FAILED);
+        assertThat(service.failDevelopmentContinuation(task.id(), failed.id(), "Queued development failed").state()).isEqualTo(TaskState.OPEN);
     }
 
     @Test
-    void terminalPersistenceFailureStopsAndFailsEnabledWorkInsteadOfLosingTheContinuation()
+    void terminalPersistenceFailureStopsAutomationAndPreservesTheOpenTask()
     {
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
@@ -824,7 +935,7 @@ class TestDefaultAgentTurnService
         driver.complete("Done");
 
         assertThat(completed).isEmpty();
-        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isFalse();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
     }
@@ -842,7 +953,7 @@ class TestDefaultAgentTurnService
         assertThat(stores.find(source.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
-        assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.OPEN);
     }
 
     @Test
@@ -866,11 +977,18 @@ class TestDefaultAgentTurnService
 
         AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
 
-        assertThat(stopped.state()).isEqualTo(TaskState.FAILED);
+        assertThat(stopped.state()).isEqualTo(TaskState.OPEN);
         assertThat(stopped.developmentContinuationUnfinished()).isFalse();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(runtimeRegistry.session(task.id())).isEmpty();
         assertThat(generated.toCompletableFuture()).isCompletedExceptionally();
+        assertThat(worktrees.cleanupCalls).isZero();
+        stopChildren = ignored -> {};
+        AgentTurn next = service.start(command("Continue after Stop", "after-stop"));
+        reportReady(next, Optional.empty());
+        driver.complete("Done");
+        assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
+        service.finishDevelopmentContinuation(task.id(), next.id());
     }
 
     @Test
@@ -903,7 +1021,7 @@ class TestDefaultAgentTurnService
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isTrue();
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
         stopChildren = ignored -> {};
-        assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(service.stopRuntime(task.id(), service.stopImpact(task.id()).generation()).state()).isEqualTo(TaskState.OPEN);
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
     }
 
@@ -932,8 +1050,15 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.failLostDevelopmentContinuation(task.id())).hasMessageContaining("Child is still unverified");
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
         stopChildren = stoppedChildren::add;
-        assertThat(service.failLostDevelopmentContinuation(task.id()).state()).isEqualTo(TaskState.FAILED);
+        AgentTask stopped = service.failLostDevelopmentContinuation(task.id());
+        assertThat(stopped.state()).isEqualTo(TaskState.OPEN);
+        assertThat(stopped.developmentContinuationUnfinished()).isFalse();
         assertThat(stoppedChildren).containsExactly(task.id(), task.id());
+        assertThat(worktrees.cleanupCalls).isZero();
+        AgentTurn next = service.start(command("Continue after restart", "after-lost-continuation"));
+        reportReady(next, Optional.empty());
+        driver.complete("Done");
+        service.finishDevelopmentContinuation(task.id(), next.id());
     }
 
     @Test
@@ -1021,7 +1146,7 @@ class TestDefaultAgentTurnService
 
         assertThat(service.cancel(generated.id()).state()).isEqualTo(TurnState.COMPLETED);
 
-        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(runtimeRegistry.session(task.id())).isEmpty();
     }
@@ -1040,7 +1165,7 @@ class TestDefaultAgentTurnService
         cancellation.toCompletableFuture().join();
 
         assertThat(completed).isEmpty();
-        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.FAILED);
+        assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
     }
 
@@ -1613,6 +1738,52 @@ class TestDefaultAgentTurnService
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
                 assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
+    }
+
+    @Test
+    void providerDistinguishesApprovalExpiryFromAnExplicitDenial()
+            throws Exception
+    {
+        DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
+        service = service(driver, runtimeRegistry, events, durableApprovals);
+        AgentTurn running = service.start(command("Inspect", "approval-timeout"));
+
+        ProviderApprovalDecision expired = driver.requestApproval(approvalRequest("expired"), Duration.ofMillis(20))
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        assertThat(expired).isEqualTo(ProviderApprovalDecision.expired());
+        assertThat(expired.scopedPermission()).isEmpty();
+        assertThat(stores.listPending(running.id())).isEmpty();
+        CompletableFuture<ProviderApprovalDecision> next = driver.requestApproval(approvalRequest("explicit-denial"), Duration.ofMinutes(1)).toCompletableFuture();
+        ApprovalId approvalId = stores.listPending(running.id()).getFirst().request().id();
+        durableApprovals.resolve(new ResolveApprovalCommand(approvalId, ApprovalDecision.Decision.DENY, Optional.empty(), false));
+        assertThat(next.join()).isEqualTo(ProviderApprovalDecision.deny());
+        driver.complete("Denied action was skipped");
+    }
+
+    @Test
+    void aStoppedSessionsApprovalCallbackCannotCreateAGateForTheNextTurn()
+    {
+        DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
+        service = service(driver, runtimeRegistry, events, durableApprovals);
+        AgentTurn first = service.start(command("First request", "approval-first"));
+        AgentSessionContext oldContext = driver.openedContexts().getFirst();
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        AgentTurn next = service.start(command("Next request", "approval-next"));
+
+        assertThatThrownBy(() -> oldContext.approvals().request(approvalRequest("late-old-approval"), Duration.ofMinutes(1)))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("stopped or replaced turn");
+
+        assertThat(stores.listPending(first.id())).isEmpty();
+        assertThat(stores.listPending(next.id())).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100)).noneMatch(event -> event.payload() instanceof AgentEventPayload.ApprovalRequested);
+        assertThat(driver.openedContexts()).hasSize(2);
+        CompletableFuture<ProviderApprovalDecision> current = driver.openedContexts().getLast().approvals()
+                .request(approvalRequest("current-approval"), Duration.ofMinutes(1)).toCompletableFuture();
+        ApprovalId approvalId = stores.listPending(next.id()).getFirst().request().id();
+        durableApprovals.resolve(new ResolveApprovalCommand(approvalId, ApprovalDecision.Decision.DENY, Optional.empty(), false));
+        assertThat(current.join()).isEqualTo(ProviderApprovalDecision.deny());
+        driver.complete("Current request finished");
     }
 
     @Test
@@ -2663,8 +2834,7 @@ class TestDefaultAgentTurnService
                 ignored -> developmentListener.isPresent(),
                 (acceptedTask, turn) -> developmentAccepted.accept(acceptedTask, turn),
                 completion -> developmentListener.orElseThrow().accept(completion),
-                stoppedTask -> stopChildren.accept(stoppedTask),
-                completionService());
+                stoppedTask -> stopChildren.accept(stoppedTask));
     }
 
     private DefaultAgentCompletionService completionService()

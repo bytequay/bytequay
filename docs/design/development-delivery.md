@@ -68,8 +68,8 @@ Only interactive development tasks enter this continuation. CI, cherry-pick,
 review-owned tasks, helpers, and child agents cannot recursively start it.
 An unchanged read-only turn produces no new commit, PR, or CI run.
 When all three settings are off, use ordinary task behavior: do not activate
-a continuation, require its readiness report, or apply its fail-and-delete
-policy. Git facts may still be read for display.
+a continuation or require its readiness report. Git facts may still be read
+for display. A failed turn preserves the task with either selection.
 
 Respect independent settings:
 
@@ -199,7 +199,7 @@ base/push routing. This also runs outside the task lock; core revalidates the
 accepted turn before launching it. The existing unfinished marker covers this
 capture interval, clears immediately before ordinary provider launch, and is
 set again at continuation reservation. Stop during capture cannot launch the
-provider later; backend loss uses the existing fail-and-delete policy.
+provider later; backend loss stops the continuation without replaying it.
 Generated turns inherit this baseline without recapturing it.
 
 The hook observes the remote ref and matching PRs when publication or CI is
@@ -418,9 +418,25 @@ uncertainty. Failed or expired delivery keeps its actual PR and error visible.
 ## 6. Failure, restart, and deletion
 
 **The delivery MVP does not resume after backend restart.** A turn, push,
-PR-create, CI-handoff, or synchronization failure ends the continuation. The
-user deletes the failed task and starts another. A pending user answer is the
-normal-conversation exception described above, not an execution failure.
+PR-create, CI-handoff, or synchronization failure ends that continuation.
+After owned execution is verified stopped, clear its unfinished marker and
+release its claim while keeping the task `OPEN`. Keep the worktree, dirty
+files, commits, transcript, attachments, and provider conversation. Failure
+does not close the task, schedule retention cleanup, or remove a checkout.
+
+An approval deadline ends the affected turn as interrupted with its timeout
+reason and resolves outstanding requests without granting them. A later user
+message starts a fresh turn in the same task, using its retained conversation
+and current files. It evaluates approvals normally; expired requests cannot
+authorize later operations. A new submission may use its own accepted automation
+settings, but never resumes the failed continuation or repeats an uncertain
+remote operation merely because the old marker existed. Keep queued inputs
+paused until the user explicitly resumes them.
+
+A pending user answer remains normal conversation, not an execution failure.
+If shutdown is unverified, preserve the same task and files but retain the
+claim until task-scoped Stop can prove cleanup. The UI reports the specific
+shutdown problem instead of presenting an inactive recovery loop.
 
 Remove the former proposal's delivery records, per-step intents, source-sync
 checkpoints, reconciler, retry API, and recoverable promotion. Keep only:
@@ -429,7 +445,8 @@ checkpoints, reconciler, retry API, and recoverable promotion. Keep only:
 - a task-level unfinished-continuation marker, to fail it after a lost process;
 - an optional parent task ID on delivery-owned CI runs, inserted before they
   can start work, so failure/deletion can stop their children;
-- existing task failure text and verified Git/PR/run references for display.
+- existing lifecycle events for the stopped operation and verified Git/PR/run
+  references for display.
 
 The unfinished marker says only that a live continuation was lost. It records
 no next step, phase, or resume checkpoint. Set it before dispatch, clear it
@@ -449,10 +466,12 @@ The existing live owner monitor protects final inspection, synchronization, and
 promotion. Stop and shutdown drain it outside the task lock before releasing
 source exclusion; no new operation registry or recovery state is added. On startup, before the serving gate and
 schedulers can write: clean up known processes using existing infrastructure,
-fail unfinished parents, and stop their owned children. This is stop/fail
+end unfinished continuations, and stop their owned children. This is stop/fail
 handling only; never resume or replay an uncertain push journal for a lost
-parent. A dirty child may remain paused locally, but cannot become a writer
-again through another entry point after its owner failed.
+parent. After verified child/rebase shutdown, finish the owned CI run as
+cancelled so it releases its branch reservation. Preserve the child task and
+dirty files for inspection; the old run cannot become a writer again through
+another entry point after its continuation lost authority.
 
 An in-flight remote write may already have succeeded. Show a known PR/branch
 or **Remote result unknown**; do not retry the action, close a PR, delete a
@@ -488,12 +507,13 @@ back to the checker; ByteQuay never asks the agent to commit simply because
 those two files exist while the decision remains open. Existing published
 results are displayed truthfully and never undone by the gate.
 
-For failures show **Automation failed · Delete task and start again**, with
-the failing operation and actual local/remote result. Browser/renderer reload
+For failures show **Automation stopped**, with the failing operation and actual
+local/remote result. Once cleanup succeeds, the normal composer accepts a new
+message in the retained task. Browser/renderer reload
 can reread existing facts while the backend continues; backend restart fails
 the live continuation. No Resume delivery or automatic recovery control is
-part of this MVP. Task closure is explicit; successful delivery retains the
-open development conversation and worktree.
+part of this MVP. Task closure is explicit; both settled success and failure
+retain the open development conversation and worktree.
 
 `GET /agent/tasks/{taskId}/development-facts?workspaceId=...` provides dated,
 read-only local and remote observations after interactive workspace scoping.

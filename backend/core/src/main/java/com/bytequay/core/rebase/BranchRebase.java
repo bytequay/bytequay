@@ -18,8 +18,11 @@ import com.bytequay.core.domain.RepoRef;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
+import static com.bytequay.core.domain.Checks.checkOptionalSha;
+import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -52,31 +55,30 @@ public record BranchRebase(
 {
     public static final int MAX_AGENT_TURNS = 3;
     private static final int MAX_SUMMARY_CHARACTERS = 8 * 1024;
-    private static final Pattern SHA = Pattern.compile("(?:[0-9a-f]{40}|[0-9a-f]{64})");
 
     public BranchRebase
     {
         requireNonNull(id, "id is null");
-        text(startIdempotencyKey, "startIdempotencyKey", 200);
-        text(agentTaskId, "agentTaskId", 128);
+        checkText(startIdempotencyKey, "startIdempotencyKey", 200);
+        checkText(agentTaskId, "agentTaskId", 128);
         requireNonNull(repository, "repository is null");
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         worktree = worktree.normalize();
-        text(workBranch, "workBranch", 255);
-        text(baseBranch, "baseBranch", 255);
-        sha(originalWorkTip, "originalWorkTip");
-        sha(baseSha, "baseSha");
+        checkText(workBranch, "workBranch", 255);
+        checkText(baseBranch, "baseBranch", 255);
+        checkSha(originalWorkTip, "originalWorkTip");
+        checkSha(baseSha, "baseSha");
         requireNonNull(status, "status is null");
         requireNonNull(currentStep, "currentStep is null");
         requireNonNull(pauseReason, "pauseReason is null");
         requireNonNull(finishReason, "finishReason is null");
-        optionalText(summary, "summary", MAX_SUMMARY_CHARACTERS);
-        optionalSha(conflictCommitSha, "conflictCommitSha");
+        checkOptionalText(summary, "summary", MAX_SUMMARY_CHARACTERS);
+        checkOptionalSha(conflictCommitSha, "conflictCommitSha");
         checkArgument(attemptCount >= 0 && attemptCount <= MAX_AGENT_TURNS, "attemptCount is out of range");
-        optionalText(currentTurnId, "currentTurnId", 128);
+        checkOptionalText(currentTurnId, "currentTurnId", 128);
         requireNonNull(journal, "journal is null");
-        optionalSha(resultWorkTip, "resultWorkTip");
+        checkOptionalSha(resultWorkTip, "resultWorkTip");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -122,7 +124,7 @@ public record BranchRebase(
     public BranchRebase resolving(String stoppedCommitSha, Instant now)
     {
         requireRunning();
-        sha(stoppedCommitSha, "stoppedCommitSha");
+        checkSha(stoppedCommitSha, "stoppedCommitSha");
         int attempts = conflictCommitSha.filter(stoppedCommitSha::equals).isPresent() ? attemptCount : 0;
         return copy(status, Optional.of(Step.RESOLVING), pauseReason, finishReason, summary,
                 Optional.of(stoppedCommitSha), attempts, currentTurnId, journal, resultWorkTip, now, terminalAt);
@@ -154,7 +156,7 @@ public record BranchRebase(
     public BranchRebase withTurn(String turnId, Instant now)
     {
         requireRunning();
-        text(turnId, "turnId", 128);
+        checkText(turnId, "turnId", 128);
         checkState(currentTurnId.isEmpty(), "rebase already has an active turn");
         return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha,
                 attemptCount, Optional.of(turnId), journal, resultWorkTip, now, terminalAt);
@@ -171,7 +173,7 @@ public record BranchRebase(
     {
         requireRunning();
         requireNonNull(reason, "reason is null");
-        text(diagnostic, "diagnostic", MAX_SUMMARY_CHARACTERS);
+        checkText(diagnostic, "diagnostic", MAX_SUMMARY_CHARACTERS);
         checkState(currentTurnId.isEmpty(), "cannot pause with an active turn");
         return copy(Status.PAUSED, currentStep, Optional.of(reason), Optional.empty(),
                 Optional.of(diagnostic), conflictCommitSha, attemptCount, Optional.empty(), journal,
@@ -199,8 +201,8 @@ public record BranchRebase(
     {
         requireMutable();
         requireNonNull(reason, "reason is null");
-        text(finalSummary, "finalSummary", MAX_SUMMARY_CHARACTERS);
-        optionalSha(resultTip, "resultTip");
+        checkText(finalSummary, "finalSummary", MAX_SUMMARY_CHARACTERS);
+        checkOptionalSha(resultTip, "resultTip");
         checkArgument((reason == FinishReason.COMPLETED) == resultTip.isPresent(),
                 "only a completed rebase has a result tip");
         return copy(Status.FINISHED, Optional.empty(), Optional.empty(), Optional.of(reason),
@@ -280,33 +282,6 @@ public record BranchRebase(
                 "finished result tip disagrees with reason");
     }
 
-    private static String text(String value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
-        checkArgument(value.length() <= maximumLength, name + " is too long");
-        return value;
-    }
-
-    private static void optionalText(Optional<String> value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        value.ifPresent(text -> text(text, name, maximumLength));
-    }
-
-    private static String sha(String value, String name)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(SHA.matcher(value).matches(), name + " is not a full Git SHA");
-        return value;
-    }
-
-    private static void optionalSha(Optional<String> value, String name)
-    {
-        requireNonNull(value, name + " is null");
-        value.ifPresent(sha -> sha(sha, name));
-    }
-
     public enum Status
     {
         RUNNING,
@@ -356,10 +331,10 @@ public record BranchRebase(
         public ActionJournal
         {
             requireNonNull(type, "type is null");
-            optionalSha(stoppedCommitSha, "stoppedCommitSha");
-            sha(expectedHead, "expectedHead");
+            checkOptionalSha(stoppedCommitSha, "stoppedCommitSha");
+            checkSha(expectedHead, "expectedHead");
             checkArgument(attempt >= 0 && attempt <= MAX_AGENT_TURNS, "attempt is out of range");
-            text(idempotencyKey, "idempotencyKey", 255);
+            checkText(idempotencyKey, "idempotencyKey", 255);
             requireNonNull(startedAt, "startedAt is null");
         }
     }

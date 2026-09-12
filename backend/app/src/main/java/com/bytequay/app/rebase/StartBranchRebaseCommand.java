@@ -15,7 +15,7 @@ package com.bytequay.app.rebase;
 
 import com.bytequay.agent.core.TaskWorktree;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Exact local scope authorized for one branch rebase. */
@@ -27,14 +27,7 @@ public record StartBranchRebaseCommand(
     public StartBranchRebaseCommand
     {
         requireNonNull(taskWorktree, "taskWorktree is null");
-        text(baseBranch, "baseBranch", 255);
-        text(idempotencyKey, "idempotencyKey", 200);
-    }
-
-    private static void text(String value, String name, int maximumLength)
-    {
-        requireNonNull(value, name + " is null");
-        checkArgument(!value.isBlank(), name + " is blank");
-        checkArgument(value.length() <= maximumLength, name + " is too long");
+        checkText(baseBranch, "baseBranch", 255);
+        checkText(idempotencyKey, "idempotencyKey", 200);
     }
 }
